@@ -11,15 +11,15 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE GADTs #-}
-module Control.Eff.Processes.STM
-  ( ProcessIOEffects
-  , HasScheduler
+module Control.Eff.Concurrent.Dispatcher
+  ( ProcIO
+  , HasProcesses
   , Scheduler
   -- , nextPid, processTable
   , ProcessInfo
   , processId
   -- , messageQ
-  , runScheduler
+  , runProcesses
   , getProcessInfo
   , spawn
   , dispatchMessages
@@ -33,7 +33,7 @@ import           Control.Concurrent            as Concurrent
 import           Control.Concurrent.STM        as STM
 import           Control.Eff
 import           Control.Eff.Lift
-import           Control.Eff.Processes
+import           Control.Eff.Concurrent.MessagePassing
 import           Control.Eff.Reader.Strict     as Reader
 import           Control.Lens
 import qualified Control.Monad.State           as Mtl
@@ -42,7 +42,7 @@ import           Data.Typeable                  ( typeRep )
 import           Data.Map                       ( Map )
 import qualified Data.Map                      as Map
 
--- * Process Scheduling
+-- * MessagePassing Scheduling
 
 data ProcessInfo =
                  ProcessInfo { _processId       :: ProcessId
@@ -53,7 +53,7 @@ makeLenses ''ProcessInfo
 
 instance Show ProcessInfo where
   show p =
-    "Process: " ++ show (p ^. processId)
+    "ProcessInfo: " ++ show (p ^. processId)
 
 data Scheduler =
                Scheduler { _nextPid :: ProcessId
@@ -66,28 +66,28 @@ type family Members (es :: [* -> *])  (r :: [* -> *]) :: Constraint where
   Members '[] r = ()
   Members (e ': es) r = (Member e r, Members es r)
 
-type HasScheduler r = ( HasCallStack
+type HasProcesses r = ( HasCallStack
                       , SetMember Lift (Lift IO) r
                       , Member (Reader (STM.TVar Scheduler)) r)
 
-type ProcessIOEffects = '[Process, Reader (STM.TVar Scheduler), Lift IO]
+type ProcIO = '[MessagePassing, Process, Reader (STM.TVar Scheduler), Lift IO]
 
-runScheduler
+runProcesses
   :: (SetMember Lift (Lift IO) r, HasCallStack)
   => Eff (Reader (STM.TVar Scheduler) ': r) ()
   -> Eff r ()
-runScheduler e = do
+runProcesses e = do
   v <- lift (newTVarIO (Scheduler 1 Map.empty))
   runReader e v
 
-getProcessInfo :: HasScheduler r => ProcessId -> Eff r (Maybe ProcessInfo)
+getProcessInfo :: HasProcesses r => ProcessId -> Eff r (Maybe ProcessInfo)
 getProcessInfo pid = do
   p <- getScheduler
   return (p ^. processTable . at pid)
 
--- ** Process execution
+-- ** MessagePassing execution
 
-spawn :: HasScheduler r => Eff ProcessIOEffects () -> Eff r ProcessId
+spawn :: HasProcesses r => Eff ProcIO () -> Eff r ProcessId
 spawn mfa = do
   processes <- ask
   pidVar    <- lift newEmptyTMVarIO
@@ -110,20 +110,20 @@ spawn mfa = do
 
 dispatchMessages
   :: forall r a
-   . (HasScheduler r, HasCallStack)
-  => Eff (Process ': r) a
+   . (HasProcesses r, HasCallStack)
+  => Eff (MessagePassing ': Process ': r) a
   -> Eff r a
 dispatchMessages processAction = withMessageQueue
-  (\pinfo -> handle_relay return (go pinfo) processAction)
+  (\pinfo ->
+     handle_relay return (goProc pinfo) (handle_relay return (go pinfo) processAction))
  where
   go
     :: forall v
      . HasCallStack
     => ProcessInfo
-    -> Process v
-    -> (v -> Eff r a)
-    -> Eff r a
-  go (ProcessInfo selfPidInt _) SelfPid                   k = k selfPidInt
+    -> MessagePassing v
+    -> (v -> Eff (Process ': r) a)
+    -> Eff (Process ': r) a
   go _                          (SendMessage toPid reqIn) k = do
     psVar <- getSchedulerTVar
     lift
@@ -156,8 +156,16 @@ dispatchMessages processAction = withMessageQueue
             )
           )
         k Nothing
+  goProc
+    :: forall v
+     . HasCallStack
+    => ProcessInfo
+    -> Process v
+    -> (v -> Eff r a)
+    -> Eff r a
+  goProc (ProcessInfo selfPidInt _) SelfPid k = k selfPidInt
 
-withMessageQueue :: HasScheduler r => (ProcessInfo -> Eff r a) -> Eff r a
+withMessageQueue :: HasProcesses r => (ProcessInfo -> Eff r a) -> Eff r a
 withMessageQueue m = do
   pinfo <- createQueue
   res   <- m pinfo
@@ -176,7 +184,7 @@ withMessageQueue m = do
     overScheduler (processTable . at (pinfo ^. processId) .= Nothing)
 
 
-overScheduler :: HasScheduler r => Mtl.StateT Scheduler STM.STM a -> Eff r a
+overScheduler :: HasProcesses r => Mtl.StateT Scheduler STM.STM a -> Eff r a
 overScheduler stAction = do
   psVar <- ask
   lift
@@ -189,10 +197,10 @@ overScheduler stAction = do
       )
     )
 
-getSchedulerTVar :: HasScheduler r => Eff r (TVar Scheduler)
+getSchedulerTVar :: HasProcesses r => Eff r (TVar Scheduler)
 getSchedulerTVar = ask
 
-getScheduler :: HasScheduler r => Eff r Scheduler
+getScheduler :: HasProcesses r => Eff r Scheduler
 getScheduler = do
   processesVar <- getSchedulerTVar
   lift (atomically (readTVar processesVar))
