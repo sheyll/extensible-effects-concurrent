@@ -76,7 +76,12 @@ data Response p x where
 
 cast
   :: forall r o result
-   . (HasCallStack, Member Process r, Typeable o, Typeable result, Typeable (Api o result))
+   . ( HasCallStack
+     , Member Process r
+     , Typeable o
+     , Typeable result
+     , Typeable (Api o result)
+     )
   => Server o
   -> Api o result
   -> Eff r Bool
@@ -84,11 +89,16 @@ cast (Server pid) callMsg = sendMessage pid (Cast callMsg)
 
 cast_
   :: forall r o result
-   . (HasCallStack, Member Process r, Typeable o, Typeable result, Typeable (Api o result))
+   . ( HasCallStack
+     , Member Process r
+     , Typeable o
+     , Typeable result
+     , Typeable (Api o result)
+     )
   => Server o
   -> Api o result
   -> Eff r ()
-cast_ = ((.).(.)) void cast
+cast_ = ((.) . (.)) void cast
 
 call
   :: forall result o r
@@ -137,5 +147,4 @@ serve handle = do
     packReply :: Typeable x => Api p x -> x -> Maybe (Process Bool)
     packReply _ reply = do
       fromPid <- mFromPid
-      return
-        (SendMessage fromPid (Response (Proxy :: Proxy p) reply))
+      return (SendMessage fromPid (Response (Proxy :: Proxy p) reply))

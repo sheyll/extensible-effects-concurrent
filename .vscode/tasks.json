@@ -1,0 +1,62 @@
+// See https://go.microsoft.com/fwlink/?LinkId=733558
+// for the documentation about the tasks.json format
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "taskName": "brittany-current-file",
+      "type": "shell",
+      "command": "${workspaceRoot}/brittany-inplace.sh",
+      "args": [
+        "${file}"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "taskName": "stack build",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "type": "shell",
+      "command": "stack",
+      "args": [
+        "build"
+      ],
+      "presentation": {
+        "echo": false,
+        "reveal": "silent",
+        "focus": false,
+        "panel": "dedicated"
+      },
+      "problemMatcher": {
+        "owner": "haskell",
+        "fileLocation": "absolute",
+        "pattern": [
+          {
+            "regexp": "^([^\\s].*):(\\d+):(\\d+): (warning|error):\\s*(.*)$",
+            "file": 1,
+            "line": 2,
+            "column": 3,
+            "severity": 4
+          },
+          {
+            "regexp": "^\\s+(.+)$",
+            "message": 1,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "taskName": "stack ghci",
+      "type": "shell",
+      "command": "stack",
+      "args": [
+          "ghci"
+        , "${fileBasename}"
+      ],
+      "problemMatcher": []
+    }
+  ]
+}

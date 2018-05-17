@@ -24,7 +24,8 @@ module Control.Eff.Processes.STM
   , spawn
   , dispatchMessages
   -- , withMessageQueue
-  ) where
+  )
+where
 
 import           GHC.Stack
 import           Data.Kind
@@ -94,26 +95,36 @@ spawn mfa = do
     (Concurrent.forkIO
       (runLift
         (runReader
-         (dispatchMessages
-           (do pid <- self
-               lift (atomically (STM.putTMVar pidVar pid))
-               mfa)
-         ) processes))
+          (dispatchMessages
+            (do
+              pid <- self
+              lift (atomically (STM.putTMVar pidVar pid))
+              mfa
+            )
+          )
+          processes
+        )
+      )
     )
   lift (atomically (STM.takeTMVar pidVar))
 
 dispatchMessages
-  :: forall r a . (HasScheduler r, HasCallStack)
+  :: forall r a
+   . (HasScheduler r, HasCallStack)
   => Eff (Process ': r) a
   -> Eff r a
-dispatchMessages processAction =
-  withMessageQueue
-    (\pinfo ->
-       handle_relay return (go pinfo) processAction)
+dispatchMessages processAction = withMessageQueue
+  (\pinfo -> handle_relay return (go pinfo) processAction)
  where
-  go :: forall v . HasCallStack => ProcessInfo -> Process v -> (v -> Eff r a) -> Eff r a
-  go (ProcessInfo selfPidInt _) SelfPid k = k selfPidInt
-  go _ (SendMessage toPid reqIn) k = do
+  go
+    :: forall v
+     . HasCallStack
+    => ProcessInfo
+    -> Process v
+    -> (v -> Eff r a)
+    -> Eff r a
+  go (ProcessInfo selfPidInt _) SelfPid                   k = k selfPidInt
+  go _                          (SendMessage toPid reqIn) k = do
     psVar <- getSchedulerTVar
     lift
         (atomically
@@ -146,27 +157,23 @@ dispatchMessages processAction =
           )
         k Nothing
 
-withMessageQueue
-  :: HasScheduler r
-  => (ProcessInfo -> Eff r a)
-  -> Eff r a
-withMessageQueue m =
-  do pinfo <- createQueue
-     res <- m pinfo
-     destroyQueue pinfo
-     return res
-  where
-    createQueue =
-      overScheduler
-       (do
-         pid     <- nextPid <<+= 1
-         channel <- Mtl.lift newTQueue
-         let pinfo = ProcessInfo pid channel
-         processTable . at pid .= Just pinfo
-         return pinfo)
-    destroyQueue pinfo =
-      overScheduler
-         (processTable . at (pinfo^.processId) .= Nothing)
+withMessageQueue :: HasScheduler r => (ProcessInfo -> Eff r a) -> Eff r a
+withMessageQueue m = do
+  pinfo <- createQueue
+  res   <- m pinfo
+  destroyQueue pinfo
+  return res
+ where
+  createQueue = overScheduler
+    (do
+      pid     <- nextPid <<+= 1
+      channel <- Mtl.lift newTQueue
+      let pinfo = ProcessInfo pid channel
+      processTable . at pid .= Just pinfo
+      return pinfo
+    )
+  destroyQueue pinfo =
+    overScheduler (processTable . at (pinfo ^. processId) .= Nothing)
 
 
 overScheduler :: HasScheduler r => Mtl.StateT Scheduler STM.STM a -> Eff r a

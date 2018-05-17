@@ -18,13 +18,14 @@ module Control.Eff.Processes
   , receiveMessage
   , Process(..)
   , fromProcessId
-  )  where
+  )
+where
 
-import Control.Eff
-import Control.Lens
-import Data.Dynamic
-import Data.Proxy
-import Text.Printf
+import           Control.Eff
+import           Control.Lens
+import           Data.Dynamic
+import           Data.Proxy
+import           Text.Printf
 
 -- * Process Types
 
@@ -62,10 +63,10 @@ data Process b where
 self :: Member Process r => Eff r ProcessId
 self = send SelfPid
 
-sendMessage :: forall o r. (Member Process r, Typeable o)
-             => ProcessId -> o -> Eff r Bool
+sendMessage
+  :: forall o r . (Member Process r, Typeable o) => ProcessId -> o -> Eff r Bool
 sendMessage pid message = send (SendMessage pid message)
 
-receiveMessage :: forall o r. (Member Process r, Typeable o)
-             => Proxy o -> Eff r (Maybe o)
+receiveMessage
+  :: forall o r . (Member Process r, Typeable o) => Proxy o -> Eff r (Maybe o)
 receiveMessage _ = send (ReceiveMessage id)
