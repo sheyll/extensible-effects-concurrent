@@ -1,0 +1,8 @@
+TAGS
+*.o
+*.ghcid.out
+*.prof
+*.hi
+.stack-work
+*~
+\#*
