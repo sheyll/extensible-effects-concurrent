@@ -20,7 +20,6 @@ import Control.Eff
 import Control.Eff.Lift
 import Control.Monad
 import Data.Dynamic
-
 import Control.Eff.Concurrent.MessagePassing
 import Control.Eff.Concurrent.GenServer
 import Control.Eff.Concurrent.Dispatcher
@@ -35,8 +34,8 @@ data instance Api TestApi x where
 
 deriving instance Show (Api TestApi x)
 
-runExample :: IO ()
-runExample = runLift $ runProcesses $ dispatchMessages example
+runExample :: IO (Either ProcessException ())
+runExample = runProcIOWithScheduler example
 
 example
   :: ( HasCallStack
@@ -47,22 +46,30 @@ example
   => Eff r ()
 example = do
   me <- self
+  trapExit False
   lift (putStrLn ("I am " ++ show me))
   server <- asServer @TestApi <$> spawn testServerLoop
   lift (putStrLn ("Started server " ++ show server))
   let go = do
         x <- lift (putStr ">>> " >> getLine)
-        res <- call server (SayHello x)
+        res <- ignoreProcessError (call server (SayHello x))
         lift (putStrLn ("Result: " ++ show res))
         case x of
-          ('q':_) -> return ()
-          _ -> go
+          ('k':_) -> do
+            res2 <- kill server
+            lift (putStrLn ("Result of killing: " ++ show res2))
+            go
+          ('q':_) -> lift (putStrLn "Done.")
+          _ ->
+            go
   go
 
 testServerLoop
   :: forall r. (HasCallStack, Member MessagePassing r, Member Process r, SetMember Lift (Lift IO) r)
   => Eff r ()
-testServerLoop = forever $ serve_ $ ApiHandler handleCast handleCall
+testServerLoop =
+  trapExit True
+    >> (forever $ serve_ $ ApiHandler handleCast handleCall handleShutdown)
   where
     handleCast :: Api TestApi 'Asynchronous -> Eff r ()
     handleCast (Shout x) = do
@@ -72,4 +79,10 @@ testServerLoop = forever $ serve_ $ ApiHandler handleCast handleCall
     handleCall (SayHello x) reply = do
       me <- self
       lift (putStrLn (show me ++ " Got Hello: " ++ x))
+      catchProcessError
+        (\ er -> lift (putStrLn ("WOW: " ++ show er ++ " - No. This is wrong!")))
+        (when (x == "die") (raiseError "No body loves me... :,("))
       void (reply (length x > 3))
+    handleShutdown = do
+      me <- self
+      lift (putStrLn (show me ++ " is exiting!"))

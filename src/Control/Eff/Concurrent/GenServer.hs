@@ -28,6 +28,8 @@ module Control.Eff.Concurrent.GenServer
   , call
   , serve
   , serve_
+  , kill
+  , kill_
   , unhandledCallError
   , unhandledCastError
   )
@@ -47,43 +49,43 @@ import           Control.Eff.Concurrent.MessagePassing
 -- | This data family defines an API implemented by a server.
 -- The first parameter is the API /index/ and the second parameter
 -- (the @* -> *@)
-data family Api o :: Synchronicity -> *
+data family Api (genServerModule :: Type) (replyType :: Synchronicity)
 
 data Synchronicity =
   Synchronous Type | Asynchronous
     deriving (Typeable)
 
-newtype Server o = Server { _fromServer :: ProcessId }
+newtype Server genServerModule = Server { _fromServer :: ProcessId }
   deriving (Eq,Ord,Typeable)
 
-instance Read (Server o) where
+instance Read (Server genServerModule) where
   readsPrec _ ('[':'#':rest1) =
     case reads (dropWhile (/= '⇒') rest1) of
       [(c, ']':rest2)] -> [(Server c, rest2)]
       _ -> []
   readsPrec _ _ = []
 
-instance Typeable o => Show (Server o) where
+instance Typeable genServerModule => Show (Server genServerModule) where
   show s@(Server c) =
     "[#" ++ show (typeRep s) ++ "⇒" ++ show c ++ "]"
 
 makeLenses ''Server
 
-proxyAsServer :: proxy api -> ProcessId -> Server api
+proxyAsServer :: proxy genServerModule -> ProcessId -> Server genServerModule
 proxyAsServer = const Server
 
-asServer :: ProcessId -> Server api
+asServer :: forall genServerModule . ProcessId -> Server genServerModule
 asServer = Server
 
-data Request p where
-  Call :: forall p x . (Typeable p, Typeable x, Typeable (Api p ('Synchronous x)))
-         => ProcessId -> Api p ('Synchronous x) -> Request p
-  Cast :: forall p . (Typeable p, Typeable (Api p 'Asynchronous))
-         => Api p 'Asynchronous -> Request p
+data Request genServerModule where
+  Call :: forall genServerModule apiCallReplyType . (Typeable genServerModule, Typeable apiCallReplyType, Typeable (Api genServerModule ('Synchronous apiCallReplyType)))
+         => ProcessId -> Api genServerModule ('Synchronous apiCallReplyType) -> Request genServerModule
+  Cast :: forall genServerModule . (Typeable genServerModule, Typeable (Api genServerModule 'Asynchronous))
+         => Api genServerModule 'Asynchronous -> Request genServerModule
   deriving Typeable
 
-data Response p x where
-  Response :: (Typeable p, Typeable x) => Proxy p -> x -> Response p x
+data Response genServerModule apiCallReplyType where
+  Response :: (Typeable genServerModule, Typeable apiCallReplyType) => Proxy genServerModule -> apiCallReplyType -> Response genServerModule apiCallReplyType
   deriving Typeable
 
 cast
@@ -111,28 +113,28 @@ cast_
 cast_ = ((.) . (.)) void cast
 
 call
-  :: forall result o r
+  :: forall result genServerModule r
    . ( Member MessagePassing r
      , Member Process r
-     , Typeable o
-     , Typeable (Api o ('Synchronous result))
+     , Typeable genServerModule
+     , Typeable (Api genServerModule ('Synchronous result))
      , Typeable result
      , HasCallStack
      )
-  => Server o
-  -> Api o ('Synchronous result)
-  -> Eff r (Maybe result)
+  => Server genServerModule
+  -> Api genServerModule ('Synchronous result)
+  -> Eff r (Message result)
 call (Server pidInt) req = do
   fromPid <- self
   let requestMessage = Call fromPid req
   wasSent <- sendMessage pidInt requestMessage
   if wasSent
     then
-      let extractResult :: Response o result -> result
+      let extractResult :: Response genServerModule result -> result
           extractResult (Response _pxResult result) = result
-      in do mResp <- receiveMessage (Proxy @(Response o result))
+      in do mResp <- receiveMessage (Proxy @(Response genServerModule result))
             return (extractResult <$> mResp)
-    else fail "Could not send request message " >> return Nothing
+    else raiseError ("Could not send request message " ++ show (typeRep requestMessage))
 
 data ApiHandler p r e where
   ApiHandler ::
@@ -142,6 +144,9 @@ data ApiHandler p r e where
      , _handleCall
          :: forall x . (Typeable p, Typeable (Api p ('Synchronous x)), Typeable x, HasCallStack)
          => Api p ('Synchronous x) -> (x -> Eff r Bool) -> Eff r e
+     , _handleShutdown
+         :: (Typeable p, Typeable (Api p 'Asynchronous), HasCallStack)
+         => Eff r ()
      } -> ApiHandler p r e
 
 serve_
@@ -155,11 +160,15 @@ serve
   :: forall r p e
    . (Typeable p, Member MessagePassing r, Member Process r, HasCallStack)
   => ApiHandler p r e
-  -> Eff r (Maybe e)
-serve (ApiHandler handleCast handleCall) = do
+  -> Eff r (Message e)
+serve (ApiHandler handleCast handleCall handleShutdown) = do
   mReq <- receiveMessage (Proxy @(Request p))
-  mapM receiveCallReq mReq
+  mapM receiveCallReq mReq >>= catchShutdown
  where
+  catchShutdown :: Message e -> Eff r (Message e)
+  catchShutdown s@Shutdown = handleShutdown >> return s
+  catchShutdown s = return s
+
   receiveCallReq :: Request p -> Eff r e
   receiveCallReq (Cast request        ) = handleCast request
   receiveCallReq (Call fromPid request) = handleCall request
@@ -167,6 +176,20 @@ serve (ApiHandler handleCast handleCall) = do
    where
     sendReply :: Typeable x => Api p ('Synchronous x) -> x -> Eff r Bool
     sendReply _ reply = sendMessage fromPid (Response (Proxy :: Proxy p) reply)
+
+kill
+  :: forall r (genServerModule :: Type)
+   . (Typeable genServerModule, HasCallStack, Member MessagePassing r)
+  => Server genServerModule
+  -> Eff r Bool
+kill s = sendShutdown (Proxy :: Proxy (Request genServerModule)) (s^.fromServer)
+
+kill_
+  :: forall r (genServerModule :: Type)
+   . (Typeable genServerModule, HasCallStack, Member MessagePassing r)
+  => Server genServerModule
+  -> Eff r ()
+kill_ = void . kill
 
 unhandledCallError
   :: ( Show (Api p ('Synchronous x))
@@ -179,11 +202,9 @@ unhandledCallError
   => Api p ('Synchronous x)
   -> (x -> Eff r Bool)
   -> Eff r e
-unhandledCallError api _ = do
-  me <- self
-  fail
-    (  show me
-    ++ " Unhandled call: ("
+unhandledCallError api _ =
+  raiseError
+    ( "Unhandled call: ("
     ++ show api
     ++ " :: "
     ++ show (typeRep api)
@@ -199,11 +220,9 @@ unhandledCastError
      )
   => Api p 'Asynchronous
   -> Eff r e
-unhandledCastError api = do
-  me <- self
-  fail
-    (  show me
-    ++ " Unhandled cast: ("
+unhandledCastError api =
+  raiseError
+    (  "Unhandled cast: ("
     ++ show api
     ++ " :: "
     ++ show (typeRep api)
