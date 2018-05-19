@@ -100,14 +100,16 @@ runProcIOWithScheduler e =
   runLift newSchedulerVar >>= flip runProcIO e
 
 runProcIO :: SchedulerVar -> Eff ProcIO a -> IO (Either ProcessException a)
-runProcIO s = runLift . runError . flip runReader s . dispatchMessages
+runProcIO s =
+  runLift . flip runReader s . runError . dispatchMessages
 
 withSchedulerVar
-  :: (Member (Exc ProcessException) r, HasCallStack)
-  => SchedulerVar
-  -> Eff (Reader SchedulerVar ':r) a
-  -> Eff r a
-withSchedulerVar =
+  :: HasCallStack
+  => Eff '[Reader SchedulerVar, Lift IO] a
+  -> IO a
+withSchedulerVar x =
+    do v <- SchedulerVar <$> newTVarIO (Scheduler 1 Map.empty)
+
 
 
 newSchedulerVar
