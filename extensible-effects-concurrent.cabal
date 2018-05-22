@@ -1,5 +1,5 @@
 name:           extensible-effects-concurrent
-version:        0.1.1.0
+version:        0.1.2.0
 description:    Please see the README on GitHub at <https://github.com/sheyll/extensible-effects-concurrent#readme>
 synopsis:       Message passing concurrency as extensible-effect
 homepage:       https://github.com/sheyll/extensible-effects-concurrent#readme
@@ -32,15 +32,18 @@ library
       containers,
       QuickCheck <2.11,
       lens,
+      logging-effect,
       transformers,
       parallel,
       process,
+      monad-control,
       random,
       extensible-effects,
       stm,
       tagged
   exposed-modules:
       Control.Eff.Interactive,
+      Control.Eff.Log,
       Control.Eff.Concurrent.GenServer,
       Control.Eff.Concurrent.MessagePassing,
       Control.Eff.Concurrent.Dispatcher
@@ -54,6 +57,7 @@ library
       DeriveFunctor,
       DeriveGeneric,
       DeriveTraversable,
+      GADTs,
       FlexibleContexts,
       GeneralizedNewtypeDeriving,
       RankNTypes,
