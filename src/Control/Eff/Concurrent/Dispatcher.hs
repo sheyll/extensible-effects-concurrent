@@ -245,7 +245,7 @@ spawn mfa = do
 
   where
     printErrors :: Show a => Either a b -> IO ()
-    printErrors (Left e) = putStrLn (show e)
+    printErrors (Left e) = putStrLn ("TODO fix logging!! " ++ show e)
     printErrors _        = return ()
 
 data CleanUpAction = CleanUpAction {  cleanUpLogger :: String -> IO (), runCleanUpAction :: IO ()    }

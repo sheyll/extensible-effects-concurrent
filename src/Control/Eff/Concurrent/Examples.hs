@@ -57,7 +57,7 @@ example = do
   server <- asServer @TestApi <$> spawn testServerLoop
   logMessage ("Started server " ++ show server)
   let go = do
-        x <- lift (putStr ">>> " >> getLine)
+        x <- lift getLine
         res <- ignoreProcessError (call server (SayHello x))
         logMessage ("Result: " ++ show res)
         case x of
@@ -76,8 +76,9 @@ testServerLoop
          , SetMember Lift (Lift IO) r)
   => Eff r ()
 testServerLoop =
-  trapExit True
-    >> (forever $ serve_ $ ApiHandler handleCast handleCall handleShutdown)
+  -- trapExit True
+    -- >>
+    (forever $ serve_ $ ApiHandler handleCast handleCall handleShutdown)
   where
     handleCast :: Api TestApi 'Asynchronous -> Eff r ()
     handleCast (Shout x) = do
