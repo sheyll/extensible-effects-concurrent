@@ -42,6 +42,7 @@ library
       stm,
       tagged
   exposed-modules:
+      Control.Eff.ExceptionExtra,
       Control.Eff.Interactive,
       Control.Eff.Log,
       Control.Eff.Concurrent.GenServer,

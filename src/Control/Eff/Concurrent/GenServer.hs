@@ -28,8 +28,6 @@ module Control.Eff.Concurrent.GenServer
   , call
   , serve
   , serve_
-  , kill
-  , kill_
   , unhandledCallError
   , unhandledCastError
   )
@@ -144,9 +142,9 @@ data ApiHandler p r e where
      , _handleCall
          :: forall x . (Typeable p, Typeable (Api p ('Synchronous x)), Typeable x, HasCallStack)
          => Api p ('Synchronous x) -> (x -> Eff r Bool) -> Eff r e
-     , _handleShutdown
-         :: (Typeable p, Typeable (Api p 'Asynchronous), HasCallStack)
-         => Eff r ()
+     , _handleTerminate
+         :: (Typeable p, HasCallStack)
+         => String -> Eff r ()
      } -> ApiHandler p r e
 
 serve_
@@ -161,13 +159,13 @@ serve
    . (Typeable p, Member MessagePassing r, Member Process r, HasCallStack)
   => ApiHandler p r e
   -> Eff r (Message e)
-serve (ApiHandler handleCast handleCall handleShutdown) = do
+serve (ApiHandler handleCast handleCall handleTerminate) = do
   mReq <- receiveMessage (Proxy @(Request p))
-  mapM receiveCallReq mReq >>= catchShutdown
+  mapM receiveCallReq mReq >>= catchExitMessage
  where
-  catchShutdown :: Message e -> Eff r (Message e)
-  catchShutdown s@Shutdown = handleShutdown >> return s
-  catchShutdown s = return s
+  catchExitMessage :: Message e -> Eff r (Message e)
+  catchExitMessage s@(ExitMessage msg) = handleTerminate msg >> return s
+  catchExitMessage s = return s
 
   receiveCallReq :: Request p -> Eff r e
   receiveCallReq (Cast request        ) = handleCast request
@@ -176,20 +174,6 @@ serve (ApiHandler handleCast handleCall handleShutdown) = do
    where
     sendReply :: Typeable x => Api p ('Synchronous x) -> x -> Eff r Bool
     sendReply _ reply = sendMessage fromPid (Response (Proxy :: Proxy p) reply)
-
-kill
-  :: forall r (genServerModule :: Type)
-   . (Typeable genServerModule, HasCallStack, Member MessagePassing r)
-  => Server genServerModule
-  -> Eff r Bool
-kill s = sendShutdown (Proxy :: Proxy (Request genServerModule)) (s^.fromServer)
-
-kill_
-  :: forall r (genServerModule :: Type)
-   . (Typeable genServerModule, HasCallStack, Member MessagePassing r)
-  => Server genServerModule
-  -> Eff r ()
-kill_ = void . kill
 
 unhandledCallError
   :: ( Show (Api p ('Synchronous x))

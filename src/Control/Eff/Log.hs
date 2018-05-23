@@ -93,7 +93,7 @@ logChannelPutIO c m =
 
 -- | Fork 'LogChannel' backed by a process that repeatedly receives log messages
 -- sent by 'forwardLogstochannel' or 'logChannelPutIO'. The process logs by
--- invoken the given IO action. To stop and kill a 'LogChannel' invoke
+-- invoken the given IO action. To stop and terminate a 'LogChannel' invoke
 -- 'joinLogChannel'.
 forkLogChannel :: forall message
                  . (message -> IO ())

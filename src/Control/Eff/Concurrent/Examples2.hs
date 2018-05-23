@@ -38,13 +38,13 @@ data instance Api Counter x where
 deriving instance Show (Api Counter x)
 
 
-runInSchedulerWithIO :: Eff ProcIO a -> IO (Either ProcessException a)
+runInSchedulerWithIO :: Eff ProcIO a -> IO a
 runInSchedulerWithIO c =
   runLoggingT
     (logChannelBracket
       (Just "hello")
       (Just "KTHXBY")
-      (runProcIOWithScheduler c))
+      (runMainProcess c))
     (print :: String -> IO ())
 
 counterExample :: Eff ProcIO (Server Counter)
@@ -65,7 +65,7 @@ data ServerState st a where
 counterServerLoop :: Eff ProcIO ()
 counterServerLoop = do
   void (trapExit True)
-  evalState (forever $ serve_ $ ApiHandler @Counter handleCast handleCall (error "OH NOES!")) 0
+  evalState (forever $ serve_ $ ApiHandler @Counter handleCast handleCall error) 0
  where
    handleCast :: Api Counter 'Asynchronous -> Eff CounterEff ()
    handleCast Inc = do

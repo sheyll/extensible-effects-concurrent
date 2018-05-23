@@ -33,6 +33,8 @@ data TestApi
 data instance Api TestApi x where
   SayHello :: String -> Api TestApi ('Synchronous Bool)
   Shout :: String -> Api TestApi 'Asynchronous
+  SetTrapExit :: Bool -> Api TestApi ('Synchronous ())
+  Terminate :: Api TestApi ('Synchronous ())
   deriving (Typeable)
 
 data MyException = MyException
@@ -42,19 +44,18 @@ instance Exc.Exception MyException
 
 deriving instance Show (Api TestApi x)
 
-runExample :: IO (Either ProcessException ())
+runExample :: IO (Either Exc.SomeException ())
 runExample =
-  runLoggingT (logChannelBracket (Just "hello") (Just "KTHXBY") (\ lc ->
-                                                                   do r <- runProcIOWithScheduler example lc
-                                                                      _ <- getLine
-                                                                      return r))
-                (print :: String -> IO ())
+  Exc.try
+  (runLoggingT
+   (logChannelBracket (Just "hello") (Just "KTHXBY") (runMainProcess example))
+   (print :: String -> IO ()))
 
 
 example
   :: ( HasCallStack
     , Member (Logs String) r
-    , HasScheduler r
+    , HasSchedulerIO r
     , Member MessagePassing r
     , Member Process r
     , MonadLog String (Eff r)
@@ -62,7 +63,7 @@ example
   => Eff r ()
 example = do
   me <- self
-  trapExit False
+  trapExit True
   logMessage ("I am " ++ show me)
   server <- asServer @TestApi <$> spawn testServerLoop
   logMessage ("Started server " ++ show server)
@@ -72,8 +73,14 @@ example = do
         logMessage ("Result: " ++ show res)
         case x of
           ('k':_) -> do
-            res2 <- kill server
-            logMessage ("Result of killing: " ++ show res2)
+            call server Terminate
+            logMessage ("terminated: " ++ show server)
+            go
+          ('t':'0':_) -> do
+            call server (SetTrapExit False)
+            go
+          ('t':'1':_) -> do
+            call server (SetTrapExit True)
             go
           ('q':_) -> logMessage "Done."
           _ ->
@@ -88,7 +95,7 @@ testServerLoop
 testServerLoop =
   -- trapExit True
     -- >>
-    (forever $ serve_ $ ApiHandler handleCast handleCall handleShutdown)
+    (forever $ serve_ $ ApiHandler handleCast handleCall handleTerminate)
   where
     handleCast :: Api TestApi 'Asynchronous -> Eff r ()
     handleCast (Shout x) = do
@@ -103,6 +110,11 @@ testServerLoop =
       me <- self
       logMessage (show me ++ " throwing a MyException ")
       lift (Exc.throw MyException)
+    handleCall (SayHello "self") reply = do
+      me <- self
+      logMessage (show me ++ " casting to self")
+      cast_ (asServer @TestApi me) (Shout "from me")
+      void (reply False)
     handleCall (SayHello "die") reply = do
       me <- self
       logMessage (show me ++ " throwing and catching ")
@@ -114,6 +126,17 @@ testServerLoop =
       me <- self
       logMessage (show me ++ " Got Hello: " ++ x)
       void (reply (length x > 3))
-    handleShutdown = do
+    handleCall (SetTrapExit x) reply = do
       me <- self
-      logMessage (show me ++ " is exiting!")
+      logMessage (show me ++ " setting trap exit to " ++ show x)
+      trapExit x
+      void (reply ())
+    handleCall Terminate reply = do
+      me <- self
+      logMessage (show me ++ " exitting")
+      void (reply ())
+      raiseError "DONE"
+    handleTerminate msg = do
+      me <- self
+      logMessage (show me ++ " is exiting: " ++ msg)
+      raiseError msg
