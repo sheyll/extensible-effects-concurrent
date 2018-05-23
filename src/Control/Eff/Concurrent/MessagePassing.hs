@@ -25,7 +25,7 @@ module Control.Eff.Concurrent.MessagePassing
   , catchProcessError
   , ignoreProcessError
   , MessagePassing(..)
-  , Message (..)
+  , Message(..)
   , sendMessage
   , receiveMessage
   )
@@ -63,14 +63,14 @@ raiseError = send . RaiseError
 
 catchProcessError
   :: forall r w . Member Process r => (String -> Eff r w) -> Eff r w -> Eff r w
-catchProcessError onErr =
-  interpose return go
-   where
-     go :: forall b . Process b -> (b -> Eff r w) -> Eff r w
-     go (RaiseError emsg) _k = onErr emsg
-     go s k = send s >>= k
+catchProcessError onErr = interpose return go
+ where
+  go :: forall b . Process b -> (b -> Eff r w) -> Eff r w
+  go (RaiseError emsg) _k = onErr emsg
+  go s                 k  = send s >>= k
 
-ignoreProcessError :: (HasCallStack, Member Process r) => Eff r a -> Eff r (Either String a)
+ignoreProcessError
+  :: (HasCallStack, Member Process r) => Eff r a -> Eff r (Either String a)
 ignoreProcessError = catchProcessError (return . Left) . fmap Right
 
 newtype ProcessId = ProcessId { _fromProcessId :: Int }
@@ -102,7 +102,7 @@ data MessagePassing b where
                  -> MessagePassing (Message e)
 
 data Message m where
-  ExitMessage :: String -> Message m
+  ProcessControlMessage :: String -> Message m
   Message :: m -> Message m
   deriving (Typeable, Functor, Show, Eq, Ord, Foldable, Traversable)
 
@@ -115,14 +115,16 @@ sendMessage
 sendMessage pid message = send (SendMessage pid message)
 
 receiveMessage
-  :: forall o r . (HasCallStack, Member MessagePassing r, Member Process r, Typeable o)
-    => Proxy o -> Eff r (Message o)
-receiveMessage _ =
-  do res <- send (ReceiveMessage id)
-     case res of
-       Message _ -> return res
-       ExitMessage msg -> do
-         isTrapExit <- getTrapExit
-         if isTrapExit
-          then return res
-          else raiseError ("received exit message: " ++ msg)
+  :: forall o r
+   . (HasCallStack, Member MessagePassing r, Member Process r, Typeable o)
+  => Proxy o
+  -> Eff r (Message o)
+receiveMessage _ = do
+  res <- send (ReceiveMessage id)
+  case res of
+    Message               _   -> return res
+    ProcessControlMessage msg -> do
+      isTrapExit <- getTrapExit
+      if isTrapExit
+        then return res
+        else raiseError ("received exit message: " ++ msg)

@@ -2,8 +2,9 @@
 
 ## 0.1.2.0
 
-	* Initial Exception handling
-	* Cleanup on scheduler shutdown
+	* Add Observer module
+	* Implement Exception handling
+	* Improve Dispatcher shutdown
 	* Add logging support via the logging-effect library
 
 ## 0.1.1.0

@@ -4,6 +4,6 @@ In Dispatcher.hs:
 
 | function         | calls cleanup | catchError | runError | catch IO error |
 | runMainProcess   | y             | y          | y        | n              |
-| withScheduler    | y             | y          | y        | n              |
+| withDispatcher    | y             | y          | y        | n              |
 | spawn            |               |            |          |                |
 | withMessageQueue | n             |            |          |                |

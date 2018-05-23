@@ -17,63 +17,109 @@
 {-# LANGUAGE GADTs #-}
 module Control.Eff.Concurrent.Examples2 where
 
-import GHC.Stack
-import Control.Eff
-import Control.Eff.Lift
-import Control.Monad
 import Data.Dynamic
-import Control.Eff.Concurrent.MessagePassing
-import Control.Eff.Concurrent.GenServer
+import Control.Eff
 import Control.Eff.Concurrent.Dispatcher
+import Control.Eff.Concurrent.GenServer
+import Control.Eff.Concurrent.MessagePassing
+import Control.Eff.Concurrent.Observer
 import Control.Eff.Log
 import Control.Eff.State.Lazy
-import Control.Eff.Interactive
+import Control.Monad
 
 data Counter deriving Typeable
 
 data instance Api Counter x where
   Inc :: Api Counter 'Asynchronous
   Cnt :: Api Counter ('Synchronous Integer)
+  ObserveCounter :: SomeObserver Counter -> Api Counter 'Asynchronous
+  UnobserveCounter :: SomeObserver Counter -> Api Counter 'Asynchronous
 
 deriving instance Show (Api Counter x)
 
+instance Observable Counter where
+  data Observation Counter where
+    CountChanged :: Integer -> Observation Counter
+    deriving (Show, Typeable)
+  registerObserverMessage os = ObserveCounter os
+  forgetObserverMessage os = UnobserveCounter os
 
-runInSchedulerWithIO :: Eff ProcIO a -> IO a
-runInSchedulerWithIO c =
-  runLoggingT
-    (logChannelBracket
-      (Just "hello")
-      (Just "KTHXBY")
-      (runMainProcess c))
-    (print :: String -> IO ())
+logCounterObservations :: Eff ProcIO (Server (CallbackObserver Counter))
+logCounterObservations =
+  spawnCallbackObserver
+  (\fromSvr msg ->
+     do me <- self
+        logMsg (show me ++ " observed on: " ++ show fromSvr ++ ": " ++ show msg)
+        return True)
 
-counterExample :: Eff ProcIO (Server Counter)
-counterExample = do
-  server <- asServer @Counter <$> spawn counterServerLoop
-  c0 <- call server Cnt
-  logMsg (show c0)
-  cast_ server Inc
-  c1 <- call server Cnt
-  logMsg (show c1)
-  return server
-
-type CounterEff = State Integer ': ProcIO
+type CounterEff = State (Observers Counter) ': State Integer ': ProcIO
 
 data ServerState st a where
   ServerState :: State st a -> ServerState st a
 
 counterServerLoop :: Eff ProcIO ()
 counterServerLoop = do
-  void (trapExit True)
-  evalState (forever $ serve_ $ ApiHandler @Counter handleCast handleCall error) 0
+  trapExit True
+  evalState (manageObservers
+             $ forever
+             $ serve_
+             $ ApiHandler @Counter handleCast handleCall error) 0
  where
    handleCast :: Api Counter 'Asynchronous -> Eff CounterEff ()
+   handleCast (ObserveCounter o) = do
+     addObserver o
+   handleCast (UnobserveCounter o) = do
+     removeObserver o
    handleCast Inc = do
      logMsg "Inc"
      modify (+ (1 :: Integer))
+     currentCount <- get
+     notifyObservers (CountChanged currentCount)
    handleCall :: Api Counter ('Synchronous x) -> (x -> Eff CounterEff Bool) -> Eff CounterEff ()
    handleCall Cnt reply = do
      c <- get
      logMsg ("Cnt is " ++ show c)
      _ <- reply c
      return ()
+
+-- ** Counter client
+
+counterExample :: Eff ProcIO ()
+counterExample = do
+  let cnt sv = do r <- call sv Cnt
+                  logMsg (show sv ++ " " ++ show r)
+  server1 <- asServer @Counter <$> spawn counterServerLoop
+  server2 <- asServer @Counter <$> spawn counterServerLoop
+  cast_ server1 Inc
+  cnt server1
+  cnt server2
+  co1 <- logCounterObservations
+  co2 <- logCounterObservations
+  registerObserver co1 server1
+  registerObserver co2 server2
+  cast_ server1 Inc
+  cnt server1
+  cast_ server2 Inc
+  cnt server2
+  registerObserver co2 server1
+  registerObserver co1 server2
+  cast_ server1 Inc
+  cnt server1
+  cast_ server2 Inc
+  cnt server2
+  forgetObserver co2 server1
+  cast_ server1 Inc
+  cnt server1
+  cast_ server2 Inc
+  cnt server2
+
+-- * System stuff
+
+runInDispatcherWithIO :: Eff ProcIO a -> IO ()
+runInDispatcherWithIO c =
+  runLoggingT
+    (logChannelBracket
+      (Just "hello")
+      (Just "KTHXBY")
+      (runMainProcess c >=> const getLine >=> const (return ())))
+    (print :: String -> IO ())

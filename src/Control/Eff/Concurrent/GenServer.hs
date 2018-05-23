@@ -58,14 +58,14 @@ newtype Server genServerModule = Server { _fromServer :: ProcessId }
 
 instance Read (Server genServerModule) where
   readsPrec _ ('[':'#':rest1) =
-    case reads (dropWhile (/= '⇒') rest1) of
+    case reads (dropWhile (/= '#') rest1) of
       [(c, ']':rest2)] -> [(Server c, rest2)]
       _ -> []
   readsPrec _ _ = []
 
 instance Typeable genServerModule => Show (Server genServerModule) where
   show s@(Server c) =
-    "[#" ++ show (typeRep s) ++ "⇒" ++ show c ++ "]"
+    "[#" ++ show (typeRep s) ++ "#" ++ show c ++ "]"
 
 makeLenses ''Server
 
@@ -115,12 +115,12 @@ call
    . ( Member MessagePassing r
      , Member Process r
      , Typeable genServerModule
-     , Typeable (Api genServerModule ('Synchronous result))
+     , Typeable (Api genServerModule ( 'Synchronous result))
      , Typeable result
      , HasCallStack
      )
   => Server genServerModule
-  -> Api genServerModule ('Synchronous result)
+  -> Api genServerModule ( 'Synchronous result)
   -> Eff r (Message result)
 call (Server pidInt) req = do
   fromPid <- self
@@ -130,9 +130,11 @@ call (Server pidInt) req = do
     then
       let extractResult :: Response genServerModule result -> result
           extractResult (Response _pxResult result) = result
-      in do mResp <- receiveMessage (Proxy @(Response genServerModule result))
+      in  do
+            mResp <- receiveMessage (Proxy @(Response genServerModule result))
             return (extractResult <$> mResp)
-    else raiseError ("Could not send request message " ++ show (typeRep requestMessage))
+    else raiseError
+      ("Could not send request message " ++ show (typeRep requestMessage))
 
 data ApiHandler p r e where
   ApiHandler ::
@@ -161,39 +163,34 @@ serve
   -> Eff r (Message e)
 serve (ApiHandler handleCast handleCall handleTerminate) = do
   mReq <- receiveMessage (Proxy @(Request p))
-  mapM receiveCallReq mReq >>= catchExitMessage
+  mapM receiveCallReq mReq >>= catchProcessControlMessage
  where
-  catchExitMessage :: Message e -> Eff r (Message e)
-  catchExitMessage s@(ExitMessage msg) = handleTerminate msg >> return s
-  catchExitMessage s = return s
+  catchProcessControlMessage :: Message e -> Eff r (Message e)
+  catchProcessControlMessage s@(ProcessControlMessage msg) =
+    handleTerminate msg >> return s
+  catchProcessControlMessage s = return s
 
   receiveCallReq :: Request p -> Eff r e
   receiveCallReq (Cast request        ) = handleCast request
   receiveCallReq (Call fromPid request) = handleCall request
                                                      (sendReply request)
    where
-    sendReply :: Typeable x => Api p ('Synchronous x) -> x -> Eff r Bool
+    sendReply :: Typeable x => Api p ( 'Synchronous x) -> x -> Eff r Bool
     sendReply _ reply = sendMessage fromPid (Response (Proxy :: Proxy p) reply)
 
 unhandledCallError
-  :: ( Show (Api p ('Synchronous x))
+  :: ( Show (Api p ( 'Synchronous x))
      , Typeable p
-     , Typeable (Api p ('Synchronous x))
+     , Typeable (Api p ( 'Synchronous x))
      , Typeable x
      , HasCallStack
      , Member Process r
      )
-  => Api p ('Synchronous x)
+  => Api p ( 'Synchronous x)
   -> (x -> Eff r Bool)
   -> Eff r e
-unhandledCallError api _ =
-  raiseError
-    ( "Unhandled call: ("
-    ++ show api
-    ++ " :: "
-    ++ show (typeRep api)
-    ++ ")"
-    )
+unhandledCallError api _ = raiseError
+  ("Unhandled call: (" ++ show api ++ " :: " ++ show (typeRep api) ++ ")")
 
 unhandledCastError
   :: ( Show (Api p 'Asynchronous)
@@ -204,11 +201,5 @@ unhandledCastError
      )
   => Api p 'Asynchronous
   -> Eff r e
-unhandledCastError api =
-  raiseError
-    (  "Unhandled cast: ("
-    ++ show api
-    ++ " :: "
-    ++ show (typeRep api)
-    ++ ")"
-    )
+unhandledCastError api = raiseError
+  ("Unhandled cast: (" ++ show api ++ " :: " ++ show (typeRep api) ++ ")")

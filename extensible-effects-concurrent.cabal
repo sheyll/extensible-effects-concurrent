@@ -45,9 +45,10 @@ library
       Control.Eff.ExceptionExtra,
       Control.Eff.Interactive,
       Control.Eff.Log,
+      Control.Eff.Concurrent.Dispatcher,
       Control.Eff.Concurrent.GenServer,
       Control.Eff.Concurrent.MessagePassing,
-      Control.Eff.Concurrent.Dispatcher
+      Control.Eff.Concurrent.Observer
   other-modules:
       Paths_extensible_effects_concurrent,
       Control.Eff.Concurrent.Examples,

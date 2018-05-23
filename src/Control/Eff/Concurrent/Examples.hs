@@ -55,7 +55,7 @@ runExample =
 example
   :: ( HasCallStack
     , Member (Logs String) r
-    , HasSchedulerIO r
+    , HasDispatcherIO r
     , Member MessagePassing r
     , Member Process r
     , MonadLog String (Eff r)
