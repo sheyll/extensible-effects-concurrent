@@ -15,24 +15,25 @@ module Control.Eff.Log
   ( handleLogsWith
   , Logs(..)
   , logMessageFreeEff
+  , logMsg
   , module ExtLog
   , LogChannel()
   , logChannelPutIO
   , forwardLogsToChannel
   , forkLogChannel
   , joinLogChannel
+  , logChannelBracket
   ) where
 
 import Control.Concurrent
 import Control.Concurrent.STM
 import Control.Eff as Eff
+import Control.Exception (bracket)
 import Control.Monad (void, when)
-import Control.Monad.IO.Class
 import Control.Monad.Log as ExtLog hiding ()
 import Control.Monad.Trans.Control
 import Data.Kind
 import qualified Control.Eff.Lift as Eff
-import qualified Control.Exception as Exc
 import qualified Control.Monad.Log as Log
 
 -- | The 'Eff'ect type to wrap 'ExtLog.MonadLog'.
@@ -44,29 +45,9 @@ data Logs message a where
 logMessageFreeEff :: Member (Logs message) r => (forall n . Monoid n => (message -> n) -> n) -> Eff r ()
 logMessageFreeEff foldMapish = send (LogMessageFree foldMapish)
 
-instance Log.MonadLog message (Eff (r0 ': Logs message ': r)) where
-  logMessageFree = logMessageFreeEff
-
-instance Log.MonadLog message (Eff (r1 ': r0 ': Logs message ': r)) where
-  logMessageFree = logMessageFreeEff
-
-instance Log.MonadLog message (Eff (r2 ': r1 ': r0 ': Logs message ': r)) where
-  logMessageFree = logMessageFreeEff
-
-instance Log.MonadLog message (Eff (r3 ': r2 ': r1 ': r0 ': Logs message ': r)) where
-  logMessageFree = logMessageFreeEff
-
-instance Log.MonadLog message (Eff (r4 ': r3 ': r2 ': r1 ': r0 ': Logs message ': r)) where
-  logMessageFree = logMessageFreeEff
-
-instance Log.MonadLog message (Eff (r5 ': r4 ': r3 ': r2 ': r1 ': r0 ': Logs message ': r)) where
-  logMessageFree = logMessageFreeEff
-
-instance Log.MonadLog message (Eff (r6 ': r5 ': r4 ': r3 ': r2 ': r1 ': r0 ': Logs message ': r)) where
-  logMessageFree = logMessageFreeEff
-
-instance Log.MonadLog message (Eff (r7 ': r6 ': r5 ': r4 ': r3 ': r2 ': r1 ': r0 ': Logs message ': r)) where
-  logMessageFree = logMessageFreeEff
+-- | Effectful version of the 'ExtLog.logMessage' function.
+logMsg :: Member (Logs m) r => m -> Eff r ()
+logMsg msg = logMessageFreeEff ($ msg)
 
 -- | Handle 'Logs' effects using 'Log.LoggingT' 'Log.Handler's.
 handleLogsWith :: forall m r message a .
@@ -162,3 +143,23 @@ joinLogChannel closeLogMessage (LogChannel tq isOpenVar thread) =
                    return True
               else return False)
      when wasOpen (killThread thread)
+
+
+-- | Wrap 'LogChannel' creation and destruction around a monad action in
+-- 'bracket'y manner.
+logChannelBracket :: Maybe message
+                  -> Maybe message
+                  -> (LogChannel message -> IO a)
+                  -> LoggingT message IO a
+logChannelBracket mWelcome mGoodbye f =
+  control
+  (\ runInIO ->
+      do myTId <- myThreadId
+         let logHandler = void . runInIO . logMessage
+         bracket
+           (forkLogChannel
+             logHandler
+             mWelcome)
+           (joinLogChannel
+            mGoodbye)
+           f)

@@ -1,6 +1,8 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE DataKinds #-}
@@ -17,7 +19,7 @@ module Control.Eff.Concurrent.Dispatcher
 --  , runProcIO
   , runProcIOWithScheduler
   , SchedulerVar
-  , withSchedulerVar
+  , withScheduler
   , HasScheduler
   , Scheduler
   -- , nextPid, processTable
@@ -25,6 +27,7 @@ module Control.Eff.Concurrent.Dispatcher
   , processId
   -- , messageQ
   , getProcessInfo
+  , getLogChannel
   , spawn
   , dispatchMessages
   -- , withMessageQueue
@@ -32,8 +35,9 @@ module Control.Eff.Concurrent.Dispatcher
 where
 
 import           GHC.Stack
+import           Data.Maybe
 import           Data.Kind
-import           Control.Exception             (bracket)
+import qualified Control.Exception             as Exc
 import           Control.Concurrent            as Concurrent
 import           Control.Concurrent.STM        as STM
 import           Control.Eff
@@ -44,7 +48,6 @@ import           Control.Eff.Log
 import           Control.Eff.Reader.Strict     as Reader
 import           Control.Lens
 import           Control.Monad                 (when, void)
-import           Control.Monad.IO.Class
 import qualified Control.Monad.State           as Mtl
 import           Control.Monad.Trans.Control
 import           Data.Dynamic
@@ -84,6 +87,7 @@ data ProcessException =
   ProcessShutdown String ProcessId
   | ProcessException String ProcessId
   | SchedulerShuttingDown
+  | LowLevelIOException Exc.SomeException
   deriving (Typeable, Show)
 
 type family Members (es :: [* -> *])  (r :: [* -> *]) :: Constraint where
@@ -103,10 +107,14 @@ type ProcIO = '[ MessagePassing
                , Lift IO
                ]
 
+instance MonadLog String (Eff ProcIO) where
+  logMessageFree = logMessageFreeEff
+
 runProcIOWithScheduler :: Eff ProcIO a
-                       -> LoggingT String IO (Either ProcessException a)
-runProcIOWithScheduler  e = -- TODO dispatchmessages should not allow unhandled (process-)exceptions
- withSchedulerVar
+                       -> LogChannel String
+                       -> IO (Either ProcessException a)
+runProcIOWithScheduler e = -- TODO dispatchmessages should not allow unhandled (process-)exceptions
+ withScheduler
    (runError
     (dispatchMessages
      (\cleanup ->
@@ -115,15 +123,15 @@ runProcIOWithScheduler  e = -- TODO dispatchmessages should not allow unhandled 
             logMessage (show mp ++ " main process started in thread " ++ show mt)
             res <- catchError (Right <$> e) (return . Left)
             case res of
-              Left e ->
+              Left ex ->
                  do logMessage (show mp ++ " main process exception: " ++
-                               ((show :: ProcessException -> String) e))
+                               ((show :: ProcessException -> String) ex))
                     lift (runCleanUpAction cleanup)
-                >> throwError e
-              Right res ->
+                >> throwError ex
+              Right rres ->
                 do logMessage (show mp ++ " main process exited")
                    lift (runCleanUpAction cleanup)
-                   return res)))
+                   return rres)))
 
 runProcIO :: SchedulerVar
           -> (CleanUpAction -> Eff ProcIO a)
@@ -131,36 +139,32 @@ runProcIO :: SchedulerVar
 runProcIO s procAction =
   do l <- (view logChannel) <$> atomically (readTVar (fromSchedulerVar s))
      runLift
-       (forwardLogsToChannel
-         l
+         (forwardLogsToChannel l
          (runReader
            (runError
              (dispatchMessages procAction))
            s))
 
-withSchedulerVar :: Eff '[Reader SchedulerVar, Logs String, Lift IO] a
-                 -> LoggingT String IO a
-withSchedulerVar mainProcessAction =
-  control
-  (\ runInIO ->
-      do myTId <- myThreadId
-         let logHandler = void . runInIO . logMessage
-         bracket
-           (forkLogChannel
-             logHandler
-             (Just "scheduler log channel starting"))
-           (joinLogChannel
-            (Just "scheduler log channel shutting down"))
-           (\logC ->
-              bracket
-              (newTVarIO (Scheduler 1 Map.empty Map.empty False logC))
-              (tearDownScheduer myTId)
-              (\sch ->
-                 runLift
-                   (forwardLogsToChannel logC
-                    (runReader mainProcessAction (SchedulerVar sch))))))
+
+getLogChannel :: HasScheduler r => Eff r (LogChannel String)
+getLogChannel =
+  do s <- getSchedulerTVar
+     lift ((view logChannel) <$> atomically (readTVar s))
+
+withScheduler :: Eff '[Reader SchedulerVar, Logs String, Lift IO] a
+              -> LogChannel String
+              -> IO a
+withScheduler mainProcessAction logC =
+  do myTId <- myThreadId
+     Exc.bracket
+       (newTVarIO (Scheduler 1 Map.empty Map.empty False logC))
+       (tearDownScheduler myTId)
+       (\sch ->
+          runLift
+            (forwardLogsToChannel logC
+               (runReader mainProcessAction (SchedulerVar sch))))
   where
-      tearDownScheduer myTId v =
+      tearDownScheduler myTId v =
         do sch <- (atomically
                    (do sch <- readTVar v
                        let sch' = sch & schedulerShuttingDown .~ True
@@ -172,7 +176,7 @@ withSchedulerVar mainProcessAction =
                   (sch ^. threadIdTable)
       killProcThread logC myTId pid tid =
         when (myTId /= tid)
-             (logChannelPutIO logC ("killing thread of " ++ show pid)
+             (logChannelPutIO logC ("killing thread of process " ++ show pid)
               >> killThread tid)
 
 getProcessInfo :: HasScheduler r => ProcessId -> Eff r ProcessInfo
@@ -194,7 +198,7 @@ overProcessInfo pid stAction =
     (do res <- use (processTable . at pid )
         case res of
           Nothing ->
-            return (Left (ProcessShutdown "ProcessTable not found!" pid))
+            return (Left (ProcessShutdown "process table not found" pid))
           Just pinfo ->
             do
             (x, pinfoOut) <- Mtl.lift (Mtl.runStateT stAction pinfo)
@@ -214,9 +218,10 @@ spawn mfa = do
   schedulerVar <- ask
   pidVar       <- lift newEmptyTMVarIO
   cleanupVar   <- lift newEmptyTMVarIO
-  lift
+  lc           <- getLogChannel
+  void
+    (lift
     (Concurrent.forkFinally
-      (printErrors =<<
        (runProcIO
         schedulerVar
         (\ cleanUpAction -> do
@@ -225,8 +230,8 @@ spawn mfa = do
             lift (atomically (STM.putTMVar pidVar (Just pid)))
             catchError
               mfa
-              (logMessage . ("exception: " ++)
-                . (show :: ProcessException -> String)))))
+              (logMessage . ("process exception: " ++)
+                . (show :: ProcessException -> String))))
       (\eres -> do
           mcleanup <- atomically (STM.tryTakeTMVar cleanupVar)
           void (atomically (tryPutTMVar pidVar Nothing))
@@ -237,18 +242,13 @@ spawn mfa = do
                  mt <- myThreadId
                  case eres of
                    Left se ->
-                     cleanUpLogger ca ("thread " ++ show mt ++ " killed by exception: " ++ show se)
+                     logChannelPutIO lc ("thread " ++ show mt ++ " killed by exception: " ++ show se)
                    Right _ ->
-                     cleanUpLogger ca ("thread " ++ show mt ++ " exited")))
+                     logChannelPutIO lc ("thread " ++ show mt ++ " exited"))))
   mPid <- lift (atomically (STM.takeTMVar pidVar))
   maybe (throwError SchedulerShuttingDown) return mPid
 
-  where
-    printErrors :: Show a => Either a b -> IO ()
-    printErrors (Left e) = putStrLn ("TODO fix logging!! " ++ show e)
-    printErrors _        = return ()
-
-data CleanUpAction = CleanUpAction {  cleanUpLogger :: String -> IO (), runCleanUpAction :: IO ()    }
+newtype CleanUpAction = CleanUpAction { runCleanUpAction :: IO () }
 
 dispatchMessages
   :: forall r a
@@ -286,30 +286,29 @@ dispatchMessages processAction =
         )
       >>= k
   go pid (ReceiveMessage onMsg) k = do
-    (mDynMsg, isExitOnShutdown) <- overProcessInfo pid
+    (mDynMsg, isExitOnShutdown) <-
+       (overProcessInfo pid
         (do mq <- use messageQ
             isExitOnShutdown <- use exitOnShutdown
             msg <- Mtl.lift (readTQueue mq)
-            return (msg, isExitOnShutdown))
+            return (msg, isExitOnShutdown)))
     case fromDynamic mDynMsg of
       Just (Message req) ->
         let result = onMsg req in k (Message result)
       Just nix@Shutdown ->
         if isExitOnShutdown then
-          let msg = "Shutdown Message received: " ++ show (typeRep nix)
+          let msg = "shutdown message received: " ++ show (typeRep nix)
           in throwError (ProcessShutdown msg pid)
         else
            k Shutdown
       nix@Nothing ->
-        let msg = ( "Unexpected message: "
+        let msg = "unexpected message: "
                     ++ show mDynMsg
                     ++ " expected: "
                     ++ show (typeRep nix)
-                  )
           in throwError (ProcessShutdown msg pid)
   goProc
-    :: forall v x
-     . HasCallStack
+    :: forall v x . HasCallStack
     => ProcessId
     -> Process v
     -> (v -> Eff r x)
@@ -323,13 +322,12 @@ dispatchMessages processAction =
 withMessageQueue :: HasScheduler r => (CleanUpAction -> ProcessInfo -> Eff r a) -> Eff r a
 withMessageQueue m = do
   mpinfo <- createQueue
+  lc <- getLogChannel
   case mpinfo of
     Just pinfo ->
       do cleanUpAction <-
-           getSchedulerTVar >>= return . CleanUpAction (putStrLn . (++ " !! TODO fix log")) . destroyQueue pinfo
-         res <- catchError (Right <$> m cleanUpAction pinfo)
-                   (return . (Left :: ProcessException -> Either ProcessException a))
-         either throwError return res
+           getSchedulerTVar >>= return . CleanUpAction . destroyQueue lc pinfo
+         m cleanUpAction pinfo
     Nothing ->
       throwError SchedulerShuttingDown
  where
@@ -348,32 +346,38 @@ withMessageQueue m = do
                   processTable . at pid .= Just pinfo
                   return (Just pinfo)
        )
-  destroyQueue pinfo psVar =
+  destroyQueue lc pinfo psVar =
     do didWork <- overSchedulerIO psVar
                  (do abortNow <- use schedulerShuttingDown
                      if abortNow
                        then
                          return False
                        else
-                         do processTable . at (pinfo ^. processId) .= Nothing
-                            threadIdTable . at (pinfo ^. processId) .= Nothing
-                            return True)
-       when didWork (putStrLn ("detroying queue: " ++ show pinfo))
+                         do os <- processTable . at (pinfo ^. processId) <<.= Nothing
+                            ot <- threadIdTable . at (pinfo ^. processId) <<.= Nothing
+                            return (isJust os || isJust ot))
+       case didWork of
+         Right True ->
+            logChannelPutIO lc ("destroying queue: " ++ show pinfo)
+         Right False ->
+            logChannelPutIO lc ("queue already destroyed: " ++ show pinfo)
+         Left e ->
+            logChannelPutIO lc ("failed to destroy queue: " ++ show pinfo ++ " " ++ show e)
 
 
 overScheduler :: HasScheduler r => Mtl.StateT Scheduler STM.STM a -> Eff r a
 overScheduler stAction = do
   psVar <- getSchedulerTVar
-  lift (overSchedulerIO psVar stAction)
+  lift (overSchedulerIO psVar stAction) >>= either (throwError . LowLevelIOException) return
 
-overSchedulerIO :: STM.TVar Scheduler -> Mtl.StateT Scheduler STM.STM a -> IO a
+overSchedulerIO :: STM.TVar Scheduler -> Mtl.StateT Scheduler STM.STM a -> IO (Either Exc.SomeException a)
 overSchedulerIO psVar stAction =
-  STM.atomically
-  (do
-      ps                   <- STM.readTVar psVar
-      (result, psModified) <- Mtl.runStateT stAction ps
-      STM.writeTVar psVar psModified
-      return result)
+  Exc.try
+       (STM.atomically
+          (do ps                   <- STM.readTVar psVar
+              (result, psModified) <- Mtl.runStateT stAction ps
+              STM.writeTVar psVar psModified
+              return result))
 
 getSchedulerTVar :: HasScheduler r => Eff r (TVar Scheduler)
 getSchedulerTVar = fromSchedulerVar <$> ask

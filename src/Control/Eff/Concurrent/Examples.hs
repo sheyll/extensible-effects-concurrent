@@ -25,6 +25,7 @@ import Control.Eff.Concurrent.MessagePassing
 import Control.Eff.Concurrent.GenServer
 import Control.Eff.Concurrent.Dispatcher
 import Control.Eff.Log
+import qualified Control.Exception as Exc
 
 data TestApi
   deriving Typeable
@@ -34,11 +35,20 @@ data instance Api TestApi x where
   Shout :: String -> Api TestApi 'Asynchronous
   deriving (Typeable)
 
+data MyException = MyException
+    deriving Show
+
+instance Exc.Exception MyException
+
 deriving instance Show (Api TestApi x)
 
 runExample :: IO (Either ProcessException ())
 runExample =
-  runLoggingT (runProcIOWithScheduler example) (print :: String -> IO ())
+  runLoggingT (logChannelBracket (Just "hello") (Just "KTHXBY") (\ lc ->
+                                                                   do r <- runProcIOWithScheduler example lc
+                                                                      _ <- getLine
+                                                                      return r))
+                (print :: String -> IO ())
 
 
 example
@@ -85,12 +95,24 @@ testServerLoop =
       me <- self
       logMessage (show me ++ " Shouting: " ++ x)
     handleCall :: Api TestApi ('Synchronous x) -> (x -> Eff r Bool) -> Eff r ()
+    handleCall (SayHello "e1") _reply = do
+      me <- self
+      logMessage (show me ++ " raising an error")
+      raiseError "No body loves me... :,("
+    handleCall (SayHello "e2") _reply = do
+      me <- self
+      logMessage (show me ++ " throwing a MyException ")
+      lift (Exc.throw MyException)
+    handleCall (SayHello "die") reply = do
+      me <- self
+      logMessage (show me ++ " throwing and catching ")
+      catchProcessError
+        (\ er -> logMessage ("WOW: " ++ show er ++ " - No. This is wrong!"))
+        (raiseError "No body loves me... :,(")
+      void (reply True)
     handleCall (SayHello x) reply = do
       me <- self
       logMessage (show me ++ " Got Hello: " ++ x)
-      catchProcessError
-        (\ er -> logMessage ("WOW: " ++ show er ++ " - No. This is wrong!"))
-        (when (x == "die") (raiseError "No body loves me... :,("))
       void (reply (length x > 3))
     handleShutdown = do
       me <- self
