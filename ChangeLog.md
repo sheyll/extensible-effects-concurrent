@@ -1,5 +1,8 @@
 # Changelog for extensible-effects-concurrent
 
+## 0.1.2.2
+	* Try to fix version bounds for hackage
+
 ## 0.1.2.1
 	* Add more documentation
 	* Simplify Dispatcher API

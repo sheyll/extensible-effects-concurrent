@@ -1,5 +1,5 @@
 name:           extensible-effects-concurrent
-version:        0.1.2.1
+version:        0.1.2.2
 description:    Please see the README on GitHub at <https://github.com/sheyll/extensible-effects-concurrent#readme>
 synopsis:       Message passing concurrency as extensible-effect
 homepage:       https://github.com/sheyll/extensible-effects-concurrent#readme
@@ -39,7 +39,7 @@ library
       monad-control,
       random,
       extensible-effects >= 2.4 && < 2.5,
-      stm,
+      stm >= 2.4.5,
       tagged
   exposed-modules:
       Control.Eff.ExceptionExtra,
