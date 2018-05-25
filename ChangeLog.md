@@ -1,5 +1,10 @@
 # Changelog for extensible-effects-concurrent
 
+## 0.1.2.1
+	* Add more documentation
+	* Simplify Dispatcher API
+	* Make more exception safe
+
 ## 0.1.2.0
 
 	* Add Observer module

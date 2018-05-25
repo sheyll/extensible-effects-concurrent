@@ -112,14 +112,3 @@ counterExample = do
   cnt server1
   cast_ server2 Inc
   cnt server2
-
--- * System stuff
-
-runInDispatcherWithIO :: Eff ProcIO a -> IO ()
-runInDispatcherWithIO c =
-  runLoggingT
-    (logChannelBracket
-      (Just "hello")
-      (Just "KTHXBY")
-      (runMainProcess c >=> const getLine >=> const (return ())))
-    (print :: String -> IO ())

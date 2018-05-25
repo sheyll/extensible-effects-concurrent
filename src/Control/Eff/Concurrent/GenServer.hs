@@ -38,8 +38,7 @@ import           Data.Kind
 import           Control.Eff
 import           Control.Lens
 import           Control.Monad
-import           Data.Dynamic
-import           Data.Typeable                  ( typeRep )
+import           Data.Typeable (Typeable, typeRep)
 import           Data.Proxy
 
 import           Control.Eff.Concurrent.MessagePassing

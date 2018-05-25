@@ -1,3 +1,20 @@
+-- | Implement Erlang style message passing concurrency.
+--
+-- This handles the 'MessagePassing' and 'Process' effects, using
+-- 'STM.TQueue's and 'forkIO'.
+--
+-- This aims to be a pragmatic implementation, so even logging is
+-- supported.
+--
+-- At the core is a /main process/ that enters 'runMainProcess'
+-- and creates all of the internal state stored in 'STM.TVar's
+-- to manage processes with message queues.
+--
+-- The 'Eff' handler for 'Process' and 'MessagePassing' use
+-- are implemented and available through 'spawn'.
+--
+-- 'spawn' uses 'forkFinally' and 'STM.TQueue's and tries to catch
+-- most exceptions.
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -16,19 +33,12 @@
 {-# LANGUAGE GADTs #-}
 module Control.Eff.Concurrent.Dispatcher
   ( runMainProcess
-  , DispatcherVar
-  , withDispatcher
-  , Dispatcher
+  , defaultMain
+  , spawn
+  , DispatcherError(..)
   , DispatcherIO
   , HasDispatcherIO
   , ProcIO
-  , ConsProcIO
-  , HasProcIO
-  , ProcessInfo
-  , processId
-  , getProcessInfo
-  , getLogChannel
-  , spawn
   )
 where
 
@@ -54,8 +64,8 @@ import           Data.Typeable                  ( typeRep )
 import           Data.Map                       ( Map )
 import qualified Data.Map                      as Map
 
--- * MessagePassing Scheduling
-
+-- | Information about a process, needed to implement 'MessagePassing' and
+-- 'Process' handlers. The message queue is backed by a 'STM.TQueue'.
 data ProcessInfo =
                  ProcessInfo { _processId       :: ProcessId
                              , _messageQ        :: STM.TQueue Dynamic
@@ -69,6 +79,9 @@ instance Show ProcessInfo where
     "ProcessInfo: " ++ show (p ^. processId) ++ " trapExit: "
                       ++ show (not (p^.exitOnShutdown))
 
+-- | Contains all 'ProcessInfo' elements, as well as the state needed to
+-- implement inter process communication. It contains also a 'LogChannel' to
+-- which the logs of all processes are forwarded to.
 data Dispatcher =
                Dispatcher { _nextPid :: ProcessId
                           , _processTable :: Map ProcessId ProcessInfo
@@ -79,29 +92,43 @@ data Dispatcher =
 
 makeLenses ''Dispatcher
 
+-- | A newtype wrapper around an 'STM.TVar' holding a 'Dispatcher' state.
+-- This is needed by 'spawn' and provided by 'runDispatcher'.
 newtype DispatcherVar = DispatcherVar { fromDispatcherVar :: STM.TVar Dispatcher }
   deriving Typeable
 
+-- | A sum-type with errors that can occur when dispatching messages.
 data DispatcherError =
-  ProcessShutdown String ProcessId
+   UnhandledMessageReceived Dynamic ProcessId
+   -- ^ A process message queue contained a bad message and the 'Dynamic' value
+   -- could not be converted to the expected value using 'fromDynamic'.
   | ProcessNotFound ProcessId
+    -- ^ No 'ProcessInfo' was found for a 'ProcessId' during internal
+    -- processing. NOTE: This is **ONLY** caused by internal errors, probably by
+    -- an incorrect 'MessagePassing' handler in this module. **Sending a message
+    -- to a process ALWAYS succeeds!** Even if the process does not exist.
   | ProcessException String ProcessId
+    -- ^ A process called 'raiseError'.
   | DispatcherShuttingDown
+    -- ^ An action was not performed while the dispatcher was exiting.
   | LowLevelIOException Exc.SomeException
+    -- ^ 'Control.Exception.SomeException' was caught while dispatching
+    -- messages.
   deriving (Typeable, Show)
 
 instance Exc.Exception DispatcherError
 
-type family Members (es :: [* -> *])  (r :: [* -> *]) :: Constraint where
-  Members '[] r = ()
-  Members (e ': es) r = (Member e r, Members es r)
-
+-- | An alias for the constraints for the effects essential to this dispatcher
+-- implementation, i.e. these effects allow 'spawn'ing new 'Process'es.
+-- @see DispatcherIO
 type HasDispatcherIO r = ( HasCallStack
                         , SetMember Lift (Lift IO) r
                         , Member (Exc DispatcherError) r
                         , Member (Logs String) r
                         , Member (Reader DispatcherVar) r)
 
+-- | The concrete list of 'Eff'ects for this scheduler implementation.
+-- @see HasDispatcherIO
 type DispatcherIO =
               '[ Exc DispatcherError
                , Reader DispatcherVar
@@ -109,21 +136,21 @@ type DispatcherIO =
                , Lift IO
                ]
 
-type HasProcIO r = ( Member MessagePassing r
-                   , Member Process r
-                   , HasDispatcherIO r
-                   )
-
-type ConsProcIO r = MessagePassing ': Process ': r
-
+-- | The concrete list of 'Eff'ects that provide 'MessagePassing' and
+-- 'Process'es ontop of 'DispatcherIO'
 type ProcIO = ConsProcIO DispatcherIO
 
+-- | /Cons/ 'ProcIO' onto a list of effects.
+type ConsProcIO r = MessagePassing ': Process ': r
 
 instance MonadLog String (Eff ProcIO) where
   logMessageFree = logMessageFreeEff
 
+-- | This is the main entry point to running a message passing concurrency
+-- application. This function takes a 'ProcIO' effect and a 'LogChannel' for
+-- concurrent logging.
 runMainProcess :: Eff ProcIO a -> LogChannel String -> IO a
-runMainProcess e = withDispatcher
+runMainProcess e logC = withDispatcher
   (dispatchMessages
     (\cleanup -> do
       mt <- lift myThreadId
@@ -146,6 +173,62 @@ runMainProcess e = withDispatcher
           return rres
     )
   )
+  where
+    withDispatcher :: Eff DispatcherIO a -> IO a
+    withDispatcher mainProcessAction = do
+      myTId <- myThreadId
+      Exc.bracket
+        (newTVarIO (Dispatcher myPid Map.empty Map.empty False logC))
+        (tearDownDispatcher myTId)
+        (\sch -> runLift
+          (forwardLogsToChannel
+            logC
+            (runReader (runErrorRethrowIO mainProcessAction) (DispatcherVar sch))
+          )
+        )
+     where
+      myPid = 1
+      tearDownDispatcher myTId v = do
+        logChannelPutIO logC (show myTId ++" begin dispatcher tear down")
+        sch <-
+          (atomically
+            (do
+              sch <- readTVar v
+              let sch' = sch & schedulerShuttingDown .~ True
+              writeTVar v sch'
+              return sch
+            )
+          )
+        logChannelPutIO logC (show myTId ++ " killing threads: " ++
+                                   show (sch ^.. threadIdTable. traversed))
+        imapM_ (killProcThread myTId) (sch ^. threadIdTable)
+        atomically
+          (do
+              dispatcher <- readTVar v
+              let allThreadsDead = dispatcher^.threadIdTable.to Map.null
+                                   && dispatcher^.processTable.to Map.null
+              STM.check allThreadsDead)
+        logChannelPutIO logC "all threads dead"
+
+
+      killProcThread myTId pid tid = when
+        (myTId /= tid)
+        (  logChannelPutIO logC ("killing thread " ++ show pid)
+        >> killThread tid
+        )
+
+
+-- | Start the message passing concurrency system then execute a 'ProcIO' effect.
+-- All logging is sent to standard output.
+defaultMain :: Eff ProcIO a -> IO a
+defaultMain c =
+  runLoggingT
+    (logChannelBracket
+      (Just "~~~~~~ main process started")
+      (Just "====== main process exited")
+      (runMainProcess c))
+    (print :: String -> IO ())
+
 
 runChildProcess
   :: DispatcherVar
@@ -164,49 +247,6 @@ getLogChannel = do
   s <- getDispatcherTVar
   lift ((view logChannel) <$> atomically (readTVar s))
 
-withDispatcher :: Eff DispatcherIO a -> LogChannel String -> IO a
-withDispatcher mainProcessAction logC = do
-  myTId <- myThreadId
-  Exc.bracket
-    (newTVarIO (Dispatcher 1 Map.empty Map.empty False logC))
-    (tearDownDispatcher myTId)
-    (\sch -> runLift
-      (forwardLogsToChannel
-        logC
-        (runReader (runErrorRethrowIO mainProcessAction) (DispatcherVar sch))
-      )
-    )
- where
-  tearDownDispatcher myTId v = do
-    sch <-
-      (atomically
-        (do
-          sch <- readTVar v
-          let sch' =
-                sch
-                  &  schedulerShuttingDown
-                  .~ True
-                  &  processTable
-                  .~ Map.empty
-                  &  threadIdTable
-                  .~ Map.empty
-          writeTVar v sch'
-          return sch
-        )
-      )
-    imapM_ (killProcThread myTId) (sch ^. threadIdTable)
-  killProcThread myTId pid tid = when
-    (myTId /= tid)
-    (  logChannelPutIO logC ("killing thread of process " ++ show pid)
-    >> killThread tid
-    )
-
-getProcessInfo :: HasDispatcherIO r => ProcessId -> Eff r ProcessInfo
-getProcessInfo pid = do
-  res <- getProcessInfoSafe pid
-  case res of
-    Nothing -> throwError (ProcessShutdown "process table not found" pid)
-    Just i  -> return i
 
 overProcessInfo
   :: HasDispatcherIO r
@@ -223,12 +263,6 @@ overProcessInfo pid stAction = liftEither =<< overDispatcher
         processTable . at pid . _Just .= pinfoOut
         return (Right x)
   )
-
-getProcessInfoSafe
-  :: HasDispatcherIO r => ProcessId -> Eff r (Maybe ProcessInfo)
-getProcessInfoSafe pid = do
-  p <- getDispatcher
-  return (p ^. processTable . at pid)
 
 -- ** MessagePassing execution
 
@@ -283,12 +317,23 @@ dispatchMessages
   => (CleanUpAction -> Eff (ConsProcIO r) a)
   -> Eff r a
 dispatchMessages processAction = withMessageQueue
-  (\cleanUpAction pinfo -> handle_relay
-    return
-    (goProc (pinfo ^. processId))
-
-    (handle_relay return (go (pinfo ^. processId)) (processAction cleanUpAction)
-    )
+  (\cleanUpAction pinfo ->
+     try
+     (handle_relay
+      return
+      (goProc (pinfo ^. processId))
+       (handle_relay return (go (pinfo ^. processId))
+        (processAction cleanUpAction)
+       ))
+     >>=
+     either
+     (\(e :: DispatcherError) ->
+        do logMsg (show (pinfo^.processId)
+                    ++ " cleanup on exception: "
+                    ++ show e)
+           lift (runCleanUpAction cleanUpAction)
+           throwError e)
+     return
   )
  where
   go
@@ -319,13 +364,10 @@ dispatchMessages processAction = withMessageQueue
   go pid (ReceiveMessage onMsg) k = do
     catchError
       (do
-        mDynMsg <- overProcessInfo
-          pid
+        mDynMsg <- overProcessInfo pid
           (do
             mq <- use messageQ
-            Mtl.lift (readTQueue mq)
-          )
-
+            Mtl.lift (readTQueue mq))
         case fromDynamic mDynMsg of
           Just req -> let result = onMsg req in k (Message result)
           nix@Nothing ->
@@ -336,7 +378,7 @@ dispatchMessages processAction = withMessageQueue
             in  do
                   isExitOnShutdown <- overProcessInfo pid (use exitOnShutdown)
                   if isExitOnShutdown
-                    then throwError (ProcessShutdown msg pid)
+                    then throwError (UnhandledMessageReceived mDynMsg pid)
                     else k (ProcessControlMessage msg)
       )
       (\(se :: DispatcherError) -> do
@@ -358,7 +400,9 @@ dispatchMessages processAction = withMessageQueue
     overProcessInfo pid (exitOnShutdown .= (not s)) >>= k
   goProc pid GetTrapExit k =
     overProcessInfo pid (use exitOnShutdown) >>= k . not
-  goProc pid (RaiseError msg) _k = throwError (ProcessException msg pid)
+  goProc pid (RaiseError msg) _k = do
+    logMsg (show pid ++ " error raised: " ++ msg)
+    throwError (ProcessException msg pid)
 
 withMessageQueue
   :: HasDispatcherIO r => (CleanUpAction -> ProcessInfo -> Eff r a) -> Eff r a

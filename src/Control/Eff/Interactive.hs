@@ -9,7 +9,7 @@ module Control.Eff.Interactive
   , promptStep
   , step
   , Interactive(..)
-  , interactiveInterpreter
+  , interactiveProgram
   , runInteractionIOE
   , runInteractionIO
   )
@@ -50,14 +50,6 @@ promptStep m p = do
   singleton (PrintLine m)
   singleton (ReadLine p)
 
-class Interactive f where
-  singleSteps :: (Member (Program Interaction) r, HasCallStack) => f a -> Eff r a
-
-interactiveInterpreter
-  :: (HasCallStack, Member (Program Interaction) r, Interactive f)
-  => Eff (Program f ': r) a
-  -> Eff r a
-interactiveInterpreter = runProgram singleSteps
 
 runInteractionIOE
   :: (SetMember Lift (Lift IO) r, HasCallStack)
@@ -72,3 +64,14 @@ runInteractionIOE = runProgram go
 
 runInteractionIO :: Eff '[Program Interaction, Lift IO] a -> IO a
 runInteractionIO = runLift . runInteractionIOE
+
+-- ** Interactively work with 'Control.Eff.Operational.Program's.
+
+class Interactive f where
+  singleSteps :: (Member (Program Interaction) r, HasCallStack) => f a -> Eff r a
+
+interactiveProgram
+  :: (HasCallStack, Member (Program Interaction) r, Interactive f)
+  => Eff (Program f ': r) a
+  -> Eff r a
+interactiveProgram = runProgram singleSteps

@@ -44,12 +44,8 @@ instance Exc.Exception MyException
 
 deriving instance Show (Api TestApi x)
 
-runExample :: IO (Either Exc.SomeException ())
-runExample =
-  Exc.try
-  (runLoggingT
-   (logChannelBracket (Just "hello") (Just "KTHXBY") (runMainProcess example))
-   (print :: String -> IO ()))
+main :: IO ()
+main = defaultMain example
 
 
 example
@@ -69,12 +65,12 @@ example = do
   logMessage ("Started server " ++ show server)
   let go = do
         x <- lift getLine
-        res <- ignoreProcessError (call server (SayHello x))
-        logMessage ("Result: " ++ show res)
         case x of
           ('k':_) -> do
             call server Terminate
-            logMessage ("terminated: " ++ show server)
+            go
+          ('c':_) -> do
+            cast_ server (Shout x)
             go
           ('t':'0':_) -> do
             call server (SetTrapExit False)
@@ -82,9 +78,12 @@ example = do
           ('t':'1':_) -> do
             call server (SetTrapExit True)
             go
-          ('q':_) -> logMessage "Done."
+          ('q':_) ->
+            logMessage "Done."
           _ ->
-            go
+            do res <- ignoreProcessError (call server (SayHello x))
+               logMessage ("Result: " ++ show res)
+               go
   go
 
 testServerLoop
