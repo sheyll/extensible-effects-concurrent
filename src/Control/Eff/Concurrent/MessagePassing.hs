@@ -144,27 +144,26 @@ data Message m where
 -- | Send a message to a process addressed by the 'ProcessId'.
 -- @see 'SendMessage'.
 sendMessage
-  :: forall o r
-   . (HasCallStack, Member MessagePassing r, Typeable o)
+  :: forall r
+   . (HasCallStack, Member MessagePassing r)
   => ProcessId
-  -> o
+  -> Dynamic
   -> Eff r Bool
-sendMessage pid message = send (SendMessage pid (toDyn message))
+sendMessage pid message = send (SendMessage pid message)
 
 -- | Block until a message was received. Expect a message of the type annotated
 -- by the 'Proxy'.
 -- Depending on 'trapExit', this will 'raiseError'.
 -- @see 'ReceiveMessage'.
 receiveMessage
-  :: forall o r
-   . (HasCallStack, Member MessagePassing r, Member Process r, Typeable o)
-  => Proxy o
-  -> Eff r (Message o)
-receiveMessage px = do
+  :: forall r
+   . (HasCallStack, Member MessagePassing r, Member Process r)
+  => Eff r (Message Dynamic)
+receiveMessage = do
   res <- send (ReceiveMessage fromDynamic)
   case res of
     Message  _                -> return res
-    MessageIgnored            -> receiveMessage px
+    MessageIgnored            -> receiveMessage
     ProcessControlMessage msg -> do
       isTrapExit <- getTrapExit
       if isTrapExit

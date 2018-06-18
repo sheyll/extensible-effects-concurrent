@@ -95,7 +95,7 @@ testServerLoop
 testServerLoop =
   -- trapExit True
     -- >>
-    (forever $ serve_ $ ApiHandler handleCast handleCall handleTerminate)
+    (forever $ serve $ ApiHandler handleCast handleCall handleTerminate)
   where
     handleCast :: Api TestApi 'Asynchronous -> Eff r ()
     handleCast (Shout x) = do

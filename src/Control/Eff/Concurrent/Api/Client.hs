@@ -34,6 +34,7 @@ import           Control.Eff.Concurrent.Api
 import           Control.Eff.Concurrent.Api.Internal
 import           Control.Eff.Concurrent.MessagePassing
 import           Control.Monad
+import           Data.Dynamic
 import           Data.Proxy
 import           Data.Typeable (Typeable, typeRep)
 import           GHC.Stack
@@ -48,7 +49,8 @@ castChecked
   => Server o
   -> Api o 'Asynchronous
   -> Eff r Bool
-castChecked (Server pid) callMsg = sendMessage pid (Cast callMsg)
+castChecked (Server pid) callMsg =
+  sendMessage pid (toDyn (Cast callMsg))
 
 cast
   :: forall r o
@@ -62,6 +64,20 @@ cast
   -> Eff r ()
 cast = ((.) . (.)) void castChecked
 
+receiveMessageAs
+  :: forall r a . (HasCallStack, Typeable a, Member MessagePassing r, Member Process r)
+  => Eff r (Message a)
+receiveMessageAs =
+  do messageDynamic <- receiveMessage
+     let castAndCheck dm =
+          case fromDynamic dm of
+           Nothing ->
+             Left ("Invalid message type received: " ++ show dm)
+           Just m ->
+             Right m
+     let maybeMessage = sequence (castAndCheck <$> messageDynamic)
+     either raiseError return maybeMessage
+
 call
   :: forall result api r
    . ( Member MessagePassing r
@@ -72,19 +88,17 @@ call
      , HasCallStack
      )
   => Server api
-  -> Api api ( 'Synchronous result)
+  -> Api api ('Synchronous result)
   -> Eff r (Message result)
 call (Server pidInt) req = do
   fromPid <- self
   let requestMessage = Call fromPid req
-  wasSent <- sendMessage pidInt requestMessage
+  wasSent <- sendMessage pidInt (toDyn requestMessage)
   if wasSent
     then
       let extractResult :: Response api result -> result
           extractResult (Response _pxResult result) = result
-      in  do
-            mResp <- receiveMessage (Proxy @(Response api result))
-            return (extractResult <$> mResp)
+      in fmap extractResult <$> receiveMessageAs
     else raiseError
       ("Could not send request message " ++ show (typeRep requestMessage))
 

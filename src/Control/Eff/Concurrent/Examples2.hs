@@ -64,7 +64,7 @@ counterServerLoop = do
   trapExit True
   evalState (manageObservers
              $ forever
-             $ serve_
+             $ serve
              $ ApiHandler @Counter handleCast handleCall error) 0
  where
    handleCast :: Api Counter 'Asynchronous -> Eff CounterEff ()

@@ -13,7 +13,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE GADTs #-}
 
--- | Type safe /server/ API processes
+-- | Internal request and response type for casts and calls
 
 module Control.Eff.Concurrent.Api.Internal
   ( Request (..)
@@ -21,17 +21,10 @@ module Control.Eff.Concurrent.Api.Internal
   )
 where
 
-import           GHC.Stack
-import           Data.Kind
-import           Control.Eff
-import           Control.Lens
-import           Control.Monad
-import           Data.Typeable (Typeable, typeRep)
+import           Data.Typeable (Typeable)
 import           Data.Proxy
-
 import           Control.Eff.Concurrent.Api
 import           Control.Eff.Concurrent.MessagePassing
-
 
 data Request api where
   Call :: forall api apiCallReplyType . (Typeable api, Typeable apiCallReplyType, Typeable (Api api ('Synchronous apiCallReplyType)))

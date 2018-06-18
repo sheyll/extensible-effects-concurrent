@@ -196,7 +196,8 @@ instance (Observable o) => Observer (CallbackObserver o) o where
 -- | Start a new process for an 'Observer' that dispatches
 -- all observations to an effectful callback.
 spawnCallbackObserver
-  :: forall o r . (HasDispatcherIO r, Typeable o, Show (Observation o), Observable o)
+  :: forall o r .
+  (HasDispatcherIO r, Typeable o, Show (Observation o), Observable o)
   => (Server o -> Observation o -> Eff ProcIO Bool)
   -> Eff r (Server (CallbackObserver o))
 spawnCallbackObserver onObserve =
@@ -206,7 +207,7 @@ spawnCallbackObserver onObserve =
       trapExit True
       me <- asServer @(CallbackObserver o) <$> self
       let loopUntil =
-            serve_ (ApiHandler @(CallbackObserver o)
+            serve (ApiHandler @(CallbackObserver o)
                      (handleCast loopUntil)
                      unhandledCallError
                      (logMsg . ((show me ++ " observer terminating ") ++)))
