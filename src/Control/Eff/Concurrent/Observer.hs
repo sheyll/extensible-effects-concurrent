@@ -3,7 +3,7 @@
 -- This module supports the implementation of observers and observables. One
 -- more concrete perspective might be to understand observers as event listeners
 -- and observables as event sources. The tools in this module are tailored
--- towards 'Control.Eff.Concurrent.GenServer.Api' endpoints
+-- towards 'Control.Eff.Concurrent.Api.Api' endpoints
 {-# LANGUAGE IncoherentInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE ConstraintKinds #-}
@@ -44,7 +44,9 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 import Control.Eff
 import Control.Eff.Concurrent.MessagePassing
-import Control.Eff.Concurrent.GenServer
+import Control.Eff.Concurrent.Api
+import Control.Eff.Concurrent.Api.Client
+import Control.Eff.Concurrent.Api.Server
 import Control.Eff.Concurrent.Dispatcher
 import Control.Eff.Log
 import Control.Eff.State.Lazy
@@ -80,7 +82,7 @@ notifyObserver :: ( Member Process r
                  )
                => Server p -> Server o -> Observation o -> Eff r ()
 notifyObserver observer observed observation =
-  cast_ observer (observationMessage observed observation)
+  cast observer (observationMessage observed observation)
 
 -- | Send the 'registerObserverMessage'
 registerObserver :: ( Member Process r
@@ -91,7 +93,7 @@ registerObserver :: ( Member Process r
                  )
                => Server p -> Server o -> Eff r ()
 registerObserver observer observed =
-  cast_ observed (registerObserverMessage (SomeObserver observer))
+  cast observed (registerObserverMessage (SomeObserver observer))
 
 -- | Send the 'forgetObserverMessage'
 forgetObserver :: ( Member Process r
@@ -100,7 +102,7 @@ forgetObserver :: ( Member Process r
                 , Observer p o)
               => Server p -> Server o -> Eff r ()
 forgetObserver observer observed =
-  cast_ observed (forgetObserverMessage (SomeObserver observer))
+  cast observed (forgetObserverMessage (SomeObserver observer))
 
 -- ** Generalized observation
 

@@ -20,7 +20,9 @@ module Control.Eff.Concurrent.Examples2 where
 import Data.Dynamic
 import Control.Eff
 import Control.Eff.Concurrent.Dispatcher
-import Control.Eff.Concurrent.GenServer
+import Control.Eff.Concurrent.Api
+import Control.Eff.Concurrent.Api.Server
+import Control.Eff.Concurrent.Api.Client
 import Control.Eff.Concurrent.MessagePassing
 import Control.Eff.Concurrent.Observer
 import Control.Eff.Log
@@ -90,25 +92,25 @@ counterExample = do
                   logMsg (show sv ++ " " ++ show r)
   server1 <- asServer @Counter <$> spawn counterServerLoop
   server2 <- asServer @Counter <$> spawn counterServerLoop
-  cast_ server1 Inc
+  cast server1 Inc
   cnt server1
   cnt server2
   co1 <- logCounterObservations
   co2 <- logCounterObservations
   registerObserver co1 server1
   registerObserver co2 server2
-  cast_ server1 Inc
+  cast server1 Inc
   cnt server1
-  cast_ server2 Inc
+  cast server2 Inc
   cnt server2
   registerObserver co2 server1
   registerObserver co1 server2
-  cast_ server1 Inc
+  cast server1 Inc
   cnt server1
-  cast_ server2 Inc
+  cast server2 Inc
   cnt server2
   forgetObserver co2 server1
-  cast_ server1 Inc
+  cast server1 Inc
   cnt server1
-  cast_ server2 Inc
+  cast server2 Inc
   cnt server2

@@ -1,5 +1,10 @@
 # Changelog for extensible-effects-concurrent
 
+## 0.1.3.0
+	* Rename and split `GenServer` to `Api`, `Api.Client`, `Api.Server`
+	* Add `registerServer`, `callRegistered` and `castRegistered`
+	* Remove the variant of `cast` that returns a boolean
+
 ## 0.1.2.2
 	* Try to fix version bounds for hackage
 

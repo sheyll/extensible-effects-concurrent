@@ -120,9 +120,8 @@ data MessagePassing b where
   -- message should **always succeed** and return **immediately**, even if the
   -- destination process does not exist, or does not accept messages of the
   -- given type.
-  SendMessage :: Typeable m
-              => ProcessId
-              -> m
+  SendMessage :: ProcessId
+              -> Dynamic
               -> MessagePassing Bool
   -- | Receive a message. This should block until an a message was received. The
   -- pure function may convert the incoming message into something, and the
@@ -130,9 +129,7 @@ data MessagePassing b where
   -- returns, is if a process control message was sent to the process. This can
   -- only occur from inside the runtime system, aka the effect handler
   -- implementation. (Currently there is one in 'Control.Eff.Concurrent.Dispatcher'.)
-  ReceiveMessage :: forall e m . (Typeable m, Typeable (Message m))
-                 => (m -> e)
-                 -> MessagePassing (Message e)
+  ReceiveMessage :: forall e . Typeable e => (Dynamic -> Maybe e)  -> MessagePassing (Message e)
 
 -- | When a process invokes 'receiveMessage' a value of this type is returned.
 -- There are more reasons that 'receiveMessage' might return, one is that a
@@ -140,6 +137,7 @@ data MessagePassing b where
 -- specific, event occurred for which the process should /wake-up/.
 data Message m where
   ProcessControlMessage :: String -> Message m
+  MessageIgnored :: Message m
   Message :: m -> Message m
   deriving (Typeable, Functor, Show, Eq, Ord, Foldable, Traversable)
 
@@ -151,7 +149,7 @@ sendMessage
   => ProcessId
   -> o
   -> Eff r Bool
-sendMessage pid message = send (SendMessage pid message)
+sendMessage pid message = send (SendMessage pid (toDyn message))
 
 -- | Block until a message was received. Expect a message of the type annotated
 -- by the 'Proxy'.
@@ -162,10 +160,11 @@ receiveMessage
    . (HasCallStack, Member MessagePassing r, Member Process r, Typeable o)
   => Proxy o
   -> Eff r (Message o)
-receiveMessage _ = do
-  res <- send (ReceiveMessage id)
+receiveMessage px = do
+  res <- send (ReceiveMessage fromDynamic)
   case res of
-    Message               _   -> return res
+    Message  _                -> return res
+    MessageIgnored            -> receiveMessage px
     ProcessControlMessage msg -> do
       isTrapExit <- getTrapExit
       if isTrapExit

@@ -368,15 +368,15 @@ dispatchMessages processAction = withMessageQueue
           (do
             mq <- use messageQ
             Mtl.lift (readTQueue mq))
-        case fromDynamic mDynMsg of
-          Just req -> let result = onMsg req in k (Message result)
+        case onMsg mDynMsg of
+          Just result -> k (Message result)
           nix@Nothing ->
             let
-              msg =
-                "unexpected message: " ++ show mDynMsg ++ " expected: " ++ show
-                  (typeRep nix)
-            in  do
-                  isExitOnShutdown <- overProcessInfo pid (use exitOnShutdown)
+              msg = "unexpected message: "
+                  ++ show mDynMsg
+                  ++ " expected: "
+                  ++ show (typeRep nix)
+            in do isExitOnShutdown <- overProcessInfo pid (use exitOnShutdown)
                   if isExitOnShutdown
                     then throwError (UnhandledMessageReceived mDynMsg pid)
                     else k (ProcessControlMessage msg)

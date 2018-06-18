@@ -21,8 +21,10 @@ import Control.Eff
 import Control.Eff.Lift
 import Control.Monad
 import Data.Dynamic
+import Control.Eff.Concurrent.Api
+import Control.Eff.Concurrent.Api.Client
+import Control.Eff.Concurrent.Api.Server
 import Control.Eff.Concurrent.MessagePassing
-import Control.Eff.Concurrent.GenServer
 import Control.Eff.Concurrent.Dispatcher
 import Control.Eff.Log
 import qualified Control.Exception as Exc
@@ -47,7 +49,6 @@ deriving instance Show (Api TestApi x)
 main :: IO ()
 main = defaultMain example
 
-
 example
   :: ( HasCallStack
     , Member (Logs String) r
@@ -67,24 +68,24 @@ example = do
         x <- lift getLine
         case x of
           ('k':_) -> do
-            call server Terminate
+            callRegistered Terminate
             go
           ('c':_) -> do
-            cast_ server (Shout x)
+            castRegistered (Shout x)
             go
           ('t':'0':_) -> do
-            call server (SetTrapExit False)
+            callRegistered (SetTrapExit False)
             go
           ('t':'1':_) -> do
-            call server (SetTrapExit True)
+            callRegistered (SetTrapExit True)
             go
           ('q':_) ->
-            logMessage "Done."
+            logMsg "Done."
           _ ->
-            do res <- ignoreProcessError (call server (SayHello x))
-               logMessage ("Result: " ++ show res)
+            do res <- ignoreProcessError (callRegistered (SayHello x))
+               logMsg ("Result: " ++ show res)
                go
-  go
+  registerServer server go
 
 testServerLoop
   :: forall r. (HasCallStack, Member MessagePassing r, Member Process r
@@ -112,7 +113,7 @@ testServerLoop =
     handleCall (SayHello "self") reply = do
       me <- self
       logMessage (show me ++ " casting to self")
-      cast_ (asServer @TestApi me) (Shout "from me")
+      cast (asServer @TestApi me) (Shout "from me")
       void (reply False)
     handleCall (SayHello "die") reply = do
       me <- self
