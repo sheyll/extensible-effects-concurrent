@@ -27,6 +27,8 @@ module Control.Eff.Concurrent.MessagePassing
   , fromProcessId
   , Process(..)
   , ResumeProcess(..)
+  , SchedulerProxy(..)
+  , thisSchedulerProxy
   , yieldAndCatchProcess
   , sendMessage
   , receiveMessage
@@ -54,29 +56,29 @@ import           Text.Printf
 -- | The process effect is the basis for message passing concurrency. This binds
 -- the semantics of a process with a process-id, and some process flags, and the
 -- ability to leave a process early with an error.
-data Process b where
+data Process (r :: [Type -> Type]) b where
   -- | Return the current 'ProcessId'
-  SelfPid :: Process (ResumeProcess ProcessId)
+  SelfPid :: Process r (ResumeProcess ProcessId)
   -- | Process exit, this is the same as if the function that was applied to a
   -- spawn function returned.
-  Shutdown :: Process a
+  Shutdown :: Process r a
   -- | Exit the process due to an error, this cannot be caught.
-  ExitWithError :: String -> Process b
+  ExitWithError :: String -> Process  r b
   -- | Raise an error, that can be handled.
-  RaiseError :: String -> Process b
+  RaiseError :: String -> Process r b
   --  LinkProcesses :: ProcessId -> ProcessId -> Process ()
   -- | Send a message to a process addressed by the 'ProcessId'. Sending a
   -- message should **always succeed** and return **immediately**, even if the
   -- destination process does not exist, or does not accept messages of the
   -- given type.
-  SendMessage :: ProcessId -> Dynamic -> Process (ResumeProcess Bool)
+  SendMessage :: ProcessId -> Dynamic -> Process r (ResumeProcess Bool)
   -- | Receive a message. This should block until an a message was received. The
   -- pure function may convert the incoming message into something, and the
   -- result is returned as 'ProcessMessage' value. Another reason why this function
   -- returns, is if a process control message was sent to the process. This can
   -- only occur from inside the runtime system, aka the effect handler
   -- implementation. (Currently there is one in 'Control.Eff.Concurrent.Dispatcher'.)
-  ReceiveMessage :: Process (ResumeProcess Dynamic)
+  ReceiveMessage :: Process r (ResumeProcess Dynamic)
 
 -- | Every 'Process' action returns it's actual result wrapped in this type. It
 -- will allow to signal errors as well as pass on normal results such as
@@ -95,52 +97,70 @@ data ResumeProcess v where
 
 -- | Execute a 'Process' action and resume the process, retry the action or exit
 -- the process depending on the 'ResumeProcess' clause.
-yieldProcess :: (Member Process r, HasCallStack)
-             => Process (ResumeProcess v) -> Eff r v
+yieldProcess :: forall r q v .
+               ( SetMember Process (Process q) r
+               , HasCallStack)
+             => Process q (ResumeProcess v)
+             -> Eff r v
 yieldProcess processAction =
   do result <- send processAction
      case result of
        ResumeWith value -> return value
        RetryLastAction -> yieldProcess processAction
-       ShutdownRequested -> send Shutdown
-       OnError e -> send (ExitWithError e)
+       ShutdownRequested -> send (Shutdown @q)
+       OnError e -> send (ExitWithError @q e)
 
 -- | Execute a and action and resume the process, retry the action, shutdown the process or return an error.
-yieldAndCatchProcess :: (Member Process r, HasCallStack)
-                     => Eff r (ResumeProcess v) -> Eff r (Either String v)
-yieldAndCatchProcess processAction =
+yieldAndCatchProcess :: forall q r v.
+                       (SetMember Process (Process q) r, HasCallStack)
+                     => SchedulerProxy q
+                     -> Eff r (ResumeProcess v)
+                     -> Eff r (Either String v)
+yieldAndCatchProcess px processAction =
   do result <- processAction
      case result of
        ResumeWith value -> return (Right value)
-       RetryLastAction -> yieldAndCatchProcess processAction
-       ShutdownRequested -> send Shutdown
+       RetryLastAction -> yieldAndCatchProcess px processAction
+       ShutdownRequested -> send (Shutdown @q)
        OnError e -> return (Left e)
+
+-- | Every function for 'Process' things needs proxy for the low-level
+-- effect list depending on the scheduler implementation.
+-- I don't know a smarter way yet to do this.
+data SchedulerProxy :: [Type -> Type] -> Type where
+  SchedulerProxy :: SchedulerProxy q
+
+-- | Return a 'SchedulerProxy' for a 'Process' effect.
+thisSchedulerProxy :: Eff (Process r ': r) (SchedulerProxy r)
+thisSchedulerProxy = return SchedulerProxy
 
 -- | Send a message to a process addressed by the 'ProcessId'.
 -- @see 'SendMessage'.
 sendMessage
-  :: forall r
-   . (HasCallStack, Member Process r)
-  => ProcessId
+  :: forall r q
+   . (HasCallStack, SetMember Process (Process q) r)
+  => SchedulerProxy q
+  -> ProcessId
   -> Dynamic
   -> Eff r Bool
-sendMessage pid message =
+sendMessage _ pid message =
   yieldProcess (SendMessage pid message)
 
 -- | Block until a message was received.
 receiveMessage
-  :: forall r
-   . (HasCallStack, Member Process r)
-  => Eff r Dynamic
-receiveMessage = do
+  :: forall r q
+   . (HasCallStack, SetMember Process (Process q) r)
+  => SchedulerProxy q -> Eff r Dynamic
+receiveMessage _ = do
   yieldProcess ReceiveMessage
 
 -- | Receive and cast the message to some 'Typeable' instance.
 receiveMessageAs
-  :: forall r a . (HasCallStack, Typeable a, Member Process r)
-  => Eff r a
-receiveMessageAs =
-  do messageDynamic <- receiveMessage
+  :: forall r q a .
+    (HasCallStack, Typeable a, SetMember Process (Process q) r)
+  => SchedulerProxy q -> Eff r a
+receiveMessageAs px =
+  do messageDynamic <- receiveMessage px
      let castAndCheck dm =
           case fromDynamic dm of
            Nothing ->
@@ -148,39 +168,39 @@ receiveMessageAs =
            Just m ->
              Right m
          maybeMessage = castAndCheck messageDynamic
-     either raiseError return maybeMessage
+     either (raiseError px) return maybeMessage
 
 -- | Returns the 'ProcessId' of the current process.
-self :: (HasCallStack, Member Process r) => Eff r ProcessId
-self = yieldProcess SelfPid
+self :: (HasCallStack, SetMember Process (Process q) r) => SchedulerProxy q -> Eff r ProcessId
+self _px = yieldProcess SelfPid
 
 -- | Exit the process.
-exitNormally :: (HasCallStack, Member Process r) => Eff r a
-exitNormally = send Shutdown
+exitNormally :: forall r q a. (HasCallStack, SetMember Process (Process q) r) => SchedulerProxy q -> Eff r a
+exitNormally _ = send (Shutdown @q)
 
 -- | Exit the process with an error.
-exitWithError :: (HasCallStack, Member Process r) => String -> Eff r a
-exitWithError = send . RaiseError
+exitWithError :: forall r q a. (HasCallStack, SetMember Process (Process q) r) => SchedulerProxy q -> String -> Eff r a
+exitWithError _ = send . RaiseError @q
 
 -- | Thrown an error, can be caught by 'catchProcessError'.
-raiseError :: (HasCallStack, Member Process r) => String -> Eff r b
-raiseError = send . ExitWithError
+raiseError :: forall r q b. (HasCallStack, SetMember Process (Process q) r) => SchedulerProxy q -> String -> Eff r b
+raiseError _ = send . ExitWithError @q
 
 -- | Catch and handle an error raised by 'raiseError'. Works independent of the
 -- handler implementation.
 catchProcessError
-  :: forall r w . (HasCallStack, Member Process r) => (String -> Eff r w) -> Eff r w -> Eff r w
-catchProcessError onErr = interpose return go
+  :: forall r q w . (HasCallStack, SetMember Process (Process q) r) => SchedulerProxy q -> (String -> Eff r w) -> Eff r w -> Eff r w
+catchProcessError _ onErr = interpose return go
  where
-  go :: forall b . Process b -> (b -> Eff r w) -> Eff r w
+  go :: forall b . Process q b -> (b -> Eff r w) -> Eff r w
   go (RaiseError emsg) _k = onErr emsg
   go s                 k  = send s >>= k
 
 -- | Like 'catchProcessError' it catches 'raiseError', but instead of invoking a
 -- user provided handler, the result is wrapped into an 'Either'.
 ignoreProcessError
-  :: (HasCallStack, Member Process r) => Eff r a -> Eff r (Either String a)
-ignoreProcessError = catchProcessError (return . Left) . fmap Right
+  :: (HasCallStack, SetMember Process (Process q) r) => SchedulerProxy q -> Eff r a -> Eff r (Either String a)
+ignoreProcessError px = catchProcessError px (return . Left) . fmap Right
 
 -- | Each process is identified by a single process id, that stays constant
 -- throughout the life cycle of a process. Also, message sending relies on these

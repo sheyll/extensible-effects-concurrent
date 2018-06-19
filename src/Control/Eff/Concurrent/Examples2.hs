@@ -48,9 +48,9 @@ instance Observable Counter where
 
 logCounterObservations :: Eff ProcIO (Server (CallbackObserver Counter))
 logCounterObservations =
-  spawnCallbackObserver
+  spawnCallbackObserver usingIoDispatcher
   (\fromSvr msg ->
-     do me <- self
+     do me <- self usingIoDispatcher
         logMsg (show me ++ " observed on: " ++ show fromSvr ++ ": " ++ show msg)
         return True)
 
@@ -63,7 +63,7 @@ counterServerLoop :: Eff ProcIO ()
 counterServerLoop = do
   evalState (manageObservers
              $ forever
-             $ serve
+             $ serve usingIoDispatcher
              $ ApiHandler @Counter handleCast handleCall (error . show)) 0
  where
    handleCast :: Api Counter 'Asynchronous -> Eff CounterEff ()
@@ -75,7 +75,7 @@ counterServerLoop = do
      logMsg "Inc"
      modify (+ (1 :: Integer))
      currentCount <- get
-     notifyObservers (CountChanged currentCount)
+     notifyObservers usingIoDispatcher (CountChanged currentCount)
    handleCall :: Api Counter ('Synchronous x) -> (x -> Eff CounterEff Bool) -> Eff CounterEff ()
    handleCall Cnt reply = do
      c <- get
@@ -87,29 +87,30 @@ counterServerLoop = do
 
 counterExample :: Eff ProcIO ()
 counterExample = do
-  let cnt sv = do r <- call sv Cnt
+  let cnt sv = do r <- call px sv Cnt
                   logMsg (show sv ++ " " ++ show r)
+      px = usingIoDispatcher
   server1 <- asServer @Counter <$> spawn counterServerLoop
   server2 <- asServer @Counter <$> spawn counterServerLoop
-  cast server1 Inc
+  cast px server1 Inc
   cnt server1
   cnt server2
   co1 <- logCounterObservations
   co2 <- logCounterObservations
-  registerObserver co1 server1
-  registerObserver co2 server2
-  cast server1 Inc
+  registerObserver px co1 server1
+  registerObserver px co2 server2
+  cast px server1 Inc
   cnt server1
-  cast server2 Inc
+  cast px server2 Inc
   cnt server2
-  registerObserver co2 server1
-  registerObserver co1 server2
-  cast server1 Inc
+  registerObserver px co2 server1
+  registerObserver px co1 server2
+  cast px server1 Inc
   cnt server1
-  cast server2 Inc
+  cast px server2 Inc
   cnt server2
-  forgetObserver co2 server1
-  cast server1 Inc
+  forgetObserver px co2 server1
+  cast px server1 Inc
   cnt server1
-  cast server2 Inc
+  cast px server2 Inc
   cnt server2

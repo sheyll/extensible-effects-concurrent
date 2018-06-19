@@ -42,14 +42,15 @@ data ApiHandler p r where
      } -> ApiHandler p r
 
 serve
-  :: forall r p
-   . (Typeable p, Member Process r, HasCallStack)
-  => ApiHandler p r
+  :: forall r q p
+   . (Typeable p, SetMember Process (Process q) r, HasCallStack)
+  => SchedulerProxy q
+  -> ApiHandler p r
   -> Eff r ()
-serve handlers@(ApiHandler handleCast handleCall handleTerminate) =
-   do mReq <- send ReceiveMessage
+serve px handlers@(ApiHandler handleCast handleCall handleTerminate) =
+   do mReq <- send (ReceiveMessage @q)
       case mReq of
-        RetryLastAction -> serve handlers
+        RetryLastAction -> serve px handlers
         ShutdownRequested -> handleTerminate Nothing
         OnError reason -> handleTerminate (Just reason)
         ResumeWith dyn ->
@@ -67,34 +68,36 @@ serve handlers@(ApiHandler handleCast handleCall handleTerminate) =
       where
        sendReply :: Typeable x => x -> Eff r Bool
        sendReply reply =
-         sendMessage fromPid (toDyn (Response (Proxy @p) reply))
+         sendMessage px fromPid (toDyn (Response (Proxy @p) reply))
 
 unhandledCallError
-  :: forall p x r .
+  :: forall p x r q .
     ( Show (Api p ( 'Synchronous x))
     , Typeable p
     , HasCallStack
-    , Member Process r
+    , SetMember Process (Process q) r
     )
-  => Api p ( 'Synchronous x)
+  => SchedulerProxy q
+  -> Api p ( 'Synchronous x)
   -> (x -> Eff r Bool)
   -> Eff r ()
-unhandledCallError api _ = raiseError
+unhandledCallError px api _ = raiseError px
   ("Unhandled call: ("
     ++ show api
     ++ " :: "
     ++ show (typeRep (Proxy @p)) ++ ")")
 
 unhandledCastError
-  :: forall p r .
+  :: forall p r q .
     ( Show (Api p 'Asynchronous)
     , Typeable p
     , HasCallStack
-    , Member Process r
+    , SetMember Process (Process q) r
     )
-  => Api p 'Asynchronous
+  => SchedulerProxy q
+  -> Api p 'Asynchronous
   -> Eff r ()
-unhandledCastError api = raiseError
+unhandledCastError px api = raiseError px
   ("Unhandled cast: ("
     ++ show api
     ++ " :: "

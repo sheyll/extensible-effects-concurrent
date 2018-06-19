@@ -37,6 +37,7 @@ module Control.Eff.Concurrent.Dispatcher
   , spawn
   , DispatcherError(..)
   , DispatcherIO
+  , usingIoDispatcher
   , HasDispatcherIO
   , ProcIO
   )
@@ -63,6 +64,7 @@ import           Data.Dynamic
 import           Data.Typeable                  ( typeRep )
 import           Data.Map                       ( Map )
 import qualified Data.Map                      as Map
+import           Data.Proxy
 
 -- | Internal type for the entries in the message in 'ProcessInfo'.
 data MessageQEntry =
@@ -144,11 +146,15 @@ type DispatcherIO =
                ]
 
 -- | The concrete list of 'Eff'ects that provide 'MessagePassing' and
--- 'Process'es ontop of 'DispatcherIO'
+-- 'Process'es on top of 'DispatcherIO'
 type ProcIO = ConsProcIO DispatcherIO
 
 -- | /Cons/ 'ProcIO' onto a list of effects.
-type ConsProcIO r = Process ': r
+type ConsProcIO r = Process r ': r
+
+-- | A 'SchedulerProxy' for 'DispatcherIO'
+usingIoDispatcher :: SchedulerProxy DispatcherIO
+usingIoDispatcher = SchedulerProxy
 
 instance MonadLog String (Eff ProcIO) where
   logMessageFree = logMessageFreeEff
@@ -161,7 +167,7 @@ runMainProcess e logC = withDispatcher
   (dispatchMessages
     (\cleanup -> do
       mt <- lift myThreadId
-      mp <- self
+      mp <- self usingIoDispatcher
       logMessage (show mp ++ " main process started in thread " ++ show mt)
       res <- try e
       case res of
@@ -285,7 +291,7 @@ spawn mfa = do
           schedulerVar
           (\cleanUpAction -> do
             lift (atomically (STM.putTMVar cleanupVar cleanUpAction))
-            pid <- self
+            pid <- self usingIoDispatcher
             lift (atomically (STM.putTMVar pidVar (Just pid)))
             catchError
               mfa
@@ -360,7 +366,7 @@ dispatchMessages processAction =
     :: forall v a
      . HasCallStack
     => ProcessId
-    -> Process v
+    -> Process r v
     -> (v -> Eff r a)
     -> Eff r a
   go _pid (SendMessage toPid reqIn) k =
