@@ -34,7 +34,6 @@
 module Control.Eff.Concurrent.Dispatcher
   ( runMainProcess
   , defaultMain
-  , spawn
   , DispatcherError(..)
   , DispatcherIO
   , usingIoDispatcher
@@ -61,10 +60,8 @@ import           Control.Monad                  ( when
                                                 )
 import qualified Control.Monad.State           as Mtl
 import           Data.Dynamic
-import           Data.Typeable                  ( typeRep )
 import           Data.Map                       ( Map )
 import qualified Data.Map                      as Map
-import           Data.Proxy
 
 -- | Internal type for the entries in the message in 'ProcessInfo'.
 data MessageQEntry =
@@ -147,10 +144,10 @@ type DispatcherIO =
 
 -- | The concrete list of 'Eff'ects that provide 'MessagePassing' and
 -- 'Process'es on top of 'DispatcherIO'
-type ProcIO = ConsProcIO DispatcherIO
+type ProcIO = ConsProcess DispatcherIO
 
 -- | /Cons/ 'ProcIO' onto a list of effects.
-type ConsProcIO r = Process r ': r
+type ConsProcess r = Process r ': r
 
 -- | A 'SchedulerProxy' for 'DispatcherIO'
 usingIoDispatcher :: SchedulerProxy DispatcherIO
@@ -278,8 +275,10 @@ overProcessInfo pid stAction = liftEither =<< overDispatcher
 
 -- ** MessagePassing execution
 
-spawn :: HasDispatcherIO r => Eff ProcIO () -> Eff r ProcessId
-spawn mfa = do
+spawnImpl :: HasCallStack
+          => Eff (ConsProcess DispatcherIO) ()
+          -> Eff DispatcherIO ProcessId
+spawnImpl mfa = do
   schedulerVar <- ask
   pidVar       <- lift newEmptyTMVarIO
   cleanupVar   <- lift newEmptyTMVarIO
@@ -324,10 +323,9 @@ spawn mfa = do
 newtype CleanUpAction = CleanUpAction { runCleanUpAction :: IO () }
 
 dispatchMessages
-  :: forall r
-   . (HasDispatcherIO r, HasCallStack)
-  => (CleanUpAction -> Eff (ConsProcIO r) ())
-  -> Eff r ()
+  :: HasCallStack
+  => (CleanUpAction -> Eff ProcIO ())
+  -> Eff DispatcherIO ()
 dispatchMessages processAction =
   withMessageQueue
   (\cleanUpAction pinfo ->
@@ -366,9 +364,9 @@ dispatchMessages processAction =
     :: forall v a
      . HasCallStack
     => ProcessId
-    -> Process r v
-    -> (v -> Eff r a)
-    -> Eff r a
+    -> Process DispatcherIO v
+    -> (v -> Eff DispatcherIO a)
+    -> Eff DispatcherIO a
   go _pid (SendMessage toPid reqIn) k =
     do resumeRes <- catchError
          (do psVar <- getDispatcherTVar
@@ -385,6 +383,14 @@ dispatchMessages processAction =
              return (ResumeWith res))
          (return . OnError . show @DispatcherError)
        k resumeRes
+
+  go _pid (Spawn child) k =
+    do resumeRes <- catchError
+         (do res <- spawnImpl child
+             return (ResumeWith res))
+         (return . OnError . show @DispatcherError)
+       k resumeRes
+
   go pid ReceiveMessage k =
     do resumeRes <-
          catchError

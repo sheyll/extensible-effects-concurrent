@@ -207,7 +207,7 @@ spawnCallbackObserver
 spawnCallbackObserver px onObserve =
   asServer @(CallbackObserver o)
   <$>
-  (xxxSpawn @r @q $ do
+  (spawn @r @q $ do
       me <- asServer @(CallbackObserver o) <$> self px
       let loopUntil =
             serve px
@@ -221,10 +221,3 @@ spawnCallbackObserver px onObserve =
  where
    handleCast k (CbObserved fromSvr v) =
      onObserve fromSvr v >>= flip when k
-
-xxxSpawn :: forall r q .
-           ( HasCallStack
-           , SetMember Process (Process q) r
-           )
-         => Eff (Process q ': q) () -> Eff r ProcessId
-xxxSpawn _e = error "TODO"

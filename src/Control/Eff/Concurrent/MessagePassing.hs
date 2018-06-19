@@ -31,6 +31,7 @@ module Control.Eff.Concurrent.MessagePassing
   , thisSchedulerProxy
   , yieldAndCatchProcess
   , sendMessage
+  , spawn
   , receiveMessage
   , receiveMessageAs
   , self
@@ -47,7 +48,6 @@ import           Control.Eff
 import           Control.Lens
 import           Data.Dynamic
 import           Data.Kind
-import           Data.Proxy
 import           Text.Printf
 
 
@@ -59,6 +59,9 @@ import           Text.Printf
 data Process (r :: [Type -> Type]) b where
   -- | Return the current 'ProcessId'
   SelfPid :: Process r (ResumeProcess ProcessId)
+  -- | Start a new process, the new process will execute an effect, the function
+  -- will return immediately with a 'ProcessId'.
+  Spawn :: Eff (Process r ': r) () -> Process r (ResumeProcess ProcessId)
   -- | Process exit, this is the same as if the function that was applied to a
   -- spawn function returned.
   Shutdown :: Process r a
@@ -145,6 +148,15 @@ sendMessage
   -> Eff r Bool
 sendMessage _ pid message =
   yieldProcess (SendMessage pid message)
+
+-- | Start a new process, the new process will execute an effect, the function
+-- will return immediately with a 'ProcessId'.
+spawn :: forall r q .
+        (HasCallStack, SetMember Process (Process q) r)
+      => Eff (Process q ': q) ()
+      -> Eff r ProcessId
+spawn child =
+  yieldProcess (Spawn @q child)
 
 -- | Block until a message was received.
 receiveMessage

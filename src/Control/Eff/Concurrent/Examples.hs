@@ -28,7 +28,6 @@ import Control.Eff.Concurrent.MessagePassing
 import Control.Eff.Concurrent.Dispatcher
 import Control.Eff.Log
 import qualified Control.Exception as Exc
-import Data.Proxy
 
 data TestApi
   deriving Typeable
@@ -37,6 +36,7 @@ data instance Api TestApi x where
   SayHello :: String -> Api TestApi ('Synchronous Bool)
   Shout :: String -> Api TestApi 'Asynchronous
   Terminate :: Api TestApi ('Synchronous ())
+  TerminateError :: String -> Api TestApi ('Synchronous ())
   deriving (Typeable)
 
 data MyException = MyException
@@ -55,6 +55,8 @@ example
     , HasDispatcherIO r
     , SetMember Process (Process q) r
     , MonadLog String (Eff r)
+    , SetMember Lift (Lift IO) q
+    , Member (Logs String) q
     , SetMember Lift (Lift IO) r)
   => SchedulerProxy q -> Eff r ()
 example px = do
@@ -65,7 +67,10 @@ example px = do
   let go = do
         x <- lift getLine
         case x of
-          ('k':_) -> do
+          ('k':rest) -> do
+            callRegistered px (TerminateError rest)
+            go
+          ('s':_) -> do
             callRegistered px Terminate
             go
           ('c':_) -> do
@@ -127,7 +132,12 @@ testServerLoop =
       me <- self px
       logMsg (show me ++ " exiting")
       void (reply ())
-      raiseError px "DONE"
+      exitNormally px
+    handleCall (TerminateError msg) reply = do
+      me <- self px
+      logMsg (show me ++ " exiting with error: " ++ msg)
+      void (reply ())
+      exitWithError px msg
     handleTerminate msg = do
       me <- self px
       logMsg (show me ++ " is exiting: " ++ show msg)
