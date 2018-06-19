@@ -40,6 +40,7 @@ module Control.Eff.Concurrent.Observer
 
 import GHC.Stack
 import Data.Dynamic
+import Data.Maybe
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Control.Eff
@@ -75,7 +76,6 @@ class (Typeable o, Typeable (Observation o)) => Observable o where
 
 -- | Send an 'Observation' to an 'Observer'
 notifyObserver :: ( Member Process r
-                 , Member MessagePassing r
                  , Observable o
                  , Observer p o
                  , HasCallStack
@@ -86,7 +86,6 @@ notifyObserver observer observed observation =
 
 -- | Send the 'registerObserverMessage'
 registerObserver :: ( Member Process r
-                 , Member MessagePassing r
                  , Observable o
                  , Observer p o
                  , HasCallStack
@@ -97,7 +96,6 @@ registerObserver observer observed =
 
 -- | Send the 'forgetObserverMessage'
 forgetObserver :: ( Member Process r
-                , Member MessagePassing r
                 , Observable o
                 , Observer p o)
               => Server p -> Server o -> Eff r ()
@@ -124,7 +122,6 @@ instance Eq (SomeObserver o) where
 
 -- | Send an 'Observation' to 'SomeObserver'.
 notifySomeObserver :: ( Member Process r
-                     , Member MessagePassing r
                      , Observable o
                      , HasCallStack
                      )
@@ -151,7 +148,7 @@ manageObservers = flip evalState (Observers Set.empty)
 
 -- | Add an 'Observer' to the 'Observers' managed by 'manageObservers'.
 addObserver
-  :: ( Member MessagePassing r
+  :: ( Member Process r
     , Member (State (Observers o)) r
     , Observable o)
   => SomeObserver o -> Eff r ()
@@ -159,7 +156,7 @@ addObserver = modify . over observers . Set.insert
 
 -- | Delete an 'Observer' from the 'Observers' managed by 'manageObservers'.
 removeObserver
-  ::  ( Member MessagePassing r
+  ::  ( Member Process r
     , Member (State (Observers o)) r
     , Observable o)
   => SomeObserver o -> Eff r ()
@@ -168,7 +165,6 @@ removeObserver = modify . over observers . Set.delete
 -- | Send an 'Observation' to all 'SomeObserver's in the 'Observers' state.
 notifyObservers
   :: forall o r . ( Observable o
-            , Member MessagePassing r
             , Member Process r
             , Member (State (Observers o)) r)
   => Observation o -> Eff r ()
@@ -204,15 +200,15 @@ spawnCallbackObserver onObserve =
   asServer @(CallbackObserver o)
   <$>
   (spawn $ do
-      trapExit True
       me <- asServer @(CallbackObserver o) <$> self
       let loopUntil =
             serve (ApiHandler @(CallbackObserver o)
                      (handleCast loopUntil)
                      unhandledCallError
-                     (logMsg . ((show me ++ " observer terminating ") ++)))
-      loopUntil
-  )
+                     (logMsg
+                       . ((show me ++ " observer terminating ") ++)
+                       . fromMaybe "normally" ))
+      loopUntil)
  where
    handleCast :: Eff ProcIO () -> Api (CallbackObserver o) 'Asynchronous -> Eff ProcIO ()
    handleCast k (CbObserved fromSvr v) = onObserve fromSvr v >>= flip when k

@@ -35,7 +35,6 @@ data TestApi
 data instance Api TestApi x where
   SayHello :: String -> Api TestApi ('Synchronous Bool)
   Shout :: String -> Api TestApi 'Asynchronous
-  SetTrapExit :: Bool -> Api TestApi ('Synchronous ())
   Terminate :: Api TestApi ('Synchronous ())
   deriving (Typeable)
 
@@ -53,14 +52,12 @@ example
   :: ( HasCallStack
     , Member (Logs String) r
     , HasDispatcherIO r
-    , Member MessagePassing r
     , Member Process r
     , MonadLog String (Eff r)
     , SetMember Lift (Lift IO) r)
   => Eff r ()
 example = do
   me <- self
-  trapExit True
   logMessage ("I am " ++ show me)
   server <- asServer @TestApi <$> spawn testServerLoop
   logMessage ("Started server " ++ show server)
@@ -73,11 +70,9 @@ example = do
           ('c':_) -> do
             castRegistered (Shout x)
             go
-          ('t':'0':_) -> do
-            callRegistered (SetTrapExit False)
-            go
-          ('t':'1':_) -> do
-            callRegistered (SetTrapExit True)
+          ('r':rest) -> do
+            replicateM (read rest)
+               (castRegistered (Shout x))
             go
           ('q':_) ->
             logMsg "Done."
@@ -88,13 +83,11 @@ example = do
   registerServer server go
 
 testServerLoop
-  :: forall r. (HasCallStack, Member MessagePassing r, Member Process r
+  :: forall r. (HasCallStack, Member Process r
          , MonadLog String (Eff r)
          , SetMember Lift (Lift IO) r)
   => Eff r ()
 testServerLoop =
-  -- trapExit True
-    -- >>
     (forever $ serve $ ApiHandler handleCast handleCall handleTerminate)
   where
     handleCast :: Api TestApi 'Asynchronous -> Eff r ()
@@ -126,11 +119,6 @@ testServerLoop =
       me <- self
       logMessage (show me ++ " Got Hello: " ++ x)
       void (reply (length x > 3))
-    handleCall (SetTrapExit x) reply = do
-      me <- self
-      logMessage (show me ++ " setting trap exit to " ++ show x)
-      trapExit x
-      void (reply ())
     handleCall Terminate reply = do
       me <- self
       logMessage (show me ++ " exitting")
@@ -138,5 +126,5 @@ testServerLoop =
       raiseError "DONE"
     handleTerminate msg = do
       me <- self
-      logMessage (show me ++ " is exiting: " ++ msg)
-      raiseError msg
+      logMessage (show me ++ " is exiting: " ++ show msg)
+      maybe exitNormally raiseError msg

@@ -23,9 +23,6 @@ import           Control.Eff
 import           Control.Eff.Concurrent.Api
 import           Control.Eff.Concurrent.Api.Internal
 import           Control.Eff.Concurrent.MessagePassing
-import           Control.Lens
-import           Control.Monad
-import           Data.Kind
 import           Data.Proxy
 import           Data.Typeable (Typeable, typeRep)
 import           Data.Dynamic
@@ -41,31 +38,36 @@ data ApiHandler p r where
          => Api p ('Synchronous x) -> (x -> Eff r Bool) -> Eff r ()
      , _handleTerminate
          :: HasCallStack
-         => String -> Eff r ()
+         => Maybe String -> Eff r ()
      } -> ApiHandler p r
 
 serve
   :: forall r p
-   . (Typeable p, Member MessagePassing r, Member Process r, HasCallStack)
+   . (Typeable p, Member Process r, HasCallStack)
   => ApiHandler p r
   -> Eff r ()
-serve handlers@(ApiHandler handleCast handleCall handleTerminate) = do
-  mReq <- fmap fromDynamic <$> receiveMessage
-  case mReq of
-    ProcessControlMessage reason -> handleTerminate reason
-    MessageIgnored               -> serve handlers
-    Message Nothing              -> handleTerminate
-                                   "Unexpected message received"
-    Message (Just request)       -> handleRequest request
- where
-  handleRequest :: Request p -> Eff r ()
-  handleRequest (Cast request        ) = handleCast request
-  handleRequest (Call fromPid request) =
-    handleCall request sendReply
+serve handlers@(ApiHandler handleCast handleCall handleTerminate) =
+   do mReq <- send ReceiveMessage
+      case mReq of
+        RetryLastAction -> serve handlers
+        ShutdownRequested -> handleTerminate Nothing
+        OnError reason -> handleTerminate (Just reason)
+        ResumeWith dyn ->
+          case fromDynamic dyn of
+            Just request ->
+              handleRequest request
+            Nothing ->
+              handleTerminate
+              (Just ("bad message received: " ++ show dyn))
    where
-    sendReply :: Typeable x => x -> Eff r Bool
-    sendReply reply =
-      sendMessage fromPid (toDyn (Response (Proxy @p) reply))
+     handleRequest :: Request p -> Eff r ()
+     handleRequest (Cast request        ) = handleCast request
+     handleRequest (Call fromPid request) =
+       handleCall request sendReply
+      where
+       sendReply :: Typeable x => x -> Eff r Bool
+       sendReply reply =
+         sendMessage fromPid (toDyn (Response (Proxy @p) reply))
 
 unhandledCallError
   :: forall p x r .

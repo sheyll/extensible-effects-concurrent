@@ -42,7 +42,7 @@ import           GHC.Stack
 castChecked
   :: forall r o
    . ( HasCallStack
-     , Member MessagePassing r
+     , Member Process r
      , Typeable o
      , Typeable (Api o 'Asynchronous)
      )
@@ -50,38 +50,25 @@ castChecked
   -> Api o 'Asynchronous
   -> Eff r Bool
 castChecked (Server pid) callMsg =
-  sendMessage pid (toDyn (Cast callMsg))
+  sendMessage pid (toDyn  (Cast callMsg))
 
 cast
   :: forall r o
    . ( HasCallStack
-     , Member MessagePassing r
+     , Member Process r
      , Typeable o
      , Typeable (Api o 'Asynchronous)
      )
   => Server o
   -> Api o 'Asynchronous
   -> Eff r ()
-cast = ((.) . (.)) void castChecked
-
-receiveMessageAs
-  :: forall r a . (HasCallStack, Typeable a, Member MessagePassing r, Member Process r)
-  => Eff r (Message a)
-receiveMessageAs =
-  do messageDynamic <- receiveMessage
-     let castAndCheck dm =
-          case fromDynamic dm of
-           Nothing ->
-             Left ("Invalid message type received: " ++ show dm)
-           Just m ->
-             Right m
-     let maybeMessage = sequence (castAndCheck <$> messageDynamic)
-     either raiseError return maybeMessage
+cast toServer apiRequest =
+  do _ <- castChecked toServer apiRequest
+     return ()
 
 call
   :: forall result api r
-   . ( Member MessagePassing r
-     , Member Process r
+   . ( Member Process r
      , Typeable api
      , Typeable (Api api ( 'Synchronous result))
      , Typeable result
@@ -89,7 +76,7 @@ call
      )
   => Server api
   -> Api api ('Synchronous result)
-  -> Eff r (Message result)
+  -> Eff r result
 call (Server pidInt) req = do
   fromPid <- self
   let requestMessage = Call fromPid req
@@ -98,14 +85,13 @@ call (Server pidInt) req = do
     then
       let extractResult :: Response api result -> result
           extractResult (Response _pxResult result) = result
-      in fmap extractResult <$> receiveMessageAs
+      in extractResult <$> receiveMessageAs
     else raiseError
       ("Could not send request message " ++ show (typeRep requestMessage))
 
 
 type ServesApi o r =
   ( Typeable o
-  , Member MessagePassing r
   , Member Process r
   , Member (Reader (Server o)) r
   )
@@ -114,22 +100,23 @@ registerServer :: Server o -> Eff ( Reader (Server o) ': r ) a -> Eff r a
 registerServer = flip runReader
 
 callRegistered :: (Typeable reply, ServesApi o r)
-      => Api o ('Synchronous reply) -> Eff r (Message reply)
+      => Api o ('Synchronous reply) -> Eff r reply
 callRegistered method = do
   serverPid <- ask
   call serverPid method
 
 callRegisteredA
-  :: (Alternative f, Typeable f, Typeable reply, ServesApi o r)
+  :: forall r o f reply .
+    (Alternative f, Typeable f, Typeable reply, ServesApi o r)
   => Api o ('Synchronous (f reply))
   -> Eff r (f reply)
 callRegisteredA method = do
-  m <- callRegistered method
-  case m of
-    ProcessControlMessage _pm -> return empty
-    Message r                 -> return r
+  catchProcessError
+    (const (return (empty @f)))
+    (callRegistered method)
 
-castRegistered :: (Typeable o, ServesApi o r) => Api o 'Asynchronous -> Eff r ()
+castRegistered :: (Typeable o, ServesApi o r)
+               => Api o 'Asynchronous -> Eff r ()
 castRegistered method = do
   serverPid <- ask
   cast serverPid method

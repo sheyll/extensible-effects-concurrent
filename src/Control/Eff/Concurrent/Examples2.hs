@@ -61,11 +61,10 @@ data ServerState st a where
 
 counterServerLoop :: Eff ProcIO ()
 counterServerLoop = do
-  trapExit True
   evalState (manageObservers
              $ forever
              $ serve
-             $ ApiHandler @Counter handleCast handleCall error) 0
+             $ ApiHandler @Counter handleCast handleCall (error . show)) 0
  where
    handleCast :: Api Counter 'Asynchronous -> Eff CounterEff ()
    handleCast (ObserveCounter o) = do

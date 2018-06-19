@@ -64,20 +64,26 @@ import           Data.Typeable                  ( typeRep )
 import           Data.Map                       ( Map )
 import qualified Data.Map                      as Map
 
+-- | Internal type for the entries in the message in 'ProcessInfo'.
+data MessageQEntry =
+      MessageEntry Dynamic
+    | ShutdownRequestEntry
+    | ErrorEntry String
+  deriving (Show, Typeable)
+
 -- | Information about a process, needed to implement 'MessagePassing' and
--- 'Process' handlers. The message queue is backed by a 'STM.TQueue'.
+-- 'Process' handlers. The message queue is backed by a 'STM.TQueue' and contains
+-- 'MessageQEntry' values.
 data ProcessInfo =
                  ProcessInfo { _processId       :: ProcessId
-                             , _messageQ        :: STM.TQueue Dynamic
+                             , _messageQ        :: STM.TQueue MessageQEntry
                              , _exitOnShutdown  :: Bool
                              }
 
 makeLenses ''ProcessInfo
 
 instance Show ProcessInfo where
-  show p =
-    "ProcessInfo: " ++ show (p ^. processId) ++ " trapExit: "
-                      ++ show (not (p^.exitOnShutdown))
+  show p =  "ProcessInfo: " ++ show (p ^. processId)
 
 -- | Contains all 'ProcessInfo' elements, as well as the state needed to
 -- implement inter process communication. It contains also a 'LogChannel' to
@@ -99,21 +105,22 @@ newtype DispatcherVar = DispatcherVar { fromDispatcherVar :: STM.TVar Dispatcher
 
 -- | A sum-type with errors that can occur when dispatching messages.
 data DispatcherError =
-   UnhandledMessageReceived Dynamic ProcessId
-   -- ^ A process message queue contained a bad message and the 'Dynamic' value
-   -- could not be converted to the expected value using 'fromDynamic'.
-  | ProcessNotFound ProcessId
+    ProcessNotFound ProcessId
     -- ^ No 'ProcessInfo' was found for a 'ProcessId' during internal
     -- processing. NOTE: This is **ONLY** caused by internal errors, probably by
     -- an incorrect 'MessagePassing' handler in this module. **Sending a message
     -- to a process ALWAYS succeeds!** Even if the process does not exist.
-  | ProcessException String ProcessId
-    -- ^ A process called 'raiseError'.
-  | DispatcherShuttingDown
-    -- ^ An action was not performed while the dispatcher was exiting.
   | LowLevelIOException Exc.SomeException
     -- ^ 'Control.Exception.SomeException' was caught while dispatching
     -- messages.
+  | ProcessRaisedError String ProcessId
+    -- ^ A process called 'raiseError'.
+  | ProcessExitError String ProcessId
+    -- ^ A process called 'raiseError'.
+  | ProcessShuttingDown ProcessId
+    -- ^ A process exits.
+  | DispatcherShuttingDown
+    -- ^ An action was not performed while the dispatcher was exiting.
   deriving (Typeable, Show)
 
 instance Exc.Exception DispatcherError
@@ -141,7 +148,7 @@ type DispatcherIO =
 type ProcIO = ConsProcIO DispatcherIO
 
 -- | /Cons/ 'ProcIO' onto a list of effects.
-type ConsProcIO r = MessagePassing ': Process ': r
+type ConsProcIO r = Process ': r
 
 instance MonadLog String (Eff ProcIO) where
   logMessageFree = logMessageFreeEff
@@ -149,7 +156,7 @@ instance MonadLog String (Eff ProcIO) where
 -- | This is the main entry point to running a message passing concurrency
 -- application. This function takes a 'ProcIO' effect and a 'LogChannel' for
 -- concurrent logging.
-runMainProcess :: Eff ProcIO a -> LogChannel String -> IO a
+runMainProcess :: Eff ProcIO () -> LogChannel String -> IO ()
 runMainProcess e logC = withDispatcher
   (dispatchMessages
     (\cleanup -> do
@@ -220,7 +227,7 @@ runMainProcess e logC = withDispatcher
 
 -- | Start the message passing concurrency system then execute a 'ProcIO' effect.
 -- All logging is sent to standard output.
-defaultMain :: Eff ProcIO a -> IO a
+defaultMain :: Eff ProcIO () -> IO ()
 defaultMain c =
   runLoggingT
     (logChannelBracket
@@ -229,11 +236,10 @@ defaultMain c =
       (runMainProcess c))
     (print :: String -> IO ())
 
-
 runChildProcess
   :: DispatcherVar
-  -> (CleanUpAction -> Eff ProcIO a)
-  -> IO (Either DispatcherError a)
+  -> (CleanUpAction -> Eff ProcIO ())
+  -> IO (Either DispatcherError ())
 runChildProcess s procAction = do
   l <- (view logChannel) <$> atomically (readTVar (fromDispatcherVar s))
   runLift
@@ -312,97 +318,96 @@ spawn mfa = do
 newtype CleanUpAction = CleanUpAction { runCleanUpAction :: IO () }
 
 dispatchMessages
-  :: forall r a
+  :: forall r
    . (HasDispatcherIO r, HasCallStack)
-  => (CleanUpAction -> Eff (ConsProcIO r) a)
-  -> Eff r a
-dispatchMessages processAction = withMessageQueue
+  => (CleanUpAction -> Eff (ConsProcIO r) ())
+  -> Eff r ()
+dispatchMessages processAction =
+  withMessageQueue
   (\cleanUpAction pinfo ->
-     try
-     (handle_relay
-      return
-      (goProc (pinfo ^. processId))
-       (handle_relay return (go (pinfo ^. processId))
-        (processAction cleanUpAction)
-       ))
+     try (void (handle_relay
+                return
+                (go (pinfo ^. processId))
+                (processAction cleanUpAction)))
      >>=
      either
      (\(e :: DispatcherError) ->
-        do logMsg (show (pinfo^.processId)
-                    ++ " cleanup on exception: "
-                    ++ show e)
-           lift (runCleanUpAction cleanUpAction)
-           throwError e)
-     return
-  )
+          case e of
+            ProcessShuttingDown pid ->
+                do logMsg (show pid ++ " start cleanup after shutdown.")
+                   lift (runCleanUpAction cleanUpAction)
+            ProcessExitError msg pid ->
+                do logMsg (show pid ++ " start cleanup after exit with error: " ++ msg)
+                   lift (runCleanUpAction cleanUpAction)
+            ProcessRaisedError msg pid ->
+                do logMsg (show pid ++ " start cleanup after unhandled error: " ++ msg)
+                   lift (runCleanUpAction cleanUpAction)
+            DispatcherShuttingDown ->
+                do logMsg (show (pinfo^.processId)
+                            ++ " start cleanup after shutdown caused by"
+                            ++ " a dispatcher shutdown.")
+                   lift (runCleanUpAction cleanUpAction)
+            _ ->
+                do logMsg (show (pinfo^.processId)
+                            ++ " cleanup on exception: "
+                            ++ show e)
+                   lift (runCleanUpAction cleanUpAction)
+                   throwError e)
+     return)
+
  where
   go
-    :: forall v
-     . HasCallStack
-    => ProcessId
-    -> MessagePassing v
-    -> (v -> Eff (Process ': r) a)
-    -> Eff (Process ': r) a
-  go _pid (SendMessage toPid reqIn) k = do
-    psVar <- getDispatcherTVar
-    liftRethrow
-        LowLevelIOException
-        (atomically
-          (do
-            p <- readTVar psVar
-            let mto = p ^. processTable . at toPid
-            case mto of
-              Just toProc ->
-                let dReq = toDyn reqIn
-                in  do
-                      writeTQueue (toProc ^. messageQ) dReq
-                      return True
-              Nothing -> return False
-          )
-        )
-      >>= k
-  go pid (ReceiveMessage onMsg) k = do
-    catchError
-      (do
-        mDynMsg <- overProcessInfo pid
-          (do
-            mq <- use messageQ
-            Mtl.lift (readTQueue mq))
-        case onMsg mDynMsg of
-          Just result -> k (Message result)
-          nix@Nothing ->
-            let
-              msg = "unexpected message: "
-                  ++ show mDynMsg
-                  ++ " expected: "
-                  ++ show (typeRep nix)
-            in do isExitOnShutdown <- overProcessInfo pid (use exitOnShutdown)
-                  if isExitOnShutdown
-                    then throwError (UnhandledMessageReceived mDynMsg pid)
-                    else k (ProcessControlMessage msg)
-      )
-      (\(se :: DispatcherError) -> do
-        isExitOnShutdown <- overProcessInfo pid (use exitOnShutdown)
-        if isExitOnShutdown
-          then throwError se
-          else k (ProcessControlMessage (show se))
-      )
-
-  goProc
-    :: forall v x
+    :: forall v a
      . HasCallStack
     => ProcessId
     -> Process v
-    -> (v -> Eff r x)
-    -> Eff r x
-  goProc pid SelfPid k = k pid
-  goProc pid (TrapExit s) k =
-    overProcessInfo pid (exitOnShutdown .= (not s)) >>= k
-  goProc pid GetTrapExit k =
-    overProcessInfo pid (use exitOnShutdown) >>= k . not
-  goProc pid (RaiseError msg) _k = do
+    -> (v -> Eff r a)
+    -> Eff r a
+  go _pid (SendMessage toPid reqIn) k =
+    do resumeRes <- catchError
+         (do psVar <- getDispatcherTVar
+             res <- liftRethrow LowLevelIOException
+                     (atomically
+                        (do p <- readTVar psVar
+                            let mto = p ^. processTable . at toPid
+                            case mto of
+                              Just toProc ->
+                                do writeTQueue (toProc ^. messageQ) (MessageEntry reqIn)
+                                   return True
+                              Nothing ->
+                                return False))
+             return (ResumeWith res))
+         (return . OnError . show @DispatcherError)
+       k resumeRes
+  go pid ReceiveMessage k =
+    do resumeRes <-
+         catchError
+         (do
+           dynMsg <- overProcessInfo pid
+             (do
+               mq <- use messageQ
+               Mtl.lift (readTQueue mq))
+           case dynMsg of
+             MessageEntry m -> return (ResumeWith m)
+             ErrorEntry e -> return (OnError e)
+             ShutdownRequestEntry -> return ShutdownRequested)
+         (\(se :: DispatcherError) ->
+            return (OnError (show se)))
+       k resumeRes
+
+  go pid SelfPid k = k (ResumeWith pid)
+
+  go pid Shutdown _k = do
+    logMsg (show pid ++ " process exited normally.")
+    throwError (ProcessShuttingDown pid)
+
+  go pid (ExitWithError msg) _k = do
+    logMsg (show pid ++ " process exited with error: " ++ msg)
+    throwError (ProcessExitError msg pid)
+
+  go pid (RaiseError msg) _k = do
     logMsg (show pid ++ " error raised: " ++ msg)
-    throwError (ProcessException msg pid)
+    throwError (ProcessRaisedError msg pid)
 
 withMessageQueue
   :: HasDispatcherIO r => (CleanUpAction -> ProcessInfo -> Eff r a) -> Eff r a
