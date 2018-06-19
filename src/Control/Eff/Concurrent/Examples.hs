@@ -25,7 +25,7 @@ import Control.Eff.Concurrent.Api
 import Control.Eff.Concurrent.Api.Client
 import Control.Eff.Concurrent.Api.Server
 import Control.Eff.Concurrent.MessagePassing
-import Control.Eff.Concurrent.Dispatcher
+import Control.Eff.Concurrent.Dispatcher as Dispatcher
 import Control.Eff.Log
 import qualified Control.Exception as Exc
 
@@ -49,21 +49,25 @@ deriving instance Show (Api TestApi x)
 main :: IO ()
 main = defaultMain (example usingIoDispatcher)
 
+mainProcessSpawnsAChildAndReturns
+  :: ( HasCallStack, SetMember Process (Process q) r)
+  => SchedulerProxy q -> Eff r ()
+mainProcessSpawnsAChildAndReturns px =
+  void (spawn (void (receiveMessage px)))
+
 example
   :: ( HasCallStack
-    , Member (Logs String) r
-    , HasDispatcherIO r
     , SetMember Process (Process q) r
-    , MonadLog String (Eff r)
-    , SetMember Lift (Lift IO) q
+    , Member (Logs String) r
     , Member (Logs String) q
+    , SetMember Lift (Lift IO) q
     , SetMember Lift (Lift IO) r)
   => SchedulerProxy q -> Eff r ()
 example px = do
   me <- self px
-  logMessage ("I am " ++ show me)
+  logMsg ("I am " ++ show me)
   server <- asServer @TestApi <$> spawn testServerLoop
-  logMessage ("Started server " ++ show server)
+  logMsg ("Started server " ++ show server)
   let go = do
         x <- lift getLine
         case x of
@@ -77,8 +81,9 @@ example px = do
             castRegistered px (Shout x)
             go
           ('r':rest) -> do
-            replicateM (read rest)
-               (castRegistered px (Shout x))
+            void (replicateM
+                  (read rest)
+                  (castRegistered px (Shout x)))
             go
           ('q':_) ->
             logMsg "Done."

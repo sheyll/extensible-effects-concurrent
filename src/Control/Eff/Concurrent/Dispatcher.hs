@@ -115,7 +115,7 @@ data DispatcherError =
   | ProcessRaisedError String ProcessId
     -- ^ A process called 'raiseError'.
   | ProcessExitError String ProcessId
-    -- ^ A process called 'raiseError'.
+    -- ^ A process called 'exitWithError'.
   | ProcessShuttingDown ProcessId
     -- ^ A process exits.
   | DispatcherShuttingDown
@@ -454,16 +454,9 @@ withMessageQueue m = do
     didWork <- Exc.try
       (overDispatcherIO
         psVar
-        (do
-          abortNow <- use schedulerShuttingDown
-          if abortNow
-            then return (Nothing, False)
-            else do
-              os <- processTable . at pid <<.= Nothing
-              ot <- threadIdTable . at pid <<.= Nothing
-              return (os, isJust os || isJust ot)
-        )
-      )
+        (do os <- processTable . at pid <<.= Nothing
+            ot <- threadIdTable . at pid <<.= Nothing
+            return (os, isJust os || isJust ot)))
     let getCause =
           Exc.try @Exc.SomeException
               (overDispatcherIO psVar (preuse (processTable . at pid)))

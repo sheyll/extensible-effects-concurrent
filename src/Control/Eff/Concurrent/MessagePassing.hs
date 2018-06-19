@@ -168,7 +168,7 @@ receiveMessage _ = do
 
 -- | Receive and cast the message to some 'Typeable' instance.
 receiveMessageAs
-  :: forall r q a .
+  :: forall a r q .
     (HasCallStack, Typeable a, SetMember Process (Process q) r)
   => SchedulerProxy q -> Eff r a
 receiveMessageAs px =

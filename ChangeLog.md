@@ -1,6 +1,14 @@
 # Changelog for extensible-effects-concurrent
 
+## 0.2.0.0
+
+	* Add 'Spawn' to 'Process'
+	* Merge 'MessagePassing' and 'Process'
+	* Add initial small test suite
+	* Fix shutdown error in Dispatcher
+
 ## 0.1.3.0
+
 	* Rename and split `GenServer` to `Api`, `Api.Client`, `Api.Server`
 	* Add `registerServer`, `callRegistered` and `castRegistered`
 	* Remove the variant of `cast` that returns a boolean
