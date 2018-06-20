@@ -48,8 +48,8 @@ library
       Control.Eff.Concurrent.Api,
       Control.Eff.Concurrent.Api.Client,
       Control.Eff.Concurrent.Api.Server,
-      Control.Eff.Concurrent.Dispatcher,
-      Control.Eff.Concurrent.MessagePassing,
+      Control.Eff.Concurrent.ForkIOScheduler,
+      Control.Eff.Concurrent.Process,
       Control.Eff.Concurrent.Observer
   other-modules:
       Control.Eff.Concurrent.Api.Internal,
@@ -83,7 +83,7 @@ test-suite extensible-effects-concurrent-test
   hs-source-dirs: test
   other-modules:
                 Paths_extensible_effects_concurrent
-              , ForkIODispatcher
+              , ForkIOScheduler
   ghc-options: -threaded -rtsopts -with-rtsopts=-N
   build-depends:
                 base >=4.9 && <5

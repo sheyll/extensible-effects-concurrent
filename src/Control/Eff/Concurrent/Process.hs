@@ -4,7 +4,7 @@
 -- effect, mimicking Erlang's process and message semantics.
 --
 -- An implementation of a handler for these effects can be found in
--- 'Control.Eff.Concurrent.Dispatcher'.
+-- 'Control.Eff.Concurrent.ForkIOScheduler'.
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
@@ -22,7 +22,7 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE GADTs #-}
-module Control.Eff.Concurrent.MessagePassing
+module Control.Eff.Concurrent.Process
   ( ProcessId(..)
   , fromProcessId
   , Process(..)
@@ -80,7 +80,7 @@ data Process (r :: [Type -> Type]) b where
   -- result is returned as 'ProcessMessage' value. Another reason why this function
   -- returns, is if a process control message was sent to the process. This can
   -- only occur from inside the runtime system, aka the effect handler
-  -- implementation. (Currently there is one in 'Control.Eff.Concurrent.Dispatcher'.)
+  -- implementation. (Currently there is one in 'Control.Eff.Concurrent.ForkIOScheduler'.)
   ReceiveMessage :: Process r (ResumeProcess Dynamic)
 
 -- | Every 'Process' action returns it's actual result wrapped in this type. It

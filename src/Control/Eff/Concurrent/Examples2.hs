@@ -19,11 +19,11 @@ module Control.Eff.Concurrent.Examples2 where
 
 import Data.Dynamic
 import Control.Eff
-import Control.Eff.Concurrent.Dispatcher
+import Control.Eff.Concurrent.ForkIOScheduler
 import Control.Eff.Concurrent.Api
 import Control.Eff.Concurrent.Api.Server
 import Control.Eff.Concurrent.Api.Client
-import Control.Eff.Concurrent.MessagePassing
+import Control.Eff.Concurrent.Process
 import Control.Eff.Concurrent.Observer
 import Control.Eff.Log
 import Control.Eff.State.Lazy
@@ -48,9 +48,9 @@ instance Observable Counter where
 
 logCounterObservations :: Eff ProcIO (Server (CallbackObserver Counter))
 logCounterObservations =
-  spawnCallbackObserver usingIoDispatcher
+  spawnCallbackObserver forkIoScheduler
   (\fromSvr msg ->
-     do me <- self usingIoDispatcher
+     do me <- self forkIoScheduler
         logMsg (show me ++ " observed on: " ++ show fromSvr ++ ": " ++ show msg)
         return True)
 
@@ -63,7 +63,7 @@ counterServerLoop :: Eff ProcIO ()
 counterServerLoop = do
   evalState (manageObservers
              $ forever
-             $ serve usingIoDispatcher
+             $ serve forkIoScheduler
              $ ApiHandler @Counter handleCast handleCall (error . show)) 0
  where
    handleCast :: Api Counter 'Asynchronous -> Eff CounterEff ()
@@ -75,7 +75,7 @@ counterServerLoop = do
      logMsg "Inc"
      modify (+ (1 :: Integer))
      currentCount <- get
-     notifyObservers usingIoDispatcher (CountChanged currentCount)
+     notifyObservers forkIoScheduler (CountChanged currentCount)
    handleCall :: Api Counter ('Synchronous x) -> (x -> Eff CounterEff Bool) -> Eff CounterEff ()
    handleCall Cnt reply = do
      c <- get
@@ -89,7 +89,7 @@ counterExample :: Eff ProcIO ()
 counterExample = do
   let cnt sv = do r <- call px sv Cnt
                   logMsg (show sv ++ " " ++ show r)
-      px = usingIoDispatcher
+      px = forkIoScheduler
   server1 <- asServer @Counter <$> spawn counterServerLoop
   server2 <- asServer @Counter <$> spawn counterServerLoop
   cast px server1 Inc

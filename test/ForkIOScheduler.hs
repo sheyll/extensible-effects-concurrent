@@ -1,7 +1,7 @@
-module ForkIODispatcher where
+module ForkIOScheduler where
 
-import Control.Eff.Concurrent.MessagePassing
-import Control.Eff.Concurrent.Dispatcher as Dispatcher
+import Control.Eff.Concurrent.Process
+import Control.Eff.Concurrent.ForkIOScheduler as Scheduler
 import Control.Monad (void)
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -15,8 +15,8 @@ test_mainProcessSpawnsAChildAndReturns =
   localOption
   (timeoutSeconds 2)
   (testCase "spawn a child and return"
-   (Dispatcher.defaultMain
-     (void (spawn (void (receiveMessage usingIoDispatcher))))))
+   (Scheduler.defaultMain
+     (void (spawn (void (receiveMessage forkIoScheduler))))))
 
 
 test_mainProcessSpawnsAChildAndExitsNormally :: TestTree
@@ -24,9 +24,9 @@ test_mainProcessSpawnsAChildAndExitsNormally =
   localOption
   (timeoutSeconds 2)
   (testCase "spawn a child and exit normally"
-   (Dispatcher.defaultMain
-     (do void (spawn (void (receiveMessage usingIoDispatcher)))
-         void (exitNormally usingIoDispatcher)
+   (Scheduler.defaultMain
+     (do void (spawn (void (receiveMessage forkIoScheduler)))
+         void (exitNormally forkIoScheduler)
          fail "This should not happen!!"
      )))
 
@@ -36,9 +36,9 @@ test_mainProcessSpawnsAChildBothReturn =
   localOption
   (timeoutSeconds 2)
   (testCase "spawn a child and let it return and return"
-   (Dispatcher.defaultMain
-     (do child <- spawn (void (receiveMessageAs @String usingIoDispatcher))
-         True <- sendMessage usingIoDispatcher child (toDyn "test")
+   (Scheduler.defaultMain
+     (do child <- spawn (void (receiveMessageAs @String forkIoScheduler))
+         True <- sendMessage forkIoScheduler child (toDyn "test")
          return ()
      )))
 
@@ -47,13 +47,13 @@ test_mainProcessSpawnsAChildBothExitNormally =
   localOption
   (timeoutSeconds 2)
   (testCase "spawn a child and let it return and return"
-   (Dispatcher.defaultMain
+   (Scheduler.defaultMain
      (do child <- spawn
-                 (do void (receiveMessageAs @String usingIoDispatcher)
-                     exitNormally usingIoDispatcher
+                 (do void (receiveMessageAs @String forkIoScheduler)
+                     exitNormally forkIoScheduler
                      error "This should not happen (child)!!"
                  )
-         True <- sendMessage usingIoDispatcher child (toDyn "test")
-         void (exitNormally usingIoDispatcher)
+         True <- sendMessage forkIoScheduler child (toDyn "test")
+         void (exitNormally forkIoScheduler)
          error "This should not happen!!"
      )))

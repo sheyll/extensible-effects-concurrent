@@ -33,7 +33,7 @@ import           Control.Monad
 import           Data.Typeable (Typeable, typeRep)
 import           Data.Proxy
 import           Control.Eff.Reader.Lazy
-import           Control.Eff.Concurrent.MessagePassing
+import           Control.Eff.Concurrent.Process
 
 -- | This data family defines an API implemented by a server.
 -- The first parameter is the API /index/ and the second parameter

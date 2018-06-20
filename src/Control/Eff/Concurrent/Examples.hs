@@ -24,8 +24,8 @@ import Data.Dynamic
 import Control.Eff.Concurrent.Api
 import Control.Eff.Concurrent.Api.Client
 import Control.Eff.Concurrent.Api.Server
-import Control.Eff.Concurrent.MessagePassing
-import Control.Eff.Concurrent.Dispatcher as Dispatcher
+import Control.Eff.Concurrent.Process
+import Control.Eff.Concurrent.ForkIOScheduler as Scheduler
 import Control.Eff.Log
 import qualified Control.Exception as Exc
 
@@ -47,7 +47,7 @@ instance Exc.Exception MyException
 deriving instance Show (Api TestApi x)
 
 main :: IO ()
-main = defaultMain (example usingIoDispatcher)
+main = defaultMain (example forkIoScheduler)
 
 mainProcessSpawnsAChildAndReturns
   :: ( HasCallStack, SetMember Process (Process q) r)

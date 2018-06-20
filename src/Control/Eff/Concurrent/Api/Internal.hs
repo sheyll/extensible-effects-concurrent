@@ -24,7 +24,7 @@ where
 import           Data.Typeable (Typeable)
 import           Data.Proxy
 import           Control.Eff.Concurrent.Api
-import           Control.Eff.Concurrent.MessagePassing
+import           Control.Eff.Concurrent.Process
 
 data Request api where
   Call :: forall api apiCallReplyType . (Typeable api, Typeable apiCallReplyType, Typeable (Api api ('Synchronous apiCallReplyType)))

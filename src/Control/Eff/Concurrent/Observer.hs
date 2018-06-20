@@ -45,11 +45,10 @@ import Data.Set (Set)
 import Data.Proxy
 import qualified Data.Set as Set
 import Control.Eff
-import Control.Eff.Concurrent.MessagePassing
+import Control.Eff.Concurrent.Process
 import Control.Eff.Concurrent.Api
 import Control.Eff.Concurrent.Api.Client
 import Control.Eff.Concurrent.Api.Server
-import Control.Eff.Concurrent.Dispatcher
 import Control.Eff.Log
 import Control.Eff.State.Lazy
 import Control.Lens
@@ -178,7 +177,7 @@ notifyObservers px observation = do
 
 -- * Callback 'Observer'
 
--- | An 'Observer' that dispatches the observations to an effectful callback.
+-- | An 'Observer' that schedules the observations to an effectful callback.
 data CallbackObserver o
   deriving Typeable
 
@@ -192,7 +191,7 @@ deriving instance Show (Observation o) => Show (Api (CallbackObserver o) r)
 instance (Observable o) => Observer (CallbackObserver o) o where
   observationMessage = CbObserved
 
--- | Start a new process for an 'Observer' that dispatches
+-- | Start a new process for an 'Observer' that schedules
 -- all observations to an effectful callback.
 spawnCallbackObserver
   :: forall o r q .

@@ -22,7 +22,7 @@ where
 import           Control.Eff
 import           Control.Eff.Concurrent.Api
 import           Control.Eff.Concurrent.Api.Internal
-import           Control.Eff.Concurrent.MessagePassing
+import           Control.Eff.Concurrent.Process
 import           Data.Proxy
 import           Data.Typeable (Typeable, typeRep)
 import           Data.Dynamic
