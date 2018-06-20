@@ -19,6 +19,8 @@ module Control.Eff.Log
   , module ExtLog
   , LogChannel()
   , logChannelPutIO
+  , captureLogs
+  , ignoreLogs
   , forwardLogsToChannel
   , forkLogChannel
   , joinLogChannel
@@ -36,9 +38,11 @@ import           Control.Monad                  ( void
 import           Control.Monad.Log             as ExtLog
                                          hiding ( )
 import           Control.Monad.Trans.Control
-import           Data.Kind
+import           Data.Kind()
 import qualified Control.Eff.Lift              as Eff
 import qualified Control.Monad.Log             as Log
+import           Data.Sequence                 (Seq())
+import qualified Data.Sequence                 as Seq
 
 -- | The 'Eff'ect type to wrap 'ExtLog.MonadLog'.
 -- This is a
@@ -55,6 +59,32 @@ logMessageFreeEff foldMapish = send (LogMessageFree foldMapish)
 -- | Effectful version of the 'ExtLog.logMessage' function.
 logMsg :: Member (Logs m) r => m -> Eff r ()
 logMsg msg = logMessageFreeEff ($ msg)
+
+-- | Capture the logs in a 'Seq'.
+captureLogs :: Eff (Logs message ':  r) a
+            -> Eff r (a, Seq message)
+captureLogs actionThatLogs =
+  Eff.handle_relay_s
+     Seq.empty
+     (\logs result -> return (result, logs))
+     handleLogs
+     actionThatLogs
+  where
+    handleLogs :: Seq message
+               -> Logs message x
+               -> (Seq message -> Arr r x y)
+               -> Eff r y
+    handleLogs logs (LogMessageFree foldMapish) k =
+      k (logs Seq.>< foldMapish Seq.singleton) ()
+
+-- | Throw away all log messages.
+ignoreLogs :: Eff (Logs message ':  r) a
+           -> Eff r a
+ignoreLogs actionThatLogs =
+  Eff.handle_relay return handleLogs actionThatLogs
+  where
+    handleLogs :: Logs m x -> Arr r x y -> Eff r y
+    handleLogs (LogMessageFree _) k = k ()
 
 -- | Handle 'Logs' effects using 'Log.LoggingT' 'Log.Handler's.
 handleLogsWith
@@ -78,7 +108,7 @@ handleLogsWith actionThatLogs foldHandler = Eff.handle_relay return
 data LogChannel message =
   LogChannel { fromLogChannel :: TQueue message
              , logChannelOpen :: TVar Bool
-             , logChannelThread :: ThreadId
+             , _logChannelThread :: ThreadId
              }
 
 -- | Send the log messages to a 'LogChannel'.
@@ -167,7 +197,5 @@ logChannelBracket
   -> LoggingT message IO a
 logChannelBracket mWelcome mGoodbye f = control
   (\runInIO -> do
-    myTId <- myThreadId
     let logHandler = void . runInIO . logMessage
-    bracket (forkLogChannel logHandler mWelcome) (joinLogChannel mGoodbye) f
-  )
+    bracket (forkLogChannel logHandler mWelcome) (joinLogChannel mGoodbye) f)

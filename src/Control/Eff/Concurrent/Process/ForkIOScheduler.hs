@@ -6,7 +6,7 @@
 -- This aims to be a pragmatic implementation, so even logging is
 -- supported.
 --
--- At the core is a /main process/ that enters 'runMainProcess'
+-- At the core is a /main process/ that enters 'schedule'
 -- and creates all of the internal state stored in 'STM.TVar's
 -- to manage processes with message queues.
 --
@@ -31,20 +31,19 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE GADTs #-}
-module Control.Eff.Concurrent.ForkIOScheduler
-  ( runMainProcess
+module Control.Eff.Concurrent.Process.ForkIOScheduler
+  ( schedule
   , defaultMain
   , SchedulerError(..)
   , SchedulerIO
   , forkIoScheduler
   , HasSchedulerIO
-  , ProcIO
   )
 where
 
 import           GHC.Stack
 import           Data.Maybe
-import           Data.Kind
+import           Data.Kind ()
 import qualified Control.Exception             as Exc
 import           Control.Concurrent            as Concurrent
 import           Control.Concurrent.STM        as STM
@@ -76,7 +75,6 @@ data MessageQEntry =
 data ProcessInfo =
                  ProcessInfo { _processId       :: ProcessId
                              , _messageQ        :: STM.TQueue MessageQEntry
-                             , _exitOnShutdown  :: Bool
                              }
 
 makeLenses ''ProcessInfo
@@ -126,7 +124,7 @@ instance Exc.Exception SchedulerError
 
 -- | An alias for the constraints for the effects essential to this scheduler
 -- implementation, i.e. these effects allow 'spawn'ing new 'Process'es.
--- @see SchedulerIO
+-- See SchedulerIO
 type HasSchedulerIO r = ( HasCallStack
                         , SetMember Lift (Lift IO) r
                         , Member (Exc SchedulerError) r
@@ -134,7 +132,7 @@ type HasSchedulerIO r = ( HasCallStack
                         , Member (Reader SchedulerVar) r)
 
 -- | The concrete list of 'Eff'ects for this scheduler implementation.
--- @see HasSchedulerIO
+-- See HasSchedulerIO
 type SchedulerIO =
               '[ Exc SchedulerError
                , Reader SchedulerVar
@@ -142,25 +140,18 @@ type SchedulerIO =
                , Lift IO
                ]
 
--- | The concrete list of 'Eff'ects that provide 'MessagePassing' and
--- 'Process'es on top of 'SchedulerIO'
-type ProcIO = ConsProcess SchedulerIO
-
--- | /Cons/ 'ProcIO' onto a list of effects.
-type ConsProcess r = Process r ': r
-
 -- | A 'SchedulerProxy' for 'SchedulerIO'
 forkIoScheduler :: SchedulerProxy SchedulerIO
 forkIoScheduler = SchedulerProxy
 
-instance MonadLog String (Eff ProcIO) where
+instance MonadLog String (Eff (ConsProcess SchedulerIO)) where
   logMessageFree = logMessageFreeEff
 
 -- | This is the main entry point to running a message passing concurrency
--- application. This function takes a 'ProcIO' effect and a 'LogChannel' for
--- concurrent logging.
-runMainProcess :: Eff ProcIO () -> LogChannel String -> IO ()
-runMainProcess e logC = withScheduler
+-- application. This function takes a 'Process' on top of the 'SchedulerIO'
+-- effect and a 'LogChannel' for concurrent logging.
+schedule :: Eff (ConsProcess SchedulerIO) () -> LogChannel String -> IO ()
+schedule e logC = withScheduler
   (scheduleMessages
     (\cleanup -> do
       mt <- lift myThreadId
@@ -173,7 +164,7 @@ runMainProcess e logC = withScheduler
               logMessage
                 (  show mp
                 ++ " main process exception: "
-                ++ ((show :: SchedulerError -> String) ex)
+                ++ show @SchedulerError ex
                 )
               lift (runCleanUpAction cleanup)
             >> throwError ex
@@ -227,21 +218,20 @@ runMainProcess e logC = withScheduler
         >> killThread tid
         )
 
-
--- | Start the message passing concurrency system then execute a 'ProcIO' effect.
--- All logging is sent to standard output.
-defaultMain :: Eff ProcIO () -> IO ()
+-- | Start the message passing concurrency system then execute a 'Process' on
+-- top of 'SchedulerIO' effect. All logging is sent to standard output.
+defaultMain :: Eff (ConsProcess SchedulerIO) () -> IO ()
 defaultMain c =
   runLoggingT
     (logChannelBracket
       (Just "~~~~~~ main process started")
       (Just "====== main process exited")
-      (runMainProcess c))
+      (schedule c))
     (print :: String -> IO ())
 
 runChildProcess
   :: SchedulerVar
-  -> (CleanUpAction -> Eff ProcIO ())
+  -> (CleanUpAction -> Eff (ConsProcess SchedulerIO) ())
   -> IO (Either SchedulerError ())
 runChildProcess s procAction = do
   l <- (view logChannel) <$> atomically (readTVar (fromSchedulerVar s))
@@ -323,7 +313,7 @@ newtype CleanUpAction = CleanUpAction { runCleanUpAction :: IO () }
 
 scheduleMessages
   :: HasCallStack
-  => (CleanUpAction -> Eff ProcIO ())
+  => (CleanUpAction -> Eff (ConsProcess SchedulerIO) ())
   -> Eff SchedulerIO ()
 scheduleMessages processAction =
   withMessageQueue
@@ -443,7 +433,7 @@ withMessageQueue m = do
           else do
             pid     <- nextPid <<+= 1
             channel <- Mtl.lift newTQueue
-            let pinfo = ProcessInfo pid channel True
+            let pinfo = ProcessInfo pid channel
             threadIdTable . at pid .= Just myTId
             processTable . at pid .= Just pinfo
             return (Just pinfo)
@@ -491,8 +481,3 @@ overSchedulerIO psVar stAction = STM.atomically
 
 getSchedulerTVar :: HasSchedulerIO r => Eff r (TVar Scheduler)
 getSchedulerTVar = fromSchedulerVar <$> ask
-
-getScheduler :: HasSchedulerIO r => Eff r Scheduler
-getScheduler = do
-  processesVar <- getSchedulerTVar
-  lift (atomically (readTVar processesVar))

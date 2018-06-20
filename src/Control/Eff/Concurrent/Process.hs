@@ -4,7 +4,7 @@
 -- effect, mimicking Erlang's process and message semantics.
 --
 -- An implementation of a handler for these effects can be found in
--- 'Control.Eff.Concurrent.ForkIOScheduler'.
+-- 'Control.Eff.Concurrent.Process.ForkIOScheduler'.
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
@@ -26,6 +26,7 @@ module Control.Eff.Concurrent.Process
   ( ProcessId(..)
   , fromProcessId
   , Process(..)
+  , ConsProcess
   , ResumeProcess(..)
   , SchedulerProxy(..)
   , thisSchedulerProxy
@@ -80,7 +81,7 @@ data Process (r :: [Type -> Type]) b where
   -- result is returned as 'ProcessMessage' value. Another reason why this function
   -- returns, is if a process control message was sent to the process. This can
   -- only occur from inside the runtime system, aka the effect handler
-  -- implementation. (Currently there is one in 'Control.Eff.Concurrent.ForkIOScheduler'.)
+  -- implementation. (Currently there is one in 'Control.Eff.Concurrent.Process.ForkIOScheduler'.)
   ReceiveMessage :: Process r (ResumeProcess Dynamic)
 
 -- | Every 'Process' action returns it's actual result wrapped in this type. It
@@ -97,6 +98,9 @@ data ResumeProcess v where
   -- | This indicates that the action did not complete, and maybe retried
   RetryLastAction :: ResumeProcess v
   deriving (Typeable, Foldable, Functor, Show, Eq, Ord, Traversable)
+
+-- | /Cons/ 'Process' onto a list of effects.
+type ConsProcess r = Process r ': r
 
 -- | Execute a 'Process' action and resume the process, retry the action or exit
 -- the process depending on the 'ResumeProcess' clause.
@@ -138,7 +142,7 @@ thisSchedulerProxy :: Eff (Process r ': r) (SchedulerProxy r)
 thisSchedulerProxy = return SchedulerProxy
 
 -- | Send a message to a process addressed by the 'ProcessId'.
--- @see 'SendMessage'.
+-- See 'SendMessage'.
 sendMessage
   :: forall r q
    . (HasCallStack, SetMember Process (Process q) r)

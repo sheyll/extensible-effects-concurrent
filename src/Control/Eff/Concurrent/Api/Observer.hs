@@ -21,7 +21,7 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE GADTs #-}
-module Control.Eff.Concurrent.Observer
+module Control.Eff.Concurrent.Api.Observer
   ( Observer(..)
   , Observable(..)
   , notifyObserver
@@ -42,7 +42,6 @@ import GHC.Stack
 import Data.Dynamic
 import Data.Maybe
 import Data.Set (Set)
-import Data.Proxy
 import qualified Data.Set as Set
 import Control.Eff
 import Control.Eff.Concurrent.Process

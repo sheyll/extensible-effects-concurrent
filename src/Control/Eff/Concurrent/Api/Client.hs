@@ -33,9 +33,7 @@ import           Control.Eff.Reader.Lazy
 import           Control.Eff.Concurrent.Api
 import           Control.Eff.Concurrent.Api.Internal
 import           Control.Eff.Concurrent.Process
-import           Control.Monad
 import           Data.Dynamic
-import           Data.Proxy
 import           Data.Typeable (Typeable, typeRep)
 import           GHC.Stack
 

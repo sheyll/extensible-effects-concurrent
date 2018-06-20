@@ -1,7 +1,7 @@
 module ForkIOScheduler where
 
 import Control.Eff.Concurrent.Process
-import Control.Eff.Concurrent.ForkIOScheduler as Scheduler
+import Control.Eff.Concurrent.Process.ForkIOScheduler as Scheduler
 import Control.Monad (void)
 import Test.Tasty
 import Test.Tasty.HUnit

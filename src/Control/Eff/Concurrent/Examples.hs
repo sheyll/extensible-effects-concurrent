@@ -25,7 +25,7 @@ import Control.Eff.Concurrent.Api
 import Control.Eff.Concurrent.Api.Client
 import Control.Eff.Concurrent.Api.Server
 import Control.Eff.Concurrent.Process
-import Control.Eff.Concurrent.ForkIOScheduler as Scheduler
+import Control.Eff.Concurrent.Process.ForkIOScheduler as Scheduler
 import Control.Eff.Log
 import qualified Control.Exception as Exc
 

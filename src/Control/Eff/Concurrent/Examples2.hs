@@ -19,12 +19,12 @@ module Control.Eff.Concurrent.Examples2 where
 
 import Data.Dynamic
 import Control.Eff
-import Control.Eff.Concurrent.ForkIOScheduler
+import Control.Eff.Concurrent.Process.ForkIOScheduler
 import Control.Eff.Concurrent.Api
 import Control.Eff.Concurrent.Api.Server
 import Control.Eff.Concurrent.Api.Client
 import Control.Eff.Concurrent.Process
-import Control.Eff.Concurrent.Observer
+import Control.Eff.Concurrent.Api.Observer
 import Control.Eff.Log
 import Control.Eff.State.Lazy
 import Control.Monad
@@ -46,7 +46,7 @@ instance Observable Counter where
   registerObserverMessage os = ObserveCounter os
   forgetObserverMessage os = UnobserveCounter os
 
-logCounterObservations :: Eff ProcIO (Server (CallbackObserver Counter))
+logCounterObservations :: Eff (ConsProcess SchedulerIO) (Server (CallbackObserver Counter))
 logCounterObservations =
   spawnCallbackObserver forkIoScheduler
   (\fromSvr msg ->
@@ -54,12 +54,12 @@ logCounterObservations =
         logMsg (show me ++ " observed on: " ++ show fromSvr ++ ": " ++ show msg)
         return True)
 
-type CounterEff = State (Observers Counter) ': State Integer ': ProcIO
+type CounterEff = State (Observers Counter) ': State Integer ': ConsProcess SchedulerIO
 
 data ServerState st a where
   ServerState :: State st a -> ServerState st a
 
-counterServerLoop :: Eff ProcIO ()
+counterServerLoop :: Eff (ConsProcess SchedulerIO) ()
 counterServerLoop = do
   evalState (manageObservers
              $ forever
@@ -85,7 +85,7 @@ counterServerLoop = do
 
 -- ** Counter client
 
-counterExample :: Eff ProcIO ()
+counterExample :: Eff (ConsProcess SchedulerIO) ()
 counterExample = do
   let cnt sv = do r <- call px sv Cnt
                   logMsg (show sv ++ " " ++ show r)
