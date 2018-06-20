@@ -33,56 +33,72 @@ schedule mainProcessAction =
   where
     go _newPid _msgQs Empty = return ()
 
-    go newPid msgQs ((OnDone, pid) :<| rest) =
-      go newPid (msgQs & at pid .~ Nothing) rest
+    go newPid msgQs allProcs@((processState, pid) :<| rest) =
+      case processState of
+             OnDone ->
+               go newPid
+                  (msgQs & at pid .~ Nothing)
+                  rest
 
-    go newPid msgQs ((OnSelf k, pid) :<| rest) =
-      do nextK <- k (ResumeWith pid)
-         go newPid msgQs (rest :|> (nextK, pid))
+             OnRaiseError _ ->
+               go newPid
+                  (msgQs & at pid .~ Nothing)
+                  rest
 
-    go newPid msgQs ((OnSend toPid msg k, pid) :<| rest) =
-      do nextK <- k (ResumeWith (msgQs ^. at toPid . to isJust))
-         go newPid
-            (msgQs & at toPid . _Just %~ (|> msg))
-            (rest |> (nextK, pid))
+             OnExitError _ ->
+               go newPid
+                  (msgQs & at pid .~ Nothing)
+                  rest
 
-    go newPid msgQs ((OnRecv k, pid) :<| rest) =
-        case msgQs ^. at pid of
-          Nothing ->
-            do nextK <- k (OnError (show pid ++ " has no message queue!"))
-               go newPid msgQs (rest |> (nextK, pid))
-          Just Empty ->
-            if Seq.length rest == 0 then
-              do nextK <- k (OnError ("Process " ++ show pid ++ " deadlocked!"))
-                 go newPid msgQs (rest |> (nextK, pid))
-            else
-              go newPid msgQs (rest |> (OnRecv k, pid))
+             OnKill targetPid k ->
+               do let allButTarget =
+                        Seq.filter (\(_,e) -> e /= pid && e /= targetPid) allProcs
+                      suicide = targetPid == pid
+                  if suicide
+                    then go newPid
+                            msgQs
+                            (allButTarget :|> (OnDone, pid))
+                    else do nextK <- k
+                            go newPid
+                               msgQs
+                               (rest :|> (nextK, pid) :|> (OnDone, targetPid))
 
-          Just (nextMessage :<| restMessages) -> do
-            nextK <- k (ResumeWith nextMessage)
-            go newPid
-               (msgQs & at pid . _Just .~ restMessages)
-               (rest |> (nextK, pid))
+             OnSelf k ->
+               do nextK <- k (ResumeWith pid)
+                  go newPid
+                     msgQs
+                     (rest :|> (nextK, pid))
 
-    go newPid msgQs ((OnSpawn f k, pid) :<| rest) =
-      do
-            fk <- runAsCoroutine f
-            nextK <- k (ResumeWith newPid)
-            go (newPid + 1)
-               (msgQs & at newPid .~ Just Seq.empty)
-               (((fk, newPid) :<| rest) :|> (nextK, pid))
+             OnSend toPid msg k ->
+               do nextK <- k (ResumeWith (msgQs ^. at toPid . to isJust))
+                  go newPid
+                     (msgQs & at toPid . _Just %~ (|> msg))
+                     (rest |> (nextK, pid))
 
-    go newPid msgQs allProcs@((OnKill targetPid k, pid) :<| _) =
-      do let rest = Seq.filter (\(_,e) -> e /= pid && e /= targetPid) allProcs
-             suicide = targetPid == pid
-         if suicide then
-           go newPid msgQs ((OnDone, pid) :<| rest)
-          else
-            do nextK <- k
-               go newPid msgQs (((OnDone, targetPid) :<| rest) :|> (nextK, pid))
+             recv@(OnRecv k) ->
+               case msgQs ^. at pid of
+                 Nothing ->
+                   do nextK <- k (OnError (show pid ++ " has no message queue!"))
+                      go newPid msgQs (rest |> (nextK, pid))
+                 Just Empty ->
+                   if Seq.length rest == 0 then
+                     do nextK <- k (OnError ("Process " ++ show pid ++ " deadlocked!"))
+                        go newPid msgQs (rest |> (nextK, pid))
+                   else
+                     go newPid msgQs (rest |> (recv, pid))
 
-    go newPid msgQs (rest :|> l ) =
-      go newPid msgQs (l :<| rest )
+                 Just (nextMessage :<| restMessages) ->
+                   do nextK <- k (ResumeWith nextMessage)
+                      go newPid
+                         (msgQs & at pid . _Just .~ restMessages)
+                         (rest |> (nextK, pid))
+
+             OnSpawn f k ->
+               do fk <- runAsCoroutine f
+                  nextK <- k (ResumeWith newPid)
+                  go (newPid + 1)
+                     (msgQs & at newPid .~ Just Seq.empty)
+                     ( rest :|> (fk, newPid) :|> (nextK, pid))
 
 data OnYield r where
   OnSelf :: (ResumeProcess ProcessId -> Eff r (OnYield r ))
