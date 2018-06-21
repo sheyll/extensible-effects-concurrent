@@ -118,7 +118,7 @@ concurrencyTests :: forall r . (Member (Logs String) r, SetMember Lift (Lift IO)
 concurrencyTests schedulerFactory =
   let px :: SchedulerProxy r
       px = SchedulerProxy
-      n = 10
+      n = 1
   in
     localOption (timeoutSeconds 15)
     $ testGroup "concurrency tests"
@@ -128,11 +128,12 @@ concurrencyTests schedulerFactory =
           do me <- self px
              traverse_
                (\(i :: Int) ->
-                   do spawn $ when (i `rem` 5 == 0) $ do
-                        void $ sendMessage px me (toDyn i)
-                      forever
-                        (void (sendMessage px 888 (toDyn "test message to 888")))
-               ) [0, 5 .. n]
+                   spawn
+                   $ do when (i `rem` 5 == 0) $
+                          void $ sendMessage px me (toDyn i)
+                        forever $
+                          void (sendMessage px 888 (toDyn "test message to 888"))
+               ) [0 .. n]
              oks <- traverse
                      (\(i :: Int) ->
                         do j <- receiveMessageAs px
@@ -145,12 +146,11 @@ concurrencyTests schedulerFactory =
           do me <- self px
              traverse_
                (\(i :: Int) ->
-                   do spawn $ when (i `rem` 5 == 0) $ do
-                        void $ sendMessage px me (toDyn i)
-                      forever
-                        (void (self px))
-                          -- (void (receiveMessage px))
-               ) [0, 5 .. n]
+                   spawn
+                   $ do when (i `rem` 5 == 0) $
+                          void $ sendMessage px me (toDyn i)
+                        forever $ void (self px)
+               ) [0 .. n]
              oks <- traverse
                      (\(i :: Int) ->
                         do j <- receiveMessageAs px
@@ -163,12 +163,11 @@ concurrencyTests schedulerFactory =
           do me <- self px
              traverse_
                (\(i :: Int) ->
-                   do spawn $ when (i `rem` 5 == 0) $ do
-                        void $ sendMessage px me (toDyn i)
-                      forever
-                        (void (sendShutdown px 999))
-                          -- (void (receiveMessage px))
-               ) [0, 5 .. n]
+                   spawn
+                   $ do when (i `rem` 5 == 0) $
+                          void $ sendMessage px me (toDyn i)
+                        forever $ void (sendShutdown px 999)
+               ) [0 .. n]
              oks <- traverse
                      (\(i :: Int) ->
                         do j <- receiveMessageAs px
@@ -181,13 +180,13 @@ concurrencyTests schedulerFactory =
           do me <- self px
              traverse_
                (\(i :: Int) ->
-                   do spawn $ when (i `rem` 5 == 0) $ do
-                        void $ sendMessage px me (toDyn i)
-                      parent <- self px
-                      forever
-                        (void (spawn (void (sendMessage px parent (toDyn "test msg from child")))))
-                          -- (void (receiveMessage px))
-               ) [0, 5 .. n]
+                   spawn
+                   $ do when (i `rem` 5 == 0) $
+                          void $ sendMessage px me (toDyn i)
+                        parent <- self px
+                        forever $
+                          void (spawn (void (sendMessage px parent (toDyn "test msg from child"))))
+               ) [0 .. n]
              oks <- traverse
                      (\(i :: Int) ->
                         do j <- receiveMessageAs px
@@ -200,12 +199,12 @@ concurrencyTests schedulerFactory =
           do me <- self px
              traverse_
                (\(i :: Int) ->
-                   do spawn $ when (i `rem` 5 == 0) $ do
-                        void $ sendMessage px me (toDyn i)
-                      parent <- self px
-                      forever
-                        (void (receiveMessage px))
-               ) [0, 5 .. n]
+                   spawn
+                   $ do when (i `rem` 5 == 0) $
+                          void $ sendMessage px me (toDyn i)
+                        forever $
+                          void (receiveMessage px)
+               ) [0 .. n]
              oks <- traverse
                      (\(i :: Int) ->
                         do j <- receiveMessageAs px

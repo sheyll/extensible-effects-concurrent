@@ -119,11 +119,11 @@ schedule mainProcessAction =
                          (rest :|> (nextK, pid))
 
              OnSpawn f k ->
-               do fk <- runAsCoroutine f
-                  nextK <- k (ResumeWith newPid)
+               do nextK <- k (ResumeWith newPid)
+                  fk <- runAsCoroutine f
                   go (newPid + 1)
                      (msgQs & at newPid .~ Just Seq.empty)
-                     ( rest :|> (fk, newPid) :|> (nextK, pid))
+                     ( rest :|> (nextK, pid) :|> (fk, newPid))
 
 data OnYield r where
   OnSelf :: (ResumeProcess ProcessId -> Eff r (OnYield r))
