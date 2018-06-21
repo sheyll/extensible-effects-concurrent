@@ -1,5 +1,6 @@
 module ProcessBehaviourTestCases where
 
+import Data.List (sort)
 import Data.Dynamic
 import Data.Foldable (traverse_)
 import Data.Traversable (traverse)
@@ -72,9 +73,9 @@ errorTests schedulerFactory =
          $ \assertEff ->
              catchRaisedError
                 px
-                (assertEff "error must be caught" . (== "test error 2"))
+                (assertEff "error must be caught" . (== "test error 3"))
                 (do void (replicateM 100000 (void (self px)))
-                    void (raiseError px "test error 2"))
+                    void (raiseError px "test error 3"))
        ]
     , testGroup "exitWithError"
       [ testCase "unhandled exitWithError"
@@ -83,7 +84,7 @@ errorTests schedulerFactory =
               error "This should not happen"
       , testCase "cannot catch exitWithError"
          $ applySchedulerFactory schedulerFactory
-         $ do void $ ignoreProcessError px $ exitWithError px "test error"
+         $ do void $ ignoreProcessError px $ exitWithError px "test error 4"
               error "This should not happen"
       , localOption (timeoutSeconds 10)
         $ testCase "multi process exitWithError"
@@ -100,16 +101,15 @@ errorTests schedulerFactory =
                         assertEff "this should not be reached" False
                       else
                         forever
-                          (void (sendMessage px 888 (toDyn "test message to 888")))
-                          -- (void (receiveMessage px))
-                        )
+                          (void (sendMessage px 888 (toDyn "test message to 888"))))
                 [0, 5 .. n]
-              oks <- traverse
-                     (\(i :: Int) ->
-                        do j <- receiveMessageAs px
-                           return (i == j))
-                     [0, 5 .. n]
-              assertEff "" (all id oks)
+              oks <- replicateM
+                     (length [0,5 .. n])
+                     (do j <- receiveMessageAs px
+                         logMsg (show j ++ " <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< RECEIVED")
+                         return j)
+              logMsg (" <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< ALL RECEIVED")
+              assertEff "" (sort oks == [0,5 .. n])
 
       ]
     ]
@@ -124,16 +124,15 @@ concurrencyTests schedulerFactory =
     localOption (timeoutSeconds 15)
     $ testGroup "concurrency tests"
     [ testCase "when main process exits the scheduler kills/cleans and returns"
-      $ do schedule <- schedulerFactory
-           schedule
-             $ do me <- self px
-                  traverse_
-                    (const
-                     (spawn
-                      (do m <- receiveMessage px
-                          void (sendMessage px me m))))
-                    [1..n]
-                  logMsg (show me ++ " returning")
+      $ applySchedulerFactory schedulerFactory
+      $ do me <- self px
+           traverse_
+             (const
+               (spawn
+                 (do m <- receiveMessage px
+                     void (sendMessage px me m))))
+             [1..n]
+           logMsg (show me ++ " returning")
     ,
       testCase "new processes are executed before the parent process"
       $ scheduleAndAssert schedulerFactory
@@ -170,12 +169,14 @@ concurrencyTests schedulerFactory =
                         forever $
                           void (sendMessage px 888 (toDyn "test message to 888"))
                ) [0 .. n]
-             oks <- traverse
-                     (\(i :: Int) ->
-                        do j <- receiveMessageAs px
-                           return (i == j))
-                     [0, 5 .. n]
-             assertEff "" (all id oks)
+             oks <- replicateM
+                     (length [0,5 .. n])
+                     (do j <- receiveMessageAs px
+                         logMsg (show j ++ " <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< RECEIVED")
+                         return j)
+             logMsg (" <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< ALL RECEIVED")
+             assertEff "" (sort oks == [0,5 .. n])
+             logMsg (" <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< ASSERTED")
     , testCase "most processes self forever"
       $ scheduleAndAssert schedulerFactory
       $ \assertEff ->
@@ -187,12 +188,13 @@ concurrencyTests schedulerFactory =
                           void $ sendMessage px me (toDyn i)
                         forever $ void (self px)
                ) [0 .. n]
-             oks <- traverse
-                     (\(i :: Int) ->
-                        do j <- receiveMessageAs px
-                           return (i == j))
-                     [0, 5 .. n]
-             assertEff "" (all id oks)
+             oks <- replicateM
+                     (length [0,5 .. n])
+                     (do j <- receiveMessageAs px
+                         logMsg (show j ++ " <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< RECEIVED")
+                         return j)
+             logMsg (" <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< ALL RECEIVED")
+             assertEff "" (sort oks == [0,5 .. n])
     , testCase "most processes sendShutdown forever"
       $ scheduleAndAssert schedulerFactory
       $ \assertEff ->
@@ -204,12 +206,13 @@ concurrencyTests schedulerFactory =
                           void $ sendMessage px me (toDyn i)
                         forever $ void (sendShutdown px 999)
                ) [0 .. n]
-             oks <- traverse
-                     (\(i :: Int) ->
-                        do j <- receiveMessageAs px
-                           return (i == j))
-                     [0, 5 .. n]
-             assertEff "" (all id oks)
+             oks <- replicateM
+                     (length [0,5 .. n])
+                     (do j <- receiveMessageAs px
+                         logMsg (show j ++ " <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< RECEIVED")
+                         return j)
+             logMsg (" <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< ALL RECEIVED")
+             assertEff "" (sort oks == [0,5 .. n])
     , testCase "most processes spawn forever"
       $ scheduleAndAssert schedulerFactory
       $ \assertEff ->
@@ -223,12 +226,13 @@ concurrencyTests schedulerFactory =
                         forever $
                           void (spawn (void (sendMessage px parent (toDyn "test msg from child"))))
                ) [0 .. n]
-             oks <- traverse
-                     (\(i :: Int) ->
-                        do j <- receiveMessageAs px
-                           return (i == j))
-                     [0, 5 .. n]
-             assertEff "" (all id oks)
+             oks <- replicateM
+                     (length [0,5 .. n])
+                     (do j <- receiveMessageAs px
+                         logMsg (show j ++ " <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< RECEIVED")
+                         return j)
+             logMsg (" <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< ALL RECEIVED")
+             assertEff "" (sort oks == [0,5 .. n])
     , testCase "most processes receive forever"
       $ scheduleAndAssert schedulerFactory
       $ \assertEff ->
@@ -241,12 +245,13 @@ concurrencyTests schedulerFactory =
                         forever $
                           void (receiveMessage px)
                ) [0 .. n]
-             oks <- traverse
-                     (\(i :: Int) ->
-                        do j <- receiveMessageAs px
-                           return (i == j))
-                     [0, 5 .. n]
-             assertEff "" (all id oks)
+             oks <- replicateM
+                     (length [0,5 .. n])
+                     (do j <- receiveMessageAs px
+                         logMsg (show j ++ " <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< RECEIVED")
+                         return j)
+             logMsg (" <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< ALL RECEIVED")
+             assertEff "" (sort oks == [0,5 .. n])
        ]
 
 sendShutdownTests :: forall r . (Member (Logs String) r, SetMember Lift (Lift IO) r)
@@ -343,18 +348,7 @@ scheduleAndAssert schedulerFactory testCaseAction =
   do resultVar <- newEmptyTMVarIO
      void (applySchedulerFactory schedulerFactory
             (testCaseAction (((lift . atomically . putTMVar resultVar) .) . (,))))
-     (title, result) <- atomically (readTMVar resultVar)
-     assertBool title result
-
-scheduleAndAssertA :: forall r .
-                    (SetMember Lift (Lift IO) r, Member (Logs String) r)
-                  => IO (Eff (Process r ': r) () -> IO ())
-                  -> ((String -> Bool -> Eff (Process r ': r) ()) -> Eff (Process r ': r) ())
-                  -> IO ()
-scheduleAndAssertA schedulerFactory testCaseAction =
-  do resultVar <- newEmptyTMVarIO
-     void (forkIO (applySchedulerFactory schedulerFactory
-                        (testCaseAction (((lift . atomically . putTMVar resultVar) .) . (,)))))
+     putStrLn "!!!!!!!!! scheduleAndAssert: test done waiting for result !!!!!!!!!"
      (title, result) <- atomically (readTMVar resultVar)
      assertBool title result
 

@@ -8,6 +8,9 @@ module Control.Eff.ExceptionExtra
   ( try
   , liftRethrow
   , runErrorRethrowIO
+  , liftCatch
+  , liftCatchEff
+  , liftTry
   , module X
   )
 where
@@ -17,6 +20,8 @@ import qualified Control.Exception             as Exc
 import           Control.Eff
 import           Control.Eff.Lift
 import           Control.Eff.Exception         as X
+
+-- * Effects combining "Control.Eff.Exception" and 'Exc.try'
 
 -- | Catch an exception and return it in an 'Either'.
 try :: forall e r a . Member (Exc e) r => Eff r a -> Eff r (Either e a)
@@ -41,3 +46,37 @@ runErrorRethrowIO
   => Eff (Exc e ': r) a
   -> Eff r a
 runErrorRethrowIO = runError >=> either (Exc.throw . Exc.SomeException) return
+
+-- * Effect Utilities around 'Exc.try'
+
+-- | Lift an IO action and catch all errors with 'Exc.try' with a pure
+-- handler.
+liftCatch
+  :: forall r a
+   . (SetMember Lift (Lift IO) r)
+  => (Exc.SomeException -> a)
+  -> IO a
+  -> Eff r a
+liftCatch handleE m =
+  lift (Exc.try m) >>= either (return . handleE) return
+
+-- | Lift an IO action and catch all errors with 'Exc.try' with an effect
+-- handler.
+liftCatchEff
+  :: forall r a
+   . (SetMember Lift (Lift IO) r)
+  => (Exc.SomeException -> Eff r a)
+  -> IO a
+  -> Eff r a
+liftCatchEff handleE m =
+  lift (Exc.try m) >>= either handleE return
+
+-- | Like 'liftCatch' but this returns an 'Either'.
+liftTry
+  :: forall r a e
+   . (SetMember Lift (Lift IO) r)
+  => (Exc.SomeException -> e)
+  -> IO a
+  -> Eff r (Either e a)
+liftTry liftE m =
+  lift (Exc.try m) >>= return . either (Left . liftE) Right
