@@ -89,6 +89,7 @@ test-suite extensible-effects-concurrent-test
                 Paths_extensible_effects_concurrent
               , ForkIOScheduler
               , SingleThreadedScheduler
+              , ProcessBehaviourTestCases
   ghc-options: -threaded -rtsopts -with-rtsopts=-N
   build-depends:
                 base >=4.9 && <5
@@ -98,5 +99,11 @@ test-suite extensible-effects-concurrent-test
               , tasty-discover
               , tasty-hunit
               , HUnit
+              , stm
   default-language: Haskell2010
-  default-extensions: TypeApplications
+  default-extensions:   TypeApplications
+                      , RankNTypes
+                      , ScopedTypeVariables
+                      , TypeOperators
+                      , DataKinds
+                      , FlexibleContexts

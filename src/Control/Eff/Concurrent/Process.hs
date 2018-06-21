@@ -36,10 +36,11 @@ module Control.Eff.Concurrent.Process
   , receiveMessage
   , receiveMessageAs
   , self
-  , raiseError
+  , sendShutdown
   , exitWithError
   , exitNormally
-  , catchProcessError
+  , raiseError
+  , catchRaisedError
   , ignoreProcessError
   )
 where
@@ -70,6 +71,10 @@ data Process (r :: [Type -> Type]) b where
   ExitWithError :: String -> Process  r b
   -- | Raise an error, that can be handled.
   RaiseError :: String -> Process r b
+  -- | Request that another a process exits. The targeted process is interrupted
+  -- and gets a 'ShutdownRequested', the target process may decide to ignore the shutdown
+  -- requests.
+  SendShutdown :: ProcessId -> Process r (ResumeProcess Bool)
   --  LinkProcesses :: ProcessId -> ProcessId -> Process ()
   -- | Send a message to a process addressed by the 'ProcessId'. Sending a
   -- message should **always succeed** and return **immediately**, even if the
@@ -103,7 +108,7 @@ data ResumeProcess v where
 type ConsProcess r = Process r ': r
 
 -- | Execute a 'Process' action and resume the process, retry the action or exit
--- the process depending on the 'ResumeProcess' clause.
+-- the process when a shutdown was requested.
 yieldProcess :: forall r q v .
                ( SetMember Process (Process q) r
                , HasCallStack)
@@ -153,6 +158,17 @@ sendMessage
 sendMessage _ pid message =
   yieldProcess (SendMessage pid message)
 
+-- | Send a message to a process addressed by the 'ProcessId'.
+-- See 'SendMessage'.
+sendShutdown
+  :: forall r q
+   . (HasCallStack, SetMember Process (Process q) r)
+  => SchedulerProxy q
+  -> ProcessId
+  -> Eff r Bool
+sendShutdown _ pid =
+  yieldProcess (SendShutdown pid)
+
 -- | Start a new process, the new process will execute an effect, the function
 -- will return immediately with a 'ProcessId'.
 spawn :: forall r q .
@@ -196,27 +212,27 @@ exitNormally _ = send (Shutdown @q)
 
 -- | Exit the process with an error.
 exitWithError :: forall r q a. (HasCallStack, SetMember Process (Process q) r) => SchedulerProxy q -> String -> Eff r a
-exitWithError _ = send . RaiseError @q
+exitWithError _ = send . ExitWithError @q
 
--- | Thrown an error, can be caught by 'catchProcessError'.
+-- | Thrown an error, can be caught by 'catchRaisedError'.
 raiseError :: forall r q b. (HasCallStack, SetMember Process (Process q) r) => SchedulerProxy q -> String -> Eff r b
-raiseError _ = send . ExitWithError @q
+raiseError _ = send . RaiseError @q
 
 -- | Catch and handle an error raised by 'raiseError'. Works independent of the
 -- handler implementation.
-catchProcessError
+catchRaisedError
   :: forall r q w . (HasCallStack, SetMember Process (Process q) r) => SchedulerProxy q -> (String -> Eff r w) -> Eff r w -> Eff r w
-catchProcessError _ onErr = interpose return go
+catchRaisedError _ onErr = interpose return go
  where
   go :: forall b . Process q b -> (b -> Eff r w) -> Eff r w
   go (RaiseError emsg) _k = onErr emsg
   go s                 k  = send s >>= k
 
--- | Like 'catchProcessError' it catches 'raiseError', but instead of invoking a
+-- | Like 'catchRaisedError' it catches 'raiseError', but instead of invoking a
 -- user provided handler, the result is wrapped into an 'Either'.
 ignoreProcessError
   :: (HasCallStack, SetMember Process (Process q) r) => SchedulerProxy q -> Eff r a -> Eff r (Either String a)
-ignoreProcessError px = catchProcessError px (return . Left) . fmap Right
+ignoreProcessError px = catchRaisedError px (return . Left) . fmap Right
 
 -- | Each process is identified by a single process id, that stays constant
 -- throughout the life cycle of a process. Also, message sending relies on these

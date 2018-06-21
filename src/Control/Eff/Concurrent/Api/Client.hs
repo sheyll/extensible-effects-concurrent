@@ -112,7 +112,7 @@ callRegisteredA
   => SchedulerProxy q -> Api o ('Synchronous (f reply))
   -> Eff r (f reply)
 callRegisteredA px method = do
-  catchProcessError px
+  catchRaisedError px
     (const (return (empty @f)))
     (callRegistered px method)
 

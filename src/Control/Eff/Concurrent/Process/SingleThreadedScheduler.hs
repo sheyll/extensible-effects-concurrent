@@ -11,7 +11,7 @@ import Control.Eff.Log
 import Control.Eff.Concurrent.Process
 import Control.Lens hiding ((|>), Empty)
 import qualified Data.Sequence as Seq
-import Data.Sequence (Seq (..), (|>))
+import Data.Sequence (Seq (..))
 import qualified Data.Map.Strict as Map
 import GHC.Stack
 import Data.Kind ()
@@ -31,6 +31,7 @@ schedule mainProcessAction =
     y <- runAsCoroutine mainProcessAction
     go 1 (Map.singleton 0 Seq.empty) (Seq.singleton (y, 0))
   where
+    go :: ProcessId -> Map.Map ProcessId (Seq Dynamic) -> Seq (OnYield r, ProcessId) -> Eff r ()
     go _newPid _msgQs Empty = return ()
 
     go newPid msgQs allProcs@((processState, pid) :<| rest) =
@@ -50,18 +51,42 @@ schedule mainProcessAction =
                   (msgQs & at pid .~ Nothing)
                   rest
 
-             OnKill targetPid k ->
+             OnSendShutdown targetPid k ->
                do let allButTarget =
                         Seq.filter (\(_,e) -> e /= pid && e /= targetPid) allProcs
+                      targets =
+                        Seq.filter (\(_,e) -> e == targetPid) allProcs
                       suicide = targetPid == pid
+                      targetFound = suicide || not (Seq.null targets)
                   if suicide
-                    then go newPid
-                            msgQs
-                            (allButTarget :|> (OnDone, pid))
-                    else do nextK <- k
-                            go newPid
-                               msgQs
-                               (rest :|> (nextK, pid) :|> (OnDone, targetPid))
+                   then
+                    do nextK <- k ShutdownRequested
+                       go newPid
+                          msgQs
+                          (rest :|> (nextK, pid))
+                   else
+                    do let deliverTheGoodNews (targetState, tPid) =
+                             do nextTargetState <-
+                                   case targetState of
+                                     OnSendShutdown _ tk ->
+                                       tk ShutdownRequested
+                                     OnSelf tk ->
+                                       tk ShutdownRequested
+                                     OnSend _ _ tk ->
+                                       tk ShutdownRequested
+                                     OnRecv tk ->
+                                       tk ShutdownRequested
+                                     OnSpawn _ tk ->
+                                       tk ShutdownRequested
+                                     OnDone -> return OnDone
+                                     OnExitError er -> return (OnExitError er)
+                                     OnRaiseError er -> return (error ("TODO write test "++er)) -- (OnExitError er)
+                                return (nextTargetState, tPid)
+                       nextTargets <- traverse deliverTheGoodNews targets
+                       nextK <- k (ResumeWith targetFound)
+                       go newPid
+                          msgQs
+                          (allButTarget Seq.>< (nextTargets :|> (nextK, pid)))
 
              OnSelf k ->
                do nextK <- k (ResumeWith pid)
@@ -72,26 +97,26 @@ schedule mainProcessAction =
              OnSend toPid msg k ->
                do nextK <- k (ResumeWith (msgQs ^. at toPid . to isJust))
                   go newPid
-                     (msgQs & at toPid . _Just %~ (|> msg))
-                     (rest |> (nextK, pid))
+                     (msgQs & at toPid . _Just %~ (:|> msg))
+                     (rest :|> (nextK, pid))
 
              recv@(OnRecv k) ->
                case msgQs ^. at pid of
                  Nothing ->
                    do nextK <- k (OnError (show pid ++ " has no message queue!"))
-                      go newPid msgQs (rest |> (nextK, pid))
+                      go newPid msgQs (rest :|> (nextK, pid))
                  Just Empty ->
                    if Seq.length rest == 0 then
                      do nextK <- k (OnError ("Process " ++ show pid ++ " deadlocked!"))
-                        go newPid msgQs (rest |> (nextK, pid))
+                        go newPid msgQs (rest :|> (nextK, pid))
                    else
-                     go newPid msgQs (rest |> (recv, pid))
+                     go newPid msgQs (rest :|> (recv, pid))
 
                  Just (nextMessage :<| restMessages) ->
                    do nextK <- k (ResumeWith nextMessage)
                       go newPid
                          (msgQs & at pid . _Just .~ restMessages)
-                         (rest |> (nextK, pid))
+                         (rest :|> (nextK, pid))
 
              OnSpawn f k ->
                do fk <- runAsCoroutine f
@@ -101,10 +126,10 @@ schedule mainProcessAction =
                      ( rest :|> (fk, newPid) :|> (nextK, pid))
 
 data OnYield r where
-  OnSelf :: (ResumeProcess ProcessId -> Eff r (OnYield r ))
+  OnSelf :: (ResumeProcess ProcessId -> Eff r (OnYield r))
          -> OnYield r
   OnSpawn :: Eff (Process r ': r) ()
-          -> (ResumeProcess ProcessId -> Eff r (OnYield r ))
+          -> (ResumeProcess ProcessId -> Eff r (OnYield r))
           -> OnYield r
   OnDone :: OnYield r
   OnExitError :: String -> OnYield r
@@ -112,9 +137,9 @@ data OnYield r where
   OnSend :: ProcessId -> Dynamic
          -> (ResumeProcess Bool -> Eff r (OnYield r))
          -> OnYield r
-  OnRecv :: (ResumeProcess Dynamic -> Eff r (OnYield r ))
+  OnRecv :: (ResumeProcess Dynamic -> Eff r (OnYield r))
          -> OnYield r
-  OnKill :: ProcessId -> Eff r (OnYield r ) -> OnYield r
+  OnSendShutdown :: ProcessId -> (ResumeProcess Bool -> Eff r (OnYield r)) -> OnYield r
 
 runAsCoroutine :: forall r v . Eff (Process r ': r) v
                -> Eff r (OnYield r)
@@ -128,7 +153,7 @@ runAsCoroutine m = handle_relay (const $ return OnDone) cont m
     cont (RaiseError e) _k = return (OnRaiseError e)
     cont (SendMessage tp msg) k = return (OnSend tp msg k)
     cont ReceiveMessage k = return (OnRecv k)
---    cont (YKill pid) k = return (OnKill pid (k ()))
+    cont (SendShutdown pid) k = return (OnSendShutdown pid k)
 
 -- | The concrete list of 'Eff'ects for running this pure scheduler on @IO@ and
 -- with string logging.

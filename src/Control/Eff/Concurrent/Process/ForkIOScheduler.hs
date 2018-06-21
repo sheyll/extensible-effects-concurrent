@@ -62,19 +62,13 @@ import           Data.Dynamic
 import           Data.Map                       ( Map )
 import qualified Data.Map                      as Map
 
--- | Internal type for the entries in the message in 'ProcessInfo'.
-data MessageQEntry =
-      MessageEntry Dynamic
-    | ShutdownRequestEntry
-    | ErrorEntry String
-  deriving (Show, Typeable)
-
 -- | Information about a process, needed to implement 'MessagePassing' and
 -- 'Process' handlers. The message queue is backed by a 'STM.TQueue' and contains
 -- 'MessageQEntry' values.
 data ProcessInfo =
-                 ProcessInfo { _processId       :: ProcessId
-                             , _messageQ        :: STM.TQueue MessageQEntry
+                 ProcessInfo { _processId         :: ProcessId
+                             , _messageQ          :: STM.TQueue (Maybe Dynamic)
+                             , _shutdownRequested :: STM.TVar Bool
                              }
 
 makeLenses ''ProcessInfo
@@ -349,13 +343,44 @@ scheduleMessages processAction =
      return)
 
  where
+  shutdownOrGo :: forall v a
+     . HasCallStack
+    => ProcessId
+    -> (ResumeProcess v -> Eff SchedulerIO a)
+    -> Eff SchedulerIO a
+    -> Eff SchedulerIO a
+  shutdownOrGo pid k ok =
+    do psVar <- getSchedulerTVar
+       eHasShutdowReq <-
+         liftRethrow LowLevelIOException
+         (atomically
+           (do p <- readTVar psVar
+               let mPinfo = p ^. processTable . at pid
+               case mPinfo of
+                 Just pinfo ->
+                   do wasRequested <- readTVar (pinfo ^. shutdownRequested)
+                      -- reset the shutdwown request flag, in case the shutdown
+                      -- is prevented by the process
+                      writeTVar (pinfo ^. shutdownRequested) False
+                      return (Right wasRequested)
+                 Nothing ->
+                   return (Left ("No process info for " ++ show pid))))
+       case eHasShutdowReq of
+         Right True ->
+           k ShutdownRequested
+         Right False ->
+           ok
+         Left e ->
+           k (OnError e)
+
   go :: forall v a
      . HasCallStack
     => ProcessId
     -> Process SchedulerIO v
     -> (v -> Eff SchedulerIO a)
     -> Eff SchedulerIO a
-  go _pid (SendMessage toPid reqIn) k =
+  go pid (SendMessage toPid reqIn) k =
+    shutdownOrGo pid k $
     do resumeRes <- catchError
          (do psVar <- getSchedulerTVar
              res <- liftRethrow LowLevelIOException
@@ -364,7 +389,7 @@ scheduleMessages processAction =
                             let mto = p ^. processTable . at toPid
                             case mto of
                               Just toProc ->
-                                do writeTQueue (toProc ^. messageQ) (MessageEntry reqIn)
+                                do writeTQueue (toProc ^. messageQ) (Just reqIn)
                                    return True
                               Nothing ->
                                 return False))
@@ -372,7 +397,31 @@ scheduleMessages processAction =
          (return . OnError . show @SchedulerError)
        k resumeRes
 
-  go _pid (Spawn child) k =
+  go pid (SendShutdown toPid) k =
+    shutdownOrGo pid k $
+    do resumeRes <-
+         catchError
+         (do psVar <- getSchedulerTVar
+             res <- liftRethrow LowLevelIOException
+                   (atomically
+                     (do p <- readTVar psVar
+                         let mto = p ^. processTable . at toPid
+                         case mto of
+                           Just toProc ->
+                             do writeTVar (toProc ^. shutdownRequested) True
+                                writeTQueue (toProc ^. messageQ) Nothing
+                                return True
+                           Nothing ->
+                             return False))
+             return
+               (if toPid == pid
+                 then ShutdownRequested
+                 else ResumeWith res))
+         (return . OnError . show @SchedulerError)
+       k resumeRes
+
+  go pid (Spawn child) k =
+    shutdownOrGo pid k $
     do resumeRes <- catchError
          (do res <- spawnImpl child
              return (ResumeWith res))
@@ -380,22 +429,25 @@ scheduleMessages processAction =
        k resumeRes
 
   go pid ReceiveMessage k =
+    shutdownOrGo pid k $
     do resumeRes <-
          catchError
-         (do
-           dynMsg <- overProcessInfo pid
-             (do
-               mq <- use messageQ
-               Mtl.lift (readTQueue mq))
-           case dynMsg of
-             MessageEntry m -> return (ResumeWith m)
-             ErrorEntry e -> return (OnError e)
-             ShutdownRequestEntry -> return ShutdownRequested)
+         (do mdynMsg <- overProcessInfo pid
+                      (do mq <- use messageQ
+                          Mtl.lift (readTQueue mq))
+             case mdynMsg of
+               Nothing -> do
+                 logMsg (show pid ++ " spurious wakeup")
+                 return RetryLastAction
+               Just dynMsg ->
+                 return (ResumeWith dynMsg))
          (\(se :: SchedulerError) ->
             return (OnError (show se)))
        k resumeRes
 
-  go pid SelfPid k = k (ResumeWith pid)
+  go pid SelfPid k =
+    shutdownOrGo pid k $
+    k (ResumeWith pid)
 
   go pid Shutdown _k = do
     logMsg (show pid ++ " process exited normally.")
@@ -405,9 +457,9 @@ scheduleMessages processAction =
     logMsg (show pid ++ " process exited with error: " ++ msg)
     throwError (ProcessExitError msg pid)
 
-  go pid (RaiseError msg) _k = do
-    logMsg (show pid ++ " error raised: " ++ msg)
-    throwError (ProcessRaisedError msg pid)
+  go pid (RaiseError msg) _k =
+    do logMsg (show pid ++ " error raised: " ++ msg)
+       throwError (ProcessRaisedError msg pid)
 
 withMessageQueue
   :: HasSchedulerIO r => (CleanUpAction -> ProcessInfo -> Eff r a) -> Eff r a
@@ -433,7 +485,8 @@ withMessageQueue m = do
           else do
             pid     <- nextPid <<+= 1
             channel <- Mtl.lift newTQueue
-            let pinfo = ProcessInfo pid channel
+            shutdownIndicator <- Mtl.lift (newTVar False)
+            let pinfo = ProcessInfo pid channel shutdownIndicator
             threadIdTable . at pid .= Just myTId
             processTable . at pid .= Just pinfo
             return (Just pinfo)

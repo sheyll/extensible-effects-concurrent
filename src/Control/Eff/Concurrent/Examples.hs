@@ -125,7 +125,7 @@ testServerLoop =
     handleCall (SayHello "die") reply = do
       me <- self px
       logMsg (show me ++ " throwing and catching ")
-      catchProcessError px
+      catchRaisedError px
         (\ er -> logMsg ("WOW: " ++ show er ++ " - No. This is wrong!"))
         (raiseError px "No body loves me... :,(")
       void (reply True)

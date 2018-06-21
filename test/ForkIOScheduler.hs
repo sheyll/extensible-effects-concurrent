@@ -18,7 +18,6 @@ test_mainProcessSpawnsAChildAndReturns =
    (Scheduler.defaultMain
      (void (spawn (void (receiveMessage forkIoScheduler))))))
 
-
 test_mainProcessSpawnsAChildAndExitsNormally :: TestTree
 test_mainProcessSpawnsAChildAndExitsNormally =
   localOption
