@@ -138,9 +138,6 @@ type SchedulerIO =
 forkIoScheduler :: SchedulerProxy SchedulerIO
 forkIoScheduler = SchedulerProxy
 
-instance MonadLog String (Eff (ConsProcess SchedulerIO)) where
-  logMessageFree = logMessageFreeEff
-
 -- | This is the main entry point to running a message passing concurrency
 -- application. This function takes a 'Process' on top of the 'SchedulerIO'
 -- effect and a 'LogChannel' for concurrent logging.
@@ -150,12 +147,12 @@ schedule e logC = withScheduler
     (\cleanup -> do
       mt <- lift myThreadId
       mp <- self forkIoScheduler
-      logMessage (show mp ++ " main process started in thread " ++ show mt)
+      logMsg (show mp ++ " main process started in thread " ++ show mt)
       res <- try e
       case res of
         Left ex ->
           do
-              logMessage
+              logMsg
                 (  show mp
                 ++ " main process exception: "
                 ++ show @SchedulerError ex
@@ -163,7 +160,7 @@ schedule e logC = withScheduler
               lift (runCleanUpAction cleanup)
             >> throwError ex
         Right rres -> do
-          logMessage (show mp ++ " main process exited")
+          logMsg (show mp ++ " main process exited")
           lift (runCleanUpAction cleanup)
           return rres
     )
@@ -277,7 +274,7 @@ spawnImpl mfa = do
             lift (atomically (STM.putTMVar pidVar (Just pid)))
             catchError
               mfa
-              ( logMessage
+              ( logMsg
               . ("process exception: " ++)
               . (show :: SchedulerError -> String)
               )

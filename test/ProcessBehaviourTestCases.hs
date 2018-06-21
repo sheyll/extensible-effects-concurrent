@@ -3,6 +3,7 @@ module ProcessBehaviourTestCases where
 import Data.Dynamic
 import Data.Foldable (traverse_)
 import Data.Traversable (traverse)
+import Control.Concurrent
 import Control.Concurrent.STM
 import Control.Eff.Concurrent.Process
 import qualified Control.Eff.Concurrent.Process.ForkIOScheduler as ForkIO
@@ -118,11 +119,46 @@ concurrencyTests :: forall r . (Member (Logs String) r, SetMember Lift (Lift IO)
 concurrencyTests schedulerFactory =
   let px :: SchedulerProxy r
       px = SchedulerProxy
-      n = 1
+      n = 100
   in
     localOption (timeoutSeconds 15)
     $ testGroup "concurrency tests"
-    [ testCase "most processes send forever"
+    [ testCase "when main process exits the scheduler kills/cleans and returns"
+      $ do schedule <- schedulerFactory
+           schedule
+             $ do me <- self px
+                  traverse_
+                    (const
+                     (spawn
+                      (do m <- receiveMessage px
+                          void (sendMessage px me m))))
+                    [1..n]
+                  logMsg (show me ++ " returning")
+    ,
+      testCase "new processes are executed before the parent process"
+      $ scheduleAndAssert schedulerFactory
+      $ \assertEff ->
+          do -- start massive amount of children that exit as soon as they are
+             -- executed, this will only work smoothly when scheduler schedules
+             -- the new child before the parent
+             traverse_ (const (spawn (exitNormally px))) [1..n]
+             assertEff "" True
+    ,
+      testCase "two concurrent processes"
+      $ scheduleAndAssert schedulerFactory
+      $ \assertEff ->
+          do me <- self px
+             child1 <-
+               spawn (do m <- receiveMessage px
+                         void (sendMessage px me m))
+             child2 <-
+               spawn (forever (void (sendMessage px 888 (toDyn ""))))
+             True <- sendMessage px child1 (toDyn "test")
+             i <- receiveMessageAs px
+             True <- sendShutdown px child2
+             assertEff "" (i == "test")
+    ,
+      testCase "most processes send forever"
       $ scheduleAndAssert schedulerFactory
       $ \assertEff ->
           do me <- self px
@@ -298,14 +334,27 @@ untilShutdown pa = do
     ShutdownRequested -> return ()
     _ -> untilShutdown pa
 
-scheduleAndAssert :: forall r . (SetMember Lift (Lift IO) r, Member (Logs String) r)
+scheduleAndAssert :: forall r .
+                    (SetMember Lift (Lift IO) r, Member (Logs String) r)
                   => IO (Eff (Process r ': r) () -> IO ())
                   -> ((String -> Bool -> Eff (Process r ': r) ()) -> Eff (Process r ': r) ())
                   -> IO ()
 scheduleAndAssert schedulerFactory testCaseAction =
   do resultVar <- newEmptyTMVarIO
-     applySchedulerFactory schedulerFactory
-       (testCaseAction (((lift . atomically . putTMVar resultVar) .) . (,)))
+     void (applySchedulerFactory schedulerFactory
+            (testCaseAction (((lift . atomically . putTMVar resultVar) .) . (,))))
+     (title, result) <- atomically (readTMVar resultVar)
+     assertBool title result
+
+scheduleAndAssertA :: forall r .
+                    (SetMember Lift (Lift IO) r, Member (Logs String) r)
+                  => IO (Eff (Process r ': r) () -> IO ())
+                  -> ((String -> Bool -> Eff (Process r ': r) ()) -> Eff (Process r ': r) ())
+                  -> IO ()
+scheduleAndAssertA schedulerFactory testCaseAction =
+  do resultVar <- newEmptyTMVarIO
+     void (forkIO (applySchedulerFactory schedulerFactory
+                        (testCaseAction (((lift . atomically . putTMVar resultVar) .) . (,)))))
      (title, result) <- atomically (readTMVar resultVar)
      assertBool title result
 

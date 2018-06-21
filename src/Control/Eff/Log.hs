@@ -14,7 +14,6 @@
 module Control.Eff.Log
   ( handleLogsWith
   , Logs(..)
-  , logMessageFreeEff
   , logMsg
   , module ExtLog
   , LogChannel()
@@ -47,18 +46,11 @@ import qualified Data.Sequence                 as Seq
 -- | The 'Eff'ect type to wrap 'ExtLog.MonadLog'.
 -- This is a
 data Logs message a where
-  LogMessageFree :: (forall n . Monoid n => (message -> n) -> n) -> Logs message ()
-
--- | Effectful version of the /strange/ 'ExtLog.logMessageFree' function.
-logMessageFreeEff
-  :: Member (Logs message) r
-  => (forall n . Monoid n => (message -> n) -> n)
-  -> Eff r ()
-logMessageFreeEff foldMapish = send (LogMessageFree foldMapish)
+  LogMsg :: message -> Logs message ()
 
 -- | Effectful version of the 'ExtLog.logMessage' function.
 logMsg :: Member (Logs m) r => m -> Eff r ()
-logMsg msg = logMessageFreeEff ($ msg)
+logMsg msg = send (LogMsg msg)
 
 -- | Capture the logs in a 'Seq'.
 captureLogs :: Eff (Logs message ':  r) a
@@ -74,8 +66,8 @@ captureLogs actionThatLogs =
                -> Logs message x
                -> (Seq message -> Arr r x y)
                -> Eff r y
-    handleLogs logs (LogMessageFree foldMapish) k =
-      k (logs Seq.>< foldMapish Seq.singleton) ()
+    handleLogs logs (LogMsg m) k =
+      k (logs Seq.:|> m) ()
 
 -- | Throw away all log messages.
 ignoreLogs :: Eff (Logs message ':  r) a
@@ -84,7 +76,7 @@ ignoreLogs actionThatLogs =
   Eff.handle_relay return handleLogs actionThatLogs
   where
     handleLogs :: Logs m x -> Arr r x y -> Eff r y
-    handleLogs (LogMessageFree _) k = k ()
+    handleLogs (LogMsg _) k = k ()
 
 -- | Handle 'Logs' effects using 'Log.LoggingT' 'Log.Handler's.
 handleLogsWith
@@ -98,9 +90,8 @@ handleLogsWith actionThatLogs foldHandler = Eff.handle_relay return
                                                              actionThatLogs
  where
   go :: Logs message b -> (b -> Eff r c) -> Eff r c
-  go (LogMessageFree foldMapish) k =
-    Eff.lift (foldHandler (Log.runLoggingT (Log.logMessageFree foldMapish)))
-      >>= k
+  go (LogMsg m) k =
+    Eff.lift (foldHandler (\doLog -> doLog m)) >>= k
 
 -- * Concurrent Logging
 

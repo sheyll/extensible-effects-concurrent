@@ -31,25 +31,23 @@ schedule mainProcessAction =
     y <- runAsCoroutine mainProcessAction
     go 1 (Map.singleton 0 Seq.empty) (Seq.singleton (y, 0))
   where
+
     go :: ProcessId -> Map.Map ProcessId (Seq Dynamic) -> Seq (OnYield r, ProcessId) -> Eff r ()
     go _newPid _msgQs Empty = return ()
 
     go newPid msgQs allProcs@((processState, pid) :<| rest) =
-      case processState of
-             OnDone ->
-               go newPid
-                  (msgQs & at pid .~ Nothing)
-                  rest
+      let handleExit =
+            if pid == 0 then return ()
+            else go newPid
+                    (msgQs & at pid .~ Nothing)
+                    rest
 
-             OnRaiseError _ ->
-               go newPid
-                  (msgQs & at pid .~ Nothing)
-                  rest
+      in case processState of
+             OnDone -> handleExit
 
-             OnExitError _ ->
-               go newPid
-                  (msgQs & at pid .~ Nothing)
-                  rest
+             OnRaiseError _ -> handleExit
+
+             OnExitError _ -> handleExit
 
              OnSendShutdown targetPid k ->
                do let allButTarget =

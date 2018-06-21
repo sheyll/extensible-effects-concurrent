@@ -55,9 +55,29 @@ import           Text.Printf
 
 -- * Process Effects
 
--- | The process effect is the basis for message passing concurrency. This binds
--- the semantics of a process with a process-id, and some process flags, and the
--- ability to leave a process early with an error.
+-- | The process effect is the basis for message passing concurrency. This
+-- effect describes an interface for concurrent, communicating isolated
+-- processes identified uniquely by a process-id.
+--
+-- Processes can raise exceptions that can be caught, exit gracefully or with an
+-- error, or be killed by other processes, with the option of ignoring the
+-- shutdown request.
+--
+-- Process Scheduling is implemented in different modules. All scheduler
+-- implementations should follow some basic rules:
+--
+-- * fair scheduling
+--
+-- * sending a message does not block
+--
+-- * receiving a message does block
+--
+-- * spawning a child blocks only a very moment
+--
+-- * a newly spawned process shall be scheduled before the parent process after
+-- * the spawn
+--
+-- * when the first process exists, all process should be killed immediately
 data Process (r :: [Type -> Type]) b where
   -- | Return the current 'ProcessId'
   SelfPid :: Process r (ResumeProcess ProcessId)
