@@ -121,7 +121,7 @@ concurrencyTests schedulerFactory =
       px = SchedulerProxy
       n = 100
   in
-    localOption (timeoutSeconds 15)
+    localOption (timeoutSeconds 45)
     $ testGroup "concurrency tests"
     [ testCase "when main process exits the scheduler kills/cleans and returns"
       $ applySchedulerFactory schedulerFactory
@@ -347,9 +347,14 @@ scheduleAndAssert :: forall r .
 scheduleAndAssert schedulerFactory testCaseAction =
   do resultVar <- newEmptyTMVarIO
      void (applySchedulerFactory schedulerFactory
-            (testCaseAction (((lift . atomically . putTMVar resultVar) .) . (,))))
+            (testCaseAction (\ title cond ->
+                               do logMsg (show cond ++ " " ++ title)
+                                  lift (do atomically (putTMVar resultVar (title, cond))
+                                           putStrLn ")(*(*&^&*^%*&#%&^*@^%$((#*^#^")
+                                  logMsg "*************&$#^*")))
      putStrLn "!!!!!!!!! scheduleAndAssert: test done waiting for result !!!!!!!!!"
-     (title, result) <- atomically (readTMVar resultVar)
+     (title, result) <- atomically (takeTMVar resultVar)
+     putStrLn "!!!!!!!!! scheduleAndAssert: test done GOT result !!!!!!!!!"
      assertBool title result
 
 applySchedulerFactory :: forall r . (Member (Logs String) r, SetMember Lift (Lift IO) r) => IO (Eff (Process r ': r) () -> IO ()) -> Eff (Process r ': r) () -> IO ()
