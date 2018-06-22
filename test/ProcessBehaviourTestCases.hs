@@ -3,8 +3,6 @@ module ProcessBehaviourTestCases where
 import Data.List (sort)
 import Data.Dynamic
 import Data.Foldable (traverse_)
-import Data.Traversable (traverse)
-import Control.Concurrent
 import Control.Concurrent.STM
 import Control.Eff.Concurrent.Process
 import qualified Control.Eff.Concurrent.Process.ForkIOScheduler as ForkIO
@@ -24,9 +22,8 @@ test_forkIo :: TestTree
 test_forkIo =
   localOption (NumThreads 1)
   (withResource
-   (forkLogChannel  (\_ -> return ())  -- (print . (">>>>>>>>>>>>>>>>>>>>>>>>>>>>> " ++))
-                    (Just "~~~~~~~ForkIo Logs Begin~~~~~~~"))
-   (joinLogChannel (Just "^^^^^^^ForkIo Logs End^^^^^^^"))
+   (forkLogChannel (const (return ())) Nothing)
+   (joinLogChannel Nothing)
    (\ logCFactory ->
        testGroup "ForkIOScheduler"
        [allTests
@@ -44,7 +41,7 @@ allTests :: forall r . (Member (Logs String) r, SetMember Lift (Lift IO) r)
            => IO (Eff (Process r ': r) () -> IO ())
            -> TestTree
 allTests schedulerFactory =
-    localOption (timeoutSeconds 1)
+    localOption (timeoutSeconds 5)
     (testGroup "Process"
       [ errorTests schedulerFactory
       , sendShutdownTests schedulerFactory
