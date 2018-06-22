@@ -57,11 +57,11 @@ test_mainProcessSpawnsAChildBothExitNormally :: TestTree
 test_mainProcessSpawnsAChildBothExitNormally =
   localOption
   (timeoutSeconds 30)
-  (testCase "spawn a child and let it return and return"
+  (testCase "spawn a child and let it exit and exit"
    (Scheduler.defaultMain
      (do child <- spawn
                  (do void (receiveMessageAs @String forkIoScheduler)
-                     exitNormally forkIoScheduler
+                     void (exitNormally forkIoScheduler)
                      error "This should not happen (child)!!"
                  )
          True <- sendMessage forkIoScheduler child (toDyn "test")
