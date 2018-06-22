@@ -5,7 +5,6 @@ import Control.Eff.Concurrent.Process.SingleThreadedScheduler as Scheduler
 import Control.Monad (void)
 import Test.Tasty
 import Test.Tasty.HUnit
-import Data.Dynamic
 
 timeoutSeconds :: Integer -> Timeout
 timeoutSeconds seconds = Timeout (seconds * 1000000) (show seconds ++ "s")

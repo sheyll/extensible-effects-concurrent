@@ -13,7 +13,7 @@ timeoutSeconds seconds = Timeout (seconds * 1000000) (show seconds ++ "s")
 test_mainProcessSpawnsAChildAndReturns :: TestTree
 test_mainProcessSpawnsAChildAndReturns =
   localOption
-  (timeoutSeconds 2)
+  (timeoutSeconds 30)
   (testCase "spawn a child and return"
    (Scheduler.defaultMain
      (void (spawn (void (receiveMessage forkIoScheduler))))))
@@ -21,7 +21,7 @@ test_mainProcessSpawnsAChildAndReturns =
 test_mainProcessSpawnsAChildAndExitsNormally :: TestTree
 test_mainProcessSpawnsAChildAndExitsNormally =
   localOption
-  (timeoutSeconds 2)
+  (timeoutSeconds 30)
   (testCase "spawn a child and exit normally"
    (Scheduler.defaultMain
      (do void (spawn (void (receiveMessage forkIoScheduler)))
@@ -33,7 +33,7 @@ test_mainProcessSpawnsAChildAndExitsNormally =
 test_mainProcessSpawnsAChildInABusySendLoopAndExitsNormally :: TestTree
 test_mainProcessSpawnsAChildInABusySendLoopAndExitsNormally =
   localOption
-  (timeoutSeconds 20)
+  (timeoutSeconds 300)
   (testCase "spawn a child with a busy send loop and exit normally"
    (Scheduler.defaultMain
      (do void (spawn (forever (void (sendMessage forkIoScheduler 1000 (toDyn "test")))))
@@ -45,7 +45,7 @@ test_mainProcessSpawnsAChildInABusySendLoopAndExitsNormally =
 test_mainProcessSpawnsAChildBothReturn :: TestTree
 test_mainProcessSpawnsAChildBothReturn =
   localOption
-  (timeoutSeconds 2)
+  (timeoutSeconds 30)
   (testCase "spawn a child and let it return and return"
    (Scheduler.defaultMain
      (do child <- spawn (void (receiveMessageAs @String forkIoScheduler))
@@ -56,7 +56,7 @@ test_mainProcessSpawnsAChildBothReturn =
 test_mainProcessSpawnsAChildBothExitNormally :: TestTree
 test_mainProcessSpawnsAChildBothExitNormally =
   localOption
-  (timeoutSeconds 2)
+  (timeoutSeconds 30)
   (testCase "spawn a child and let it return and return"
    (Scheduler.defaultMain
      (do child <- spawn

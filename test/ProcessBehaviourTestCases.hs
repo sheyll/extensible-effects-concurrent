@@ -41,7 +41,7 @@ allTests :: forall r . (Member (Logs String) r, SetMember Lift (Lift IO) r)
            => IO (Eff (Process r ': r) () -> IO ())
            -> TestTree
 allTests schedulerFactory =
-    localOption (timeoutSeconds 5)
+    localOption (timeoutSeconds 300)
     (testGroup "Process"
       [ errorTests schedulerFactory
       , sendShutdownTests schedulerFactory
@@ -85,8 +85,7 @@ errorTests schedulerFactory =
          $ applySchedulerFactory schedulerFactory
          $ do void $ ignoreProcessError px $ exitWithError px "test error 4"
               error "This should not happen"
-      , localOption (timeoutSeconds 10)
-        $ testCase "multi process exitWithError"
+      , testCase "multi process exitWithError"
         $ scheduleAndAssert schedulerFactory
         $ \assertEff ->
            do me <- self px
@@ -118,8 +117,7 @@ concurrencyTests schedulerFactory =
       px = SchedulerProxy
       n = 100
   in
-    localOption (timeoutSeconds 45)
-    $ testGroup "concurrency tests"
+    testGroup "concurrency tests"
     [ testCase "when main process exits the scheduler kills/cleans and returns"
       $ applySchedulerFactory schedulerFactory
       $ do me <- self px
