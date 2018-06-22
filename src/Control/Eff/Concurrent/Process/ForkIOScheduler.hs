@@ -181,6 +181,7 @@ schedule e logC =
         logChannelPutIO logC (show myTId ++ " killing threads: " ++
                                    show (sch ^.. threadIdTable. traversed))
         imapM_ (killProcThread myTId) (sch ^. threadIdTable)
+        -- TODO this blocks the unit tests
         atomically
           (do
               scheduler <- readTVar v
@@ -313,19 +314,9 @@ scheduleProcessWithCleanup shutdownAction processAction =
   (\cleanUpAction pinfo ->
      handle_relay
        (\x -> return x)
-       (yieldThenGo (pinfo ^. processId))
+       (go (pinfo ^. processId))
        (processAction cleanUpAction (pinfo ^. processId)))
  where
-  yieldThenGo :: forall v a
-                . HasCallStack
-              => ProcessId
-              -> Process SchedulerIO v
-              -> (v -> Eff SchedulerIO a)
-              -> Eff SchedulerIO a
-  yieldThenGo pid ps k =
-    do res <- go pid ps k
-       -- lift Concurrent.yield
-       return res
   shutdownOrGo :: forall v a
      . HasCallStack
     => ProcessId
@@ -380,6 +371,7 @@ scheduleProcessWithCleanup shutdownAction processAction =
                                return True
                           Nothing ->
                             return False))
+         lift Concurrent.yield
          let kArg = either (OnError . show @SchedulerError) ResumeWith eres
          k kArg
 
@@ -390,20 +382,21 @@ scheduleProcessWithCleanup shutdownAction processAction =
               liftCatch
                 (Left . LowLevelIOException)
                 (Right <$>
-                  (atomically
-                    (do p <- readTVar psVar
-                        let mto = p ^. processTable . at toPid
-                        case mto of
-                          Just toProc ->
-                             do writeTVar (toProc ^. shutdownRequested) True
-                                writeTQueue (toProc ^. messageQ) Nothing
-                                return True
-                          Nothing ->
-                             return False)))
+                  (do p <- atomically (readTVar psVar)
+                      let mto = p ^. processTable . at toPid
+                      case mto of
+                        Just toProc ->
+                          atomically $
+                           do writeTVar (toProc ^. shutdownRequested) True
+                              writeTQueue (toProc ^. messageQ) Nothing
+                              return True
+                        Nothing ->
+                          return False))
          let kArg = either (OnError . show @SchedulerError) resume eres
              resume = if toPid == pid
                       then const ShutdownRequested
                       else ResumeWith
+         lift Concurrent.yield
          k kArg
 
   go pid (Spawn child) k =
@@ -428,7 +421,8 @@ scheduleProcessWithCleanup shutdownAction processAction =
 
   go pid SelfPid k =
     shutdownOrGo pid k $
-    k (ResumeWith pid)
+    do lift Concurrent.yield
+       k (ResumeWith pid)
 
   go pid Shutdown _k = do
     logMsg (show pid ++ " process exited normally.")
