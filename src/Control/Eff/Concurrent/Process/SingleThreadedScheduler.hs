@@ -78,7 +78,7 @@ schedule mainProcessAction =
                                        tk ShutdownRequested
                                      OnDone -> return OnDone
                                      OnExitError er -> return (OnExitError er)
-                                     OnRaiseError er -> return (error ("TODO write test "++er)) -- (OnExitError er)
+                                     OnRaiseError er -> return (OnExitError er) -- return (error ("TODO write test "++er))
                                 return (nextTargetState, tPid)
                        nextTargets <- traverse deliverTheGoodNews targets
                        nextK <- k (ResumeWith targetFound)

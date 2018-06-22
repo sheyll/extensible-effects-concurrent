@@ -14,6 +14,7 @@ import Control.Eff.Log
 import Control.Eff.Lift
 import Control.Monad (void, replicateM, forever, when)
 import Test.Tasty
+import Test.Tasty.Runners
 import Test.Tasty.HUnit
 
 timeoutSeconds :: Integer -> Timeout
@@ -21,17 +22,18 @@ timeoutSeconds seconds = Timeout (seconds * 1000000) (show seconds ++ "s")
 
 test_forkIo :: TestTree
 test_forkIo =
-  withResource
-  (forkLogChannel (print . (">>>>>>>>>>>>>>>>>>>>>>>>>>>>> " ++))
+  localOption (NumThreads 1)
+  (withResource
+   (forkLogChannel  (\_ -> return ())  -- (print . (">>>>>>>>>>>>>>>>>>>>>>>>>>>>> " ++))
                     (Just "~~~~~~~ForkIo Logs Begin~~~~~~~"))
-  (joinLogChannel (Just "^^^^^^^ForkIo Logs End^^^^^^^"))
-  (\ logCFactory ->
-      testGroup "ForkIOScheduler"
-      [allTests
-       (return
-         (\e ->
-            do logC <- logCFactory
-               ForkIO.schedule e logC))])
+   (joinLogChannel (Just "^^^^^^^ForkIo Logs End^^^^^^^"))
+   (\ logCFactory ->
+       testGroup "ForkIOScheduler"
+       [allTests
+        (return
+          (\e ->
+             do logC <- logCFactory
+                ForkIO.schedule e logC))]))
 
 test_singleThreaded :: TestTree
 test_singleThreaded =
@@ -106,9 +108,7 @@ errorTests schedulerFactory =
               oks <- replicateM
                      (length [0,5 .. n])
                      (do j <- receiveMessageAs px
-                         logMsg (show j ++ " <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< RECEIVED")
                          return j)
-              logMsg (" <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< ALL RECEIVED")
               assertEff "" (sort oks == [0,5 .. n])
 
       ]
@@ -132,7 +132,6 @@ concurrencyTests schedulerFactory =
                  (do m <- receiveMessage px
                      void (sendMessage px me m))))
              [1..n]
-           logMsg (show me ++ " returning")
     ,
       testCase "new processes are executed before the parent process"
       $ scheduleAndAssert schedulerFactory
@@ -172,11 +171,8 @@ concurrencyTests schedulerFactory =
              oks <- replicateM
                      (length [0,5 .. n])
                      (do j <- receiveMessageAs px
-                         logMsg (show j ++ " <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< RECEIVED")
                          return j)
-             logMsg (" <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< ALL RECEIVED")
              assertEff "" (sort oks == [0,5 .. n])
-             logMsg (" <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< ASSERTED")
     , testCase "most processes self forever"
       $ scheduleAndAssert schedulerFactory
       $ \assertEff ->
@@ -191,9 +187,7 @@ concurrencyTests schedulerFactory =
              oks <- replicateM
                      (length [0,5 .. n])
                      (do j <- receiveMessageAs px
-                         logMsg (show j ++ " <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< RECEIVED")
                          return j)
-             logMsg (" <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< ALL RECEIVED")
              assertEff "" (sort oks == [0,5 .. n])
     , testCase "most processes sendShutdown forever"
       $ scheduleAndAssert schedulerFactory
@@ -209,9 +203,7 @@ concurrencyTests schedulerFactory =
              oks <- replicateM
                      (length [0,5 .. n])
                      (do j <- receiveMessageAs px
-                         logMsg (show j ++ " <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< RECEIVED")
                          return j)
-             logMsg (" <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< ALL RECEIVED")
              assertEff "" (sort oks == [0,5 .. n])
     , testCase "most processes spawn forever"
       $ scheduleAndAssert schedulerFactory
@@ -229,9 +221,7 @@ concurrencyTests schedulerFactory =
              oks <- replicateM
                      (length [0,5 .. n])
                      (do j <- receiveMessageAs px
-                         logMsg (show j ++ " <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< RECEIVED")
                          return j)
-             logMsg (" <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< ALL RECEIVED")
              assertEff "" (sort oks == [0,5 .. n])
     , testCase "most processes receive forever"
       $ scheduleAndAssert schedulerFactory
@@ -248,9 +238,7 @@ concurrencyTests schedulerFactory =
              oks <- replicateM
                      (length [0,5 .. n])
                      (do j <- receiveMessageAs px
-                         logMsg (show j ++ " <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< RECEIVED")
                          return j)
-             logMsg (" <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< ALL RECEIVED")
              assertEff "" (sort oks == [0,5 .. n])
        ]
 
@@ -265,7 +253,7 @@ sendShutdownTests schedulerFactory =
       $ applySchedulerFactory schedulerFactory
       $ do me <- self px
            void $ sendShutdown px me
-           logMsg "sendShutdown must not return"
+           raiseError px "sendShutdown must not return"
     , testCase "... self low-level"
       $ scheduleAndAssert schedulerFactory
       $ \assertEff ->
@@ -348,16 +336,12 @@ scheduleAndAssert schedulerFactory testCaseAction =
   do resultVar <- newEmptyTMVarIO
      void (applySchedulerFactory schedulerFactory
             (testCaseAction (\ title cond ->
-                               do logMsg (show cond ++ " " ++ title)
-                                  lift (do atomically (putTMVar resultVar (title, cond))
-                                           putStrLn ")(*(*&^&*^%*&#%&^*@^%$((#*^#^")
-                                  logMsg "*************&$#^*")))
-     putStrLn "!!!!!!!!! scheduleAndAssert: test done waiting for result !!!!!!!!!"
+                               do lift (atomically (putTMVar resultVar (title, cond))))))
      (title, result) <- atomically (takeTMVar resultVar)
-     putStrLn "!!!!!!!!! scheduleAndAssert: test done GOT result !!!!!!!!!"
      assertBool title result
 
-applySchedulerFactory :: forall r . (Member (Logs String) r, SetMember Lift (Lift IO) r) => IO (Eff (Process r ': r) () -> IO ()) -> Eff (Process r ': r) () -> IO ()
+applySchedulerFactory :: forall r . (Member (Logs String) r, SetMember Lift (Lift IO) r)
+                      => IO (Eff (Process r ': r) () -> IO ()) -> Eff (Process r ': r) () -> IO ()
 applySchedulerFactory factory procAction =
   do scheduler <- factory
      scheduler procAction

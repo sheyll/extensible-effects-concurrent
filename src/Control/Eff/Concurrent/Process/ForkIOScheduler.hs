@@ -43,6 +43,7 @@ where
 
 import           Data.Foldable
 import           GHC.Stack
+import           Data.Bifunctor
 import           Data.Maybe
 import           Data.Kind ()
 import qualified Control.Exception             as Exc
@@ -58,14 +59,11 @@ import           Control.Lens
 import           Control.Monad                  ( when
                                                 , void
                                                 , join
-                                                , forever
-                                                , replicateM
                                                 )
 import qualified Control.Monad.State           as Mtl
 import           Data.Dynamic
 import           Data.Map                       ( Map )
 import qualified Data.Map                      as Map
-import           Data.List                      ( sort )
 
 -- | Information about a process, needed to implement 'MessagePassing' and
 -- 'Process' handlers. The message queue is backed by a 'STM.TQueue' and contains
@@ -175,13 +173,16 @@ schedule e logC =
               sch <- readTVar v
               let sch' = sch & schedulerShuttingDown .~ True
               writeTVar v sch'
-              return sch
+              return sch'
             )
           )
-        logChannelPutIO logC (show myTId ++ " killing threads: " ++
-                                   show (sch ^.. threadIdTable. traversed))
+        logChannelPutIO logC (show myTId ++ " killing " ++
+                                   let ts = (sch ^.. threadIdTable. traversed)
+                                   in if length ts > 100
+                                      then show (length ts) ++ " threads"
+                                      else show ts )
         imapM_ (killProcThread myTId) (sch ^. threadIdTable)
-        -- TODO this blocks the unit tests
+        Concurrent.yield
         atomically
           (do
               scheduler <- readTVar v
@@ -191,11 +192,8 @@ schedule e logC =
         logChannelPutIO logC "all threads dead"
 
 
-      killProcThread myTId pid tid = when
-        (myTId /= tid)
-        (  logChannelPutIO logC ("killing thread " ++ show pid)
-        >> killThread tid
-        )
+      killProcThread myTId _pid tid =
+        when (myTId /= tid) ( killThread tid)
 
 -- | Start the message passing concurrency system then execute a 'Process' on
 -- top of 'SchedulerIO' effect. All logging is sent to standard output.
@@ -212,18 +210,21 @@ scheduleProcessWithShutdownAction
   :: SchedulerVar
   -> STM.TMVar ProcessId
   -> Eff (ConsProcess SchedulerIO) ()
-  -> IO (Either SchedulerError ())
+  -> IO (Either Exc.SomeException ())
 scheduleProcessWithShutdownAction schedulerVar pidVar procAction =
   do cleanupVar <- newEmptyTMVarIO
-     eeres <- Exc.try (runProcEffects cleanupVar)
+     logC <-  getLogChannelIO schedulerVar
+     mTid <- myThreadId
+     eeres <- Exc.try (runProcEffects cleanupVar logC)
      let eres = join eeres
-     getAndExecCleanup cleanupVar eres
+     getAndExecCleanup cleanupVar eres logC mTid
+     logChannelPutIO logC (show mTid ++ " <~< process cleanup finished")
      return eres
   where
 
-    runProcEffects cleanupVar =
-      do l <-  getLogChannelIO schedulerVar
-         runLift
+    runProcEffects cleanupVar l =
+      Data.Bifunctor.first Exc.SomeException
+       <$> runLift
            (forwardLogsToChannel l
             (runReader
               (scheduleProcessWithCleanup
@@ -234,29 +235,43 @@ scheduleProcessWithShutdownAction schedulerVar pidVar procAction =
         shutdownAction =
           ShutdownAction
           (\eres ->
-             let ex = either id (const ProcessShuttingDown) eres
-             in Exc.throw ex)
+             do let ex = either id (const ProcessShuttingDown) eres
+                Exc.throw ex)
         saveCleanupAndSchedule cleanUpAction pid =
           do lift (atomically (do STM.putTMVar cleanupVar cleanUpAction
                                   STM.putTMVar pidVar pid))
-             logMsg (">~> begin process " ++ show pid)
+             mTid <- lift myThreadId
+             logMsg (show mTid ++ " >~> begin process " ++ show pid)
              procAction
-             logMsg ("<~< end process " ++ show pid)
-    getAndExecCleanup cleanupVar eres =
+    getAndExecCleanup cleanupVar eres lc mt =
       do mcleanup <- atomically (STM.tryTakeTMVar cleanupVar)
          traverse_ execCleanup mcleanup
       where
         execCleanup ca =
           do runCleanUpAction ca
-             mt <- myThreadId
-             lc <- getLogChannelIO schedulerVar
              logChannelPutIO lc
-               $ "thread " ++ show mt ++
+               $ show mt ++
                case eres of
                  Left se ->
-                   " killed by exception: " ++ show se
+                   case Exc.fromException se of
+                     Nothing ->
+                       " process caught exception: "
+                       ++ Exc.displayException se
+                     Just schedulerErr ->
+                       (case schedulerErr of
+                         ProcessShuttingDown ->
+                           " process shutdown"
+                         ProcessExitError m ->
+                           " process exited with error: " ++ show m
+                         ProcessRaisedError m ->
+                           " process raised error: " ++ show m
+                         _ ->
+                           " scheduler error: " ++ show schedulerErr)
+                       ++ " - full exception message: "
+                       ++ Exc.displayException se
+
                  Right _ ->
-                   "thread " ++ show mt ++ " exited"
+                   " process function returned"
 
 
 getLogChannel :: HasSchedulerIO r => Eff r (LogChannel String)
@@ -300,6 +315,7 @@ spawnImpl mfa = do
        schedulerVar
        pidVar
        mfa
+  lift Concurrent.yield -- this is important, removing this causes test failures
   lift (atomically (STM.readTMVar pidVar))
 
 newtype CleanUpAction = CleanUpAction { runCleanUpAction :: IO () }
@@ -424,16 +440,13 @@ scheduleProcessWithCleanup shutdownAction processAction =
     do lift Concurrent.yield
        k (ResumeWith pid)
 
-  go pid Shutdown _k = do
-    logMsg (show pid ++ " process exited normally.")
+  go _pid Shutdown _k = do
     invokeShutdownAction shutdownAction (Right ())
 
-  go pid (ExitWithError msg) _k = do
-    logMsg (show pid ++ " process exited with error: " ++ msg)
+  go _pid (ExitWithError msg) _k = do
     invokeShutdownAction shutdownAction (Left (ProcessExitError msg))
 
-  go pid (RaiseError msg) _k = do
-    logMsg (show pid ++ " error raised: " ++ msg)
+  go _pid (RaiseError msg) _k = do
     invokeShutdownAction shutdownAction (Left (ProcessExitError msg))
 
 data ShutdownAction =
@@ -443,7 +456,8 @@ invokeShutdownAction :: ( HasCallStack
                        , SetMember Lift (Lift IO) r
                        , Member (Logs String) r)
                      => ShutdownAction -> Either SchedulerError () -> Eff r a
-invokeShutdownAction (ShutdownAction a) res = lift (a res)
+invokeShutdownAction (ShutdownAction a) res =
+  lift (a res)
 
 withMessageQueue
   :: HasSchedulerIO r
@@ -493,8 +507,8 @@ withMessageQueue m = do
                   (return . (maybe (show pid) show))
 
     case didWork of
-      Right (pinfo, True) ->
-        logChannelPutIO lc ("destroying queue: " ++ show pinfo)
+      Right (_pinfo, True) ->
+        return ()
       Right (pinfo, False) ->
         logChannelPutIO lc ("queue already destroyed: " ++ show pinfo)
       Left (e :: Exc.SomeException) ->
@@ -525,27 +539,3 @@ getSchedulerTVar = fromSchedulerVar <$> ask
 
 getSchedulerVar :: HasSchedulerIO r => Eff r SchedulerVar
 getSchedulerVar = ask
-
-
-_xxxxxxxxxx :: IO ()
-_xxxxxxxxxx =
-  let px = forkIoScheduler
-      n = 1
-  in defaultMain $
-          do me <- self px
-             traverse_
-               (\(i :: Int) ->
-                   spawn
-                   $ do when (i `rem` 5 == 0) $
-                          void $ sendMessage px me (toDyn i)
-                        forever $
-                          void (sendMessage px 888 (toDyn "test message to 888"))
-               ) [0 .. n]
-             oks <- replicateM
-                     (length [0,5 .. n])
-                     (do j <- receiveMessageAs px
-                         logMsg (show j ++ " <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< RECEIVED")
-                         return j)
-             logMsg (" <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< ALL RECEIVED")
-             logMsg (show (sort oks == [0,5 .. n]))
-             logMsg (" <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< ASSERTED")

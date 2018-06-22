@@ -2,7 +2,7 @@ module ForkIOScheduler where
 
 import Control.Eff.Concurrent.Process
 import Control.Eff.Concurrent.Process.ForkIOScheduler as Scheduler
-import Control.Monad (void)
+import Control.Monad (void, forever)
 import Test.Tasty
 import Test.Tasty.HUnit
 import Data.Dynamic
@@ -25,6 +25,18 @@ test_mainProcessSpawnsAChildAndExitsNormally =
   (testCase "spawn a child and exit normally"
    (Scheduler.defaultMain
      (do void (spawn (void (receiveMessage forkIoScheduler)))
+         void (exitNormally forkIoScheduler)
+         fail "This should not happen!!"
+     )))
+
+
+test_mainProcessSpawnsAChildInABusySendLoopAndExitsNormally :: TestTree
+test_mainProcessSpawnsAChildInABusySendLoopAndExitsNormally =
+  localOption
+  (timeoutSeconds 20)
+  (testCase "spawn a child with a busy send loop and exit normally"
+   (Scheduler.defaultMain
+     (do void (spawn (forever (void (sendMessage forkIoScheduler 1000 (toDyn "test")))))
          void (exitNormally forkIoScheduler)
          fail "This should not happen!!"
      )))
