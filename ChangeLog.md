@@ -1,6 +1,10 @@
 # Changelog for extensible-effects-concurrent
 
 
+## 0.2.0.2
+
+  * Fix minor `stack upload` complaints about the cabal file
+
 ## 0.2.0.1
 
   * Simplify IO Exception handling in `ForkIoScheduler`,
