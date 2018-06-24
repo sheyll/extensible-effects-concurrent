@@ -289,7 +289,6 @@ exitTests schedulerFactory =
         $ \assertEff ->
           do p1 <- spawn $ forever busyEffect
              lift (threadDelay 1000)
-             tlog "Yeah"
              void $ spawn $ do lift (threadDelay 1000)
                                doExit
              lift (threadDelay 100000)

@@ -32,10 +32,10 @@ testLogC :: IO (LogChannel String)
 testLogC =
   filterLogChannel (\m -> take (length logPrefix) m == logPrefix)
   <$>
-  forkLogger 1 (putStrLn)  (Just (logPrefix ++ "^^^^^^^^^^^^^^ LogChannel Start ^^^^^^^^^^^^^^"))
+  forkLogger 1 (putStrLn)  Nothing
 
 testLogJoin :: LogChannel String -> IO ()
-testLogJoin = joinLogChannel (Just (logPrefix ++ "^^^^^^^^^^^^^^ LogChannel Done ^^^^^^^^^^^^^^"))
+testLogJoin = joinLogChannel Nothing
 
 tlog :: Member (Logs String) r => String -> Eff r ()
 tlog = logMsg . (logPrefix ++)

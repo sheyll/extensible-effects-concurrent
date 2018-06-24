@@ -13,14 +13,15 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE GADTs #-}
 
--- | This module contains a mechanisms to specify what kind of messages a
--- process can receive and possible answer by sending a message back to the
--- orginator.
+-- | This module contains a mechanism to specify what kind of messages (aka
+-- /requests/) a 'Server' ('Process') can handle, and if the caller blocks and
+-- waits for an answer, which the server process provides.
 --
--- A message can be either a blocking or a non-blocking request.
---
--- The type magic in the 'Api' type familiy allows to define a related set of messages along
+-- The type magic in the 'Api' type familiy allows to define a related set of /requests/ along
 -- with the corresponding responses.
+--
+-- Request handling can be either blocking, if a response is requred, or
+-- non-blocking.
 --
 -- A process can /serve/ a specific 'Api' instance by using the functions provided by
 -- the "Control.Eff.Concurrent.Api.Server" module.
@@ -44,8 +45,8 @@ import           Data.Typeable (Typeable, typeRep)
 import           Control.Eff.Concurrent.Process
 
 -- | This data family defines an API, a communication interface description
--- between to processes, where one process acts as a __server__ and the other(s)
--- as __client(s)__.
+-- between at least two processes. The processes act as __servers__ or
+-- __client(s)__ regarding a specific instance of this type.
 --
 -- The first parameter is usually a user defined phantom type that identifies
 -- the 'Api' instance.
@@ -70,12 +71,13 @@ import           Control.Eff.Concurrent.Process
 data family Api (api :: Type) (reply :: Synchronicity)
 
 
--- | This __data kind__ is used to indicate at the type level if a specific
--- constructor of an @Api@ instance has a result for which some caller has to
--- wait, or if it is asynchronous.
+-- | The (promoted) constructors of this type specify (at the type level) the
+-- reply behavior of a specific constructor of an @Api@ instance.
 data Synchronicity =
-  Synchronous Type -- ^ Blocking operation with a specific return type, e.g. @('Synchronous (Either RentalError RentalId))@
-  | Asynchronous -- ^ Non-blocking async operation
+  Synchronous Type -- ^ Specify that handling a request is a blocking operation
+                   -- with a specific return type, e.g. @('Synchronous (Either
+                   -- RentalError RentalId))@
+  | Asynchronous -- ^ Non-blocking, asynchronous, request handling
     deriving (Typeable)
 
 -- | This is a tag-type that wraps around a 'ProcessId' and holds an 'Api' index

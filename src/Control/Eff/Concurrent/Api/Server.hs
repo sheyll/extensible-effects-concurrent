@@ -67,7 +67,8 @@ serve px handlers =
             (do msg <- castMessage dyn
                 raise (applyApiHandler px handlers msg))
 
--- | A record of callbacks requests to a /server/, serving a specific 'Api' family instance.
+-- | A record of callbacks, handling requests sent to a /server/ 'Process', all
+-- belonging to a specific 'Api' family instance.
 data ApiHandler p r where
   ApiHandler ::
      { -- | A cast will not return a result directly. This is used for async
