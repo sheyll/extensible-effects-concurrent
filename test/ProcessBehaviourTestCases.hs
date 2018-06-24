@@ -3,6 +3,8 @@ module ProcessBehaviourTestCases where
 import Data.List (sort)
 import Data.Dynamic
 import Data.Foldable (traverse_)
+import Control.Exception
+import Control.Concurrent
 import Control.Concurrent.STM
 import Control.Eff.Concurrent.Process
 import qualified Control.Eff.Concurrent.Process.ForkIOScheduler as ForkIO
@@ -46,9 +48,11 @@ allTests schedulerFactory =
       [ errorTests schedulerFactory
       , sendShutdownTests schedulerFactory
       , concurrencyTests schedulerFactory
+      , exitTests schedulerFactory
       ])
 
-errorTests :: forall r . (Member (Logs String) r, SetMember Lift (Lift IO) r) => IO (Eff (Process r ': r) () -> IO ()) -> TestTree
+errorTests :: forall r . (Member (Logs String) r, SetMember Lift (Lift IO) r)
+             => IO (Eff (Process r ': r) () -> IO ()) -> TestTree
 errorTests schedulerFactory =
   let px :: SchedulerProxy r
       px = SchedulerProxy
@@ -127,6 +131,7 @@ concurrencyTests schedulerFactory =
                  (do m <- receiveMessage px
                      void (sendMessage px me m))))
              [1..n]
+           lift (threadDelay 1000)
     ,
       testCase "new processes are executed before the parent process"
       $ scheduleAndAssert schedulerFactory
@@ -236,6 +241,84 @@ concurrencyTests schedulerFactory =
                          return j)
              assertEff "" (sort oks == [0,5 .. n])
        ]
+
+exitTests :: forall r . (Member (Logs String) r, SetMember Lift (Lift IO) r)
+          => IO (Eff (Process r ': r) () -> IO ()) -> TestTree
+exitTests schedulerFactory =
+  let px :: SchedulerProxy r
+      px = SchedulerProxy
+  in
+    testGroup "process exit tests" $
+    [ testGroup "async exceptions"
+       [ testCase ("a process dies immediately if a "
+                   ++ show e ++ " is thrown, while " ++ busyWith )
+         $ do tidVar <- newEmptyTMVarIO
+              schedulerDoneVar <- newEmptyTMVarIO
+              void $ forkIO $
+                do void $ try @SomeException $ void $ applySchedulerFactory schedulerFactory
+                     $ do tid <- lift $ myThreadId
+                          lift $ atomically $ putTMVar tidVar tid
+                          forever busyEffect
+                   atomically $ putTMVar schedulerDoneVar ()
+              tid <- atomically $ takeTMVar tidVar
+              threadDelay 1000
+              throwTo tid e
+              void $ atomically $ takeTMVar schedulerDoneVar
+       | e <- [ ThreadKilled, UserInterrupt, HeapOverflow, StackOverflow ]
+       , (busyWith, busyEffect) <-
+         [ ("receiving", void (send (ReceiveMessage @r)))
+         , ("sending", void (send (SendMessage @r 44444 (toDyn "test message"))))
+         , ("sending shutdown", void (send (SendShutdown @r 44444)))
+         , ("selfpid-ing", void (send (SelfPid @r)))
+         , ("spawn-ing", void (send (Spawn @r (void (send (ReceiveMessage @r))))))
+         , ("sleeping", lift (threadDelay 100000))
+         ]
+       ]
+    , testGroup "main thread exit not blocked by"
+       [ testCase ("a child process, busy with "++ busyWith)
+        $ applySchedulerFactory schedulerFactory
+        $ do void $ spawn $ forever busyEffect
+             lift (threadDelay 10000)
+       |  (busyWith, busyEffect) <-
+        [ ("receiving", void (send (ReceiveMessage @r)))
+        , ("sending", void (send (SendMessage @r 44444 (toDyn "test message"))))
+        , ("sending shutdown", void (send (SendShutdown @r 44444)))
+        , ("selfpid-ing", void (send (SelfPid @r)))
+        , ("spawn-ing", void (send (Spawn @r (void (send (ReceiveMessage @r))))))
+        ]
+
+       ]
+    , testGroup "one process exits, the other continues unimpaired"
+       [ testCase ("process 2 exits with: "++ howToExit
+                    ++ " - while process 1 is busy with: " ++ busyWith)
+        $ scheduleAndAssert schedulerFactory
+        $ \assertEff ->
+          do p1 <- spawn $ forever busyEffect
+             lift (threadDelay 1000)
+             void $ spawn $ do lift (threadDelay 1000)
+                               doExit
+             lift (threadDelay 100000)
+             wasStillRunningP1 <- sendShutdown px p1
+             assertEff "the other process was still running" wasStillRunningP1
+
+       | (busyWith, busyEffect) <-
+         [ ("receiving", void (send (ReceiveMessage @r)))
+         , ("sending", void (send (SendMessage @r 44444 (toDyn "test message"))))
+         , ("sending shutdown", void (send (SendShutdown @r 44444)))
+         , ("selfpid-ing", void (send (SelfPid @r)))
+         , ("spawn-ing", void (send (Spawn @r (void (send (ReceiveMessage @r))))))
+         ]
+       , (howToExit, doExit) <-
+         [ ("normally", void (exitNormally px))
+         , ("simply returning", return ())
+         , ("raiseError", void (raiseError px "test error raised"))
+         , ("exitWithError", void (exitWithError px "test error exit"))
+         , ("sendShutdown to self", do me <- self px
+                                       void (sendShutdown px me))
+         ]
+       ]
+     ]
+
 
 sendShutdownTests :: forall r . (Member (Logs String) r, SetMember Lift (Lift IO) r)
                   => IO (Eff (Process r ': r) () -> IO ()) -> TestTree

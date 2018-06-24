@@ -20,6 +20,7 @@ import qualified Control.Exception             as Exc
 import           Control.Eff
 import           Control.Eff.Lift
 import           Control.Eff.Exception         as X
+import           GHC.Stack
 
 -- * Effects combining "Control.Eff.Exception" and 'Exc.try'
 
@@ -31,12 +32,12 @@ try e = catchError (Right <$> e) (return . Left)
 -- 'Exc.Exception' using a given wrapper function and rethrow it using
 -- 'X.throwError'.
 liftRethrow
-  :: forall e r a
-   . (Exc.Exception e, SetMember Lift (Lift IO) r, Member (Exc e) r)
-  => (Exc.SomeException -> e)
+  :: forall proxy e r a
+   . (Exc.Exception e, SetMember Lift (Lift IO) r, SetMember Exc (Exc e) r)
+  => proxy e
   -> IO a
   -> Eff r a
-liftRethrow liftE m = lift (Exc.try m) >>= either (throwError . liftE) return
+liftRethrow _ m = lift (Exc.try m) >>= either (throwError @e) return
 
 -- | Run an effect with exceptions like 'X.runError' and rethrow it as
 -- 'Exc.SomeException' using 'Exc.throw'
@@ -52,9 +53,9 @@ runErrorRethrowIO = runError >=> either (Exc.throw . Exc.SomeException) return
 -- | Lift an IO action and catch all errors with 'Exc.try' with a pure
 -- handler.
 liftCatch
-  :: forall r a
-   . (SetMember Lift (Lift IO) r)
-  => (Exc.SomeException -> a)
+  :: forall e r a
+   . (HasCallStack, Exc.Exception e, SetMember Lift (Lift IO) r)
+  => (e -> a)
   -> IO a
   -> Eff r a
 liftCatch handleE m =
@@ -63,20 +64,19 @@ liftCatch handleE m =
 -- | Lift an IO action and catch all errors with 'Exc.try' with an effect
 -- handler.
 liftCatchEff
-  :: forall r a
-   . (SetMember Lift (Lift IO) r)
-  => (Exc.SomeException -> Eff r a)
+  :: forall e r a
+   . (SetMember Lift (Lift IO) r, HasCallStack, Exc.Exception e)
+  => (e -> Eff r a)
   -> IO a
   -> Eff r a
 liftCatchEff handleE m =
   lift (Exc.try m) >>= either handleE return
 
--- | Like 'liftCatch' but this returns an 'Either'.
+-- | Catch 'Exc.Exception' thrown by an effect.
 liftTry
-  :: forall r a e
-   . (SetMember Lift (Lift IO) r)
-  => (Exc.SomeException -> e)
-  -> IO a
+  :: forall e r a
+   . (HasCallStack, Exc.Exception e, SetMember Lift (Lift IO) r)
+  => Eff r a
   -> Eff r (Either e a)
-liftTry liftE m =
-  lift (Exc.try m) >>= return . either (Left . liftE) Right
+liftTry m =
+   (Right <$> m) `catchDynE` (return . Left)

@@ -51,7 +51,7 @@ import           Control.Concurrent            as Concurrent
 import           Control.Concurrent.STM        as STM
 import           Control.Eff
 import           Control.Eff.Concurrent.Process
-import           Control.Eff.ExceptionExtra
+-- import           Control.Eff.ExceptionExtra
 import           Control.Eff.Lift
 import           Control.Eff.Log
 import           Control.Eff.Reader.Strict     as Reader
@@ -104,9 +104,6 @@ data SchedulerError =
     -- processing. NOTE: This is **ONLY** caused by internal errors, probably by
     -- an incorrect 'MessagePassing' handler in this module. **Sending a message
     -- to a process ALWAYS succeeds!** Even if the process does not exist.
-  | LowLevelIOException Exc.SomeException
-    -- ^ 'Control.Exception.SomeException' was caught while scheduleing
-    -- messages.
   | ProcessRaisedError String
     -- ^ A process called 'raiseError'.
   | ProcessExitError String
@@ -342,7 +339,7 @@ scheduleProcessWithCleanup shutdownAction processAction =
   shutdownOrGo pid k ok =
     do psVar <- getSchedulerTVar
        eHasShutdowReq <-
-         liftCatch (Left . LowLevelIOException)
+         lift
            (do p <- atomically (readTVar psVar)
                let mPinfo = p ^. processTable . at pid
                case mPinfo of
@@ -373,8 +370,7 @@ scheduleProcessWithCleanup shutdownAction processAction =
       shutdownOrGo pid k $
       do eres <-
            do psVar <- getSchedulerTVar
-              liftCatch
-                (Left . LowLevelIOException)
+              lift
                 (Right <$>
                   (do p <- atomically (readTVar psVar)
                       let mto = p ^. processTable . at toPid
@@ -395,8 +391,7 @@ scheduleProcessWithCleanup shutdownAction processAction =
     shutdownOrGo pid k
     $ do eres <-
            do psVar <- getSchedulerTVar
-              liftCatch
-                (Left . LowLevelIOException)
+              lift
                 (Right <$>
                   (do p <- atomically (readTVar psVar)
                       let mto = p ^. processTable . at toPid
@@ -427,9 +422,7 @@ scheduleProcessWithCleanup shutdownAction processAction =
            Left e ->
              k (OnError (show @SchedulerError e))
            Right mq -> do
-             emdynMsg <- liftCatch
-                            (Left . LowLevelIOException)
-                            (Right <$> (atomically (readTQueue mq)))
+             emdynMsg <- lift (Right <$> (atomically (readTQueue mq)))
              k (either
                 (OnError . show @SchedulerError)
                 (maybe RetryLastAction ResumeWith)
@@ -523,7 +516,8 @@ overScheduler
   -> Eff r (Either SchedulerError a)
 overScheduler stAction = do
   psVar <- getSchedulerTVar
-  liftCatch (Left . LowLevelIOException) (overSchedulerIO psVar stAction)
+  -- liftCatch (Left . LowLevelIOException) (overSchedulerIO psVar stAction)
+  lift (overSchedulerIO psVar stAction)
 
 overSchedulerIO
   :: STM.TVar Scheduler -> Mtl.StateT Scheduler STM.STM a -> IO a

@@ -1,5 +1,11 @@
 # Changelog for extensible-effects-concurrent
 
+
+## 0.2.0.1
+
+  * Simplify IO Exception handling in `ForkIoScheduler`,
+  * Add many unit tests for exception, exit and shutdown
+
 ## 0.2.0.0
 
   * Add `Spawn` to `Process`
