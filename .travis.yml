@@ -8,7 +8,6 @@ addons:
     - hvr-ghc
     packages:
     - ghc-8.2.2
-    - genisoimage
 
 before_install:
  - mkdir -p ~/.local/bin
@@ -21,7 +20,7 @@ install:
 
 script:
   - stack --no-terminal --skip-ghc-check build
-  - stack --no-terminal --skip-ghc-check test
+  - stack --no-terminal --skip-ghc-check build --test --test-arguments '--num-threads=2 +RTS -qa -qm -N2 -maxN2 -RTS' 
   - stack --no-terminal --skip-ghc-check haddock
 
 cache:

@@ -34,6 +34,7 @@
 module Control.Eff.Concurrent.Process.ForkIOScheduler
   ( schedule
   , defaultMain
+  , defaultMainWithLogChannel
   , SchedulerError(..)
   , SchedulerIO
   , forkIoScheduler
@@ -64,6 +65,7 @@ import qualified Control.Monad.State           as Mtl
 import           Data.Dynamic
 import           Data.Map                       ( Map )
 import qualified Data.Map                      as Map
+import           Data.String
 
 -- | Information about a process, needed to implement 'MessagePassing' and
 -- 'Process' handlers. The message queue is backed by a 'STM.TQueue' and contains
@@ -198,10 +200,20 @@ defaultMain :: Eff (ConsProcess SchedulerIO) () -> IO ()
 defaultMain c =
   runLoggingT
     (logChannelBracket
+      128
       (Just "~~~~~~ main process started")
       (Just "====== main process exited")
       (schedule c))
     (print :: String -> IO ())
+
+-- | Start the message passing concurrency system then execute a 'Process' on
+-- top of 'SchedulerIO' effect. All logging is sent to standard output.
+defaultMainWithLogChannel :: LogChannel String -> Eff (ConsProcess SchedulerIO) () -> IO ()
+defaultMainWithLogChannel logC c =
+  closeLogChannelAfter
+      (Just (fromString "====== main process exited"))
+      logC
+      (schedule c logC)
 
 scheduleProcessWithShutdownAction
   :: SchedulerVar
@@ -222,7 +234,7 @@ scheduleProcessWithShutdownAction schedulerVar pidVar procAction =
     runProcEffects cleanupVar l =
       Data.Bifunctor.first Exc.SomeException
        <$> runLift
-           (forwardLogsToChannel l
+           (logToChannel l
             (runReader
               (scheduleProcessWithCleanup
                 shutdownAction

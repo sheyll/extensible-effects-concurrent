@@ -1,5 +1,10 @@
 # Changelog for extensible-effects-concurrent
 
+## 0.2.0.3
+
+  * Improve `LogChannel` API
+  * Reorganize unit tests
+  * Hopefully tune travis ci test parameter enough to get a stable build result
 
 ## 0.2.0.2
 

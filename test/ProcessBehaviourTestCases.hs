@@ -14,30 +14,24 @@ import Control.Eff.Log
 import Control.Eff.Lift
 import Control.Monad (void, replicateM, forever, when)
 import Test.Tasty
-import Test.Tasty.Runners
 import Test.Tasty.HUnit
-
-timeoutSeconds :: Integer -> Timeout
-timeoutSeconds seconds = Timeout (seconds * 1000000) (show seconds ++ "s")
+import Common
 
 test_forkIo :: TestTree
 test_forkIo =
-  localOption (NumThreads 1)
-  (withResource
-   (forkLogChannel (const (return ())) Nothing)
-   (joinLogChannel Nothing)
-   (\ logCFactory ->
+  setTravisTestOptions
+  (withTestLogC ForkIO.schedule
+    (\factory ->
        testGroup "ForkIOScheduler"
-       [allTests
-        (return
-          (\e ->
-             do logC <- logCFactory
-                ForkIO.schedule e logC))]))
+       [allTests factory]))
 
 test_singleThreaded :: TestTree
 test_singleThreaded =
-  testGroup "SingleThreadedScheduler"
-  [allTests (return SingleThreaded.defaultMain)]
+  setTravisTestOptions
+  (withTestLogC (const . SingleThreaded.defaultMain)
+    (\factory ->
+       testGroup "SingleThreadedScheduler"
+       [allTests factory]))
 
 allTests :: forall r . (Member (Logs String) r, SetMember Lift (Lift IO) r)
            => IO (Eff (Process r ': r) () -> IO ())
@@ -295,6 +289,7 @@ exitTests schedulerFactory =
         $ \assertEff ->
           do p1 <- spawn $ forever busyEffect
              lift (threadDelay 1000)
+             tlog "Yeah"
              void $ spawn $ do lift (threadDelay 1000)
                                doExit
              lift (threadDelay 100000)
@@ -396,30 +391,3 @@ sendShutdownTests schedulerFactory =
               assertEff "" (a == "OK")
       ]
     ]
-
-untilShutdown
-  :: Member t r => t (ResumeProcess v) -> Eff r ()
-untilShutdown pa = do
-  r <- send pa
-  case r of
-    ShutdownRequested -> return ()
-    _ -> untilShutdown pa
-
-scheduleAndAssert :: forall r .
-                    (SetMember Lift (Lift IO) r, Member (Logs String) r)
-                  => IO (Eff (Process r ': r) () -> IO ())
-                  -> ((String -> Bool -> Eff (Process r ': r) ()) -> Eff (Process r ': r) ())
-                  -> IO ()
-scheduleAndAssert schedulerFactory testCaseAction =
-  do resultVar <- newEmptyTMVarIO
-     void (applySchedulerFactory schedulerFactory
-            (testCaseAction (\ title cond ->
-                               do lift (atomically (putTMVar resultVar (title, cond))))))
-     (title, result) <- atomically (takeTMVar resultVar)
-     assertBool title result
-
-applySchedulerFactory :: forall r . (Member (Logs String) r, SetMember Lift (Lift IO) r)
-                      => IO (Eff (Process r ': r) () -> IO ()) -> Eff (Process r ': r) () -> IO ()
-applySchedulerFactory factory procAction =
-  do scheduler <- factory
-     scheduler procAction
