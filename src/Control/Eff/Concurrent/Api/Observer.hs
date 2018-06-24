@@ -162,6 +162,7 @@ removeObserver
   => SomeObserver o -> Eff r ()
 removeObserver = modify . over observers . Set.delete
 
+
 -- | Send an 'Observation' to all 'SomeObserver's in the 'Observers' state.
 notifyObservers
   :: forall o r q
@@ -212,9 +213,9 @@ spawnCallbackObserver px onObserve =
             (ApiHandler @(CallbackObserver o)
               (handleCast loopUntil)
               (unhandledCallError px)
-              (logMsg
-                . ((show me ++ " observer terminating ") ++)
-                . fromMaybe "normally" ))
+              (\e ->
+                 do logMsg (show me ++ " observer terminating " ++ fromMaybe "normally" e)
+                    defaultTermination px e))
       loopUntil)
  where
    handleCast k (CbObserved fromSvr v) =

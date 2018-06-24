@@ -1,4 +1,3 @@
-{-# LANGUAGE IncoherentInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -19,7 +18,8 @@ module Control.Eff.Concurrent.Examples2 where
 
 import Data.Dynamic
 import Control.Eff
-import Control.Eff.Concurrent.Process.ForkIOScheduler
+import qualified Control.Eff.Concurrent.Process.ForkIOScheduler as ForkIO
+import qualified Control.Eff.Concurrent.Process.SingleThreadedScheduler as Pure
 import Control.Eff.Concurrent.Api
 import Control.Eff.Concurrent.Api.Server
 import Control.Eff.Concurrent.Api.Client
@@ -28,6 +28,13 @@ import Control.Eff.Concurrent.Api.Observer
 import Control.Eff.Log
 import Control.Eff.State.Lazy
 import Control.Monad
+
+main :: IO ()
+main =
+  do ForkIO.defaultMain (counterExample SchedulerProxy)
+     Pure.defaultMain (counterExample SchedulerProxy)
+
+-- * First API
 
 data Counter deriving Typeable
 
@@ -46,27 +53,31 @@ instance Observable Counter where
   registerObserverMessage os = ObserveCounter os
   forgetObserverMessage os = UnobserveCounter os
 
-logCounterObservations :: Eff (ConsProcess SchedulerIO) (Server (CallbackObserver Counter))
-logCounterObservations =
-  spawnCallbackObserver forkIoScheduler
+logCounterObservations
+  :: (SetMember Process (Process q) r, Member (Logs String) q)
+    => SchedulerProxy q -> Eff r (Server (CallbackObserver Counter))
+logCounterObservations px =
+  spawnCallbackObserver px
   (\fromSvr msg ->
-     do me <- self forkIoScheduler
-        logMsg (show me ++ " observed on: " ++ show fromSvr ++ ": " ++ show msg)
+     do me <- self px
+        logMsg (show me
+                 ++ " observed on: "
+                 ++ show fromSvr
+                 ++ ": "
+                 ++ show msg)
         return True)
 
-type CounterEff = State (Observers Counter) ': State Integer ': ConsProcess SchedulerIO
-
-data ServerState st a where
-  ServerState :: State st a -> ServerState st a
-
-counterServerLoop :: Eff (ConsProcess SchedulerIO) ()
-counterServerLoop = do
-  evalState (manageObservers
-             $ forever
-             $ serve forkIoScheduler
-             $ ApiHandler @Counter handleCast handleCall (error . show)) 0
+counterHandler :: forall r q .
+                 ( Member (State (Observers Counter)) r
+                 , Member (State Integer) r
+                 , Member (Logs String) r
+                 , SetMember Process (Process q) r)
+               => SchedulerProxy q
+               -> ApiHandler Counter r
+counterHandler px =
+  ApiHandler @Counter handleCast handleCall (defaultTermination px)
  where
-   handleCast :: Api Counter 'Asynchronous -> Eff CounterEff ()
+   handleCast :: Api Counter 'Asynchronous -> Eff r ()
    handleCast (ObserveCounter o) = do
      addObserver o
    handleCast (UnobserveCounter o) = do
@@ -75,42 +86,98 @@ counterServerLoop = do
      logMsg "Inc"
      modify (+ (1 :: Integer))
      currentCount <- get
-     notifyObservers forkIoScheduler (CountChanged currentCount)
-   handleCall :: Api Counter ('Synchronous x) -> (x -> Eff CounterEff Bool) -> Eff CounterEff ()
+     notifyObservers px (CountChanged currentCount)
+   handleCall :: Api Counter ('Synchronous x) -> (x -> Eff r Bool) -> Eff r ()
    handleCall Cnt reply = do
      c <- get
      logMsg ("Cnt is " ++ show c)
      _ <- reply c
      return ()
 
--- ** Counter client
+-- * Second API
 
-counterExample :: Eff (ConsProcess SchedulerIO) ()
-counterExample = do
+data PocketCalc deriving Typeable
+
+data instance Api PocketCalc x where
+  Add :: Integer -> Api PocketCalc ('Synchronous Integer)
+  AAdd :: Integer -> Api PocketCalc 'Asynchronous
+
+deriving instance Show (Api PocketCalc x)
+
+pocketCalcHandler :: forall r q .
+                 ( Member (State Integer) r
+                 , Member (Logs String) r
+                 , SetMember Process (Process q) r)
+               => SchedulerProxy q
+               -> ApiHandler PocketCalc r
+pocketCalcHandler px =
+  ApiHandler @PocketCalc handleCast handleCall (defaultTermination px)
+ where
+   handleCast :: Api PocketCalc 'Asynchronous -> Eff r ()
+   handleCast (AAdd x) = do
+     logMsg ("AsyncAdd " ++ show x)
+     modify (+ x)
+     c <- get @Integer
+     logMsg ("Accumulator is " ++ show c)
+   handleCall :: Api PocketCalc ('Synchronous x) -> (x -> Eff r Bool) -> Eff r ()
+   handleCall (Add x) reply = do
+     logMsg ("Add " ++ show x)
+     modify (+ x)
+     c <- get
+     logMsg ("Accumulator is " ++ show c)
+     void (reply c)
+
+serverLoop :: forall r q .
+                 ( Member (Logs String) r
+                 , SetMember Process (Process q) r)
+               => SchedulerProxy q
+               -> Eff r ()
+serverLoop px = do
+  evalState @Integer
+    (manageObservers @Counter
+     (serveBoth px
+       (counterHandler px)
+       (pocketCalcHandler px)))
+    0
+
+
+-- ** Counter client
+counterExample :: ( Member (Logs String) r
+                 , Member (Logs String) q
+                 , SetMember Process (Process q) r)
+               => SchedulerProxy q
+               -> Eff r ()
+counterExample px = do
   let cnt sv = do r <- call px sv Cnt
                   logMsg (show sv ++ " " ++ show r)
-      px = forkIoScheduler
-  server1 <- asServer @Counter <$> spawn counterServerLoop
-  server2 <- asServer @Counter <$> spawn counterServerLoop
-  cast px server1 Inc
-  cnt server1
-  cnt server2
-  co1 <- logCounterObservations
-  co2 <- logCounterObservations
-  registerObserver px co1 server1
-  registerObserver px co2 server2
-  cast px server1 Inc
-  cnt server1
-  cast px server2 Inc
-  cnt server2
-  registerObserver px co2 server1
-  registerObserver px co1 server2
-  cast px server1 Inc
-  cnt server1
-  cast px server2 Inc
-  cnt server2
-  forgetObserver px co2 server1
-  cast px server1 Inc
-  cnt server1
-  cast px server2 Inc
-  cnt server2
+  pid1 <- spawn (serverLoop px)
+  pid2 <- spawn (serverLoop px)
+  let cntServer1 = asServer @Counter pid1
+      cntServer2 = asServer @Counter pid2
+      calcServer1 = asServer @PocketCalc pid1
+      calcServer2 = asServer @PocketCalc pid2
+  cast px cntServer1 Inc
+  cnt cntServer1
+  cnt cntServer2
+  co1 <- logCounterObservations px
+  co2 <- logCounterObservations px
+  registerObserver px co1 cntServer1
+  registerObserver px co2 cntServer2
+  cast px calcServer1 (AAdd 12313)
+  cast px cntServer1 Inc
+  cnt cntServer1
+  cast px cntServer2 Inc
+  cnt cntServer2
+  registerObserver px co2 cntServer1
+  registerObserver px co1 cntServer2
+  cast px cntServer1 Inc
+  void (call px calcServer2 (Add 878))
+  cnt cntServer1
+  cast px cntServer2 Inc
+  cnt cntServer2
+  forgetObserver px co2 cntServer1
+  cast px cntServer1 Inc
+  cnt cntServer1
+  cast px cntServer2 Inc
+  cnt cntServer2
+  void $ sendShutdown px pid2

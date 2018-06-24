@@ -100,7 +100,7 @@ testServerLoop
     , SetMember Lift (Lift IO) r)
   => Eff (Process r ': r) ()
 testServerLoop =
-    (forever $ serve px $ ApiHandler handleCast handleCall handleTerminate)
+    serve px $ ApiHandler handleCast handleCall handleTerminate
   where
     px :: SchedulerProxy r
     px = SchedulerProxy
@@ -146,4 +146,4 @@ testServerLoop =
     handleTerminate msg = do
       me <- self px
       logMsg (show me ++ " is exiting: " ++ show msg)
-      maybe (exitNormally px) (raiseError px) msg
+      maybe (exitNormally px) (exitWithError px) msg

@@ -8,8 +8,9 @@
   * Fix shutdown error in `ForkIoScheduler`
   * Rename `Dispatcher` to `Scheduler`
   * Add `receiveLoop` function to `Process`
-
-
+  * Change `Api.Server` `serve` to loop instead of handling just one request
+  * Allow combining multiple `ApiHandler` such that one process can handle
+    multiple APIs
 
 ### TODO
   * Add `Kill` action to `Process`

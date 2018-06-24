@@ -31,6 +31,7 @@ data Request api where
          => ProcessId -> Api api ('Synchronous apiCallReplyType) -> Request api
   Cast :: forall api . (Typeable api, Typeable (Api api 'Asynchronous))
          => Api api 'Asynchronous -> Request api
+  Terminate :: Maybe String -> Request api
   deriving Typeable
 
 data Response api apiCallReplyType where
