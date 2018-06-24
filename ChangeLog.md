@@ -2,6 +2,7 @@
 
 ## 0.2.0.3
 
+  * Improve 'Api' documentation
   * Improve `LogChannel` API
   * Reorganize unit tests
   * Hopefully tune travis ci test parameter enough to get a stable build result

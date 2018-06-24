@@ -13,14 +13,18 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE GADTs #-}
 
--- | Type safe /server/ API processes
+-- | Functions to implement 'Api' __servers__.
 
 module Control.Eff.Concurrent.Api.Server
-  ( ApiHandler (..)
-  , serve
+  (
+  -- * Api Server
+    serve
+  , ApiHandler (..)
+  -- * ApiHandler default callbacks
   , unhandledCallError
   , unhandledCastError
   , defaultTermination
+  -- * Multi Api Server
   , serveBoth
   , serve3
   , tryApiHandler
@@ -43,8 +47,7 @@ import           Data.Typeable (Typeable, typeRep)
 import           Data.Dynamic
 import           GHC.Stack
 
--- | Receive messages until the process exits and invoke the callback on each
--- message.
+-- | Receive and process incoming requests until the process exits, using an 'ApiHandler'.
 serve
   :: forall r q p
    . (Typeable p, SetMember Process (Process q) r, HasCallStack)
@@ -87,7 +90,7 @@ data ApiHandler p r where
      } -> ApiHandler p r
 
 -- | Apply either the '_handleCall', '_handleCast' or the '_handleTerminate'
--- callback to an incoming 'Request'.
+-- callback to an incoming 'Request'. Note, it is unlikely that this function must be used.
 applyApiHandler :: forall r q p
                 . ( Typeable p
                   , SetMember Process (Process q) r
@@ -106,8 +109,6 @@ applyApiHandler px handlers (Call fromPid request) =
        sendReply :: Typeable x => x -> Eff r Bool
        sendReply reply =
          sendMessage px fromPid (toDyn (Response (Proxy @p) reply))
-
--- * ApiHandler default callbacks
 
 -- | A default handler to use in '_handleCall' in 'ApiHandler'. It will call
 -- 'raiseError' with a nice error message.
@@ -156,7 +157,6 @@ defaultTermination :: forall q r .
 defaultTermination px e =
    maybe (exitNormally px) (exitWithError px) e
 
--- * Multiple ApiHandler combined
 
 -- | 'serve' two 'ApiHandler's at once. The first handler is used for
 -- termination handling.

@@ -1,9 +1,8 @@
 -- | Observer Effects
 --
--- This module supports the implementation of observers and observables. One
--- more concrete perspective might be to understand observers as event listeners
--- and observables as event sources. The tools in this module are tailored
--- towards 'Control.Eff.Concurrent.Api.Api' endpoints
+-- This module supports the implementation of observers and observables. One use
+-- case is event propagation. The tools in this module are tailored towards
+-- 'Api' servers/clients.
 {-# LANGUAGE IncoherentInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE ConstraintKinds #-}
