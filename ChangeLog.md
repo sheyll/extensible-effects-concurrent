@@ -7,6 +7,9 @@
   * Add initial test suite
   * Fix shutdown error in `ForkIoScheduler`
   * Rename `Dispatcher` to `Scheduler`
+  * Add `receiveLoop` function to `Process`
+
+
 
 ### TODO
   * Add `Kill` action to `Process`

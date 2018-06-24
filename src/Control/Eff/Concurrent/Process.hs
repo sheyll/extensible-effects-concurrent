@@ -35,6 +35,7 @@ module Control.Eff.Concurrent.Process
   , spawn
   , receiveMessage
   , receiveMessageAs
+  , receiveLoop
   , self
   , sendShutdown
   , exitWithError
@@ -48,6 +49,7 @@ where
 import           GHC.Stack
 import           Control.Eff
 import           Control.Lens
+import           Control.Monad (forever)
 import           Data.Dynamic
 import           Data.Kind
 import           Text.Printf
@@ -221,6 +223,28 @@ receiveMessageAs px =
              Right m
          maybeMessage = castAndCheck messageDynamic
      either (raiseError px) return maybeMessage
+
+-- | Enter a loop to receive messages and pass them to a callback, until the
+-- function returns 'False'.
+receiveLoop
+  :: forall r q
+   . ( SetMember Process (Process q) r
+     , HasCallStack)
+  => SchedulerProxy q
+  -> (Either (Maybe String) Dynamic -> Eff r ())
+  -> Eff r ()
+receiveLoop _ handlers =
+  forever $
+  do mReq <- send (ReceiveMessage @q)
+     case mReq of
+       RetryLastAction ->
+         return ()
+       ShutdownRequested ->
+         handlers (Left Nothing)
+       OnError reason ->
+         handlers (Left (Just reason))
+       ResumeWith message ->
+         handlers (Right message)
 
 -- | Returns the 'ProcessId' of the current process.
 self :: (HasCallStack, SetMember Process (Process q) r) => SchedulerProxy q -> Eff r ProcessId
