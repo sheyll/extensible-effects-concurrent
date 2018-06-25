@@ -3,8 +3,13 @@
 -- This module describes an abstract message passing effect, and a process
 -- effect, mimicking Erlang's process and message semantics.
 --
--- An implementation of a handler for these effects can be found in
--- 'Control.Eff.Concurrent.Process.ForkIOScheduler'.
+-- Two __scheduler__ implementations for the 'Process' effect are provided:
+--
+--  * A scheduler using @forkIO@, i.e. relying on the multi threaded GHC runtime:
+--    "Control.Eff.Concurrent.Process.ForkIOScheduler"
+--
+--  * And a /pure/(rer) coroutine based scheduler in:
+--    "Control.Eff.Concurrent.Process.SingleThreadedScheduler"
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
