@@ -1,11 +1,15 @@
 # Changelog for extensible-effects-concurrent
 
+## 0.3.0.2
+
+- Improve single threaded scheduler such that the main process can return a value
+
 ## 0.3.0.1
 
- - Fix a race condition in the SchedulerSession shutdown
- - Improve the interactive scheduler session API
- - Rename `SchedulerVar` -> `SchedulderSession`
- - Remove `submitPrint`
+- Fix a race condition in the SchedulerSession shutdown
+- Improve the interactive scheduler session API
+- Rename `SchedulerVar` -> `SchedulerSession`
+- Remove `submitPrint`
 
 ## 0.3.0.0
 
@@ -79,7 +83,7 @@
 
 ## 0.1.1.0
 
-- Substantial API reoganization
+- Substantial API reorganization
 - Rename/Move modules
 
 ## 0.1.0.1

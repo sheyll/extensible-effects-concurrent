@@ -1,7 +1,9 @@
 -- | A coroutine based, single threaded scheduler for 'Process'es.
 module Control.Eff.Concurrent.Process.SingleThreadedScheduler
   ( schedule
-  , scheduleWithYield
+  , schedulePure
+  , scheduleIO
+  , scheduleWithLogging
   , defaultMain
   , singleThreadedIoScheduler
   , LoggingAndIo
@@ -10,12 +12,13 @@ where
 
 import           Control.Concurrent             ( yield )
 import           Control.Eff
+import           Control.Eff.Concurrent.Process
 import           Control.Eff.Lift
 import           Control.Eff.Log
-import           Control.Eff.Concurrent.Process
 import           Control.Lens            hiding ( (|>)
                                                 , Empty
                                                 )
+import           Control.Monad                  ( void )
 import qualified Data.Sequence                 as Seq
 import           Data.Sequence                  ( Seq(..) )
 import qualified Data.Map.Strict               as Map
@@ -24,41 +27,64 @@ import           Data.Kind                      ( )
 import           Data.Dynamic
 import           Data.Maybe
 
--- | Execute a 'Process' in the current thread, all child processes spawned by
--- 'spawn' will be executed concurrently using a co-routine based, round-robin
--- scheduler.
-schedule :: forall r . Eff (Process r ': r) () -> Eff r ()
-schedule = scheduleWithYield (return ())
+-- | Invoke 'schedule' with @lift 'yield'@ as yield effect.
+-- @since 0.3.0.2
+scheduleIO
+  :: SetMember Lift (Lift IO) r
+  => Eff (ConsProcess r) a
+  -> Eff r (Either String a)
+scheduleIO = schedule (lift yield)
 
--- | Execute a 'Process' in the current thread, all child processes spawned by
--- 'spawn' will be executed concurrently using a co-routine based, round-robin
--- scheduler.
-scheduleWithYield :: forall r . Eff r () -> Eff (Process r ': r) () -> Eff r ()
-scheduleWithYield yieldEff mainProcessAction = do
+-- | Like 'schedule' but /pure/. The @yield@ effect is just @return ()@.
+-- @schedulePure == 'run' . 'schedule' (return ())@
+-- @since 0.3.0.2
+schedulePure :: Eff (ConsProcess '[]) a -> Either String a
+schedulePure = run . schedule (return ())
+
+-- | Like 'schedulePure' but with logging.
+-- @scheduleWithLogging == 'run' . 'captureLogs' . 'schedule' (return ())@
+-- @since 0.3.0.2
+scheduleWithLogging :: Eff (ConsProcess '[Logs m]) a -> (Either String a, Seq m)
+scheduleWithLogging = run . captureLogs . schedule (return ())
+
+-- | Execute a 'Process' and all the other processes 'spawn'ed by it in the
+-- current thread concurrently, using a co-routine based, round-robin
+-- scheduler. If a process exits with 'exitNormally', 'exitWithError',
+-- 'raiseError' or is killed by another process @Left ...@ is returned.
+-- Otherwise, the result will be wrapped in a @Right@.
+schedule
+  :: forall r finalResult
+   . Eff r () -- ^ An that performs a __yield__ w.r.t. the underlying effect
+              --  @r@. E.g. if @Lift IO@ is present, this might be:
+              --  @lift 'Control.Concurrent.yield'.
+  -> Eff (Process r ': r) finalResult
+  -> Eff r (Either String finalResult)
+schedule yieldEff mainProcessAction = do
   y <- runAsCoroutine mainProcessAction
   go 1 (Map.singleton 0 Seq.empty) (Seq.singleton (y, 0))
  where
-
   go
     :: ProcessId
     -> Map.Map ProcessId (Seq Dynamic)
-    -> Seq (OnYield r, ProcessId)
-    -> Eff r ()
-  go _newPid _msgQs Empty = return ()
+    -> Seq (OnYield r finalResult, ProcessId)
+    -> Eff r (Either String finalResult)
+  go _newPid _msgQs Empty = return (Left "no main process")
 
   go newPid msgQs allProcs@((processState, pid) :<| rest)
     = let
-        handleExit = if pid == 0
-          then return ()
+        handleExit res = if pid == 0
+          then return res
           else go newPid (msgQs & at pid .~ Nothing) rest
         maybeYield = if pid == 0 then yieldEff else return ()
       in
         case processState of
-          OnDone                     -> handleExit
+          OnDone r                   -> handleExit (Right r)
 
-          OnRaiseError _             -> handleExit
+          OnShutdown -> handleExit (Left "process exited normally")
 
-          OnExitError  _             -> handleExit
+          OnRaiseError errM          -> handleExit (Left errM)
+
+          OnExitError  errM          -> handleExit (Left errM)
 
           OnSendShutdown targetPid k -> do
             let allButTarget =
@@ -79,7 +105,8 @@ scheduleWithYield yieldEff mainProcessAction = do
                         OnSend _ _ tk       -> tk ShutdownRequested
                         OnRecv tk           -> tk ShutdownRequested
                         OnSpawn _ tk        -> tk ShutdownRequested
-                        OnDone              -> return OnDone
+                        OnDone x            -> return (OnDone x)
+                        OnShutdown          -> return OnShutdown
                         OnExitError  er     -> return (OnExitError er)
                         OnRaiseError er     -> return (OnExitError er) -- return (error ("TODO write test "++er))
                       return (nextTargetState, tPid)
@@ -129,38 +156,39 @@ scheduleWithYield yieldEff mainProcessAction = do
 
           OnSpawn f k -> do
             nextK <- k (ResumeWith newPid)
-            fk    <- runAsCoroutine f
+            fk    <- runAsCoroutine (f >> exitNormally SP)
             maybeYield
             go (newPid + 1)
                (msgQs & at newPid .~ Just Seq.empty)
                (rest :|> (nextK, pid) :|> (fk, newPid))
 
-data OnYield r where
-  OnYield :: (ResumeProcess () -> Eff r (OnYield r))
-         -> OnYield r
-  OnSelf :: (ResumeProcess ProcessId -> Eff r (OnYield r))
-         -> OnYield r
+data OnYield r a where
+  OnYield :: (ResumeProcess () -> Eff r (OnYield r a))
+         -> OnYield r a
+  OnSelf :: (ResumeProcess ProcessId -> Eff r (OnYield r a))
+         -> OnYield r a
   OnSpawn :: Eff (Process r ': r) ()
-          -> (ResumeProcess ProcessId -> Eff r (OnYield r))
-          -> OnYield r
-  OnDone :: OnYield r
-  OnExitError :: String -> OnYield r
-  OnRaiseError :: String -> OnYield r
+          -> (ResumeProcess ProcessId -> Eff r (OnYield r a))
+          -> OnYield r a
+  OnDone :: a -> OnYield r a
+  OnShutdown :: OnYield r a
+  OnExitError :: String -> OnYield r a
+  OnRaiseError :: String -> OnYield r a
   OnSend :: ProcessId -> Dynamic
-         -> (ResumeProcess Bool -> Eff r (OnYield r))
-         -> OnYield r
-  OnRecv :: (ResumeProcess Dynamic -> Eff r (OnYield r))
-         -> OnYield r
-  OnSendShutdown :: ProcessId -> (ResumeProcess Bool -> Eff r (OnYield r)) -> OnYield r
+         -> (ResumeProcess Bool -> Eff r (OnYield r a))
+         -> OnYield r a
+  OnRecv :: (ResumeProcess Dynamic -> Eff r (OnYield r a))
+         -> OnYield r a
+  OnSendShutdown :: ProcessId -> (ResumeProcess Bool -> Eff r (OnYield r a)) -> OnYield r a
 
-runAsCoroutine :: forall r v . Eff (Process r ': r) v -> Eff r (OnYield r)
-runAsCoroutine m = handle_relay (const $ return OnDone) cont m
+runAsCoroutine :: forall r v . Eff (Process r ': r) v -> Eff r (OnYield r v)
+runAsCoroutine m = handle_relay (return . OnDone) cont m
  where
-  cont :: Process r x -> (x -> Eff r (OnYield r)) -> Eff r (OnYield r)
+  cont :: Process r x -> (x -> Eff r (OnYield r v)) -> Eff r (OnYield r v)
   cont YieldProcess         k  = return (OnYield k)
   cont SelfPid              k  = return (OnSelf k)
   cont (Spawn e)            k  = return (OnSpawn e k)
-  cont Shutdown             _k = return OnDone
+  cont Shutdown             _k = return OnShutdown
   cont (ExitWithError e   ) _k = return (OnExitError e)
   cont (RaiseError    e   ) _k = return (OnRaiseError e)
   cont (SendMessage tp msg) k  = return (OnSend tp msg k)
@@ -184,5 +212,4 @@ defaultMain
   :: HasCallStack
   => Eff '[Process '[Logs String, Lift IO], Logs String, Lift IO] ()
   -> IO ()
-defaultMain go =
-  runLift $ handleLogsWith (scheduleWithYield (lift yield) go) ($ putStrLn)
+defaultMain go = void $ runLift $ handleLogsWith (scheduleIO go) ($! putStrLn)
