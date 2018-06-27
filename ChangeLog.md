@@ -1,5 +1,12 @@
 # Changelog for extensible-effects-concurrent
 
+## 0.3.0.1
+
+ - Fix a race condition in the SchedulerSession shutdown
+ - Improve the interactive scheduler session API
+ - Rename `SchedulerVar` -> `SchedulderSession`
+ - Remove `submitPrint`
+
 ## 0.3.0.0
 
 - Add support for running and interacting with a scheduler

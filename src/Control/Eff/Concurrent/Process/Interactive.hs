@@ -1,8 +1,16 @@
 module Control.Eff.Concurrent.Process.Interactive
+  ( SchedulerSession()
+  , forkInteractiveScheduler
+  , killInteractiveScheduler
+  , submit
+  , submitCast
+  , submitCall
+  )
 where
 
 import           Control.Arrow
 import           Control.Concurrent
+import           Control.Concurrent.STM
 import           Control.Eff
 import           Control.Eff.Lift
 import           Control.Eff.Concurrent.Api
@@ -10,7 +18,7 @@ import           Control.Eff.Concurrent.Api.Client
 import           Control.Eff.Concurrent.Process
 import           Control.Monad
 import           Data.Typeable                  ( Typeable )
-
+import           System.Timeout
 
 -- | This module provides support for executing 'Process' actions from 'IO'.
 --
@@ -36,13 +44,14 @@ import           Data.Typeable                  ( Typeable )
 --
 --
 --
--- @since 0.3.0.0
+-- @since 0.3.0.1
 
-data SchedulerVar r =
-  SchedulerVar { _schedulerThreadId :: ThreadId
-               , _schedulerInQueue :: MVar (Eff (Process r ': r) (Maybe String))
-               }
+-- | Contains the communication channels to interact with a scheduler running in
+-- its' own thread.
+newtype SchedulerSession r = SchedulerSession (TMVar (SchedulerQueue r))
 
+newtype SchedulerQueue r =
+  SchedulerQueue (TChan (Eff (Process r ': r) (Maybe String)))
 
 -- | Fork a scheduler with a process that communicates with it via 'MVar',
 -- which is also the reason for the @Lift IO@ constraint.
@@ -50,68 +59,80 @@ forkInteractiveScheduler
   :: forall r
    . (SetMember Lift (Lift IO) r)
   => (Eff (Process r ': r) () -> IO ())
-  -> IO (SchedulerVar r)
+  -> IO (SchedulerSession r)
 forkInteractiveScheduler ioScheduler = do
-  inQueue <- newEmptyMVar
-  tid     <- forkIO (ioScheduler (readEvalPrintLoop inQueue))
-  return (SchedulerVar tid inQueue)
+  inQueue  <- newTChanIO
+  queueVar <- newEmptyTMVarIO
+  void $ forkIO
+    (do
+      ioScheduler
+        (do
+          lift (atomically (putTMVar queueVar (SchedulerQueue inQueue)))
+          readEvalPrintLoop queueVar
+        )
+      atomically (void (takeTMVar queueVar))
+    )
+  return (SchedulerSession queueVar)
  where
   readEvalPrintLoop = forever . (readAction >>> evalAction >=> printResult)
    where
-    readAction v = do
-      mr <- lift (tryTakeMVar v)
-      case mr of
-        Nothing -> do
+    readAction queueVar = do
+      nextActionOrExit <- lift $ atomically
+        (do
+          mInQueue <- tryReadTMVar queueVar
+          case mInQueue of
+            Nothing                       -> return (Left True)
+            Just (SchedulerQueue inQueue) -> do
+              mnextAction <- tryReadTChan inQueue
+              case mnextAction of
+                Nothing         -> return (Left False)
+                Just nextAction -> return (Right nextAction)
+        )
+      case nextActionOrExit of
+        Left True  -> exitNormally SP
+        Left False -> do
           yieldProcess SP
-          readAction v
-        Just r -> return r
+          readAction queueVar
+        Right r -> return r
     evalAction  = join
     printResult = mapM_ (lift . putStrLn)
 
 -- | Exit the schedulder immediately using an asynchronous exception.
-killInteractiveScheduler :: SchedulerVar r -> IO ()
-killInteractiveScheduler = killThread . _schedulerThreadId
+killInteractiveScheduler :: SchedulerSession r -> IO ()
+killInteractiveScheduler (SchedulerSession qVar) =
+  atomically (void (tryTakeTMVar qVar))
 
 -- | Send a 'Process' effect to the main process of a scheduler, this blocks
 -- until the effect is executed.
 submit
   :: forall r a
    . (SetMember Lift (Lift IO) r)
-  => SchedulerVar r
+  => SchedulerSession r
   -> Eff (Process r ': r) a
   -> IO a
-submit r theAction = do
-  resVar <- newEmptyMVar
-  worked <- tryPutMVar (_schedulerInQueue r) (runAndPutResult resVar)
-  if worked then takeMVar resVar else fail "ERROR: Scheduler still busy"
+submit (SchedulerSession qVar) theAction = do
+  mResVar <- timeout 5000000 $ atomically
+    (do
+      SchedulerQueue inQueue <- readTMVar qVar
+      resVar                 <- newEmptyTMVar
+      writeTChan inQueue (runAndPutResult resVar)
+      return resVar
+    )
+
+  case mResVar of
+    Just resVar -> atomically (takeTMVar resVar)
+    Nothing     -> fail "ERROR: No Scheduler"
  where
   runAndPutResult resVar = do
     res <- theAction
-    lift (putMVar resVar $! res)
+    lift (atomically (putTMVar resVar $! res))
     return Nothing
-
--- | Send a 'Process' effect to the main process of a scheduler, this blocks
--- until the effect is executed, then the result is printed by the thread,
--- that runs the process 0 in the scheduler.
-submitPrint
-  :: forall r a
-   . (Show a, SetMember Lift (Lift IO) r)
-  => SchedulerVar r
-  -> Eff (Process r ': r) a
-  -> IO ()
-submitPrint r theAction = do
-  worked <- tryPutMVar (_schedulerInQueue r) runAndShowResult
-  if worked then return () else fail "ERROR: Scheduler still busy"
- where
-  runAndShowResult = do
-    res <- theAction
-    return (Just $! (show res))
 
 -- | Combination of 'submit' and 'cast'.
 submitCast
   :: forall o r
    . (SetMember Lift (Lift IO) r, Typeable o)
-  => SchedulerVar r
+  => SchedulerSession r
   -> Server o
   -> Api o 'Asynchronous
   -> IO ()
@@ -121,7 +142,7 @@ submitCast sc svr request = submit sc (cast SchedulerProxy svr request)
 submitCall
   :: forall o q r
    . (SetMember Lift (Lift IO) r, Typeable o, Typeable q)
-  => SchedulerVar r
+  => SchedulerSession r
   -> Server o
   -> Api o ( 'Synchronous q)
   -> IO q
