@@ -87,11 +87,11 @@ counterHandler px =
      modify (+ (1 :: Integer))
      currentCount <- get
      notifyObservers px (CountChanged currentCount)
-   handleCall :: Api Counter ('Synchronous x) -> (x -> Eff r Bool) -> Eff r ()
+   handleCall :: Api Counter ('Synchronous x) -> (x -> Eff r ()) -> Eff r ()
    handleCall Cnt reply = do
      c <- get
      logMsg ("Cnt is " ++ show c)
-     _ <- reply c
+     reply c
      return ()
 
 -- * Second API
@@ -119,13 +119,13 @@ pocketCalcHandler px =
      modify (+ x)
      c <- get @Integer
      logMsg ("Accumulator is " ++ show c)
-   handleCall :: Api PocketCalc ('Synchronous x) -> (x -> Eff r Bool) -> Eff r ()
+   handleCall :: Api PocketCalc ('Synchronous x) -> (x -> Eff r ()) -> Eff r ()
    handleCall (Add x) reply = do
      logMsg ("Add " ++ show x)
      modify (+ x)
      c <- get
      logMsg ("Accumulator is " ++ show c)
-     void (reply c)
+     reply c
 
 serverLoop :: forall r q .
                  ( Member (Logs String) r

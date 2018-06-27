@@ -36,7 +36,9 @@ import           Control.Eff.Concurrent.Api
 import           Control.Eff.Concurrent.Api.Internal
 import           Control.Eff.Concurrent.Process
 import           Data.Dynamic
-import           Data.Typeable (Typeable, typeRep)
+import           Data.Typeable                  ( Typeable
+                                                , typeRep
+                                                )
 import           GHC.Stack
 
 -- | Send an 'Api' request that has no return value and return as fast as
@@ -55,8 +57,8 @@ castChecked
   -> Server o
   -> Api o 'Asynchronous
   -> Eff r Bool
-castChecked px (Server pid) callMsg =
-  sendMessage px pid (toDyn  (Cast callMsg))
+castChecked px (Server pid) castMsg =
+  sendMessageChecked px pid (toDyn $! (Cast $! castMsg))
 
 -- | Send an 'Api' request that has no return value and return as fast as
 -- possible. The type signature enforces that the corresponding 'Api' clause is
@@ -72,9 +74,9 @@ cast
   -> Server o
   -> Api o 'Asynchronous
   -> Eff r ()
-cast px toServer apiRequest =
-  do _ <- castChecked px toServer apiRequest
-     return ()
+cast px toServer apiRequest = do
+  _ <- castChecked px toServer apiRequest
+  return ()
 
 -- | Send an 'Api' request and wait for the server to return a result value.
 --
@@ -90,18 +92,19 @@ call
      )
   => SchedulerProxy q
   -> Server api
-  -> Api api ('Synchronous result)
+  -> Api api ( 'Synchronous result)
   -> Eff r result
 call px (Server pidInt) req = do
   fromPid <- self px
-  let requestMessage = Call fromPid req
-  wasSent <- sendMessage px pidInt (toDyn requestMessage)
+  let requestMessage = Call fromPid $! req
+  wasSent <- sendMessageChecked px pidInt (toDyn $! requestMessage)
   if wasSent
     then
       let extractResult :: Response api result -> result
           extractResult (Response _pxResult result) = result
-      in extractResult <$> receiveMessageAs px
-    else raiseError px
+      in  extractResult <$> receiveMessageAs px
+    else raiseError
+      px
       ("Could not send request message " ++ show (typeRep requestMessage))
 
 -- * Registered Servers
@@ -119,13 +122,16 @@ type ServesApi o r q =
 
 -- | Run a reader effect that contains __the one__ server handling a specific
 -- 'Api' instance.
-registerServer :: Server o -> Eff ( Reader (Server o) ': r ) a -> Eff r a
+registerServer :: Server o -> Eff (Reader (Server o) ': r) a -> Eff r a
 registerServer = flip runReader
 
 -- | Like 'call' but take the 'Server' from the reader provided by
 -- 'registerServer'.
-callRegistered :: (Typeable reply, ServesApi o r q)
-      => SchedulerProxy q -> Api o ('Synchronous reply) -> Eff r reply
+callRegistered
+  :: (Typeable reply, ServesApi o r q)
+  => SchedulerProxy q
+  -> Api o ( 'Synchronous reply)
+  -> Eff r reply
 callRegistered px method = do
   serverPid <- ask
   call px serverPid method
@@ -135,19 +141,21 @@ callRegistered px method = do
 -- application level errors can be combined with errors rising from inter
 -- process communication.
 callRegisteredA
-  :: forall r q o f reply .
-    (Alternative f, Typeable f, Typeable reply, ServesApi o r q)
-  => SchedulerProxy q -> Api o ('Synchronous (f reply))
+  :: forall r q o f reply
+   . (Alternative f, Typeable f, Typeable reply, ServesApi o r q)
+  => SchedulerProxy q
+  -> Api o ( 'Synchronous (f reply))
   -> Eff r (f reply)
 callRegisteredA px method = do
-  catchRaisedError px
-    (const (return (empty @f)))
-    (callRegistered px method)
+  catchRaisedError px (const (return (empty @f))) (callRegistered px method)
 
 -- | Like 'cast' but take the 'Server' from the reader provided by
 -- 'registerServer'.
-castRegistered :: (Typeable o, ServesApi o r q)
-               => SchedulerProxy q -> Api o 'Asynchronous -> Eff r ()
+castRegistered
+  :: (Typeable o, ServesApi o r q)
+  => SchedulerProxy q
+  -> Api o 'Asynchronous
+  -> Eff r ()
 castRegistered px method = do
   serverPid <- ask
   cast px serverPid method

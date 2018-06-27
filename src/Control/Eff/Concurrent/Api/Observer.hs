@@ -35,11 +35,11 @@ module Control.Eff.Concurrent.Api.Observer
   , notifyObservers
   , CallbackObserver
   , spawnCallbackObserver
+  , spawnLoggingObserver
   ) where
 
 import GHC.Stack
 import Data.Dynamic
-import Data.Maybe
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Control.Eff
@@ -206,16 +206,32 @@ spawnCallbackObserver px onObserve =
   asServer @(CallbackObserver o)
   <$>
   (spawn @r @q $ do
-      me <- asServer @(CallbackObserver o) <$> self px
       let loopUntil =
             serve px
             (ApiHandler @(CallbackObserver o)
               (handleCast loopUntil)
               (unhandledCallError px)
-              (\e ->
-                 do logMsg (show me ++ " observer terminating " ++ fromMaybe "normally" e)
-                    defaultTermination px e))
+              (defaultTermination px))
       loopUntil)
  where
    handleCast k (CbObserved fromSvr v) =
      onObserve fromSvr v >>= flip when k
+
+-- | Use 'spawnCallbackObserver' to create a universal logging observer,
+-- using the 'Show' instance of the 'Observation'.
+-- | Start a new process for an 'Observer' that schedules
+-- all observations to an effectful callback.
+--
+-- @since 0.3.0.0
+spawnLoggingObserver
+  :: forall o r q .
+  ( SetMember Process (Process q) r
+  , Typeable o
+  , Show (Observation o)
+  , Observable o
+  , Member (Logs String) q)
+  => SchedulerProxy q
+  -> Eff r (Server (CallbackObserver o))
+spawnLoggingObserver px =
+  spawnCallbackObserver px
+  (\s o -> logMsg (show s ++ " OBSERVED: " ++ show o) >> return True)

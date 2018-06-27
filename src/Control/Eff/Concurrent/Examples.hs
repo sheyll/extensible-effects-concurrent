@@ -108,7 +108,7 @@ testServerLoop =
     handleCast (Shout x) = do
       me <- self px
       logMsg (show me ++ " Shouting: " ++ x)
-    handleCall :: Api TestApi ('Synchronous x) -> (x -> Eff (Process r ': r) Bool) -> Eff (Process r ': r) ()
+    handleCall :: Api TestApi ('Synchronous x) -> (x -> Eff (Process r ': r) ()) -> Eff (Process r ': r) ()
     handleCall (SayHello "e1") _reply = do
       me <- self px
       logMsg (show me ++ " raising an error")
