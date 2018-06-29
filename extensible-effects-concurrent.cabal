@@ -88,6 +88,7 @@ test-suite extensible-effects-concurrent-test
   other-modules:
                 Paths_extensible_effects_concurrent
               , ForkIOScheduler
+              , Interactive
               , SingleThreadedScheduler
               , ProcessBehaviourTestCases
               , Debug

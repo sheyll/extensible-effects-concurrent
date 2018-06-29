@@ -77,6 +77,7 @@ forkInteractiveScheduler ioScheduler = do
   readEvalPrintLoop = forever . (readAction >>> evalAction >=> printResult)
    where
     readAction queueVar = do
+      yieldProcess SP
       nextActionOrExit <- lift $ atomically
         (do
           mInQueue <- tryReadTMVar queueVar
@@ -91,7 +92,6 @@ forkInteractiveScheduler ioScheduler = do
       case nextActionOrExit of
         Left True  -> exitNormally SP
         Left False -> do
-          yieldProcess SP
           readAction queueVar
         Right r -> return r
     evalAction  = join
