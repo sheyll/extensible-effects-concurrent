@@ -10,23 +10,6 @@
 --
 --  * And a /pure/(rer) coroutine based scheduler in:
 --    "Control.Eff.Concurrent.Process.SingleThreadedScheduler"
-{-# LANGUAGE DeriveTraversable #-}
-{-# LANGUAGE DeriveFoldable #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE ConstraintKinds #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE KindSignatures #-}
-{-# LANGUAGE DataKinds #-}
-{-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE DeriveFunctor #-}
-{-# LANGUAGE StandaloneDeriving #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE GADTs #-}
 module Control.Eff.Concurrent.Process
   ( ProcessId(..)
   , fromProcessId
@@ -56,16 +39,18 @@ module Control.Eff.Concurrent.Process
   )
 where
 
-import           GHC.Stack
-import           Control.Eff
-import           Control.Lens
-import           Control.Monad                  ( forever
-                                                , void
+import           GHC.Generics                   ( Generic
+                                                , Generic1
                                                 )
+import           GHC.Stack
+import           Control.DeepSeq
+import           Control.Eff
+import           Control.Eff.Extend
+import           Control.Lens
+import           Control.Monad                  ( void )
 import           Data.Dynamic
 import           Data.Kind
 import           Text.Printf
-
 
 -- * Process Effects
 
@@ -139,7 +124,12 @@ data ResumeProcess v where
   ResumeWith :: a -> ResumeProcess a
   -- | This indicates that the action did not complete, and maybe retried
   RetryLastAction :: ResumeProcess v
-  deriving (Typeable, Foldable, Functor, Show, Eq, Ord, Traversable)
+  deriving ( Typeable, Foldable, Functor, Show, Eq, Ord
+           , Traversable, Generic, Generic1)
+
+instance NFData a => NFData (ResumeProcess a)
+
+instance NFData1 ResumeProcess
 
 -- | /Cons/ 'Process' onto a list of effects.
 type ConsProcess r = Process r ': r
@@ -154,7 +144,7 @@ executeAndResume
 executeAndResume processAction = do
   result <- send processAction
   case result of
-    ResumeWith value  -> return value
+    ResumeWith !value -> return value
     RetryLastAction   -> executeAndResume processAction
     ShutdownRequested -> send (Shutdown @q)
     OnError e         -> send (ExitWithError @q e)
@@ -169,7 +159,7 @@ executeAndCatch
 executeAndCatch px processAction = do
   result <- processAction
   case result of
-    ResumeWith value  -> return (Right value)
+    ResumeWith !value -> return (Right value)
     RetryLastAction   -> executeAndCatch px processAction
     ShutdownRequested -> send (Shutdown @q)
     OnError e         -> return (Left e)
@@ -299,13 +289,13 @@ receiveLoop
   => SchedulerProxy q
   -> (Either (Maybe String) Dynamic -> Eff r ())
   -> Eff r ()
-receiveLoop _ handlers = forever $ do
+receiveLoop px handlers = do
   mReq <- send (ReceiveMessage @q)
   case mReq of
-    RetryLastAction    -> return ()
-    ShutdownRequested  -> handlers (Left Nothing)
-    OnError    reason  -> handlers (Left (Just reason))
-    ResumeWith message -> handlers (Right message)
+    RetryLastAction    -> receiveLoop px handlers
+    ShutdownRequested  -> handlers (Left Nothing) >> receiveLoop px handlers
+    OnError reason -> handlers (Left (Just reason)) >> receiveLoop px handlers
+    ResumeWith message -> handlers (Right message) >> receiveLoop px handlers
 
 -- | Returns the 'ProcessId' of the current process.
 self

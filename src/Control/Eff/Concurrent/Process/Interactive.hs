@@ -8,7 +8,6 @@ module Control.Eff.Concurrent.Process.Interactive
   )
 where
 
-import           Control.Arrow
 import           Control.Concurrent
 import           Control.Concurrent.STM
 import           Control.Eff
@@ -17,6 +16,7 @@ import           Control.Eff.Concurrent.Api
 import           Control.Eff.Concurrent.Api.Client
 import           Control.Eff.Concurrent.Process
 import           Control.Monad
+import           Data.Foldable
 import           Data.Typeable                  ( Typeable )
 import           System.Timeout
 
@@ -74,28 +74,26 @@ forkInteractiveScheduler ioScheduler = do
     )
   return (SchedulerSession queueVar)
  where
-  readEvalPrintLoop = forever . (readAction >>> evalAction >=> printResult)
+  readEvalPrintLoop queueVar = do
+    nextActionOrExit <- readAction
+    case nextActionOrExit of
+      Left  True       -> return ()
+      Left  False      -> readEvalPrintLoop queueVar
+      Right nextAction -> do
+        res <- nextAction
+        traverse_ (lift . putStrLn . (">>> " ++)) res
+        yieldProcess SP
+        readEvalPrintLoop queueVar
    where
-    readAction queueVar = do
-      yieldProcess SP
-      nextActionOrExit <- lift $ atomically
-        (do
-          mInQueue <- tryReadTMVar queueVar
-          case mInQueue of
-            Nothing                       -> return (Left True)
-            Just (SchedulerQueue inQueue) -> do
-              mnextAction <- tryReadTChan inQueue
-              case mnextAction of
-                Nothing         -> return (Left False)
-                Just nextAction -> return (Right nextAction)
-        )
-      case nextActionOrExit of
-        Left True  -> exitNormally SP
-        Left False -> do
-          readAction queueVar
-        Right r -> return r
-    evalAction  = join
-    printResult = mapM_ (lift . putStrLn)
+    readAction = lift $ atomically $ do
+      mInQueue <- tryReadTMVar queueVar
+      case mInQueue of
+        Nothing                       -> return (Left True)
+        Just (SchedulerQueue inQueue) -> do
+          mnextAction <- tryReadTChan inQueue
+          case mnextAction of
+            Nothing         -> return (Left False)
+            Just nextAction -> return (Right nextAction)
 
 -- | Exit the schedulder immediately using an asynchronous exception.
 killInteractiveScheduler :: SchedulerSession r -> IO ()

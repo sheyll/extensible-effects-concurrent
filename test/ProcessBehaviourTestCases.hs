@@ -13,13 +13,10 @@ import qualified Control.Eff.Concurrent.Process.ForkIOScheduler
 import qualified Control.Eff.Concurrent.Process.SingleThreadedScheduler
                                                as SingleThreaded
 import           Control.Eff
+import           Control.Eff.Extend
 import           Control.Eff.Log
 import           Control.Eff.Lift
-import           Control.Monad                  ( void
-                                                , replicateM
-                                                , forever
-                                                , when
-                                                )
+import           Control.Monad
 import           Test.Tasty
 import           Test.Tasty.HUnit
 import           Common
@@ -33,9 +30,12 @@ test_forkIo = setTravisTestOptions
 test_singleThreaded :: TestTree
 test_singleThreaded = setTravisTestOptions
   (withTestLogC
-    (const . SingleThreaded.defaultMain)
+    (\e logC -> void
+        (runLift (logToChannel logC (SingleThreaded.schedule (return ()) e)))
+    )
     (\factory -> testGroup "SingleThreadedScheduler" [allTests factory])
   )
+
 
 allTests
   :: forall r
@@ -51,8 +51,41 @@ allTests schedulerFactory = localOption
     , concurrencyTests schedulerFactory
     , exitTests schedulerFactory
     , pingPongTests schedulerFactory
+    , yieldLoopTests schedulerFactory
     ]
   )
+
+yieldLoopTests
+  :: forall r
+   . (Member (Logs String) r, SetMember Lift (Lift IO) r)
+  => IO (Eff (Process r ': r) () -> IO ())
+  -> TestTree
+yieldLoopTests schedulerFactory = setTravisTestOptions
+  (testGroup
+    "yield tests"
+    [ testCase
+      "yield many times (replicateM_)"
+      (applySchedulerFactory
+        schedulerFactory
+        (replicateM_ 500000 (yieldProcess SP))
+      )
+    , testCase
+      "yield many times (forM_)"
+      (applySchedulerFactory schedulerFactory
+                             (forM_ [1::Int .. 500000] (\_ -> yieldProcess SP))
+      )
+    , testCase
+      "construct an effect with an exit first, followed by many yields"
+      (applySchedulerFactory
+        schedulerFactory
+        (do
+          void (exitNormally SP)
+          replicateM_ 1000000000000 (yieldProcess SP)
+        )
+      )
+    ]
+  )
+
 
 data Ping = Ping ProcessId
 data Pong = Pong
@@ -152,7 +185,7 @@ errorTests schedulerFactory
           $ do
               void $ raiseError px "test error"
               error "This should not happen"
-          , testCase "catch raiseError"
+          , testCase "catch raiseError 1"
           $ scheduleAndAssert schedulerFactory
           $ \assertEff -> catchRaisedError
               px

@@ -31,7 +31,7 @@ where
 
 import           Control.Applicative
 import           Control.Eff
-import           Control.Eff.Reader.Lazy
+import           Control.Eff.Reader.Strict
 import           Control.Eff.Concurrent.Api
 import           Control.Eff.Concurrent.Api.Internal
 import           Control.Eff.Concurrent.Process
@@ -123,7 +123,7 @@ type ServesApi o r q =
 -- | Run a reader effect that contains __the one__ server handling a specific
 -- 'Api' instance.
 registerServer :: Server o -> Eff (Reader (Server o) ': r) a -> Eff r a
-registerServer = flip runReader
+registerServer = runReader
 
 -- | Like 'call' but take the 'Server' from the reader provided by
 -- 'registerServer'.

@@ -1,54 +1,36 @@
 module Interactive
 where
 
-import           Data.List                      ( sort )
-import           Data.Dynamic
-import           Data.Foldable                  ( traverse_ )
-import           Control.Exception
 import           Control.Concurrent
-import           Control.Concurrent.STM
+import           Control.Eff
+import           Control.Eff.Lift
 import           Control.Eff.Concurrent.Process
 import           Control.Eff.Concurrent.Process.Interactive
 import qualified Control.Eff.Concurrent.Process.SingleThreadedScheduler
                                                as SingleThreaded
 import qualified Control.Eff.Concurrent.Process.ForkIOScheduler
                                                as ForkIOScheduler
-import           Control.Eff
-import           Control.Eff.Log
-import           Control.Eff.Lift
-import           Control.Monad                  ( void
-                                                , replicateM
-                                                , forever
-                                                , when
-                                                )
 import           Test.Tasty
 import           Test.Tasty.HUnit
 import           Common
 
-test_singleThreaded :: TestTree
-test_singleThreaded = setTravisTestOptions $ testGroup
+test_interactive :: TestTree
+test_interactive = setTravisTestOptions $ testGroup
   "Interactive"
-  [ testGroup
-    "SingleThreadedScheduler"
-    [testCase "start interactive scheduler, do nothing, then exit" theTestST]
-  , testGroup
-    "ForkIOScheduler"
-    [testCase "start interactive scheduler, do nothing, then exit" theTestF]
+  [ testGroup "SingleThreadedScheduler"  $ allTests SingleThreaded.defaultMain
+  , testGroup "ForkIOScheduler" $ allTests ForkIOScheduler.defaultMain
   ]
 
+allTests :: SetMember Lift (Lift IO) r => (Eff (ConsProcess r) () -> IO ()) -> [TestTree]
+allTests scheduler =
+  [ happyCaseTest scheduler
+  ]
 
-
-theTestST :: IO ()
-theTestST = do
-  s <- forkInteractiveScheduler (SingleThreaded.defaultMain)
-  threadDelay 10000000
-  killInteractiveScheduler s
-  return ()
-
-
-theTestF :: IO ()
-theTestF = do
-  s <- forkInteractiveScheduler (ForkIOScheduler.defaultMain)
-  threadDelay 10000000
-  killInteractiveScheduler s
-  return ()
+happyCaseTest
+  :: SetMember Lift (Lift IO) r => (Eff (ConsProcess r) () -> IO ()) -> TestTree
+happyCaseTest scheduler =
+  testCase "start, wait and stop interactive scheduler" $ do
+    s <- forkInteractiveScheduler scheduler
+    threadDelay 100000
+    killInteractiveScheduler s
+    return ()

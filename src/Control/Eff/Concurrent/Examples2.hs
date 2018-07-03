@@ -1,19 +1,3 @@
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE ConstraintKinds #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE KindSignatures #-}
-{-# LANGUAGE DataKinds #-}
-{-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE DeriveFunctor #-}
-{-# LANGUAGE StandaloneDeriving #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE GADTs #-}
 module Control.Eff.Concurrent.Examples2 where
 
 import Data.Dynamic
@@ -26,7 +10,7 @@ import Control.Eff.Concurrent.Api.Client
 import Control.Eff.Concurrent.Process
 import Control.Eff.Concurrent.Api.Observer
 import Control.Eff.Log
-import Control.Eff.State.Lazy
+import Control.Eff.State.Strict
 import Control.Monad
 
 main :: IO ()
@@ -92,7 +76,6 @@ counterHandler px =
      c <- get
      logMsg ("Cnt is " ++ show c)
      reply c
-     return ()
 
 -- * Second API
 
@@ -134,11 +117,11 @@ serverLoop :: forall r q .
                -> Eff r ()
 serverLoop px = do
   evalState @Integer
+    0
     (manageObservers @Counter
      (serveBoth px
        (counterHandler px)
        (pocketCalcHandler px)))
-    0
 
 
 -- ** Counter client

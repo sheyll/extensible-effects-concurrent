@@ -37,8 +37,8 @@ module Control.Eff.Concurrent.Api.Server
 where
 
 import           Control.Eff
-import           Control.Eff.InternalExtra
 import qualified Control.Eff.Exception         as Exc
+import           Control.Eff.Extend
 import           Control.Eff.Concurrent.Api
 import           Control.Eff.Concurrent.Api.Internal
 import           Control.Eff.Concurrent.Process

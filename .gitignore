@@ -2,6 +2,9 @@ TAGS
 *.o
 *.ghcid.out
 *.prof
+*.hp
+*.ps
+*.aux
 *.hi
 .stack-work
 *~

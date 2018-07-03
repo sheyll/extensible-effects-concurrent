@@ -4,7 +4,7 @@ where
 import           Control.Exception
 import           Control.Concurrent
 import           Control.Concurrent.STM
-import           Control.Eff
+import           Control.Eff.Extend
 import           Control.Eff.Lift
 import           Control.Eff.Concurrent.Process
 import           Control.Eff.Concurrent.Process.ForkIOScheduler

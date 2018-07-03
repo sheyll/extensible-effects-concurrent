@@ -15,21 +15,6 @@
 --
 -- 'spawn' uses 'forkFinally' and 'STM.TQueue's and tries to catch
 -- most exceptions.
-{-# LANGUAGE ConstraintKinds #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE KindSignatures #-}
-{-# LANGUAGE DataKinds #-}
-{-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE DeriveFunctor #-}
-{-# LANGUAGE StandaloneDeriving #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE GADTs #-}
 module Control.Eff.Concurrent.Process.ForkIOScheduler
   ( schedule
   , defaultMain
@@ -50,6 +35,7 @@ import qualified Control.Exception             as Exc
 import           Control.Concurrent            as Concurrent
 import           Control.Concurrent.STM        as STM
 import           Control.Eff
+import           Control.Eff.Extend
 import           Control.Eff.Concurrent.Process
 -- import           Control.Eff.ExceptionExtra
 import           Control.Eff.Lift
@@ -238,8 +224,8 @@ scheduleProcessWithShutdownAction schedulerVar pidVar procAction = do
       (logToChannel
         l
         (runReader
-          (scheduleProcessWithCleanup shutdownAction saveCleanupAndSchedule)
           schedulerVar
+          (scheduleProcessWithCleanup shutdownAction saveCleanupAndSchedule)
         )
       )
    where
@@ -343,14 +329,14 @@ scheduleProcessWithCleanup shutdownAction processAction = withMessageQueue
     -> (ResumeProcess v -> Eff SchedulerIO a)
     -> Eff SchedulerIO a
     -> Eff SchedulerIO a
-  shutdownOrGo pid k ok = do
+  shutdownOrGo pid !k !ok = do
     psVar          <- getSchedulerTVar
     eHasShutdowReq <- lift
       (do
         p <- atomically (readTVar psVar)
         let mPinfo = p ^. processTable . at pid
         case mPinfo of
-          Just pinfo -> atomically
+          Just !pinfo -> atomically
             (do
               wasRequested <- readTVar (pinfo ^. shutdownRequested)
               -- reset the shutdwown request flag, in case the shutdown
@@ -432,7 +418,7 @@ scheduleProcessWithCleanup shutdownAction processAction = withMessageQueue
     lift Concurrent.yield
     k (ResumeWith pid)
 
-  go pid YieldProcess k = shutdownOrGo pid k $ do
+  go pid YieldProcess !k = shutdownOrGo pid k $ do
     lift Concurrent.yield
     k (ResumeWith ())
 

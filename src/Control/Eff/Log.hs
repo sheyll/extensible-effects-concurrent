@@ -39,6 +39,7 @@ where
 import           Control.Concurrent
 import           Control.Concurrent.STM
 import           Control.Eff                   as Eff
+import           Control.Eff.Extend            as Eff
 import           Control.Exception              ( bracket )
 import qualified Control.Exception             as Exc
 import           Control.Monad                  ( void
@@ -51,8 +52,8 @@ import           Control.Monad.Trans.Control
 import qualified Control.Eff.Lift              as Eff
 import qualified Control.Monad.Log             as Log
 import           Data.Foldable                  ( traverse_ )
-import           Data.Kind()
-import           Data.Sequence                 (Seq())
+import           Data.Kind                      ( )
+import           Data.Sequence                  ( Seq() )
 import qualified Data.Sequence                 as Seq
 import           Data.String
 import           Data.Typeable
@@ -81,15 +82,14 @@ logMsg msg = send (LogMsg msg)
 -- Approach: Install a callback that sneaks into to log message
 -- sending/receiving, to intercept the messages and execute some code and then
 -- return a new message.
-foldLog :: forall r m a . Member (Logs m) r
-            => (m -> Eff r ()) -> Eff r a -> Eff r a
-foldLog interceptor effect =
-  interpose return go effect
-  where
-    go :: Member (Logs m) r => Logs m x -> (Arr r x y) -> Eff r y
-    go (LogMsg m) k =
-      do interceptor m
-         k ()
+foldLog
+  :: forall r m a . Member (Logs m) r => (m -> Eff r ()) -> Eff r a -> Eff r a
+foldLog interceptor effect = interpose return go effect
+ where
+  go :: Member (Logs m) r => Logs m x -> (Arr r x y) -> Eff r y
+  go (LogMsg m) k = do
+    interceptor m
+    k ()
 
 -- | Change, add or remove log messages without side effects, faster than
 -- 'foldLog'.
@@ -105,41 +105,37 @@ foldLog interceptor effect =
 -- Approach: Install a callback that sneaks into to log message
 -- sending/receiving, to intercept the messages and execute some code and then
 -- return a new message.
-foldLogFast :: forall r m a f . (Foldable f, Member (Logs m) r)
-            => (m -> f m) -> Eff r a -> Eff r a
-foldLogFast interceptor effect =
-  interpose return go effect
-  where
-    go :: Member (Logs m) r => Logs m x -> (Arr r x y) -> Eff r y
-    go (LogMsg m) k =
-      do traverse_ logMsg (interceptor m)
-         k ()
+foldLogFast
+  :: forall r m a f
+   . (Foldable f, Member (Logs m) r)
+  => (m -> f m)
+  -> Eff r a
+  -> Eff r a
+foldLogFast interceptor effect = interpose return go effect
+ where
+  go :: Member (Logs m) r => Logs m x -> (Arr r x y) -> Eff r y
+  go (LogMsg m) k = do
+    traverse_ logMsg (interceptor m)
+    k ()
 
 -- | Capture the logs in a 'Seq'.
-captureLogs :: Eff (Logs message ':  r) a
-            -> Eff r (a, Seq message)
-captureLogs actionThatLogs =
-  Eff.handle_relay_s
-     Seq.empty
-     (\logs result -> return (result, logs))
-     handleLogs
-     actionThatLogs
-  where
-    handleLogs :: Seq message
-               -> Logs message x
-               -> (Seq message -> Arr r x y)
-               -> Eff r y
-    handleLogs logs (LogMsg m) k =
-      k (logs Seq.:|> m) ()
+captureLogs :: Eff (Logs message ': r) a -> Eff r (a, Seq message)
+captureLogs actionThatLogs = Eff.handle_relay_s
+  Seq.empty
+  (\logs result -> return (result, logs))
+  handleLogs
+  actionThatLogs
+ where
+  handleLogs
+    :: Seq message -> Logs message x -> (Seq message -> Arr r x y) -> Eff r y
+  handleLogs logs (LogMsg m) k = k (logs Seq.:|> m) ()
 
 -- | Throw away all log messages.
-ignoreLogs :: Eff (Logs message ':  r) a
-           -> Eff r a
-ignoreLogs actionThatLogs =
-  Eff.handle_relay return handleLogs actionThatLogs
-  where
-    handleLogs :: Logs m x -> Arr r x y -> Eff r y
-    handleLogs (LogMsg _) k = k ()
+ignoreLogs :: forall message r a . Eff (Logs message ': r) a -> Eff r a
+ignoreLogs actionThatLogs = Eff.handle_relay return handleLogs actionThatLogs
+ where
+  handleLogs :: Logs m x -> Arr r x y -> Eff r y
+  handleLogs (LogMsg _) k = k ()
 
 -- | Handle 'Logs' effects using 'Log.LoggingT' 'Log.Handler's.
 handleLogsWith
@@ -153,8 +149,7 @@ handleLogsWith actionThatLogs foldHandler = Eff.handle_relay return
                                                              actionThatLogs
  where
   go :: Logs message b -> (b -> Eff r c) -> Eff r c
-  go (LogMsg m) k =
-    Eff.lift (foldHandler (\doLog -> doLog m)) >>= k
+  go (LogMsg m) k = Eff.lift (foldHandler (\doLog -> doLog m)) >>= k
 
 -- | A log channel processes logs from the 'Logs' effect by en-queuing them in a
 -- shared queue read from a seperate processes. A channel can contain log
@@ -183,14 +178,11 @@ logToChannel logChan actionThatLogs = do
 
 -- | Enqueue a log message into a log channel
 logChannelPutIO :: LogChannel message -> message -> IO ()
-logChannelPutIO DiscardLogs _ =
-  return ()
-logChannelPutIO (FilteredLogChannel f lc) m =
-  when (f m) (logChannelPutIO lc m)
-logChannelPutIO c m =
-  atomically $ do
-      dropMessage <- isFullTBQueue (fromLogChannel c)
-      unless dropMessage (writeTBQueue (fromLogChannel c) m)
+logChannelPutIO DiscardLogs               _ = return ()
+logChannelPutIO (FilteredLogChannel f lc) m = when (f m) (logChannelPutIO lc m)
+logChannelPutIO c                         m = atomically $ do
+  dropMessage <- isFullTBQueue (fromLogChannel c)
+  unless dropMessage (writeTBQueue (fromLogChannel c) m)
 
 -- | Create a 'LogChannel' that will discard all messages sent
 -- via 'forwardLogstochannel' or 'logChannelPutIO'.
@@ -218,21 +210,18 @@ forkLogger queueLen handle mFirstMsg = do
   return (ConcurrentLogChannel msgQ thread)
  where
   writeLastLogs :: TBQueue message -> Either Exc.SomeException () -> IO ()
-  writeLastLogs tq ee =
-    do logMessages <- atomically $ flushTBQueue tq
-       case ee of
-         Right _ -> return ()
-         Left se ->
-           case Exc.fromException se of
-             Just (JoinLogChannelException mCloseMsg) ->
-               do traverse_ handle logMessages
-                  traverse_ handle mCloseMsg
-             Nothing ->
-               case Exc.fromException se of
-                 Just (KillLogChannelException mCloseMsg) ->
-                   traverse_ handle mCloseMsg
-                 Nothing ->
-                   mapM_ handle logMessages
+  writeLastLogs tq ee = do
+    logMessages <- atomically $ flushTBQueue tq
+    case ee of
+      Right _  -> return ()
+      Left  se -> case Exc.fromException se of
+        Just (JoinLogChannelException mCloseMsg) -> do
+          traverse_ handle logMessages
+          traverse_ handle mCloseMsg
+        Nothing -> case Exc.fromException se of
+          Just (KillLogChannelException mCloseMsg) ->
+            traverse_ handle mCloseMsg
+          Nothing -> mapM_ handle logMessages
 
   logLoop :: TBQueue message -> IO ()
   logLoop tq = do
@@ -241,62 +230,66 @@ forkLogger queueLen handle mFirstMsg = do
     logLoop tq
 
 -- | Filter logs sent to a 'LogChannel' using a predicate.
-filterLogChannel :: (message -> Bool) -> LogChannel message -> LogChannel message
+filterLogChannel
+  :: (message -> Bool) -> LogChannel message -> LogChannel message
 filterLogChannel = FilteredLogChannel
 
 -- | Run an action and close a 'LogChannel' created by 'noLogger', 'forkLogger'
 -- or 'filterLogChannel' afterwards using 'joinLogChannel'. If a
 -- 'Exc.SomeException' was thrown, the log channel is killed with
 -- 'killLogChannel', and the exception is re-thrown.
-closeLogChannelAfter :: (Show message, Typeable message, IsString message)
+closeLogChannelAfter
+  :: (Show message, Typeable message, IsString message)
   => Maybe message
   -> LogChannel message
   -> IO a
   -> IO a
-closeLogChannelAfter mGoodbye logC ioAction =
-  do res <- closeLogAndRethrow `Exc.handle` ioAction
-     closeLogSuccess
-     return res
-  where
-    closeLogAndRethrow :: Exc.SomeException -> IO a
-    closeLogAndRethrow se =
-      do let closeMsg = Just (fromString (Exc.displayException se))
-         void $ Exc.try @Exc.SomeException
-              $ killLogChannel closeMsg logC
-         Exc.throw se
+closeLogChannelAfter mGoodbye logC ioAction = do
+  res <- closeLogAndRethrow `Exc.handle` ioAction
+  closeLogSuccess
+  return res
+ where
+  closeLogAndRethrow :: Exc.SomeException -> IO a
+  closeLogAndRethrow se = do
+    let closeMsg = Just (fromString (Exc.displayException se))
+    void $ Exc.try @Exc.SomeException $ killLogChannel closeMsg logC
+    Exc.throw se
 
-    closeLogSuccess :: IO ()
-    closeLogSuccess =
-      joinLogChannel mGoodbye logC
+  closeLogSuccess :: IO ()
+  closeLogSuccess = joinLogChannel mGoodbye logC
 
 -- | Close a log channel created by e.g. 'forkLogger'. Message already enqueue
 -- are handled, as well as an optional final message. Subsequent log message
 -- will not be handled anymore. If the log channel must be closed immediately,
 -- use 'killLogChannel' instead.
-joinLogChannel :: (Show message, Typeable message)
-                 => Maybe message -> LogChannel message -> IO ()
+joinLogChannel
+  :: (Show message, Typeable message)
+  => Maybe message
+  -> LogChannel message
+  -> IO ()
 joinLogChannel _closeLogMessage DiscardLogs = return ()
 joinLogChannel Nothing (FilteredLogChannel _f lc) = joinLogChannel Nothing lc
 joinLogChannel (Just closeLogMessage) (FilteredLogChannel f lc) =
-  if f closeLogMessage then
-    joinLogChannel (Just closeLogMessage) lc
-  else
-    joinLogChannel Nothing lc
+  if f closeLogMessage
+    then joinLogChannel (Just closeLogMessage) lc
+    else joinLogChannel Nothing lc
 joinLogChannel closeLogMessage (ConcurrentLogChannel _tq thread) = do
   throwTo thread (JoinLogChannelException closeLogMessage)
 
 -- | Close a log channel quickly, without logging messages already in the queue.
 -- Subsequent logging requests will not be handled anymore. If the log channel
 -- must be closed without loosing any messages, use 'joinLogChannel' instead.
-killLogChannel :: (Show message, Typeable message)
-                 => Maybe message -> LogChannel message -> IO ()
+killLogChannel
+  :: (Show message, Typeable message)
+  => Maybe message
+  -> LogChannel message
+  -> IO ()
 killLogChannel _closeLogMessage DiscardLogs = return ()
 killLogChannel Nothing (FilteredLogChannel _f lc) = killLogChannel Nothing lc
 killLogChannel (Just closeLogMessage) (FilteredLogChannel f lc) =
-  if f closeLogMessage then
-    killLogChannel (Just closeLogMessage) lc
-  else
-    killLogChannel Nothing lc
+  if f closeLogMessage
+    then killLogChannel (Just closeLogMessage) lc
+    else killLogChannel Nothing lc
 killLogChannel closeLogMessage (ConcurrentLogChannel _tq thread) =
   throwTo thread (KillLogChannelException closeLogMessage)
 
@@ -335,4 +328,7 @@ logChannelBracket
 logChannelBracket queueLen mWelcome mGoodbye f = control
   (\runInIO -> do
     let logHandler = void . runInIO . logMessage
-    bracket (forkLogger queueLen logHandler mWelcome) (joinLogChannel mGoodbye) f)
+    bracket (forkLogger queueLen logHandler mWelcome)
+            (joinLogChannel mGoodbye)
+            f
+  )

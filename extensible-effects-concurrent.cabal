@@ -1,5 +1,5 @@
 name:           extensible-effects-concurrent
-version:        0.3.0.2
+version:        0.4.0.0
 description:    Please see the README on GitHub at <https://github.com/sheyll/extensible-effects-concurrent#readme>
 synopsis:       Message passing concurrency as extensible-effect
 homepage:       https://github.com/sheyll/extensible-effects-concurrent#readme
@@ -25,12 +25,13 @@ library
       src
   build-depends:
       base >=4.9 && <5,
+      deepseq,
       directory,
       filepath,
       time,
       mtl,
       containers,
-      QuickCheck <2.11,
+      QuickCheck <2.12,
       lens,
       logging-effect,
       transformers,
@@ -38,7 +39,7 @@ library
       process,
       monad-control,
       random,
-      extensible-effects >= 2.4 && < 2.5,
+      extensible-effects >= 3,
       stm >= 2.4.5,
       tagged
   exposed-modules:
@@ -53,27 +54,30 @@ library
                   Control.Eff.Concurrent.Process.SingleThreadedScheduler,
                   Control.Eff.Concurrent.Api.Observer
   other-modules:
-                Control.Eff.InternalExtra,
                 Control.Eff.Concurrent.Api.Internal,
                 Paths_extensible_effects_concurrent,
                 Control.Eff.Concurrent.Examples,
                 Control.Eff.Concurrent.Examples2
   default-extensions:
+                     BangPatterns,
                      ConstraintKinds,
                      DeriveFoldable,
                      DeriveFunctor,
                      DeriveFunctor,
                      DeriveGeneric,
                      DeriveTraversable,
-                     GADTs,
                      FlexibleContexts,
+                     FlexibleInstances,
+                     GADTs,
                      GeneralizedNewtypeDeriving,
+                     MultiParamTypeClasses,
                      RankNTypes,
                      ScopedTypeVariables,
                      StandaloneDeriving,
                      TemplateHaskell,
                      TupleSections,
                      TypeApplications,
+                     TypeFamilies,
                      TypeInType,
                      TypeOperators,
                      ViewPatterns
@@ -97,22 +101,23 @@ test-suite extensible-effects-concurrent-test
   build-depends:
                 base >=4.9 && <5
               , extensible-effects-concurrent
-              , extensible-effects
+              , extensible-effects >= 3
               , tasty
               , tasty-discover
               , tasty-hunit
               , containers
-              , QuickCheck <2.11
+              , QuickCheck <2.12
               , lens
               , HUnit
               , stm
   default-language: Haskell2010
-  default-extensions:   TypeApplications
-                      , RankNTypes
-                      , ScopedTypeVariables
-                      , TypeOperators
-                      , GADTs
-                      , TemplateHaskell
+  default-extensions:   BangPatterns
                       , DataKinds
                       , FlexibleContexts
-                      , BangPatterns
+                      , GADTs
+                      , RankNTypes
+                      , ScopedTypeVariables
+                      , TemplateHaskell
+                      , TypeApplications
+                      , TypeFamilies
+                      , TypeOperators

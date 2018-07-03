@@ -3,23 +3,6 @@
 -- This module supports the implementation of observers and observables. One use
 -- case is event propagation. The tools in this module are tailored towards
 -- 'Api' servers/clients.
-{-# LANGUAGE IncoherentInstances #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE ConstraintKinds #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE KindSignatures #-}
-{-# LANGUAGE DataKinds #-}
-{-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE DeriveFunctor #-}
-{-# LANGUAGE StandaloneDeriving #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE GADTs #-}
 module Control.Eff.Concurrent.Api.Observer
   ( Observer(..)
   , Observable(..)
@@ -48,7 +31,7 @@ import Control.Eff.Concurrent.Api
 import Control.Eff.Concurrent.Api.Client
 import Control.Eff.Concurrent.Api.Server
 import Control.Eff.Log
-import Control.Eff.State.Lazy
+import Control.Eff.State.Strict
 import Control.Lens
 import Control.Monad
 
@@ -143,7 +126,7 @@ observers = iso _observers Observers
 -- | Keep track of registered 'Observer's Observers can be added and removed,
 -- and an 'Observation' can be sent to all registerd observers at once.
 manageObservers :: Eff (State (Observers o) ': r) a -> Eff r a
-manageObservers = flip evalState (Observers Set.empty)
+manageObservers = evalState (Observers Set.empty)
 
 -- | Add an 'Observer' to the 'Observers' managed by 'manageObservers'.
 addObserver
