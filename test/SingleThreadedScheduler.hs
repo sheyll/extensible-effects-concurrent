@@ -30,7 +30,6 @@ test_pureScheduler = setTravisTestOptions $ testGroup
                   me <- self SP
                   sendMessageAs SP adderChild (me, 3 :: Int, 4 :: Int)
                   x <- receiveMessageAs @Int SP
-                  raiseError SP "test error pure scheduler 1"
                   sendMessageAs SP multChild (me, x, 6 :: Int)
                   receiveMessageAs @Int SP
               )
