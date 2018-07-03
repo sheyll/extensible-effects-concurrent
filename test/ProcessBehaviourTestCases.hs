@@ -30,8 +30,11 @@ test_forkIo = setTravisTestOptions
 test_singleThreaded :: TestTree
 test_singleThreaded = setTravisTestOptions
   (withTestLogC
-    (\e logC -> void
-        (runLift (logToChannel logC (SingleThreaded.schedule (return ()) e)))
+    (\e logC ->
+        -- void (runLift (logToChannel logC (SingleThreaded.schedule (return ()) e)))
+      let runEff :: Eff '[Logs String, Lift IO] a -> IO a
+          runEff = runLift . logToChannel logC
+      in  void $ SingleThreaded.scheduleM runEff yield e
     )
     (\factory -> testGroup "SingleThreadedScheduler" [allTests factory])
   )
@@ -60,31 +63,34 @@ yieldLoopTests
    . (Member (Logs String) r, SetMember Lift (Lift IO) r)
   => IO (Eff (Process r ': r) () -> IO ())
   -> TestTree
-yieldLoopTests schedulerFactory = setTravisTestOptions
-  (testGroup
-    "yield tests"
-    [ testCase
-      "yield many times (replicateM_)"
-      (applySchedulerFactory
-        schedulerFactory
-        (replicateM_ 500000 (yieldProcess SP))
-      )
-    , testCase
-      "yield many times (forM_)"
-      (applySchedulerFactory schedulerFactory
-                             (forM_ [1::Int .. 500000] (\_ -> yieldProcess SP))
-      )
-    , testCase
-      "construct an effect with an exit first, followed by many yields"
-      (applySchedulerFactory
-        schedulerFactory
-        (do
-          void (exitNormally SP)
-          replicateM_ 1000000000000 (yieldProcess SP)
+yieldLoopTests schedulerFactory
+  = let maxN = 100000
+    in
+      setTravisTestOptions
+        (testGroup
+          "yield tests"
+          [ testCase
+            "yield many times (replicateM_)"
+            (applySchedulerFactory schedulerFactory
+                                   (replicateM_ maxN (yieldProcess SP))
+            )
+          , testCase
+            "yield many times (forM_)"
+            (applySchedulerFactory
+              schedulerFactory
+              (forM_ [1 :: Int .. maxN] (\_ -> yieldProcess SP))
+            )
+          , testCase
+            "construct an effect with an exit first, followed by many yields"
+            (applySchedulerFactory
+              schedulerFactory
+              (do
+                void (exitNormally SP)
+                replicateM_ 1000000000000 (yieldProcess SP)
+              )
+            )
+          ]
         )
-      )
-    ]
-  )
 
 
 data Ping = Ping ProcessId

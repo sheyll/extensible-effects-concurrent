@@ -31,6 +31,7 @@ import           Data.Dynamic
 import           Data.Maybe
 
 -- | Invoke 'schedule' with @lift 'yield'@ as yield effect.
+--
 -- @since 0.3.0.2
 scheduleIO
   :: SetMember Lift (Lift IO) r
@@ -39,26 +40,37 @@ scheduleIO
 scheduleIO = schedule (lift yield)
 
 -- | Like 'schedule' but /pure/. The @yield@ effect is just @return ()@.
--- @schedulePure == 'run' . 'schedule' (return ())@
+-- @schedulePure == runIdentity . 'scheduleM' (Identity . run)@
+--
 -- @since 0.3.0.2
 schedulePure :: Eff (ConsProcess '[]) a -> Either String a
-schedulePure = runIdentity . scheduleM (Identity . run)
+schedulePure = runIdentity . scheduleM (Identity . run) (return ())
 
--- | Like 'schedule' but /pure/. The @yield@ effect is just @return ()@.
--- @schedulePure == 'run' . 'schedule' (return ())@
--- @since 0.3.0.2
+-- | Handle the 'Process' effect, as well as all lower effects using an effect handler function.
+--
+-- Execute the __main__ 'Process' and all the other processes 'spawn'ed by it in the
+-- current thread concurrently, using a co-routine based, round-robin
+-- scheduler. If a process exits with 'exitNormally', 'exitWithError',
+-- 'raiseError' or is killed by another process @Left ...@ is returned.
+-- Otherwise, the result will be wrapped in a @Right@.
+--
+-- @since 0.4.0.0
 scheduleM
   :: Monad m
   => (forall b . Eff r b -> m b)
+  -> m () -- ^ An that performs a __yield__ w.r.t. the underlying effect
+  --  @r@. E.g. if @Lift IO@ is present, this might be:
+  --  @lift 'Control.Concurrent.yield'.
   -> Eff (ConsProcess r) a
   -> m (Either String a)
-scheduleM runEff e = do
+scheduleM runEff yieldEff e = do
   y <- runAsCoroutinePure runEff e
-  goPure runEff 1 (Map.singleton 0 Seq.empty) (Seq.singleton (y, 0))
+  goPure runEff yieldEff 1 (Map.singleton 0 Seq.empty) (Seq.singleton (y, 0))
 
 
 -- | Like 'schedulePure' but with logging.
 -- @scheduleWithLogging == 'run' . 'captureLogs' . 'schedule' (return ())@
+--
 -- @since 0.3.0.2
 scheduleWithLogging :: Eff (ConsProcess '[Logs m]) a -> (Either String a, Seq m)
 scheduleWithLogging = run . captureLogs . schedule (return ())
@@ -221,16 +233,17 @@ runAsCoroutine = handle_relay (return . OnDone) cont
 goPure
   :: Monad m
   => (forall a . Eff r a -> m a)
+  -> m ()
   -> ProcessId
   -> Map.Map ProcessId (Seq Dynamic)
   -> Seq (OnYield r finalResult, ProcessId)
   -> m (Either String finalResult)
-goPure runEff _newPid _msgQs Empty = return $ Left "no main process"
+goPure _runEff _yieldEff _newPid _msgQs Empty = return $ Left "no main process"
 
-goPure runEff !newPid !msgQs allProcs@((!processState, !pid) :<| rest)
+goPure runEff yieldEff !newPid !msgQs allProcs@((!processState, !pid) :<| rest)
   = let handleExit res = if pid == 0
           then return res
-          else goPure runEff newPid (msgQs & at pid .~ Nothing) rest
+          else goPure runEff yieldEff newPid (msgQs & at pid .~ Nothing) rest
     in
       case processState of
         OnDone r                   -> handleExit (Right r)
@@ -250,7 +263,7 @@ goPure runEff !newPid !msgQs allProcs@((!processState, !pid) :<| rest)
           if suicide
             then do
               nextK <- runEff $ k ShutdownRequested
-              goPure runEff newPid msgQs (rest :|> (nextK, pid))
+              goPure runEff yieldEff newPid msgQs (rest :|> (nextK, pid))
             else do
               let deliverTheGoodNews (targetState, tPid) = do
                     nextTargetState <- case targetState of
@@ -268,6 +281,7 @@ goPure runEff !newPid !msgQs allProcs@((!processState, !pid) :<| rest)
               nextTargets <- runEff $ traverse deliverTheGoodNews targets
               nextK       <- runEff $ k (ResumeWith targetFound)
               goPure runEff
+                     yieldEff
                      newPid
                      msgQs
                      (allButTarget Seq.>< (nextTargets :|> (nextK, pid)))
@@ -275,15 +289,17 @@ goPure runEff !newPid !msgQs allProcs@((!processState, !pid) :<| rest)
 
         OnSelf k -> do
           nextK <- runEff $ k (ResumeWith pid)
-          goPure runEff newPid msgQs (rest :|> (nextK, pid))
+          goPure runEff yieldEff newPid msgQs (rest :|> (nextK, pid))
 
         OnYield k -> do
+          yieldEff
           nextK <- runEff $ k (ResumeWith ())
-          goPure runEff newPid msgQs (rest :|> (nextK, pid))
+          goPure runEff yieldEff newPid msgQs (rest :|> (nextK, pid))
 
         OnSend toPid msg k -> do
           nextK <- runEff $ k (ResumeWith (msgQs ^. at toPid . to isJust))
           goPure runEff
+                 yieldEff
                  newPid
                  (msgQs & at toPid . _Just %~ (:|> msg))
                  (rest :|> (nextK, pid))
@@ -291,17 +307,18 @@ goPure runEff !newPid !msgQs allProcs@((!processState, !pid) :<| rest)
         recv@(OnRecv k) -> case msgQs ^. at pid of
           Nothing -> do
             nextK <- runEff $ k (OnError (show pid ++ " has no message queue!"))
-            goPure runEff newPid msgQs (rest :|> (nextK, pid))
+            goPure runEff yieldEff newPid msgQs (rest :|> (nextK, pid))
           Just Empty -> if Seq.length rest == 0
             then do
               nextK <- runEff
                 $ k (OnError ("Process " ++ show pid ++ " deadlocked!"))
-              goPure runEff newPid msgQs (rest :|> (nextK, pid))
-            else goPure runEff newPid msgQs (rest :|> (recv, pid))
+              goPure runEff yieldEff newPid msgQs (rest :|> (nextK, pid))
+            else goPure runEff yieldEff newPid msgQs (rest :|> (recv, pid))
 
           Just (nextMessage :<| restMessages) -> do
             nextK <- runEff $ k (ResumeWith nextMessage)
             goPure runEff
+                   yieldEff
                    newPid
                    (msgQs & at pid . _Just .~ restMessages)
                    (rest :|> (nextK, pid))
@@ -310,6 +327,7 @@ goPure runEff !newPid !msgQs allProcs@((!processState, !pid) :<| rest)
           nextK <- runEff $ k (ResumeWith newPid)
           fk    <- runAsCoroutinePure runEff (f >> exitNormally SP)
           goPure runEff
+                 yieldEff
                  (newPid + 1)
                  (msgQs & at newPid .~ Just Seq.empty)
                  (rest :|> (nextK, pid) :|> (fk, newPid))
