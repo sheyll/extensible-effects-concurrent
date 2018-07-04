@@ -1,5 +1,15 @@
 # Changelog for extensible-effects-concurrent
 
+## 0.4.0.0
+
+- Switch to `extensible-effects` version `3.0.0.0`
+- Improve single threaded scheduler to be more space efficient
+- Add some strictness annotations
+- Add `Control.Eff.Loop` with (hopefully) constant space `forever` and
+  `replicateM_`
+- Add `Control.Eff.Concurrent`, a module that conveniently re-exports most
+  library functions.
+
 ## 0.3.0.2
 
 - Improve single threaded scheduler such that the main process can return a value

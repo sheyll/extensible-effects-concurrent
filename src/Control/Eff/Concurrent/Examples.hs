@@ -1,19 +1,4 @@
-{-# LANGUAGE IncoherentInstances #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE ConstraintKinds #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE KindSignatures #-}
-{-# LANGUAGE DataKinds #-}
-{-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE DeriveFunctor #-}
-{-# LANGUAGE StandaloneDeriving #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE GADTs #-}
+-- | A complete example for the library
 module Control.Eff.Concurrent.Examples where
 
 import GHC.Stack
@@ -21,12 +6,7 @@ import Control.Eff
 import Control.Eff.Lift
 import Control.Monad
 import Data.Dynamic
-import Control.Eff.Concurrent.Api
-import Control.Eff.Concurrent.Api.Client
-import Control.Eff.Concurrent.Api.Server
-import Control.Eff.Concurrent.Process
-import Control.Eff.Concurrent.Process.ForkIOScheduler as Scheduler
-import Control.Eff.Log
+import Control.Eff.Concurrent
 import qualified Control.Exception as Exc
 
 data TestApi

@@ -1,7 +1,7 @@
 module SingleThreadedScheduler
 where
 
-import           Control.Eff
+import           Control.Eff.Loop
 import           Control.Eff.Concurrent.Process
 import           Control.Eff.Concurrent.Process.SingleThreadedScheduler
                                                as Scheduler
@@ -21,7 +21,7 @@ test_pureScheduler = setTravisTestOptions $ testGroup
                   adderChild <- spawn $ do
                       (from, arg1, arg2) <- receiveMessageAs SP
                       sendMessageAs SP from ((arg1 + arg2) :: Int)
-                      forever $ void $ receiveMessage SP
+                      foreverCheap $ void $ receiveMessage SP
 
                   multChild <- spawn $ do
                       (from, arg1, arg2) <- receiveMessageAs SP
@@ -34,6 +34,7 @@ test_pureScheduler = setTravisTestOptions $ testGroup
                   receiveMessageAs @Int SP
               )
     ]
+
 
 test_mainProcessSpawnsAChildAndExitsNormally :: TestTree
 test_mainProcessSpawnsAChildAndExitsNormally = setTravisTestOptions

@@ -1,15 +1,3 @@
-{-# LANGUAGE UndecidableInstances #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE TypeInType #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE GADTs #-}
-{-# LANGUAGE KindSignatures #-}
-{-# LANGUAGE DataKinds #-}
 -- | A logging effect based on 'Control.Monad.Log.MonadLog'.
 module Control.Eff.Log
   (
@@ -22,6 +10,7 @@ module Control.Eff.Log
   , captureLogs
   , ignoreLogs
   , handleLogsWith
+  , handleLogsWithLoggingTHandler
     -- * Concurrent Logging
   , LogChannel()
   , logToChannel
@@ -33,11 +22,15 @@ module Control.Eff.Log
   , closeLogChannelAfter
   , logChannelBracket
   , logChannelPutIO
+  -- ** Internals
+  , JoinLogChannelException()
+  , KillLogChannelException()
   )
 where
 
 import           Control.Concurrent
 import           Control.Concurrent.STM
+import           Control.DeepSeq
 import           Control.Eff                   as Eff
 import           Control.Eff.Extend            as Eff
 import           Control.Exception              ( bracket )
@@ -118,8 +111,9 @@ foldLogFast interceptor effect = interpose return go effect
     traverse_ logMsg (interceptor m)
     k ()
 
--- | Capture the logs in a 'Seq'.
-captureLogs :: Eff (Logs message ': r) a -> Eff r (a, Seq message)
+-- | Capture all log messages in a 'Seq' (strict).
+captureLogs
+  :: NFData message => Eff (Logs message ': r) a -> Eff r (a, Seq message)
 captureLogs actionThatLogs = Eff.handle_relay_s
   Seq.empty
   (\logs result -> return (result, logs))
@@ -127,8 +121,12 @@ captureLogs actionThatLogs = Eff.handle_relay_s
   actionThatLogs
  where
   handleLogs
-    :: Seq message -> Logs message x -> (Seq message -> Arr r x y) -> Eff r y
-  handleLogs logs (LogMsg m) k = k (logs Seq.:|> m) ()
+    :: NFData message
+    => Seq message
+    -> Logs message x
+    -> (Seq message -> Arr r x y)
+    -> Eff r y
+  handleLogs !logs (LogMsg !m) k = k (force (logs Seq.:|> m)) ()
 
 -- | Throw away all log messages.
 ignoreLogs :: forall message r a . Eff (Logs message ': r) a -> Eff r a
@@ -137,16 +135,31 @@ ignoreLogs actionThatLogs = Eff.handle_relay return handleLogs actionThatLogs
   handleLogs :: Logs m x -> Arr r x y -> Eff r y
   handleLogs (LogMsg _) k = k ()
 
--- | Handle 'Logs' effects using 'Log.LoggingT' 'Log.Handler's.
+-- | Handle the 'Logs' effect with a monadic call back function (strict).
 handleLogsWith
+  :: forall m r message a
+   . (NFData message, Monad m, SetMember Eff.Lift (Eff.Lift m) r)
+  => (message -> m ())
+  -> Eff (Logs message ': r) a
+  -> Eff r a
+handleLogsWith logMessageHandler = Eff.handle_relay return go
+ where
+  go :: Logs message b -> (b -> Eff r c) -> Eff r c
+  go (LogMsg m) k = do
+    res <- Eff.lift (logMessageHandler (force m))
+    k res
+
+-- | Handle the 'Logs' effect using 'Log.LoggingT' 'Log.Handler's.
+handleLogsWithLoggingTHandler
   :: forall m r message a
    . (Monad m, SetMember Eff.Lift (Eff.Lift m) r)
   => Eff (Logs message ': r) a
   -> (forall b . (Log.Handler m message -> m b) -> m b)
   -> Eff r a
-handleLogsWith actionThatLogs foldHandler = Eff.handle_relay return
-                                                             go
-                                                             actionThatLogs
+handleLogsWithLoggingTHandler actionThatLogs foldHandler = Eff.handle_relay
+  return
+  go
+  actionThatLogs
  where
   go :: Logs message b -> (b -> Eff r c) -> Eff r c
   go (LogMsg m) k = Eff.lift (foldHandler (\doLog -> doLog m)) >>= k
@@ -173,8 +186,9 @@ logToChannel
   -> Eff (Logs message ': r) a
   -> Eff r a
 logToChannel logChan actionThatLogs = do
-  handleLogsWith actionThatLogs
-                 (\withHandler -> withHandler (logChannelPutIO logChan))
+  handleLogsWithLoggingTHandler
+    actionThatLogs
+    (\withHandler -> withHandler (logChannelPutIO logChan))
 
 -- | Enqueue a log message into a log channel
 logChannelPutIO :: LogChannel message -> message -> IO ()

@@ -10,9 +10,15 @@ copyright:      Copyright Sven Heyll
 license:        BSD3
 license-file:   LICENSE
 build-type:     Simple
-cabal-version:  >= 1.10
+cabal-version:  >= 1.19
+
+extra-doc-files:
+    docs/extensible-effects-concurrent-test-Loop-without-space-leaks.png
+    docs/extensible-effects-concurrent-test-Loop-WITH-space-leaks.png
 
 extra-source-files:
+    stack.yaml
+    stack.nightly-2018-05-29.yaml
     ChangeLog.md
     README.md
 
@@ -43,8 +49,10 @@ library
       stm >= 2.4.5,
       tagged
   exposed-modules:
+                  Control.Eff.Loop,
                   Control.Eff.ExceptionExtra,
                   Control.Eff.Log,
+                  Control.Eff.Concurrent,
                   Control.Eff.Concurrent.Api,
                   Control.Eff.Concurrent.Api.Client,
                   Control.Eff.Concurrent.Api.Server,
@@ -82,7 +90,7 @@ library
                      TypeOperators,
                      ViewPatterns
   default-language: Haskell2010
-  ghc-options: -Wall
+  ghc-options: -Wall -fno-full-laziness
 
 
 test-suite extensible-effects-concurrent-test
@@ -94,10 +102,11 @@ test-suite extensible-effects-concurrent-test
               , ForkIOScheduler
               , Interactive
               , SingleThreadedScheduler
+              , LoopTests
               , ProcessBehaviourTestCases
               , Debug
               , Common
-  ghc-options: -threaded -rtsopts -with-rtsopts=-N
+  ghc-options: -Wall -threaded -fno-full-laziness -rtsopts -with-rtsopts=-N
   build-depends:
                 base >=4.9 && <5
               , extensible-effects-concurrent
@@ -106,6 +115,7 @@ test-suite extensible-effects-concurrent-test
               , tasty-discover
               , tasty-hunit
               , containers
+              , deepseq
               , QuickCheck <2.12
               , lens
               , HUnit

@@ -4,14 +4,13 @@ where
 import           Control.Exception
 import           Control.Concurrent
 import           Control.Concurrent.STM
+import           Control.Eff.Loop
 import           Control.Eff.Extend
 import           Control.Eff.Lift
 import           Control.Eff.Concurrent.Process
 import           Control.Eff.Concurrent.Process.ForkIOScheduler
                                                as Scheduler
-import           Control.Monad                  ( void
-                                                , forever
-                                                )
+import           Control.Monad                  ( void )
 import           Test.Tasty
 import           Test.Tasty.HUnit
 import           Data.Dynamic
@@ -30,7 +29,7 @@ test_IOExceptionsIsolated = setTravisTestOptions $ testGroup
           aVar <- newEmptyTMVarIO
           lc   <- testLogC
           Scheduler.defaultMainWithLogChannel lc $ do
-            p1 <- spawn $ forever busyEffect
+            p1 <- spawn $ foreverCheap busyEffect
             lift (threadDelay 1000)
             void $ spawn $ do
               lift (threadDelay 1000)
@@ -104,7 +103,7 @@ test_mainProcessSpawnsAChildInABusySendLoopAndExitsNormally =
           (do
             void
               (spawn
-                (forever
+                (foreverCheap
                   (void (sendMessage forkIoScheduler 1000 (toDyn "test")))
                 )
               )

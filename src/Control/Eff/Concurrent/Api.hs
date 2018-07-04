@@ -1,18 +1,3 @@
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE ConstraintKinds #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE KindSignatures #-}
-{-# LANGUAGE DataKinds #-}
-{-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE DeriveFunctor #-}
-{-# LANGUAGE StandaloneDeriving #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE GADTs #-}
-
 -- | This module contains a mechanism to specify what kind of messages (aka
 -- /requests/) a 'Server' ('Process') can handle, and if the caller blocks and
 -- waits for an answer, which the server process provides.
@@ -41,7 +26,9 @@ where
 
 import           Data.Kind
 import           Control.Lens
-import           Data.Typeable (Typeable, typeRep)
+import           Data.Typeable                  ( Typeable
+                                                , typeRep
+                                                )
 import           Control.Eff.Concurrent.Process
 
 -- | This data family defines an API, a communication interface description

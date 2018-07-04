@@ -37,7 +37,6 @@ import           Control.Concurrent.STM        as STM
 import           Control.Eff
 import           Control.Eff.Extend
 import           Control.Eff.Concurrent.Process
--- import           Control.Eff.ExceptionExtra
 import           Control.Eff.Lift
 import           Control.Eff.Log
 import           Control.Eff.Reader.Strict     as Reader
@@ -66,7 +65,7 @@ makeLenses ''ProcessInfo
 instance Show ProcessInfo where
   show p =  "ProcessInfo: " ++ show (p ^. processId)
 
--- | Contains all 'ProcessInfo' elements, as well as the state needed to
+-- | Contains all process info'elements, as well as the state needed to
 -- implement inter process communication. It contains also a 'LogChannel' to
 -- which the logs of all processes are forwarded to.
 data Scheduler =
@@ -79,7 +78,7 @@ data Scheduler =
 
 makeLenses ''Scheduler
 
--- | A newtype wrapper around an 'STM.TVar' holding a 'Scheduler' state.
+-- | A newtype wrapper around an 'STM.TVar' holding the scheduler state.
 -- This is needed by 'spawn' and provided by 'runScheduler'.
 newtype SchedulerVar = SchedulerVar { fromSchedulerVar :: STM.TVar Scheduler }
   deriving Typeable
@@ -87,7 +86,7 @@ newtype SchedulerVar = SchedulerVar { fromSchedulerVar :: STM.TVar Scheduler }
 -- | A sum-type with errors that can occur when scheduleing messages.
 data SchedulerError =
     ProcessNotFound ProcessId
-    -- ^ No 'ProcessInfo' was found for a 'ProcessId' during internal
+    -- ^ No process info was found for a 'ProcessId' during internal
     -- processing. NOTE: This is **ONLY** caused by internal errors, probably by
     -- an incorrect 'MessagePassing' handler in this module. **Sending a message
     -- to a process ALWAYS succeeds!** Even if the process does not exist.

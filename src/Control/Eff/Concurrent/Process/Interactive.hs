@@ -1,3 +1,30 @@
+-- | This module provides support for executing 'Process' actions from 'IO'.
+--
+-- One use case is interacting with processes from the REPL, e.g.:
+--
+-- >>> import Control.Eff.Concurrent.Process.SingleThreadedScheduler (defaultMain)
+--
+-- >>> import Control.Eff.Loop
+--
+-- >>> import Data.Dynamic
+--
+-- >>> import Data.Maybe
+--
+-- >>> s <- forkInteractiveScheduler Control.Eff.Concurrent.Process.SingleThreadedScheduler.defaultMain
+--
+-- >>> fooPid <- submit s (spawn (foreverCheap (receiveMessage SP >>= (logMsg . fromMaybe "Huh!??" . fromDynamic))))
+--
+-- >>> fooPid
+-- <0.1.0>
+--
+-- >>> submit s (sendMessageAs SP fooPid "test")
+-- test
+--
+-- >>> submit s (sendShutdown SP fooPid)
+--
+--
+--
+-- @since 0.3.0.1
 module Control.Eff.Concurrent.Process.Interactive
   ( SchedulerSession()
   , forkInteractiveScheduler
@@ -19,32 +46,6 @@ import           Control.Monad
 import           Data.Foldable
 import           Data.Typeable                  ( Typeable )
 import           System.Timeout
-
--- | This module provides support for executing 'Process' actions from 'IO'.
---
--- One use case is interacting with processes from the REPL, e.g.:
---
--- >>> import Control.Eff.Concurrent.Process.SingleThreadedScheduler (defaultMain)
---
--- >>> import Data.Dynamic
---
--- >>> import Data.Maybe
---
--- >>> s <- forkInteractiveScheduler Control.Eff.Concurrent.Process.SingleThreadedScheduler.defaultMain
---
--- >>> fooPid <- submit s (spawn (forever (receiveMessage SP >>= (logMsg . fromMaybe "Huh!??" . fromDynamic))))
---
--- >>> fooPid
--- <0.1.0>
---
--- >>> submit s (sendMessageAs SP fooPid "test")
--- test
---
--- >>> submit s (sendShutdown SP fooPid)
---
---
---
--- @since 0.3.0.1
 
 -- | Contains the communication channels to interact with a scheduler running in
 -- its' own thread.

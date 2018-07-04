@@ -11,14 +11,17 @@
 --  * And a /pure/(rer) coroutine based scheduler in:
 --    "Control.Eff.Concurrent.Process.SingleThreadedScheduler"
 module Control.Eff.Concurrent.Process
-  ( ProcessId(..)
+  ( -- * ProcessId Type
+    ProcessId(..)
   , fromProcessId
+   -- * Process Effects
   , Process(..)
   , ConsProcess
   , ResumeProcess(..)
   , SchedulerProxy(..)
   , thisSchedulerProxy
   , executeAndCatch
+  , executeAndResume
   , yieldProcess
   , sendMessage
   , sendMessageAs
@@ -51,8 +54,6 @@ import           Control.Monad                  ( void )
 import           Data.Dynamic
 import           Data.Kind
 import           Text.Printf
-
--- * Process Effects
 
 -- | The process effect is the basis for message passing concurrency. This
 -- effect describes an interface for concurrent, communicating isolated

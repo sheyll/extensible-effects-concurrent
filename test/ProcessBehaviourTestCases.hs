@@ -15,6 +15,7 @@ import qualified Control.Eff.Concurrent.Process.SingleThreadedScheduler
 import           Control.Eff
 import           Control.Eff.Extend
 import           Control.Eff.Log
+import           Control.Eff.Loop
 import           Control.Eff.Lift
 import           Control.Monad
 import           Test.Tasty
@@ -107,7 +108,7 @@ pingPongTests schedulerFactory = testGroup
   [ testCase "ping pong a message between two processes, both don't yield"
   $ applySchedulerFactory schedulerFactory
   $ do
-      let pongProc = forever $ do
+      let pongProc = foreverCheap $ do
             Ping pinger <- receiveMessageAs SP
             sendMessageAs SP pinger Pong
           pingProc ponger parent = do
@@ -124,7 +125,7 @@ pingPongTests schedulerFactory = testGroup
   $ applySchedulerFactory schedulerFactory
   $ do
       yieldProcess SP
-      let pongProc = forever $ do
+      let pongProc = foreverCheap $ do
             yieldProcess SP
             Ping pinger <- receiveMessageAs SP
             yieldProcess SP
@@ -156,7 +157,7 @@ pingPongTests schedulerFactory = testGroup
   $ applySchedulerFactory schedulerFactory
   $ do
       pongVar <- lift newEmptyMVar
-      let pongProc = forever $ do
+      let pongProc = foreverCheap $ do
             Pong <- receiveMessageAs SP
             lift (putMVar pongVar Pong)
       ponger <- spawn pongProc
@@ -231,7 +232,7 @@ errorTests schedulerFactory
                     void (exitWithError px (show i ++ " died"))
                     assertEff "this should not be reached" False
                   else
-                    forever
+                    foreverCheap
                       (void (sendMessage px 888 (toDyn "test message to 888"))
                       )
                 )
@@ -291,19 +292,19 @@ concurrencyTests schedulerFactory
                 m <- receiveMessage px
                 void (sendMessage px me m)
               )
-            child2 <- spawn (forever (void (sendMessage px 888 (toDyn ""))))
+            child2 <- spawn (foreverCheap (void (sendMessage px 888 (toDyn ""))))
             True   <- sendMessageChecked px child1 (toDyn "test")
             i      <- receiveMessageAs px
             True   <- sendShutdownChecked px child2
             assertEff "" (i == "test")
-        , testCase "most processes send forever"
+        , testCase "most processes send foreverCheap"
         $ scheduleAndAssert schedulerFactory
         $ \assertEff -> do
             me <- self px
             traverse_
               (\(i :: Int) -> spawn $ do
                 when (i `rem` 5 == 0) $ void $ sendMessage px me (toDyn i)
-                forever
+                foreverCheap
                   $ void (sendMessage px 888 (toDyn "test message to 888"))
               )
               [0 .. n]
@@ -314,14 +315,14 @@ concurrencyTests schedulerFactory
                 return j
               )
             assertEff "" (sort oks == [0, 5 .. n])
-        , testCase "most processes self forever"
+        , testCase "most processes self foreverCheap"
         $ scheduleAndAssert schedulerFactory
         $ \assertEff -> do
             me <- self px
             traverse_
               (\(i :: Int) -> spawn $ do
                 when (i `rem` 5 == 0) $ void $ sendMessage px me (toDyn i)
-                forever $ void (self px)
+                foreverCheap $ void (self px)
               )
               [0 .. n]
             oks <- replicateM
@@ -331,14 +332,14 @@ concurrencyTests schedulerFactory
                 return j
               )
             assertEff "" (sort oks == [0, 5 .. n])
-        , testCase "most processes sendShutdown forever"
+        , testCase "most processes sendShutdown foreverCheap"
         $ scheduleAndAssert schedulerFactory
         $ \assertEff -> do
             me <- self px
             traverse_
               (\(i :: Int) -> spawn $ do
                 when (i `rem` 5 == 0) $ void $ sendMessage px me (toDyn i)
-                forever $ void (sendShutdown px 999)
+                foreverCheap $ void (sendShutdown px 999)
               )
               [0 .. n]
             oks <- replicateM
@@ -348,7 +349,7 @@ concurrencyTests schedulerFactory
                 return j
               )
             assertEff "" (sort oks == [0, 5 .. n])
-        , testCase "most processes spawn forever"
+        , testCase "most processes spawn foreverCheap"
         $ scheduleAndAssert schedulerFactory
         $ \assertEff -> do
             me <- self px
@@ -356,7 +357,7 @@ concurrencyTests schedulerFactory
               (\(i :: Int) -> spawn $ do
                 when (i `rem` 5 == 0) $ void $ sendMessage px me (toDyn i)
                 parent <- self px
-                forever
+                foreverCheap
                   $ void
                       (spawn
                         (void
@@ -373,14 +374,14 @@ concurrencyTests schedulerFactory
                 return j
               )
             assertEff "" (sort oks == [0, 5 .. n])
-        , testCase "most processes receive forever"
+        , testCase "most processes receive foreverCheap"
         $ scheduleAndAssert schedulerFactory
         $ \assertEff -> do
             me <- self px
             traverse_
               (\(i :: Int) -> spawn $ do
                 when (i `rem` 5 == 0) $ void $ sendMessage px me (toDyn i)
-                forever $ void (receiveMessage px)
+                foreverCheap $ void (receiveMessage px)
               )
               [0 .. n]
             oks <- replicateM
@@ -422,7 +423,7 @@ exitTests schedulerFactory =
                       $ do
                           tid <- lift $ myThreadId
                           lift $ atomically $ putTMVar tidVar tid
-                          forever busyEffect
+                          foreverCheap busyEffect
                     atomically $ putTMVar schedulerDoneVar ()
                   tid <- atomically $ takeTMVar tidVar
                   threadDelay 1000
@@ -447,7 +448,7 @@ exitTests schedulerFactory =
           [ testCase ("a child process, busy with " ++ busyWith)
             $ applySchedulerFactory schedulerFactory
             $ do
-                void $ spawn $ forever busyEffect
+                void $ spawn $ foreverCheap busyEffect
                 lift (threadDelay 10000)
           | (busyWith, busyEffect) <-
             [ ("receiving", void (send (ReceiveMessage @r)))
@@ -471,7 +472,7 @@ exitTests schedulerFactory =
               )
             $ scheduleAndAssert schedulerFactory
             $ \assertEff -> do
-                p1 <- spawn $ forever busyEffect
+                p1 <- spawn $ foreverCheap busyEffect
                 lift (threadDelay 1000)
                 void $ spawn $ do
                   lift (threadDelay 1000)

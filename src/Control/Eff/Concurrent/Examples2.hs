@@ -1,15 +1,11 @@
+-- | Another complete example for the library
 module Control.Eff.Concurrent.Examples2 where
 
 import Data.Dynamic
 import Control.Eff
 import qualified Control.Eff.Concurrent.Process.ForkIOScheduler as ForkIO
 import qualified Control.Eff.Concurrent.Process.SingleThreadedScheduler as Pure
-import Control.Eff.Concurrent.Api
-import Control.Eff.Concurrent.Api.Server
-import Control.Eff.Concurrent.Api.Client
-import Control.Eff.Concurrent.Process
-import Control.Eff.Concurrent.Api.Observer
-import Control.Eff.Log
+import Control.Eff.Concurrent
 import Control.Eff.State.Strict
 import Control.Monad
 

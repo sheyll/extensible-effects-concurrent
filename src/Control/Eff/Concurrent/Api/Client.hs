@@ -1,26 +1,12 @@
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE ConstraintKinds #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE KindSignatures #-}
-{-# LANGUAGE DataKinds #-}
-{-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE DeriveFunctor #-}
-{-# LANGUAGE StandaloneDeriving #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE GADTs #-}
-
 -- | Functions for 'Api' clients.
 --
 -- This modules is required to write clients that consume an 'Api'.
-
 module Control.Eff.Concurrent.Api.Client
-  ( cast
+  ( -- * Calling APIs directly
+    cast
   , castChecked
   , call
+  -- * Server Process Registration
   , castRegistered
   , callRegistered
   , callRegisteredA
@@ -107,7 +93,6 @@ call px (Server pidInt) req = do
       px
       ("Could not send request message " ++ show (typeRep requestMessage))
 
--- * Registered Servers
 
 -- | Instead of passing around a 'Server' value and passing to functions like
 -- 'cast' or 'call', a 'Server' can provided by a 'Reader' effect, if there is

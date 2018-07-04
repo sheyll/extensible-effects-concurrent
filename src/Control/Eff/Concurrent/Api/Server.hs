@@ -1,20 +1,4 @@
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE ConstraintKinds #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE KindSignatures #-}
-{-# LANGUAGE DataKinds #-}
-{-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE DeriveFunctor #-}
-{-# LANGUAGE StandaloneDeriving #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE GADTs #-}
-
 -- | Functions to implement 'Api' __servers__.
-
 module Control.Eff.Concurrent.Api.Server
   (
   -- * Api Server
@@ -90,7 +74,7 @@ data ApiHandler p r where
      } -> ApiHandler p r
 
 -- | Apply either the '_handleCall', '_handleCast' or the '_handleTerminate'
--- callback to an incoming 'Request'. Note, it is unlikely that this function must be used.
+-- callback to an incoming request. Note, it is unlikely that this function must be used.
 applyApiHandler
   :: forall r q p
    . (Typeable p, SetMember Process (Process q) r, HasCallStack)

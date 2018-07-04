@@ -4,11 +4,13 @@
 -- case is event propagation. The tools in this module are tailored towards
 -- 'Api' servers/clients.
 module Control.Eff.Concurrent.Api.Observer
-  ( Observer(..)
+  ( -- * Observation API
+    Observer(..)
   , Observable(..)
   , notifyObserver
   , registerObserver
   , forgetObserver
+  -- ** Generalized observation
   , SomeObserver(..)
   , notifySomeObserver
   , Observers()
@@ -16,6 +18,7 @@ module Control.Eff.Concurrent.Api.Observer
   , addObserver
   , removeObserver
   , notifyObservers
+  -- * Callback 'Observer'
   , CallbackObserver
   , spawnCallbackObserver
   , spawnLoggingObserver
@@ -34,8 +37,6 @@ import Control.Eff.Log
 import Control.Eff.State.Strict
 import Control.Lens
 import Control.Monad
-
--- * Observation API
 
 -- | An 'Api' index that support observation of the
 -- another 'Api' that is 'Observable'.
@@ -82,8 +83,6 @@ forgetObserver :: ( SetMember Process (Process q) r
               => SchedulerProxy q -> Server p -> Server o -> Eff r ()
 forgetObserver px observer observed =
   cast px observed (forgetObserverMessage (SomeObserver observer))
-
--- ** Generalized observation
 
 -- | An existential wrapper around a 'Server' of an 'Observer'.
 -- Needed to support different types of observers to observe the
@@ -156,8 +155,6 @@ notifyObservers px observation = do
   me <- asServer @o <$> self px
   os <- view observers <$> get
   mapM_ (notifySomeObserver px me observation) os
-
--- * Callback 'Observer'
 
 -- | An 'Observer' that schedules the observations to an effectful callback.
 data CallbackObserver o
