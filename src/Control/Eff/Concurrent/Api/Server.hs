@@ -40,7 +40,7 @@ serve
   => SchedulerProxy q
   -> ApiHandler p r
   -> Eff r ()
-serve px handlers = receiveLoop px $ \mReq -> case mReq of
+serve px handlers = receiveLoop px $ \case
   Left  Nothing       -> applyApiHandler px handlers (Terminate Nothing)
   Left  (Just reason) -> applyApiHandler px handlers (Terminate (Just reason))
   Right dyn           -> ensureAllHandled
@@ -135,7 +135,7 @@ defaultTermination
   => SchedulerProxy q
   -> Maybe String
   -> Eff r ()
-defaultTermination px e = maybe (exitNormally px) (exitWithError px) e
+defaultTermination px = maybe (exitNormally px) (exitWithError px)
 
 
 -- | 'serve' two 'ApiHandler's at once. The first handler is used for
@@ -151,7 +151,7 @@ serveBoth
   -> ApiHandler p1 r
   -> ApiHandler p2 r
   -> Eff r ()
-serveBoth px h1 h2 = receiveLoop px $ \mReq -> case mReq of
+serveBoth px h1 h2 = receiveLoop px $ \case
   Left  Nothing       -> applyApiHandler px h1 (Terminate Nothing)
   Left  (Just reason) -> applyApiHandler px h1 (Terminate (Just reason))
   Right dyn           -> ensureAllHandled
