@@ -265,8 +265,7 @@ receiveMessage
    . (HasCallStack, SetMember Process (Process q) r)
   => SchedulerProxy q
   -> Eff r Dynamic
-receiveMessage _ =
-  executeAndResume ReceiveMessage
+receiveMessage _ = executeAndResume ReceiveMessage
 
 -- | Receive and cast the message to some 'Typeable' instance.
 receiveMessageAs

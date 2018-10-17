@@ -4,8 +4,8 @@ module Control.Eff.Log
     -- * Logging Effect
     Logs(..)
   , logMsg
-  , foldLog
-  , foldLogFast
+  , interceptLogging
+  , foldLogMessages
   , module ExtLog
   , captureLogs
   , ignoreLogs
@@ -51,6 +51,8 @@ import qualified Data.Sequence                 as Seq
 import           Data.String
 import           Data.Typeable
 
+
+
 -- | Logging effect type, parameterized by a log message type.
 data Logs message a where
   LogMsg :: message -> Logs message ()
@@ -59,7 +61,8 @@ data Logs message a where
 logMsg :: Member (Logs m) r => m -> Eff r ()
 logMsg msg = send (LogMsg msg)
 
--- | Change, add or remove log messages.
+-- | Change, add or remove log messages and perform arbitrary actions upon
+-- intercepting a log message.
 --
 -- Requirements:
 --
@@ -75,36 +78,25 @@ logMsg msg = send (LogMsg msg)
 -- Approach: Install a callback that sneaks into to log message
 -- sending/receiving, to intercept the messages and execute some code and then
 -- return a new message.
-foldLog
+interceptLogging
   :: forall r m a . Member (Logs m) r => (m -> Eff r ()) -> Eff r a -> Eff r a
-foldLog interceptor effect = interpose return go effect
+interceptLogging interceptor = interpose return go
  where
   go :: Member (Logs m) r => Logs m x -> (Arr r x y) -> Eff r y
   go (LogMsg m) k = do
     interceptor m
     k ()
 
--- | Change, add or remove log messages without side effects, faster than
--- 'foldLog'.
+-- | Intercept logging to change, add or remove log messages.
 --
--- Requirements:
---
---  * Tests run fast in unit tests so travis won't time out
---
---  * Drop debug logs
---
---  * /Grep like/ log filtering
---
--- Approach: Install a callback that sneaks into to log message
--- sending/receiving, to intercept the messages and execute some code and then
--- return a new message.
-foldLogFast
+-- This is without side effects, hence faster than 'interceptLogging'.
+foldLogMessages
   :: forall r m a f
    . (Foldable f, Member (Logs m) r)
   => (m -> f m)
   -> Eff r a
   -> Eff r a
-foldLogFast interceptor effect = interpose return go effect
+foldLogMessages interceptor = interpose return go
  where
   go :: Member (Logs m) r => Logs m x -> (Arr r x y) -> Eff r y
   go (LogMsg m) k = do
@@ -114,11 +106,9 @@ foldLogFast interceptor effect = interpose return go effect
 -- | Capture all log messages in a 'Seq' (strict).
 captureLogs
   :: NFData message => Eff (Logs message ': r) a -> Eff r (a, Seq message)
-captureLogs actionThatLogs = Eff.handle_relay_s
-  Seq.empty
-  (\logs result -> return (result, logs))
-  handleLogs
-  actionThatLogs
+captureLogs = Eff.handle_relay_s Seq.empty
+                                 (\logs result -> return (result, logs))
+                                 handleLogs
  where
   handleLogs
     :: NFData message
@@ -130,7 +120,7 @@ captureLogs actionThatLogs = Eff.handle_relay_s
 
 -- | Throw away all log messages.
 ignoreLogs :: forall message r a . Eff (Logs message ': r) a -> Eff r a
-ignoreLogs actionThatLogs = Eff.handle_relay return handleLogs actionThatLogs
+ignoreLogs = Eff.handle_relay return handleLogs
  where
   handleLogs :: Logs m x -> Arr r x y -> Eff r y
   handleLogs (LogMsg _) k = k ()
@@ -185,10 +175,9 @@ logToChannel
   => LogChannel message
   -> Eff (Logs message ': r) a
   -> Eff r a
-logToChannel logChan actionThatLogs = do
-  handleLogsWithLoggingTHandler
-    actionThatLogs
-    (\withHandler -> withHandler (logChannelPutIO logChan))
+logToChannel logChan actionThatLogs = handleLogsWithLoggingTHandler
+  actionThatLogs
+  (\withHandler -> withHandler (logChannelPutIO logChan))
 
 -- | Enqueue a log message into a log channel
 logChannelPutIO :: LogChannel message -> message -> IO ()
@@ -287,7 +276,7 @@ joinLogChannel (Just closeLogMessage) (FilteredLogChannel f lc) =
   if f closeLogMessage
     then joinLogChannel (Just closeLogMessage) lc
     else joinLogChannel Nothing lc
-joinLogChannel closeLogMessage (ConcurrentLogChannel _tq thread) = do
+joinLogChannel closeLogMessage (ConcurrentLogChannel _tq thread) =
   throwTo thread (JoinLogChannelException closeLogMessage)
 
 -- | Close a log channel quickly, without logging messages already in the queue.
@@ -326,8 +315,8 @@ instance (Typeable m, Show m) => Exc.Exception (KillLogChannelException m)
 
 -- | Wrap 'LogChannel' creation and destruction around a monad action in
 -- 'bracket'y manner. This function uses 'joinLogChannel', so en-queued messages
--- are flushed on exit. The resulting action in in the 'LoggingT' monad, which
--- is essentially a reader for the log handler function.
+-- are flushed on exit. The resulting action is a 'LoggingT' action, which
+-- is essentially a reader for a log handler function in 'IO'.
 logChannelBracket
   :: (Show message, Typeable message)
   => Int -- ^ Size of the log message input queue. If the queue is full, message

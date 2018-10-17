@@ -272,8 +272,7 @@ getLogChannel = do
   lift (getLogChannelIO s)
 
 getLogChannelIO :: SchedulerVar -> IO (LogChannel String)
-getLogChannelIO s =
-  (view logChannel) <$> atomically (readTVar (fromSchedulerVar s))
+getLogChannelIO s = view logChannel <$> readTVarIO (fromSchedulerVar s)
 
 overProcessInfo
   :: HasSchedulerIO r
@@ -316,7 +315,7 @@ scheduleProcessWithCleanup
   -> Eff SchedulerIO (Either SchedulerError ())
 scheduleProcessWithCleanup shutdownAction processAction = withMessageQueue
   (\cleanUpAction pinfo -> handle_relay
-    (\x -> return x)
+    return
     (go (pinfo ^. processId))
     (processAction cleanUpAction (pinfo ^. processId))
   )
@@ -332,7 +331,7 @@ scheduleProcessWithCleanup shutdownAction processAction = withMessageQueue
     psVar          <- getSchedulerTVar
     eHasShutdowReq <- lift
       (do
-        p <- atomically (readTVar psVar)
+        p <- readTVarIO psVar
         let mPinfo = p ^. processTable . at pid
         case mPinfo of
           Just !pinfo -> atomically
@@ -363,7 +362,7 @@ scheduleProcessWithCleanup shutdownAction processAction = withMessageQueue
       lift
         (   Right
         <$> (do
-              p <- atomically (readTVar psVar)
+              p <- readTVarIO psVar
               let mto = p ^. processTable . at toPid
               case mto of
                 Just toProc -> do
@@ -382,12 +381,12 @@ scheduleProcessWithCleanup shutdownAction processAction = withMessageQueue
       lift
         (   Right
         <$> (do
-              p <- atomically (readTVar psVar)
+              p <- readTVarIO psVar
               let mto = p ^. processTable . at toPid
               case mto of
                 Just toProc -> atomically $ do
                   writeTVar (toProc ^. shutdownRequested) True
-                  writeTQueue (toProc ^. messageQ) Nothing
+                  writeTQueue (toProc ^. messageQ) Nothing -- this wakes up a receiver
                   return True
                 Nothing -> return False
             )
@@ -406,7 +405,7 @@ scheduleProcessWithCleanup shutdownAction processAction = withMessageQueue
     case emq of
       Left  e  -> k (OnError (show @SchedulerError e))
       Right mq -> do
-        emdynMsg <- lift (Right <$> (atomically (readTQueue mq)))
+        emdynMsg <- lift (Right <$> atomically (readTQueue mq))
         k
           (either (OnError . show @SchedulerError)
                   (maybe RetryLastAction ResumeWith)
@@ -421,13 +420,12 @@ scheduleProcessWithCleanup shutdownAction processAction = withMessageQueue
     lift Concurrent.yield
     k (ResumeWith ())
 
-  go _pid Shutdown _k = do
-    invokeShutdownAction shutdownAction (Right ())
+  go _pid Shutdown _k = invokeShutdownAction shutdownAction (Right ())
 
-  go _pid (ExitWithError msg) _k = do
+  go _pid (ExitWithError msg) _k =
     invokeShutdownAction shutdownAction (Left (ProcessExitError msg))
 
-  go _pid (RaiseError msg) _k = do
+  go _pid (RaiseError msg) _k =
     invokeShutdownAction shutdownAction (Left (ProcessExitError msg))
 
 data ShutdownAction =
@@ -508,14 +506,13 @@ overScheduler stAction = do
   lift (overSchedulerIO psVar stAction)
 
 overSchedulerIO :: STM.TVar Scheduler -> Mtl.StateT Scheduler STM.STM a -> IO a
-overSchedulerIO psVar stAction = do
-  STM.atomically
-    (do
-      ps                   <- STM.readTVar psVar
-      (result, psModified) <- Mtl.runStateT stAction ps
-      STM.writeTVar psVar psModified
-      return result
-    )
+overSchedulerIO psVar stAction = STM.atomically
+  (do
+    ps                   <- STM.readTVar psVar
+    (result, psModified) <- Mtl.runStateT stAction ps
+    STM.writeTVar psVar psModified
+    return result
+  )
 
 getSchedulerTVar :: HasSchedulerIO r => Eff r (TVar Scheduler)
 getSchedulerTVar = fromSchedulerVar <$> ask

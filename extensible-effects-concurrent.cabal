@@ -33,6 +33,7 @@ library
       src
   build-depends:
       base >=4.9 && <5,
+      data-default,
       deepseq,
       directory,
       filepath,
@@ -54,6 +55,8 @@ library
                   Control.Eff.Loop,
                   Control.Eff.ExceptionExtra,
                   Control.Eff.Log,
+                  Control.Eff.Log.Syslog,
+                  Control.Eff.Log.MessageFactory,
                   Control.Eff.Concurrent,
                   Control.Eff.Concurrent.Api,
                   Control.Eff.Concurrent.Api.Client,
@@ -101,14 +104,15 @@ test-suite extensible-effects-concurrent-test
   main-is: Driver.hs
   hs-source-dirs: test
   other-modules:
-                Paths_extensible_effects_concurrent
+                Common
+              , Debug
               , ForkIOScheduler
               , Interactive
-              , SingleThreadedScheduler
+              , LoggingTests
               , LoopTests
+              , Paths_extensible_effects_concurrent
               , ProcessBehaviourTestCases
-              , Debug
-              , Common
+              , SingleThreadedScheduler
   ghc-options: -Wall -threaded -fno-full-laziness -rtsopts -with-rtsopts=-N
   build-depends:
                 base >=4.9 && <5
@@ -128,6 +132,7 @@ test-suite extensible-effects-concurrent-test
                       , DataKinds
                       , FlexibleContexts
                       , GADTs
+                      , GeneralizedNewtypeDeriving
                       , RankNTypes
                       , ScopedTypeVariables
                       , TemplateHaskell
