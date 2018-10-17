@@ -205,7 +205,7 @@ forkLogger
 forkLogger queueLen handle mFirstMsg = do
   msgQ <- atomically
     (do
-      tq <- newTBQueue queueLen
+      tq <- newTBQueue (fromIntegral @Int queueLen)
       mapM_ (writeTBQueue tq) mFirstMsg
       return tq
     )

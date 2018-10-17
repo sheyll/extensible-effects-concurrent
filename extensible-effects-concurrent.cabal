@@ -1,16 +1,17 @@
 name:           extensible-effects-concurrent
-version:        0.5.0.0
+version:        0.5.0.1
 description:    Please see the README on GitHub at <https://github.com/sheyll/extensible-effects-concurrent#readme>
 synopsis:       Message passing concurrency as extensible-effect
 homepage:       https://github.com/sheyll/extensible-effects-concurrent#readme
 bug-reports:    https://github.com/sheyll/extensible-effects-concurrent/issues
-author:         Sven Heyll
+author:         Sven Heyll                
 maintainer:     sven.heyll@gmail.com
+category:       Concurrency                
 copyright:      Copyright Sven Heyll
 license:        BSD3
 license-file:   LICENSE
 build-type:     Simple
-cabal-version:  >= 1.19
+cabal-version:  2.0
 
 extra-doc-files:
     docs/extensible-effects-concurrent-test-Loop-without-space-leaks.png
@@ -49,8 +50,9 @@ library
       monad-control,
       random,
       extensible-effects >= 3,
-      stm >= 2.4.5,
+      stm >= 2.4.5 && <2.6,
       tagged
+  autogen-modules: Paths_extensible_effects_concurrent
   exposed-modules:
                   Control.Eff.Loop,
                   Control.Eff.ExceptionExtra,
@@ -110,7 +112,6 @@ test-suite extensible-effects-concurrent-test
               , Interactive
               , LoggingTests
               , LoopTests
-              , Paths_extensible_effects_concurrent
               , ProcessBehaviourTestCases
               , SingleThreadedScheduler
   ghc-options: -Wall -threaded -fno-full-laziness -rtsopts -with-rtsopts=-N
