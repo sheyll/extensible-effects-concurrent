@@ -1,11 +1,6 @@
 { q ? import <nixos> {  }
 , compiler ? "ghc843" }:
 let
-  nonHaskellBuildInputs =
-    with q.pkgs;
-    [cdrkit libvirt sudo openssh qemu rsync e2fsprogs xorriso];
-
-
   cleanSrc = q.pkgs.lib.cleanSourceWith {
     filter = (path: type:
       let base = baseNameOf (toString path);
@@ -15,11 +10,5 @@ let
     src = q.pkgs.lib.cleanSource ./.;
   };
 
-  pkg = q.pkgs.haskell.packages.${compiler}.callCabal2nix
-            "extensible-effects-concurrent" cleanSrc {};
-in
-  pkg.overrideAttrs(attrs: {
-      propagatedBuildInputs =
-           attrs.propagatedBuildInputs
-        ++ nonHaskellBuildInputs;
-  })
+  in q.pkgs.haskell.packages.${compiler}.callCabal2nix
+       "extensible-effects-concurrent" cleanSrc {}

@@ -1,10 +1,13 @@
 # Changelog for extensible-effects-concurrent
 
+## 0.6.1
+
+- Improve Experimental Nix Expressions
 
 ## 0.6.0
 
 - Rewrite Logging
-- Improve Experimental Nix expressions
+- Improve Experimental Nix Expressions
 
 ## 0.5.0.0
 
