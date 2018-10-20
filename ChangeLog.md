@@ -1,11 +1,17 @@
 # Changelog for extensible-effects-concurrent
 
+
+## 0.6.0
+
+- Rewrite Logging
+- Improve Experimental Nix expressions
+
 ## 0.5.0.0
 
 - Switch to `extensible-effects` version `3.1.0.0`
 - Bump to stackage LTS-12.9
 - Add `Control.Eff.Log.MessageFactory`
-- Add `Control.Eff.Log.Syslog`
+- Add `Control.Eff.Log.Message`
 
 ## 0.4.0.0
 
