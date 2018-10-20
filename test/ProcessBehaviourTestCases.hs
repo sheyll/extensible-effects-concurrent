@@ -1,5 +1,4 @@
-module ProcessBehaviourTestCases
-where
+module ProcessBehaviourTestCases where
 
 import           Data.List                      ( sort )
 import           Data.Dynamic
@@ -33,7 +32,7 @@ test_singleThreaded = setTravisTestOptions
   (withTestLogC
     (\e logC ->
         -- void (runLift (logToChannel logC (SingleThreaded.schedule (return ()) e)))
-      let runEff :: Eff '[Logs String, Lift IO] a -> IO a
+      let runEff :: Eff '[Logs LogMessage, Lift IO] a -> IO a
           runEff = runLift . logToChannel logC
       in  void $ SingleThreaded.scheduleM runEff yield e
     )
@@ -43,7 +42,7 @@ test_singleThreaded = setTravisTestOptions
 
 allTests
   :: forall r
-   . (Member (Logs String) r, SetMember Lift (Lift IO) r)
+   . (Member (Logs LogMessage) r, SetMember Lift (Lift IO) r)
   => IO (Eff (Process r ': r) () -> IO ())
   -> TestTree
 allTests schedulerFactory = localOption
@@ -61,7 +60,7 @@ allTests schedulerFactory = localOption
 
 yieldLoopTests
   :: forall r
-   . (Member (Logs String) r, SetMember Lift (Lift IO) r)
+   . (Member (Logs LogMessage) r, SetMember Lift (Lift IO) r)
   => IO (Eff (Process r ': r) () -> IO ())
   -> TestTree
 yieldLoopTests schedulerFactory
@@ -100,7 +99,7 @@ data Pong = Pong
 
 pingPongTests
   :: forall r
-   . (Member (Logs String) r, SetMember Lift (Lift IO) r)
+   . (Member (Logs LogMessage) r, SetMember Lift (Lift IO) r)
   => IO (Eff (Process r ': r) () -> IO ())
   -> TestTree
 pingPongTests schedulerFactory = testGroup
@@ -175,7 +174,7 @@ pingPongTests schedulerFactory = testGroup
 
 errorTests
   :: forall r
-   . (Member (Logs String) r, SetMember Lift (Lift IO) r)
+   . (Member (Logs LogMessage) r, SetMember Lift (Lift IO) r)
   => IO (Eff (Process r ': r) () -> IO ())
   -> TestTree
 errorTests schedulerFactory
@@ -249,7 +248,7 @@ errorTests schedulerFactory
 
 concurrencyTests
   :: forall r
-   . (Member (Logs String) r, SetMember Lift (Lift IO) r)
+   . (Member (Logs LogMessage) r, SetMember Lift (Lift IO) r)
   => IO (Eff (Process r ': r) () -> IO ())
   -> TestTree
 concurrencyTests schedulerFactory
@@ -292,10 +291,11 @@ concurrencyTests schedulerFactory
                 m <- receiveMessage px
                 void (sendMessage px me m)
               )
-            child2 <- spawn (foreverCheap (void (sendMessage px 888 (toDyn ""))))
-            True   <- sendMessageChecked px child1 (toDyn "test")
-            i      <- receiveMessageAs px
-            True   <- sendShutdownChecked px child2
+            child2 <- spawn
+              (foreverCheap (void (sendMessage px 888 (toDyn ""))))
+            True <- sendMessageChecked px child1 (toDyn "test")
+            i    <- receiveMessageAs px
+            True <- sendShutdownChecked px child2
             assertEff "" (i == "test")
         , testCase "most processes send foreverCheap"
         $ scheduleAndAssert schedulerFactory
@@ -395,7 +395,7 @@ concurrencyTests schedulerFactory
 
 exitTests
   :: forall r
-   . (Member (Logs String) r, SetMember Lift (Lift IO) r)
+   . (Member (Logs LogMessage) r, SetMember Lift (Lift IO) r)
   => IO (Eff (Process r ': r) () -> IO ())
   -> TestTree
 exitTests schedulerFactory =
@@ -495,8 +495,8 @@ exitTests schedulerFactory =
           , (howToExit, doExit    ) <-
             [ ("normally"        , void (exitNormally px))
             , ("simply returning", return ())
-            , ("raiseError"      , void (raiseError px "test error raised"))
-            , ("exitWithError"   , void (exitWithError px "test error exit"))
+            , ("raiseError", void (raiseError px "test error raised"))
+            , ("exitWithError", void (exitWithError px "test error exit"))
             , ( "sendShutdown to self"
               , do
                 me <- self px
@@ -509,7 +509,7 @@ exitTests schedulerFactory =
 
 sendShutdownTests
   :: forall r
-   . (Member (Logs String) r, SetMember Lift (Lift IO) r)
+   . (Member (Logs LogMessage) r, SetMember Lift (Lift IO) r)
   => IO (Eff (Process r ': r) () -> IO ())
   -> TestTree
 sendShutdownTests schedulerFactory =

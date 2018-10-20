@@ -1,12 +1,12 @@
 name:           extensible-effects-concurrent
-version:        0.5.0.1
+version:        0.6.0
 description:    Please see the README on GitHub at <https://github.com/sheyll/extensible-effects-concurrent#readme>
 synopsis:       Message passing concurrency as extensible-effect
 homepage:       https://github.com/sheyll/extensible-effects-concurrent#readme
 bug-reports:    https://github.com/sheyll/extensible-effects-concurrent/issues
-author:         Sven Heyll                
+author:         Sven Heyll
 maintainer:     sven.heyll@gmail.com
-category:       Concurrency                
+category:       Concurrency
 copyright:      Copyright Sven Heyll
 license:        BSD3
 license-file:   LICENSE
@@ -57,8 +57,9 @@ library
                   Control.Eff.Loop,
                   Control.Eff.ExceptionExtra,
                   Control.Eff.Log,
-                  Control.Eff.Log.Syslog,
-                  Control.Eff.Log.MessageFactory,
+                  Control.Eff.Log.Channel,
+                  Control.Eff.Log.Handler,
+                  Control.Eff.Log.Message,
                   Control.Eff.Concurrent,
                   Control.Eff.Concurrent.Api,
                   Control.Eff.Concurrent.Api.Client,

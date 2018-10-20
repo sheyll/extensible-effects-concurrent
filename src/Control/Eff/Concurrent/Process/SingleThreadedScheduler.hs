@@ -21,7 +21,9 @@ import           Control.Eff.Log
 import           Control.Lens            hiding ( (|>)
                                                 , Empty
                                                 )
-import           Control.Monad                  ( void )
+import           Control.Monad                  ( void
+                                                , (>=>)
+                                                )
 import           Control.Monad.IO.Class
 import qualified Data.Sequence                 as Seq
 import           Data.Sequence                  ( Seq(..) )
@@ -72,7 +74,7 @@ scheduleIOWithLogging
   => (l -> m ())
   -> Eff (ConsProcess '[Logs l, Lift m]) a
   -> m (Either String a)
-scheduleIOWithLogging handleLog = scheduleIO (handleLogsWith handleLog)
+scheduleIOWithLogging handleLog = scheduleIO (handleLogsLifted handleLog)
 
 -- | Handle the 'Process' effect, as well as all lower effects using an effect handler function.
 --
@@ -262,7 +264,7 @@ runAsCoroutinePure runEff = runEff . handle_relay (return . OnDone) cont
 -- | The concrete list of 'Eff'ects for running this pure scheduler on @IO@ and
 -- with string logging.
 type LoggingAndIo =
-              '[ Logs String
+              '[ Logs LogMessage
                , Lift IO
                ]
 
@@ -274,8 +276,10 @@ singleThreadedIoScheduler = SchedulerProxy
 -- @String@ effects.
 defaultMain
   :: HasCallStack
-  => Eff '[Process '[Logs String, Lift IO], Logs String, Lift IO] ()
+  => Eff '[Process '[Logs LogMessage, Lift IO], Logs LogMessage, Lift IO] ()
   -> IO ()
-defaultMain e = void $ runLift $ handleLogsWithLoggingTHandler
-  (scheduleMonadIOEff e)
-  ($! putStrLn)
+defaultMain =
+  void
+    . runLift
+    . handleLogsWithLoggingTHandler ($ printLogMessage)
+    . scheduleMonadIOEff

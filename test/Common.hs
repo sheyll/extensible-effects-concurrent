@@ -1,5 +1,4 @@
-module Common
-where
+module Common where
 
 import           Control.Concurrent.STM
 import           Control.Eff.Concurrent.Process
@@ -20,7 +19,7 @@ timeoutSeconds :: Integer -> Timeout
 timeoutSeconds seconds = Timeout (seconds * 1000000) (show seconds ++ "s")
 
 withTestLogC
-  :: (e -> LogChannel String -> IO ())
+  :: (e -> LogChannel LogMessage -> IO ())
   -> (IO (e -> IO ()) -> TestTree)
   -> TestTree
 withTestLogC doSchedule k = withResource
@@ -35,16 +34,16 @@ withTestLogC doSchedule k = withResource
     )
   )
 
-testLogC :: IO (LogChannel String)
+testLogC :: IO (LogChannel LogMessage)
 testLogC =
-  filterLogChannel (\m -> take (length logPrefix) m == logPrefix)
-    <$> forkLogger 1 (putStrLn) Nothing
+  filterLogChannel (\m -> take (length logPrefix) (_lmMessage m) == logPrefix)
+    <$> forkLogger 1 printLogMessage Nothing
 
-testLogJoin :: LogChannel String -> IO ()
-testLogJoin = joinLogChannel Nothing
+testLogJoin :: LogChannel LogMessage -> IO ()
+testLogJoin = joinLogChannel
 
-tlog :: Member (Logs String) r => String -> Eff r ()
-tlog = logMsg . (logPrefix ++)
+tlog :: Member (Logs LogMessage) r => String -> Eff r ()
+tlog = logInfo . (logPrefix ++)
 
 logPrefix :: String
 logPrefix = "[TEST] "
@@ -58,7 +57,7 @@ untilShutdown pa = do
 
 scheduleAndAssert
   :: forall r
-   . (SetMember Lift (Lift IO) r, Member (Logs String) r)
+   . (SetMember Lift (Lift IO) r, Member (Logs LogMessage) r)
   => IO (Eff (Process r ': r) () -> IO ())
   -> (  (String -> Bool -> Eff (Process r ': r) ())
      -> Eff (Process r ': r) ()
@@ -78,7 +77,7 @@ scheduleAndAssert schedulerFactory testCaseAction = do
 
 applySchedulerFactory
   :: forall r
-   . (Member (Logs String) r, SetMember Lift (Lift IO) r)
+   . (Member (Logs LogMessage) r, SetMember Lift (Lift IO) r)
   => IO (Eff (Process r ': r) () -> IO ())
   -> Eff (Process r ': r) ()
   -> IO ()

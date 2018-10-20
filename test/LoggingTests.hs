@@ -33,3 +33,6 @@ newtype OtherLogMsg = OtherLogMsg String deriving (Eq, NFData, Show)
 
 toOtherLogMsg :: ('[Logs String, Logs OtherLogMsg] <:: e) => String -> Eff e ()
 toOtherLogMsg = logMsg . OtherLogMsg
+
+demo2 :: Member (Logs LogMessage) e => Eff e ()
+demo2 = relogAsDebugMessages demo

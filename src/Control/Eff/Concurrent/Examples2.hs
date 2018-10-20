@@ -36,14 +36,14 @@ instance Observable Counter where
   forgetObserverMessage = UnobserveCounter
 
 logCounterObservations
-  :: (SetMember Process (Process q) r, Member (Logs String) q)
+  :: (SetMember Process (Process q) r, Member (Logs LogMessage) q)
   => SchedulerProxy q
   -> Eff r (Server (CallbackObserver Counter))
 logCounterObservations px = spawnCallbackObserver
   px
   (\fromSvr msg -> do
     me <- self px
-    logMsg (show me ++ " observed on: " ++ show fromSvr ++ ": " ++ show msg)
+    logInfo (show me ++ " observed on: " ++ show fromSvr ++ ": " ++ show msg)
     return True
   )
 
@@ -51,7 +51,7 @@ counterHandler
   :: forall r q
    . ( Member (State (Observers Counter)) r
      , Member (State Integer) r
-     , Member (Logs String) r
+     , Member (Logs LogMessage) r
      , SetMember Process (Process q) r
      )
   => SchedulerProxy q
@@ -64,14 +64,14 @@ counterHandler px = ApiHandler @Counter handleCast
   handleCast (ObserveCounter   o) = addObserver o
   handleCast (UnobserveCounter o) = removeObserver o
   handleCast Inc                  = do
-    logMsg "Inc"
+    logInfo "Inc"
     modify (+ (1 :: Integer))
     currentCount <- get
     notifyObservers px (CountChanged currentCount)
   handleCall :: Api Counter ( 'Synchronous x) -> (x -> Eff r ()) -> Eff r ()
   handleCall Cnt reply = do
     c <- get
-    logMsg ("Cnt is " ++ show c)
+    logInfo ("Cnt is " ++ show c)
     reply c
 
 -- * Second API
@@ -87,7 +87,7 @@ deriving instance Show (Api PocketCalc x)
 pocketCalcHandler
   :: forall r q
    . ( Member (State Integer) r
-     , Member (Logs String) r
+     , Member (Logs LogMessage) r
      , SetMember Process (Process q) r
      )
   => SchedulerProxy q
@@ -98,21 +98,21 @@ pocketCalcHandler px = ApiHandler @PocketCalc handleCast
  where
   handleCast :: Api PocketCalc 'Asynchronous -> Eff r ()
   handleCast (AAdd x) = do
-    logMsg ("AsyncAdd " ++ show x)
+    logInfo ("AsyncAdd " ++ show x)
     modify (+ x)
     c <- get @Integer
-    logMsg ("Accumulator is " ++ show c)
+    logInfo ("Accumulator is " ++ show c)
   handleCall :: Api PocketCalc ( 'Synchronous x) -> (x -> Eff r ()) -> Eff r ()
   handleCall (Add x) reply = do
-    logMsg ("Add " ++ show x)
+    logInfo ("Add " ++ show x)
     modify (+ x)
     c <- get
-    logMsg ("Accumulator is " ++ show c)
+    logInfo ("Accumulator is " ++ show c)
     reply c
 
 serverLoop
   :: forall r q
-   . (Member (Logs String) r, SetMember Process (Process q) r)
+   . (Member (Logs LogMessage) r, SetMember Process (Process q) r)
   => SchedulerProxy q
   -> Eff r ()
 serverLoop px = evalState @Integer
@@ -124,8 +124,8 @@ serverLoop px = evalState @Integer
 
 -- ** Counter client
 counterExample
-  :: ( Member (Logs String) r
-     , Member (Logs String) q
+  :: ( Member (Logs LogMessage) r
+     , Member (Logs LogMessage) q
      , SetMember Process (Process q) r
      )
   => SchedulerProxy q
@@ -133,7 +133,7 @@ counterExample
 counterExample px = do
   let cnt sv = do
         r <- call px sv Cnt
-        logMsg (show sv ++ " " ++ show r)
+        logInfo (show sv ++ " " ++ show r)
   pid1 <- spawn (serverLoop px)
   pid2 <- spawn (serverLoop px)
   let cntServer1  = asServer @Counter pid1

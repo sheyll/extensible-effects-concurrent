@@ -22,21 +22,22 @@ module Control.Eff.Concurrent.Api.Observer
   , CallbackObserver
   , spawnCallbackObserver
   , spawnLoggingObserver
-  ) where
+  )
+where
 
-import GHC.Stack
-import Data.Dynamic
-import Data.Set (Set)
-import qualified Data.Set as Set
-import Control.Eff
-import Control.Eff.Concurrent.Process
-import Control.Eff.Concurrent.Api
-import Control.Eff.Concurrent.Api.Client
-import Control.Eff.Concurrent.Api.Server
-import Control.Eff.Log
-import Control.Eff.State.Strict
-import Control.Lens
-import Control.Monad
+import           GHC.Stack
+import           Data.Dynamic
+import           Data.Set                       ( Set )
+import qualified Data.Set                      as Set
+import           Control.Eff
+import           Control.Eff.Concurrent.Process
+import           Control.Eff.Concurrent.Api
+import           Control.Eff.Concurrent.Api.Client
+import           Control.Eff.Concurrent.Api.Server
+import           Control.Eff.Log
+import           Control.Eff.State.Strict
+import           Control.Lens
+import           Control.Monad
 
 -- | An 'Api' index that support observation of the
 -- another 'Api' that is 'Observable'.
@@ -57,30 +58,33 @@ class (Typeable o, Typeable (Observation o)) => Observable o where
   forgetObserverMessage :: SomeObserver o -> Api o 'Asynchronous
 
 -- | Send an 'Observation' to an 'Observer'
-notifyObserver :: ( SetMember Process (Process q) r
-                 , Observable o
-                 , Observer p o
-                 , HasCallStack
-                 )
-               => SchedulerProxy q -> Server p -> Server o -> Observation o -> Eff r ()
+notifyObserver
+  :: (SetMember Process (Process q) r, Observable o, Observer p o, HasCallStack)
+  => SchedulerProxy q
+  -> Server p
+  -> Server o
+  -> Observation o
+  -> Eff r ()
 notifyObserver px observer observed observation =
   cast px observer (observationMessage observed observation)
 
 -- | Send the 'registerObserverMessage'
-registerObserver :: ( SetMember Process (Process q) r
-                 , Observable o
-                 , Observer p o
-                 , HasCallStack
-                 )
-               => SchedulerProxy q -> Server p -> Server o -> Eff r ()
+registerObserver
+  :: (SetMember Process (Process q) r, Observable o, Observer p o, HasCallStack)
+  => SchedulerProxy q
+  -> Server p
+  -> Server o
+  -> Eff r ()
 registerObserver px observer observed =
   cast px observed (registerObserverMessage (SomeObserver observer))
 
 -- | Send the 'forgetObserverMessage'
-forgetObserver :: ( SetMember Process (Process q) r
-                , Observable o
-                , Observer p o)
-              => SchedulerProxy q -> Server p -> Server o -> Eff r ()
+forgetObserver
+  :: (SetMember Process (Process q) r, Observable o, Observer p o)
+  => SchedulerProxy q
+  -> Server p
+  -> Server o
+  -> Eff r ()
 forgetObserver px observer observed =
   cast px observed (forgetObserverMessage (SomeObserver observer))
 
@@ -101,15 +105,13 @@ instance Eq (SomeObserver o) where
     o1 == o2
 
 -- | Send an 'Observation' to 'SomeObserver'.
-notifySomeObserver :: ( SetMember Process (Process q) r
-                     , Observable o
-                     , HasCallStack
-                     )
-                   => SchedulerProxy q
-                   -> Server o
-                   -> Observation o
-                   -> SomeObserver o
-                   -> Eff r ()
+notifySomeObserver
+  :: (SetMember Process (Process q) r, Observable o, HasCallStack)
+  => SchedulerProxy q
+  -> Server o
+  -> Observation o
+  -> SomeObserver o
+  -> Eff r ()
 notifySomeObserver px observed observation (SomeObserver observer) =
   notifyObserver px observer observed observation
 
@@ -130,27 +132,34 @@ manageObservers = evalState (Observers Set.empty)
 -- | Add an 'Observer' to the 'Observers' managed by 'manageObservers'.
 addObserver
   :: ( SetMember Process (Process q) r
-    , Member (State (Observers o)) r
-    , Observable o)
-  => SomeObserver o -> Eff r ()
+     , Member (State (Observers o)) r
+     , Observable o
+     )
+  => SomeObserver o
+  -> Eff r ()
 addObserver = modify . over observers . Set.insert
 
 -- | Delete an 'Observer' from the 'Observers' managed by 'manageObservers'.
 removeObserver
-  ::  ( SetMember Process (Process q) r
-    , Member (State (Observers o)) r
-    , Observable o)
-  => SomeObserver o -> Eff r ()
+  :: ( SetMember Process (Process q) r
+     , Member (State (Observers o)) r
+     , Observable o
+     )
+  => SomeObserver o
+  -> Eff r ()
 removeObserver = modify . over observers . Set.delete
 
 
 -- | Send an 'Observation' to all 'SomeObserver's in the 'Observers' state.
 notifyObservers
   :: forall o r q
-    . ( Observable o
-      , SetMember Process (Process q) r
-      , Member (State (Observers o)) r)
-  => SchedulerProxy q -> Observation o -> Eff r ()
+   . ( Observable o
+     , SetMember Process (Process q) r
+     , Member (State (Observers o)) r
+     )
+  => SchedulerProxy q
+  -> Observation o
+  -> Eff r ()
 notifyObservers px observation = do
   me <- asServer @o <$> self px
   os <- view observers <$> get
@@ -173,29 +182,29 @@ instance (Observable o) => Observer (CallbackObserver o) o where
 -- | Start a new process for an 'Observer' that schedules
 -- all observations to an effectful callback.
 spawnCallbackObserver
-  :: forall o r q .
-  ( SetMember Process (Process q) r
-  , Typeable o
-  , Show (Observation o)
-  , Observable o
-  , Member (Logs String) q)
+  :: forall o r q
+   . ( SetMember Process (Process q) r
+     , Typeable o
+     , Show (Observation o)
+     , Observable o
+     , Member (Logs LogMessage) q
+     )
   => SchedulerProxy q
   -> (Server o -> Observation o -> Eff (Process q ': q) Bool)
   -> Eff r (Server (CallbackObserver o))
 spawnCallbackObserver px onObserve =
   asServer @(CallbackObserver o)
-  <$>
-  (spawn @r @q $ do
-      let loopUntil =
-            serve px
-            (ApiHandler @(CallbackObserver o)
-              (handleCast loopUntil)
-              (unhandledCallError px)
-              (defaultTermination px))
-      loopUntil)
+    <$> (spawn @r @q $ do
+          let loopUntil = serve
+                px
+                (ApiHandler @(CallbackObserver o) (handleCast loopUntil)
+                                                  (unhandledCallError px)
+                                                  (defaultTermination px)
+                )
+          loopUntil
+        )
  where
-   handleCast k (CbObserved fromSvr v) =
-     onObserve fromSvr v >>= flip when k
+  handleCast k (CbObserved fromSvr v) = onObserve fromSvr v >>= flip when k
 
 -- | Use 'spawnCallbackObserver' to create a universal logging observer,
 -- using the 'Show' instance of the 'Observation'.
@@ -204,14 +213,15 @@ spawnCallbackObserver px onObserve =
 --
 -- @since 0.3.0.0
 spawnLoggingObserver
-  :: forall o r q .
-  ( SetMember Process (Process q) r
-  , Typeable o
-  , Show (Observation o)
-  , Observable o
-  , Member (Logs String) q)
+  :: forall o r q
+   . ( SetMember Process (Process q) r
+     , Typeable o
+     , Show (Observation o)
+     , Observable o
+     , Member (Logs LogMessage) q
+     )
   => SchedulerProxy q
   -> Eff r (Server (CallbackObserver o))
-spawnLoggingObserver px =
-  spawnCallbackObserver px
-  (\s o -> logMsg (show s ++ " OBSERVED: " ++ show o) >> return True)
+spawnLoggingObserver px = spawnCallbackObserver
+  px
+  (\s o -> logDebug (show s ++ " OBSERVED: " ++ show o) >> return True)
