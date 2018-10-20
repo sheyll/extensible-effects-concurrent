@@ -40,7 +40,7 @@ library
       filepath,
       time,
       mtl,
-      containers,
+      containers >=0.5.8 && <0.7,
       QuickCheck <2.12,
       lens,
       logging-effect,

@@ -1,5 +1,9 @@
 # Changelog for extensible-effects-concurrent
 
+## 0.6.2
+
+- Fix bad `containers` version boundary
+
 ## 0.6.1
 
 - Improve Experimental Nix Expressions
