@@ -118,12 +118,8 @@ filterLogChannel = FilteredLogChannel
 -- 'Exc.SomeException' was thrown, the log channel is killed with
 -- 'killLogChannel', and the exception is re-thrown.
 closeLogChannelAfter
-  :: (Typeable message, IsString message)
-  => Maybe message
-  -> LogChannel message
-  -> IO a
-  -> IO a
-closeLogChannelAfter mGoodbye logC ioAction = do
+  :: (Typeable message, IsString message) => LogChannel message -> IO a -> IO a
+closeLogChannelAfter logC ioAction = do
   res <- closeLogAndRethrow `Exc.handle` ioAction
   closeLogSuccess
   return res

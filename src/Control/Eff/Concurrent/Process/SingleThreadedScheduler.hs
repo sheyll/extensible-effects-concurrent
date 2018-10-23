@@ -21,9 +21,7 @@ import           Control.Eff.Log
 import           Control.Lens            hiding ( (|>)
                                                 , Empty
                                                 )
-import           Control.Monad                  ( void
-                                                , (>=>)
-                                                )
+import           Control.Monad                  ( void )
 import           Control.Monad.IO.Class
 import qualified Data.Sequence                 as Seq
 import           Data.Sequence                  ( Seq(..) )

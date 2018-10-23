@@ -1,5 +1,10 @@
 # Changelog for extensible-effects-concurrent
 
+## 0.7.0
+
+- Remove the parameter from `closeLogChannelAfter` that had the optional:
+  last-log-message-before-channel-closes
+
 ## 0.6.4
 
 - Add `whereIsServer`

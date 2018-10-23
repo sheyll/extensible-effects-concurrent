@@ -52,7 +52,6 @@ import           Data.Dynamic
 import           Data.Map                       ( Map )
 import qualified Data.Map                      as Map
 import           Text.Printf
-import           Data.String
 
 -- | Information about a process, needed to implement 'MessagePassing' and
 -- 'Process' handlers. The message queue is backed by a 'STM.TQueue' and contains
@@ -199,10 +198,7 @@ defaultMain c = runLoggingT
 -- top of 'SchedulerIO' effect. All logging is sent to standard output.
 defaultMainWithLogChannel
   :: LogChannel LogMessage -> Eff (ConsProcess SchedulerIO) () -> IO ()
-defaultMainWithLogChannel logC c = closeLogChannelAfter
-  (Just (fromString "main process exited"))
-  logC
-  (schedule c logC)
+defaultMainWithLogChannel logC c = closeLogChannelAfter logC (schedule c logC)
 
 scheduleProcessWithShutdownAction
   :: SchedulerVar
