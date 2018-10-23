@@ -11,6 +11,7 @@ module Control.Eff.Concurrent.Api.Client
   , callRegistered
   , callRegisteredA
   , ServesApi
+  , ServerReader
   , registerServer
   )
 where
@@ -102,12 +103,15 @@ call px (Server pidInt) req = do
 type ServesApi o r q =
   ( Typeable o
   , SetMember Process (Process q) r
-  , Member (Reader (Server o)) r
+  , Member (ServerReader o) r
   )
+
+-- | The reader effect for 'ProcessId's for 'Api's, see 'registerServer'
+type ServerReader o = Reader (Server o)
 
 -- | Run a reader effect that contains __the one__ server handling a specific
 -- 'Api' instance.
-registerServer :: Server o -> Eff (Reader (Server o) ': r) a -> Eff r a
+registerServer :: Server o -> Eff (ServerReader o ': r) a -> Eff r a
 registerServer = runReader
 
 -- | Like 'call' but take the 'Server' from the reader provided by
@@ -131,7 +135,7 @@ callRegisteredA
   => SchedulerProxy q
   -> Api o ( 'Synchronous (f reply))
   -> Eff r (f reply)
-callRegisteredA px method = do
+callRegisteredA px method =
   catchRaisedError px (const (return (empty @f))) (callRegistered px method)
 
 -- | Like 'cast' but take the 'Server' from the reader provided by

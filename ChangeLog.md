@@ -1,5 +1,9 @@
 # Changelog for extensible-effects-concurrent
 
+## 0.6.3
+
+- Add `ServerReader` type alias
+
 ## 0.6.2
 
 - Fix bad `containers` version boundary
