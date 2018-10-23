@@ -1,5 +1,9 @@
 # Changelog for extensible-effects-concurrent
 
+## 0.6.4
+
+- Add `whereIsServer`
+
 ## 0.6.3
 
 - Add `ServerReader` type alias

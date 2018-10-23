@@ -12,6 +12,7 @@ module Control.Eff.Concurrent.Api.Client
   , callRegisteredA
   , ServesApi
   , ServerReader
+  , whereIsServer
   , registerServer
   )
 where
@@ -114,6 +115,10 @@ type ServerReader o = Reader (Server o)
 registerServer :: Server o -> Eff (ServerReader o ': r) a -> Eff r a
 registerServer = runReader
 
+-- | Get the 'Server' registered with 'registerServer'.
+whereIsServer :: Member (ServerReader o) e => Eff e (Server o)
+whereIsServer = ask
+
 -- | Like 'call' but take the 'Server' from the reader provided by
 -- 'registerServer'.
 callRegistered
@@ -122,7 +127,7 @@ callRegistered
   -> Api o ( 'Synchronous reply)
   -> Eff r reply
 callRegistered px method = do
-  serverPid <- ask
+  serverPid <- whereIsServer
   call px serverPid method
 
 -- | Like 'callRegistered' but also catch errors raised if e.g. the server
@@ -146,5 +151,5 @@ castRegistered
   -> Api o 'Asynchronous
   -> Eff r ()
 castRegistered px method = do
-  serverPid <- ask
+  serverPid <- whereIsServer
   cast px serverPid method
