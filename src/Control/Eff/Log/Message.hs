@@ -65,6 +65,8 @@ module Control.Eff.Log.Message
   , lmThreadId
   , lmMessage
   , setCallStack
+  , setLogMessageTimestamp
+  , setLogMessageThreadId
   , StructuredDataElement(..)
   , sdElementId
   , sdElementParameters
@@ -85,6 +87,7 @@ import           Data.String
 import           Control.Concurrent
 import           GHC.Generics
 import           Text.Printf
+import           System.FilePath.Posix
 import           Control.Monad                  ( (>=>) )
 
 -- | A message data type inspired by the RFC-5424 Syslog Protocol
@@ -108,8 +111,16 @@ showLmMessage (LogMessage _f _s _ts _hn _an _pid _mi _sd ti loc msg) =
     then []
     else
       maybe "" (printf "[%s]" . show) ti
-      : msg
-      : maybe [] (pure . prettySrcLoc) loc
+      : (msg ++ replicate (max 0 (60 - length msg)) ' ')
+      : maybe
+          []
+          (\sl -> pure
+            (printf "% 30s line %i"
+                    (takeFileName (srcLocFile sl))
+                    (srcLocStartLine sl)
+            )
+          )
+          loc
 
 
 -- | Render a 'LogMessage' human readable.
@@ -212,18 +223,14 @@ setCallStack cs m = case getCallStack cs of
   (_, srcLoc) : _ -> m & lmSrcLoc ?~ srcLoc
 
 instance Default LogMessage where
-  def = setCallStack callStack (LogMessage def def def def def def def def def def "")
+  def = LogMessage def def def def def def def def def def ""
 
 instance IsString LogMessage where
   fromString = infoMessage
 
 -- | Render a 'LogMessage' but set the timestamp and thread id fields.
 printLogMessage :: LogMessage -> IO ()
-printLogMessage =
-  setLogMessageTimestamp
-    >=> setLogMessageThreadId
-    >=> putStrLn
-    .   renderLogMessage
+printLogMessage = setLogMessageTimestamp >=> putStrLn . renderLogMessage
 
 -- | An IO action that sets the current UTC time (see 'enableLogMessageTimestamps')
 -- in 'lmTimestamp'.
@@ -242,57 +249,63 @@ setLogMessageThreadId m = do
 -- | Handle a 'Logs' effect for 'String' messages by re-logging the messages
 -- as 'LogMessage's with 'debugSeverity'.
 relogAsDebugMessages
-  :: Member (Logs LogMessage) e => Eff (Logs String ': e) a -> Eff e a
-relogAsDebugMessages = withFrozenCallStack . handleLogsWith logDebug
+  :: (HasCallStack, Member (Logs LogMessage) e)
+  => Eff (Logs String ': e) a
+  -> Eff e a
+relogAsDebugMessages = withFrozenCallStack (handleLogsWith logDebug)
 
 -- | Log a 'String' as 'LogMessage' with a given 'Severity'.
-logWithSeverity :: Member (Logs LogMessage) e => Severity -> String -> Eff e ()
-logWithSeverity s =
+logWithSeverity
+  :: (HasCallStack, Member (Logs LogMessage) e)
+  => Severity
+  -> String
+  -> Eff e ()
+logWithSeverity !s =
   withFrozenCallStack
-    . logMsg
+    $ logMsg
     . setCallStack callStack
     . set lmSeverity s
     . flip (set lmMessage) def
 
 -- | Log a 'String' as 'emergencySeverity'.
-logEmergency :: Member (Logs LogMessage) e => String -> Eff e ()
-logEmergency = withFrozenCallStack . logWithSeverity emergencySeverity
+logEmergency :: (HasCallStack, Member (Logs LogMessage) e) => String -> Eff e ()
+logEmergency = withFrozenCallStack (logWithSeverity emergencySeverity)
 
 -- | Log a message with 'alertSeverity'.
-logAlert :: Member (Logs LogMessage) e => String -> Eff e ()
-logAlert = withFrozenCallStack . logWithSeverity alertSeverity
+logAlert :: (HasCallStack, Member (Logs LogMessage) e) => String -> Eff e ()
+logAlert = withFrozenCallStack (logWithSeverity alertSeverity)
 
 -- | Log a 'criticalSeverity' message.
-logCritical :: Member (Logs LogMessage) e => String -> Eff e ()
-logCritical = withFrozenCallStack . logWithSeverity criticalSeverity
+logCritical :: (HasCallStack, Member (Logs LogMessage) e) => String -> Eff e ()
+logCritical = withFrozenCallStack (logWithSeverity criticalSeverity)
 
 -- | Log a 'errorSeverity' message.
-logError :: Member (Logs LogMessage) e => String -> Eff e ()
-logError = withFrozenCallStack . logWithSeverity errorSeverity
+logError :: HasCallStack => Member (Logs LogMessage) e => String -> Eff e ()
+logError = withFrozenCallStack (logWithSeverity errorSeverity)
 
 -- | Log a 'warningSeverity' message.
-logWarning :: Member (Logs LogMessage) e => String -> Eff e ()
-logWarning = withFrozenCallStack . logWithSeverity warningSeverity
+logWarning :: (HasCallStack, Member (Logs LogMessage) e) => String -> Eff e ()
+logWarning = withFrozenCallStack (logWithSeverity warningSeverity)
 
 -- | Log a 'noticeSeverity' message.
-logNotice :: Member (Logs LogMessage) e => String -> Eff e ()
-logNotice = withFrozenCallStack . logWithSeverity noticeSeverity
+logNotice :: (HasCallStack, Member (Logs LogMessage) e) => String -> Eff e ()
+logNotice = withFrozenCallStack (logWithSeverity noticeSeverity)
 
 -- | Log a 'informationalSeverity' message.
-logInfo :: Member (Logs LogMessage) e => String -> Eff e ()
-logInfo = withFrozenCallStack . logWithSeverity informationalSeverity
+logInfo :: (HasCallStack, Member (Logs LogMessage) e) => String -> Eff e ()
+logInfo = withFrozenCallStack (logWithSeverity informationalSeverity)
 
 -- | Log a 'debugSeverity' message.
-logDebug :: Member (Logs LogMessage) e => String -> Eff e ()
-logDebug = withFrozenCallStack . logWithSeverity debugSeverity
+logDebug :: (HasCallStack, Member (Logs LogMessage) e) => String -> Eff e ()
+logDebug = withFrozenCallStack (logWithSeverity debugSeverity)
 
 -- | Construct a 'LogMessage' with 'errorSeverity'
-errorMessage :: String -> LogMessage
+errorMessage :: HasCallStack => String -> LogMessage
 errorMessage m = withFrozenCallStack
   (def & lmSeverity .~ errorSeverity & lmMessage .~ m & setCallStack callStack)
 
 -- | Construct a 'LogMessage' with 'informationalSeverity'
-infoMessage :: String -> LogMessage
+infoMessage :: HasCallStack => String -> LogMessage
 infoMessage m = withFrozenCallStack
   (  def
   &  lmSeverity
@@ -303,23 +316,30 @@ infoMessage m = withFrozenCallStack
   )
 
 -- | Construct a 'LogMessage' with 'debugSeverity'
-debugMessage :: String -> LogMessage
+debugMessage :: HasCallStack => String -> LogMessage
 debugMessage m = withFrozenCallStack
   (def & lmSeverity .~ debugSeverity & lmMessage .~ m & setCallStack callStack)
 
 -- | Construct a 'LogMessage' with 'errorSeverity'
-errorMessageIO :: MonadIO m => String -> m LogMessage
+errorMessageIO :: (HasCallStack, MonadIO m) => String -> m LogMessage
 errorMessageIO =
-  (setLogMessageThreadId >=> setLogMessageTimestamp) . errorMessage
--- | Construct a 'LogMessage' with 'informationalSeverity'
-infoMessageIO :: MonadIO m => String -> m LogMessage
-infoMessageIO =
-  (setLogMessageThreadId >=> setLogMessageTimestamp) . infoMessage
--- | Construct a 'LogMessage' with 'debugSeverity'
-debugMessageIO :: MonadIO m => String -> m LogMessage
-debugMessageIO =
-  (setLogMessageThreadId >=> setLogMessageTimestamp) . debugMessage
+  withFrozenCallStack
+    $ (setLogMessageThreadId >=> setLogMessageTimestamp)
+    . errorMessage
 
+-- | Construct a 'LogMessage' with 'informationalSeverity'
+infoMessageIO :: (HasCallStack, MonadIO m) => String -> m LogMessage
+infoMessageIO =
+  withFrozenCallStack
+    $ (setLogMessageThreadId >=> setLogMessageTimestamp)
+    . infoMessage
+
+-- | Construct a 'LogMessage' with 'debugSeverity'
+debugMessageIO :: (HasCallStack, MonadIO m) => String -> m LogMessage
+debugMessageIO =
+  withFrozenCallStack
+    $ (setLogMessageThreadId >=> setLogMessageTimestamp)
+    . debugMessage
 
 emergencySeverity :: Severity
 emergencySeverity = Severity 0

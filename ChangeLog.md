@@ -1,5 +1,10 @@
 # Changelog for extensible-effects-concurrent
 
+## 0.7.1
+
+- Improve call-stack support in log messages
+- Expose `setLogMessageTimestamp` and `setLogMessageThreadId`
+
 ## 0.7.0
 
 - Remove the parameter from `closeLogChannelAfter` that had the optional:

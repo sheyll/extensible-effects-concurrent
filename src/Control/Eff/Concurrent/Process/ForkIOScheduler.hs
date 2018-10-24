@@ -127,17 +127,21 @@ forkIoScheduler = SchedulerProxy
 -- | This is the main entry point to running a message passing concurrency
 -- application. This function takes a 'Process' on top of the 'SchedulerIO'
 -- effect and a 'LogChannel' for concurrent logging.
-schedule :: Eff (ConsProcess SchedulerIO) () -> LogChannel LogMessage -> IO ()
+schedule
+  :: HasCallStack
+  => Eff (ConsProcess SchedulerIO) ()
+  -> LogChannel LogMessage
+  -> IO ()
 schedule e logC = void $ withNewSchedulerState $ \schedulerStateVar -> do
   pidVar <- newEmptyTMVarIO
-  scheduleProcessWithShutdownAction schedulerStateVar pidVar $ do
-    mt <- lift myThreadId
-    mp <- lift (atomically (readTMVar pidVar))
-    logInfo (show mp ++ " main process started in thread " ++ show mt)
-    e
-    logInfo (show mp ++ " main process returned")
+  scheduleProcessWithShutdownAction schedulerStateVar pidVar
+    $ interceptLogging (setLogMessageThreadId >=> logMsg)
+    $ do
+        logNotice "++++++++ main process started ++++++++"
+        e
+        logNotice "++++++++ main process returned ++++++++"
  where
-  withNewSchedulerState :: (SchedulerVar -> IO a) -> IO a
+  withNewSchedulerState :: HasCallStack => (SchedulerVar -> IO a) -> IO a
   withNewSchedulerState mainProcessAction = do
     myTId <- myThreadId
     Exc.bracket (newTVarIO (Scheduler myPid Map.empty Map.empty False logC))
@@ -146,7 +150,7 @@ schedule e logC = void $ withNewSchedulerState $ \schedulerStateVar -> do
    where
     myPid = 1
     tearDownScheduler myTId v = do
-      logChannelPutIO logC (debugMessage "begin scheduler tear down")
+      logChannelPutIO logC =<< debugMessageIO "begin scheduler tear down"
       sch <-
         (atomically
           (do
@@ -156,16 +160,14 @@ schedule e logC = void $ withNewSchedulerState $ \schedulerStateVar -> do
             return sch'
           )
         )
-      logChannelPutIO
-        logC
-        (debugMessage
-          (  "killing "
-          ++ let ts = (sch ^.. threadIdTable . traversed)
-             in  if length ts > 100
-                   then show (length ts) ++ " threads"
-                   else show ts
-          )
+      logChannelPutIO logC =<< debugMessageIO
+        (  "killing "
+        ++ let ts = (sch ^.. threadIdTable . traversed)
+           in  if length ts > 100
+                 then show (length ts) ++ " threads"
+                 else show ts
         )
+
       imapM_ (killProcThread myTId) (sch ^. threadIdTable)
       Concurrent.yield
       atomically
@@ -180,13 +182,13 @@ schedule e logC = void $ withNewSchedulerState $ \schedulerStateVar -> do
                   .  to Map.null
           STM.check allThreadsDead
         )
-      logChannelPutIO logC (infoMessage "all threads dead")
+      logChannelPutIO logC =<< infoMessageIO "all threads dead"
 
     killProcThread myTId _pid tid = when (myTId /= tid) (killThread tid)
 
 -- | Start the message passing concurrency system then execute a 'Process' on
 -- top of 'SchedulerIO' effect. All logging is sent to standard output.
-defaultMain :: Eff (ConsProcess SchedulerIO) () -> IO ()
+defaultMain :: HasCallStack => Eff (ConsProcess SchedulerIO) () -> IO ()
 defaultMain c = runLoggingT
   (logChannelBracket 128
                      (Just (infoMessage "main process started"))
@@ -197,11 +199,15 @@ defaultMain c = runLoggingT
 -- | Start the message passing concurrency system then execute a 'Process' on
 -- top of 'SchedulerIO' effect. All logging is sent to standard output.
 defaultMainWithLogChannel
-  :: LogChannel LogMessage -> Eff (ConsProcess SchedulerIO) () -> IO ()
+  :: HasCallStack
+  => LogChannel LogMessage
+  -> Eff (ConsProcess SchedulerIO) ()
+  -> IO ()
 defaultMainWithLogChannel logC c = closeLogChannelAfter logC (schedule c logC)
 
 scheduleProcessWithShutdownAction
-  :: SchedulerVar
+  :: HasCallStack
+  => SchedulerVar
   -> STM.TMVar ProcessId
   -> Eff (ConsProcess SchedulerIO) ()
   -> IO (Either Exc.SomeException ())
@@ -239,7 +245,10 @@ scheduleProcessWithShutdownAction schedulerVar pidVar procAction = do
           )
         )
       interceptLogging
-          (logMsg . over lmMessage (printf "[PID %7i] %s" (toInteger pid)))
+          (setLogMessageThreadId >=> logMsg . over
+            lmMessage
+            (printf "% 9s %s" (show pid))
+          )
         $ do
             logDebug "begin process"
             procAction
