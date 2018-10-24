@@ -60,8 +60,7 @@ import           Control.Eff.Concurrent.Process ( ProcessId(..)
                                                 , catchRaisedError
                                                 , ignoreProcessError
                                                 )
-import           Control.Eff.Concurrent.Api
-                                                ( Api
+import           Control.Eff.Concurrent.Api     ( Api
                                                 , Synchronicity(..)
                                                 , Server(..)
                                                 , fromServer
@@ -77,6 +76,8 @@ import           Control.Eff.Concurrent.Api.Client
                                                 , callRegisteredA
                                                 , ServesApi
                                                 , registerServer
+                                                , whereIsServer
+                                                , ServerReader
                                                 )
 import           Control.Eff.Concurrent.Api.Server
                                                 ( serve
@@ -97,6 +98,7 @@ import           Control.Eff.Concurrent.Api.Server
 import           Control.Eff.Concurrent.Api.Observer
                                                 ( Observer(..)
                                                 , Observable(..)
+                                                , ObserverState
                                                 , notifyObserver
                                                 , registerObserver
                                                 , forgetObserver
@@ -110,6 +112,15 @@ import           Control.Eff.Concurrent.Api.Observer
                                                 , CallbackObserver
                                                 , spawnCallbackObserver
                                                 , spawnLoggingObserver
+                                                )
+import           Control.Eff.Concurrent.Api.Observer.Queue
+                                                ( ObservationQueue()
+                                                , ObservationQueueReader
+                                                , readObservationQueue
+                                                , tryReadObservationQueue
+                                                , flushObservationQueue
+                                                , enqueueObservationsRegistered
+                                                , enqueueObservations
                                                 )
 import           Control.Eff.Concurrent.Process.ForkIOScheduler
                                                 ( schedule

@@ -69,6 +69,7 @@ library
                   Control.Eff.Concurrent.Process.Interactive,
                   Control.Eff.Concurrent.Process.SingleThreadedScheduler,
                   Control.Eff.Concurrent.Api.Observer
+                  Control.Eff.Concurrent.Api.Observer.Queue
   other-modules:
                 Control.Eff.Concurrent.Api.Internal,
                 Paths_extensible_effects_concurrent,
