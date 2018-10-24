@@ -1,5 +1,9 @@
 # Changelog for extensible-effects-concurrent
 
+## 0.7.2
+
+- Add 'ObserverState' type alias
+
 ## 0.7.1
 
 - Improve call-stack support in log messages

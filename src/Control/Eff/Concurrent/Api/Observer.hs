@@ -14,6 +14,7 @@ module Control.Eff.Concurrent.Api.Observer
   , SomeObserver(..)
   , notifySomeObserver
   , Observers()
+  , ObserverState
   , manageObservers
   , addObserver
   , removeObserver
@@ -117,34 +118,31 @@ notifySomeObserver px observed observation (SomeObserver observer) =
 
 -- ** Manage 'Observers's
 
--- | Internal state for 'manageobservers'
+-- | Internal state for 'manageObservers'
 data Observers o =
   Observers { _observers :: Set (SomeObserver o) }
+
+-- | Alias for the effect that contains the observers managed by 'manageObservers'
+type ObserverState o = State (Observers o)
 
 observers :: Iso' (Observers o) (Set (SomeObserver o))
 observers = iso _observers Observers
 
 -- | Keep track of registered 'Observer's Observers can be added and removed,
 -- and an 'Observation' can be sent to all registerd observers at once.
-manageObservers :: Eff (State (Observers o) ': r) a -> Eff r a
+manageObservers :: Eff (ObserverState o ': r) a -> Eff r a
 manageObservers = evalState (Observers Set.empty)
 
 -- | Add an 'Observer' to the 'Observers' managed by 'manageObservers'.
 addObserver
-  :: ( SetMember Process (Process q) r
-     , Member (State (Observers o)) r
-     , Observable o
-     )
+  :: (SetMember Process (Process q) r, Member (ObserverState o) r, Observable o)
   => SomeObserver o
   -> Eff r ()
 addObserver = modify . over observers . Set.insert
 
 -- | Delete an 'Observer' from the 'Observers' managed by 'manageObservers'.
 removeObserver
-  :: ( SetMember Process (Process q) r
-     , Member (State (Observers o)) r
-     , Observable o
-     )
+  :: (SetMember Process (Process q) r, Member (ObserverState o) r, Observable o)
   => SomeObserver o
   -> Eff r ()
 removeObserver = modify . over observers . Set.delete
@@ -155,7 +153,7 @@ notifyObservers
   :: forall o r q
    . ( Observable o
      , SetMember Process (Process q) r
-     , Member (State (Observers o)) r
+     , Member (ObserverState o) r
      )
   => SchedulerProxy q
   -> Observation o
@@ -193,16 +191,16 @@ spawnCallbackObserver
   -> (Server o -> Observation o -> Eff (Process q ': q) Bool)
   -> Eff r (Server (CallbackObserver o))
 spawnCallbackObserver px onObserve =
-  asServer @(CallbackObserver o)
-    <$> (spawn @r @q $ do
-          let loopUntil = serve
-                px
-                (ApiHandler @(CallbackObserver o) (handleCast loopUntil)
-                                                  (unhandledCallError px)
-                                                  (defaultTermination px)
-                )
-          loopUntil
-        )
+  asServer @(CallbackObserver o) <$> spawn @r @q
+    (do
+      let loopUntil = serve
+            px
+            (ApiHandler @(CallbackObserver o) (handleCast loopUntil)
+                                              (unhandledCallError px)
+                                              (defaultTermination px)
+            )
+      loopUntil
+    )
  where
   handleCast k (CbObserved fromSvr v) = onObserve fromSvr v >>= flip when k
 
