@@ -44,7 +44,7 @@ import           Control.Monad
 -- another 'Api' that is 'Observable'.
 class (Typeable p, Observable o) => Observer p o where
   -- | Wrap the 'Observation' and the 'ProcessId' (i.e. the 'Server')
-  -- that caused the observation into a 'Api' value that the
+  -- that caused the observation into an 'Api' value that the
   -- 'Observable' understands.
   observationMessage :: Server o -> Observation o -> Api p 'Asynchronous
 

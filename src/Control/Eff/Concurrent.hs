@@ -17,6 +17,9 @@ module Control.Eff.Concurrent
     -- ** /Observer/ Functions for Events and Event Listener
     module Control.Eff.Concurrent.Api.Observer
   ,
+    -- *** Capture /Observation/ in a FIFO Queue
+    module Control.Eff.Concurrent.Api.Observer.Queue
+  ,
     -- * /Scheduler/ Process Effect Handler
     -- ** Concurrent Scheduler
     module Control.Eff.Concurrent.Process.ForkIOScheduler
