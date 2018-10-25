@@ -1,9 +1,12 @@
 # Changelog for extensible-effects-concurrent
 
-## 0.7.2
+## 0.7.3
 
 - Add `withFrozenCallStack` to exposed functions
 - Add `ObserverState` type alias
+
+## 0.7.2
+
 - Add `ObservationQueue` utility
 - Fix missing re-exports from
   `Control.Eff.Concurrent.Api.Client`
