@@ -132,14 +132,15 @@ schedule
   => Eff (ConsProcess SchedulerIO) ()
   -> LogChannel LogMessage
   -> IO ()
-schedule e logC = void $ withNewSchedulerState $ \schedulerStateVar -> do
-  pidVar <- newEmptyTMVarIO
-  scheduleProcessWithShutdownAction schedulerStateVar pidVar
-    $ interceptLogging (setLogMessageThreadId >=> logMsg)
-    $ do
-        logNotice "++++++++ main process started ++++++++"
-        e
-        logNotice "++++++++ main process returned ++++++++"
+schedule e logC =
+  withFrozenCallStack $ void $ withNewSchedulerState $ \schedulerStateVar -> do
+    pidVar <- newEmptyTMVarIO
+    scheduleProcessWithShutdownAction schedulerStateVar pidVar
+      $ interceptLogging (setLogMessageThreadId >=> logMsg)
+      $ do
+          logNotice "++++++++ main process started ++++++++"
+          e
+          logNotice "++++++++ main process returned ++++++++"
  where
   withNewSchedulerState :: HasCallStack => (SchedulerVar -> IO a) -> IO a
   withNewSchedulerState mainProcessAction = do
@@ -189,7 +190,7 @@ schedule e logC = void $ withNewSchedulerState $ \schedulerStateVar -> do
 -- | Start the message passing concurrency system then execute a 'Process' on
 -- top of 'SchedulerIO' effect. All logging is sent to standard output.
 defaultMain :: HasCallStack => Eff (ConsProcess SchedulerIO) () -> IO ()
-defaultMain c = runLoggingT
+defaultMain c = withFrozenCallStack $ runLoggingT
   (logChannelBracket 128
                      (Just (infoMessage "main process started"))
                      (schedule c)
@@ -203,7 +204,8 @@ defaultMainWithLogChannel
   => LogChannel LogMessage
   -> Eff (ConsProcess SchedulerIO) ()
   -> IO ()
-defaultMainWithLogChannel logC c = closeLogChannelAfter logC (schedule c logC)
+defaultMainWithLogChannel logC c =
+  withFrozenCallStack $ closeLogChannelAfter logC (schedule c logC)
 
 scheduleProcessWithShutdownAction
   :: HasCallStack

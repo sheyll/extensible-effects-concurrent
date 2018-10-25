@@ -46,7 +46,7 @@ castChecked
   -> Api o 'Asynchronous
   -> Eff r Bool
 castChecked px (Server pid) castMsg =
-  sendMessageChecked px pid (toDyn $! (Cast $! castMsg))
+  withFrozenCallStack $ sendMessageChecked px pid (toDyn $! (Cast $! castMsg))
 
 -- | Send an 'Api' request that has no return value and return as fast as
 -- possible. The type signature enforces that the corresponding 'Api' clause is
@@ -62,7 +62,7 @@ cast
   -> Server o
   -> Api o 'Asynchronous
   -> Eff r ()
-cast px toServer apiRequest = do
+cast px toServer apiRequest = withFrozenCallStack $ do
   _ <- castChecked px toServer apiRequest
   return ()
 
@@ -82,7 +82,7 @@ call
   -> Server api
   -> Api api ( 'Synchronous result)
   -> Eff r result
-call px (Server pidInt) req = do
+call px (Server pidInt) req = withFrozenCallStack $ do
   fromPid <- self px
   let requestMessage = Call fromPid $! req
   wasSent <- sendMessageChecked px pidInt (toDyn $! requestMessage)
@@ -112,8 +112,9 @@ type ServerReader o = Reader (Server o)
 
 -- | Run a reader effect that contains __the one__ server handling a specific
 -- 'Api' instance.
-registerServer :: Server o -> Eff (ServerReader o ': r) a -> Eff r a
-registerServer = runReader
+registerServer
+  :: HasCallStack => Server o -> Eff (ServerReader o ': r) a -> Eff r a
+registerServer = withFrozenCallStack runReader
 
 -- | Get the 'Server' registered with 'registerServer'.
 whereIsServer :: Member (ServerReader o) e => Eff e (Server o)
@@ -122,11 +123,11 @@ whereIsServer = ask
 -- | Like 'call' but take the 'Server' from the reader provided by
 -- 'registerServer'.
 callRegistered
-  :: (Typeable reply, ServesApi o r q)
+  :: (Typeable reply, ServesApi o r q, HasCallStack)
   => SchedulerProxy q
   -> Api o ( 'Synchronous reply)
   -> Eff r reply
-callRegistered px method = do
+callRegistered px method = withFrozenCallStack $ do
   serverPid <- whereIsServer
   call px serverPid method
 
@@ -136,20 +137,25 @@ callRegistered px method = do
 -- process communication.
 callRegisteredA
   :: forall r q o f reply
-   . (Alternative f, Typeable f, Typeable reply, ServesApi o r q)
+   . ( Alternative f
+     , Typeable f
+     , Typeable reply
+     , ServesApi o r q
+     , HasCallStack
+     )
   => SchedulerProxy q
   -> Api o ( 'Synchronous (f reply))
   -> Eff r (f reply)
-callRegisteredA px method =
-  catchRaisedError px (const (return (empty @f))) (callRegistered px method)
+callRegisteredA px method = withFrozenCallStack
+  $ catchRaisedError px (const (return (empty @f))) (callRegistered px method)
 
 -- | Like 'cast' but take the 'Server' from the reader provided by
 -- 'registerServer'.
 castRegistered
-  :: (Typeable o, ServesApi o r q)
+  :: (Typeable o, ServesApi o r q, HasCallStack)
   => SchedulerProxy q
   -> Api o 'Asynchronous
   -> Eff r ()
-castRegistered px method = do
+castRegistered px method = withFrozenCallStack $ do
   serverPid <- whereIsServer
   cast px serverPid method

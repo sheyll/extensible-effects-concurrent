@@ -105,7 +105,7 @@ unhandledCallError
   -> Api p ( 'Synchronous x)
   -> (x -> Eff r ())
   -> Eff r ()
-unhandledCallError px api _ = raiseError
+unhandledCallError px api _ = withFrozenCallStack $ raiseError
   px
   ("Unhandled call: (" ++ show api ++ " :: " ++ show (typeRep (Proxy @p)) ++ ")"
   )
@@ -122,7 +122,7 @@ unhandledCastError
   => SchedulerProxy q
   -> Api p 'Asynchronous
   -> Eff r ()
-unhandledCastError px api = raiseError
+unhandledCastError px api = withFrozenCallStack $ raiseError
   px
   ("Unhandled cast: (" ++ show api ++ " :: " ++ show (typeRep (Proxy @p)) ++ ")"
   )
@@ -135,7 +135,8 @@ defaultTermination
   => SchedulerProxy q
   -> Maybe String
   -> Eff r ()
-defaultTermination px = maybe (exitNormally px) (exitWithError px)
+defaultTermination px =
+  withFrozenCallStack $ maybe (exitNormally px) (exitWithError px)
 
 
 -- | 'serve' two 'ApiHandler's at once. The first handler is used for
@@ -224,7 +225,7 @@ catchUnhandled
   -> (Dynamic -> Eff r a)
   -> Eff r a
 catchUnhandled effect handler =
-  effect `Exc.catchError` (handler . fromUnhandledRequest)
+  withFrozenCallStack $ effect `Exc.catchError` (handler . fromUnhandledRequest)
 
 -- | Catch 'UnhandledRequest's and terminate the process with an error, if necessary.
 ensureAllHandled
@@ -233,7 +234,7 @@ ensureAllHandled
   => SchedulerProxy q
   -> Eff (Exc.Exc UnhandledRequest ': r) ()
   -> Eff r ()
-ensureAllHandled px effect = do
+ensureAllHandled px effect = withFrozenCallStack $ do
   result <- Exc.runError effect
   either (exitUnhandled px . fromUnhandledRequest) return result
 
@@ -244,8 +245,10 @@ requestFromDynamic
    . (HasCallStack, Typeable a, Member (Exc.Exc UnhandledRequest) r)
   => Dynamic
   -> Eff r a
-requestFromDynamic message =
-  maybe (Exc.throwError (UnhandledRequest message)) return (fromDynamic message)
+requestFromDynamic message = withFrozenCallStack $ maybe
+  (Exc.throwError (UnhandledRequest message))
+  return
+  (fromDynamic message)
 
 -- | If an incoming message could not be casted to a 'Request' corresponding to
 -- an 'ApiHandler' (e.g. with 'requestFromDynamic') one should use this function to
@@ -256,6 +259,6 @@ exitUnhandled
   => SchedulerProxy q
   -> Dynamic
   -> Eff r ()
-exitUnhandled px message = do
+exitUnhandled px message = withFrozenCallStack $ do
   let reason = "unhandled message: " ++ show message
   exitWithError px reason

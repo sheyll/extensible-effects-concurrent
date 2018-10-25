@@ -3,9 +3,10 @@
 {-# LANGUAGE MonoLocalBinds #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TypeOperators #-}
--- | Add-ons to 'Control.Eff.Exception'
+-- | Add-ons to 'Control.Eff.Exception' and 'Control.Excepion'
 module Control.Eff.ExceptionExtra
   ( liftTry
+  , maybeThrow
   , module X
   )
 where
@@ -23,3 +24,9 @@ liftTry
   => Eff r a
   -> Eff r (Either e a)
 liftTry m = (Right <$> m) `catchDynE` (return . Left)
+
+
+-- | Very similar to 'X.liftEither' but for 'Maybe's. Unlike 'X.liftMaybe' this
+-- will throw the given value (instead of using 'X.Fail').
+maybeThrow :: Member (X.Exc x) e => x -> Maybe a -> Eff e a
+maybeThrow x = X.liftEither . maybe (Left x) Right

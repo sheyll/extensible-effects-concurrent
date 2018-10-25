@@ -2,8 +2,9 @@
 
 ## 0.7.2
 
-- Add 'ObserverState' type alias
-- Add 'ObservationQueue' utility
+- Add `withFrozenCallStack` to exposed functions
+- Add `ObserverState` type alias
+- Add `ObservationQueue` utility
 - Fix missing re-exports from
   `Control.Eff.Concurrent.Api.Client`
   in `Control.Eff.Concurrent` introduced in recent versions
