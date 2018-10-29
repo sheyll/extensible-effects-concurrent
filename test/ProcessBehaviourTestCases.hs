@@ -3,10 +3,14 @@ module ProcessBehaviourTestCases where
 import           Data.List                      ( sort )
 import           Data.Dynamic
 import           Data.Foldable                  ( traverse_ )
+import           Data.Dynamic                   ( fromDynamic )
 import           Control.Exception
 import           Control.Concurrent
 import           Control.Concurrent.STM
 import           Control.Eff.Concurrent.Process
+import           Control.Eff.Concurrent.Api
+import           Control.Eff.Concurrent.Api.Client
+import           Control.Eff.Concurrent.Api.Server
 import qualified Control.Eff.Concurrent.Process.ForkIOScheduler
                                                as ForkIO
 import qualified Control.Eff.Concurrent.Process.SingleThreadedScheduler
@@ -55,8 +59,109 @@ allTests schedulerFactory = localOption
     , exitTests schedulerFactory
     , pingPongTests schedulerFactory
     , yieldLoopTests schedulerFactory
+    , selectiveReceiveTests schedulerFactory
     ]
   )
+
+
+data ReturnToSender
+  deriving Typeable
+
+data instance Api ReturnToSender r where
+  ReturnToSender :: ProcessId -> String -> Api ReturnToSender ('Synchronous Bool)
+  StopReturnToSender :: Api ReturnToSender ('Synchronous ())
+
+deriving instance Show (Api ReturnToSender x)
+
+deriving instance Typeable (Api ReturnToSender x)
+
+returnToSender
+  :: forall q r
+   . (HasCallStack, SetMember Process (Process q) r)
+  => SchedulerProxy q
+  -> Server ReturnToSender
+  -> String
+  -> Eff r Bool
+returnToSender px toP msg = do
+  me <- self px
+  call px toP (ReturnToSender me msg)
+  msgEcho <- receiveMessageAs @String px
+  return (msgEcho == msg)
+
+stopReturnToSender
+  :: forall q r
+   . (HasCallStack, SetMember Process (Process q) r)
+  => SchedulerProxy q
+  -> Server ReturnToSender
+  -> Eff r ()
+stopReturnToSender px toP = do
+  me <- self px
+  call px toP StopReturnToSender
+
+returnToSenderServer
+  :: forall q r
+   . ( HasCallStack
+     , SetMember Process (Process q) r
+     , Member (Logs LogMessage) q
+     )
+  => SchedulerProxy q
+  -> Eff r (Server ReturnToSender)
+returnToSenderServer px = asServer <$> spawn
+  (serve px $ ApiHandler
+    { _handleCall      = \m k -> case m of
+      StopReturnToSender -> k () >> exitNormally px
+      ReturnToSender fromP echoMsg ->
+        sendMessageChecked px fromP (toDyn echoMsg)
+          >>= (\res -> yieldProcess px >> k res)
+    , _handleCast      = logWarning . show
+    , _handleTerminate = logWarning . show
+    }
+  )
+
+selectiveReceiveTests
+  :: forall r
+   . (Member (Logs LogMessage) r, SetMember Lift (Lift IO) r)
+  => IO (Eff (Process r ': r) () -> IO ())
+  -> TestTree
+selectiveReceiveTests schedulerFactory = setTravisTestOptions
+  (testGroup
+    "selective receive tests"
+    [ testCase "send 10 messages (from 1..10) and receive messages from 10 to 1"
+    $ applySchedulerFactory schedulerFactory
+    $ do
+        let
+          nMax = 10
+          receiverLoop donePid = go nMax
+           where
+            go :: Int -> Eff (Process r ': r) ()
+            go 0 = sendMessageAs SP donePid True
+            go n = do
+              void $ receiveMessageSuchThat
+                SP
+                (\m -> do
+                  i <- fromDynamic m
+                  if i == n then Just i else Nothing
+                )
+              go (n - 1)
+
+          senderLoop receviverPid =
+            traverse_ (sendMessageAs SP receviverPid) [1 .. nMax]
+
+        me          <- self SP
+        receiverPid <- spawn (receiverLoop me)
+        spawn_ (senderLoop receiverPid)
+        ok <- receiveMessageAs @Bool SP
+        lift (ok @? "selective receive failed")
+    , testCase "receive a message while waiting for a call reply"
+    $ applySchedulerFactory schedulerFactory
+    $ do
+        srv <- returnToSenderServer SP
+        ok  <- returnToSender SP srv "test"
+        ()  <- stopReturnToSender SP srv
+        lift (ok @? "selective receive failed")
+    ]
+  )
+
 
 yieldLoopTests
   :: forall r

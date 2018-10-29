@@ -427,6 +427,40 @@ scheduleProcessWithCleanup shutdownAction processAction = withMessageQueue
                   emdynMsg
           )
 
+  go pid (ReceiveMessageSuchThat selectMsg) k = shutdownOrGo pid k $ do
+    emq <- overProcessInfo pid (use messageQ)
+    case emq of
+      Left  e  -> k (OnError (show @SchedulerError e))
+      Right mq -> do
+        let readTQueueUntilMatches =
+              let enqueueAgain = traverse_ (unGetTQueue mq)
+                  untilMessageMatches unmatched = do
+                    msg <- readTQueue mq
+                    maybe
+                      (do
+                        -- msg is 'Nothing', this means the receive call
+                        -- must be interrupted (e.g. because the process was killed, etc)
+                        enqueueAgain unmatched
+                        return Nothing
+                      )
+                      ( maybe
+                          (untilMessageMatches (msg : unmatched))
+                          (\result -> do
+                            enqueueAgain unmatched
+                            return (Just result)
+                          )
+                      . selectMsg
+                      )
+                      msg
+              in  untilMessageMatches []
+
+        emdynMsg <- lift (Right <$> atomically readTQueueUntilMatches)
+        k
+          (either (OnError . show @SchedulerError)
+                  (maybe RetryLastAction ResumeWith)
+                  emdynMsg
+          )
+
   go pid SelfPid k = shutdownOrGo pid k $ do
     lift Concurrent.yield
     k (ResumeWith pid)

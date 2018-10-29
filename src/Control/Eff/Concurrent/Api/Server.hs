@@ -35,62 +35,77 @@ import           GHC.Stack
 
 -- | Receive and process incoming requests until the process exits, using an 'ApiHandler'.
 serve
-  :: forall r q p
-   . (Typeable p, SetMember Process (Process q) r, HasCallStack)
-  => SchedulerProxy q
-  -> ApiHandler p r
-  -> Eff r ()
-serve px handlers = receiveLoop px $ \case
-  Left  Nothing       -> applyApiHandler px handlers (Terminate Nothing)
-  Left  (Just reason) -> applyApiHandler px handlers (Terminate (Just reason))
-  Right dyn           -> ensureAllHandled
-    px
-    (do
-      msg <- requestFromDynamic dyn
-      raise (applyApiHandler px handlers msg)
-    )
+  :: forall eff effScheduler api
+   . ( Typeable api
+     , SetMember Process (Process effScheduler) eff
+     , HasCallStack
+     )
+  => SchedulerProxy effScheduler
+  -> ApiHandler api eff
+  -> Eff eff ()
+serve px handlers =
+  receiveLoopSuchThat px (selectApiHandler px handlers) $ \case
+    Left  Nothing       -> applyApiHandler px handlers (Terminate Nothing)
+    Left  (Just reason) -> applyApiHandler px handlers (Terminate (Just reason))
+    Right handleIt      -> handleIt
 
 -- | A record of callbacks, handling requests sent to a /server/ 'Process', all
 -- belonging to a specific 'Api' family instance.
-data ApiHandler p r where
+data ApiHandler api eff where
   ApiHandler ::
      { -- | A cast will not return a result directly. This is used for async
        -- methods.
        _handleCast
          :: HasCallStack
-         => Api p 'Asynchronous -> Eff r ()
+         => Api api 'Asynchronous -> Eff eff ()
       -- | A call is a blocking operation, the caller is blocked until this
       -- handler calls the reply continuation.
      , _handleCall
-         :: forall x . HasCallStack
-         => Api p ('Synchronous x) -> (x -> Eff r ()) -> Eff r ()
+         :: forall reply . HasCallStack
+         => Api api ('Synchronous reply) -> (reply -> Eff eff ()) -> Eff eff ()
      -- | This callback is called with @Nothing@ if the process exits
      -- peacefully, or @Just "error message..."@ if the process exits with an
      -- error. This function is responsible to exit the process if necessary.
      -- The default behavior is defined in 'defaultTermination'.
      , _handleTerminate
          :: HasCallStack
-         => Maybe String -> Eff r ()
-     } -> ApiHandler p r
+         => Maybe String -> Eff eff ()
+     } -> ApiHandler api eff
+
+selectApiHandler
+  :: forall eff effScheduler api
+   . ( HasCallStack
+     , Typeable api
+     , SetMember Process (Process effScheduler) eff
+     )
+  => SchedulerProxy effScheduler
+  -> ApiHandler api eff
+  -> Dynamic
+  -> Maybe (Eff eff ())
+selectApiHandler px handlers = fmap (applyApiHandler px handlers) . fromDynamic
+
 
 -- | Apply either the '_handleCall', '_handleCast' or the '_handleTerminate'
--- callback to an incoming request. Note, it is unlikely that this function must be used.
+-- callback to an incoming request.
 applyApiHandler
-  :: forall r q p
-   . (Typeable p, SetMember Process (Process q) r, HasCallStack)
-  => SchedulerProxy q
-  -> ApiHandler p r
-  -> Request p
-  -> Eff r ()
+  :: forall eff effScheduler api
+   . ( Typeable api
+     , SetMember Process (Process effScheduler) eff
+     , HasCallStack
+     )
+  => SchedulerProxy effScheduler
+  -> ApiHandler api eff
+  -> Request api
+  -> Eff eff ()
 applyApiHandler _px handlers (Terminate e) = _handleTerminate handlers e
 applyApiHandler _ handlers (Cast request) = _handleCast handlers request
 applyApiHandler px handlers (Call fromPid request) = _handleCall handlers
                                                                  request
                                                                  sendReply
  where
-  sendReply :: Typeable x => x -> Eff r ()
+  sendReply :: Typeable reply => reply -> Eff eff ()
   sendReply reply =
-    sendMessage px fromPid (toDyn $! (Response (Proxy @p) $! reply))
+    sendMessage px fromPid (toDyn $! (Response (Proxy @api) $! reply))
 
 -- | A default handler to use in '_handleCall' in 'ApiHandler'. It will call
 -- 'raiseError' with a nice error message.

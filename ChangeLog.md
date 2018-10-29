@@ -1,5 +1,9 @@
 # Changelog for extensible-effects-concurrent
 
+## 0.8.0
+
+- Add selective receive
+
 ## 0.7.3
 
 - Add `withFrozenCallStack` to exposed functions

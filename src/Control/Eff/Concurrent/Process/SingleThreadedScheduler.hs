@@ -123,7 +123,7 @@ data OnYield r a where
   OnSend :: !ProcessId -> !Dynamic
          -> (ResumeProcess Bool -> Eff r (OnYield r a))
          -> OnYield r a
-  OnRecv :: (ResumeProcess Dynamic -> Eff r (OnYield r a))
+  OnRecv :: (Dynamic -> Maybe b) -> (ResumeProcess b -> Eff r (OnYield r a))
          -> OnYield r a
   OnSendShutdown :: !ProcessId -> (ResumeProcess Bool -> Eff r (OnYield r a)) -> OnYield r a
 
@@ -174,7 +174,7 @@ handleProcess runEff yieldEff !newPid !msgQs allProcs@((!processState, !pid) :<|
                       OnYield tk          -> tk ShutdownRequested
                       OnSelf  tk          -> tk ShutdownRequested
                       OnSend _ _ tk       -> tk ShutdownRequested
-                      OnRecv tk           -> tk ShutdownRequested
+                      OnRecv  _ tk        -> tk ShutdownRequested
                       OnSpawn _ tk        -> tk ShutdownRequested
                       OnDone x            -> return (OnDone x)
                       OnShutdown          -> return OnShutdown
@@ -208,7 +208,16 @@ handleProcess runEff yieldEff !newPid !msgQs allProcs@((!processState, !pid) :<|
                         (msgQs & at toPid . _Just %~ (:|> msg))
                         (rest :|> (nextK, pid))
 
-        recv@(OnRecv k) -> case msgQs ^. at pid of
+        OnSpawn f k -> do
+          nextK <- runEff $ k (ResumeWith newPid)
+          fk    <- runAsCoroutinePure runEff (f >> exitNormally SP)
+          handleProcess runEff
+                        yieldEff
+                        (newPid + 1)
+                        (msgQs & at newPid ?~ Seq.empty)
+                        (rest :|> (nextK, pid) :|> (fk, newPid))
+
+        recv@(OnRecv selectMessage k) -> case msgQs ^. at pid of
           Nothing -> do
             nextK <- runEff $ k (OnError (show pid ++ " has no message queue!"))
             handleProcess runEff yieldEff newPid msgQs (rest :|> (nextK, pid))
@@ -222,23 +231,25 @@ handleProcess runEff yieldEff !newPid !msgQs allProcs@((!processState, !pid) :<|
                                newPid
                                msgQs
                                (rest :|> (recv, pid))
-
-          Just (nextMessage :<| restMessages) -> do
-            nextK <- runEff $ k (ResumeWith nextMessage)
-            handleProcess runEff
-                          yieldEff
-                          newPid
-                          (msgQs & at pid . _Just .~ restMessages)
-                          (rest :|> (nextK, pid))
-
-        OnSpawn f k -> do
-          nextK <- runEff $ k (ResumeWith newPid)
-          fk    <- runAsCoroutinePure runEff (f >> exitNormally SP)
-          handleProcess runEff
-                        yieldEff
-                        (newPid + 1)
-                        (msgQs & at newPid ?~ Seq.empty)
-                        (rest :|> (nextK, pid) :|> (fk, newPid))
+          Just messages ->
+            let partitionMessages Empty           _acc = Nothing
+                partitionMessages (m :<| msgRest) acc  = maybe
+                  (partitionMessages msgRest (acc :|> m))
+                  (\res -> Just (res, acc Seq.>< msgRest))
+                  (selectMessage m)
+            in  case partitionMessages messages Empty of
+                  Nothing -> handleProcess runEff
+                                           yieldEff
+                                           newPid
+                                           msgQs
+                                           (rest :|> (recv, pid))
+                  Just (result, otherMessages) -> do
+                    nextK <- runEff $ k (ResumeWith result)
+                    handleProcess runEff
+                                  yieldEff
+                                  newPid
+                                  (msgQs & at pid . _Just .~ otherMessages)
+                                  (rest :|> (nextK, pid))
 
 runAsCoroutinePure
   :: forall v r m
@@ -249,15 +260,16 @@ runAsCoroutinePure
 runAsCoroutinePure runEff = runEff . handle_relay (return . OnDone) cont
  where
   cont :: Process r x -> (x -> Eff r (OnYield r v)) -> Eff r (OnYield r v)
-  cont YieldProcess           k  = return (OnYield k)
-  cont SelfPid                k  = return (OnSelf k)
-  cont (Spawn e)              k  = return (OnSpawn e k)
-  cont Shutdown               _k = return OnShutdown
-  cont (ExitWithError !e    ) _k = return (OnExitError e)
-  cont (RaiseError    !e    ) _k = return (OnRaiseError e)
-  cont (SendMessage !tp !msg) k  = return (OnSend tp msg k)
-  cont ReceiveMessage         k  = return (OnRecv k)
-  cont (SendShutdown !pid)    k  = return (OnSendShutdown pid k)
+  cont YieldProcess                  k  = return (OnYield k)
+  cont SelfPid                       k  = return (OnSelf k)
+  cont (Spawn e)                     k  = return (OnSpawn e k)
+  cont Shutdown                      _k = return OnShutdown
+  cont (ExitWithError !e    )        _k = return (OnExitError e)
+  cont (RaiseError    !e    )        _k = return (OnRaiseError e)
+  cont (SendMessage !tp !msg)        k  = return (OnSend tp msg k)
+  cont ReceiveMessage                k  = return (OnRecv Just k)
+  cont (ReceiveMessageSuchThat f   ) k  = return (OnRecv f k)
+  cont (SendShutdown           !pid) k  = return (OnSendShutdown pid k)
 
 -- | The concrete list of 'Eff'ects for running this pure scheduler on @IO@ and
 -- with string logging.

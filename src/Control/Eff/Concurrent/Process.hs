@@ -30,7 +30,10 @@ module Control.Eff.Concurrent.Process
   , spawn_
   , receiveMessage
   , receiveMessageAs
+  , receiveMessageSuchThat
   , receiveLoop
+  , receiveLoopAs
+  , receiveLoopSuchThat
   , self
   , sendShutdown
   , sendShutdownChecked
@@ -105,12 +108,11 @@ data Process (r :: [Type -> Type]) b where
   -- given type.
   SendMessage :: ProcessId -> Dynamic -> Process r (ResumeProcess Bool)
   -- | Receive a message. This should block until an a message was received. The
-  -- pure function may convert the incoming message into something, and the
-  -- result is returned as 'ProcessMessage' value. Another reason why this function
-  -- returns, is if a process control message was sent to the process. This can
-  -- only occur from inside the runtime system, aka the effect handler
-  -- implementation. (Currently there is one in 'Control.Eff.Concurrent.Process.ForkIOScheduler'.)
+  -- message is returned as a 'ProcessMessage' value. The function should also
+  -- return if an exception was caught or a shutdown was requested.
   ReceiveMessage :: Process r (ResumeProcess Dynamic)
+  -- | Wait for the next message that matches a criterium. Similar to 'ReceiveMessage'.
+  ReceiveMessageSuchThat :: (Dynamic -> Maybe a) -> Process r (ResumeProcess a)
 
 -- | Every 'Process' action returns it's actual result wrapped in this type. It
 -- will allow to signal errors as well as pass on normal results such as
@@ -262,6 +264,7 @@ spawn_
 spawn_ = withFrozenCallStack $ void . spawn
 
 -- | Block until a message was received.
+-- See 'ReceiveMessage' for more documentation.
 receiveMessage
   :: forall r q
    . (HasCallStack, SetMember Process (Process q) r)
@@ -269,22 +272,32 @@ receiveMessage
   -> Eff r Dynamic
 receiveMessage _ = withFrozenCallStack $ executeAndResume ReceiveMessage
 
+-- | Block until a message was received, that is not 'Nothing' after applying
+-- a callback to it.
+-- See 'ReceiveMessageSuchThat' for more documentation.
+receiveMessageSuchThat
+  :: forall r q a
+   . (HasCallStack, Typeable a, SetMember Process (Process q) r)
+  => SchedulerProxy q
+  -> (Dynamic -> Maybe a)
+  -> Eff r a
+receiveMessageSuchThat _ f =
+  withFrozenCallStack (executeAndResume (ReceiveMessageSuchThat f))
+
 -- | Receive and cast the message to some 'Typeable' instance.
+-- See 'ReceiveMessageSuchThat' for more documentation.
+-- This will wait for a message of the return type using 'receiveMessageSuchThat'
 receiveMessageAs
   :: forall a r q
    . (HasCallStack, Typeable a, SetMember Process (Process q) r)
   => SchedulerProxy q
   -> Eff r a
-receiveMessageAs px = withFrozenCallStack $ do
-  messageDynamic <- receiveMessage px
-  let castAndCheck dm = case fromDynamic dm of
-        Nothing -> Left ("Invalid message type received: " ++ show dm)
-        Just m  -> Right m
-      maybeMessage = castAndCheck messageDynamic
-  either (raiseError px) return maybeMessage
+receiveMessageAs px =
+  withFrozenCallStack $ receiveMessageSuchThat px fromDynamic
 
 -- | Enter a loop to receive messages and pass them to a callback, until the
 -- function returns 'False'.
+-- See 'receiveMesage' or 'ReceiveMessage' for more documentation.
 receiveLoop
   :: forall r q
    . (SetMember Process (Process q) r, HasCallStack)
@@ -298,6 +311,44 @@ receiveLoop px handlers = do
     ShutdownRequested  -> handlers (Left Nothing) >> receiveLoop px handlers
     OnError reason -> handlers (Left (Just reason)) >> receiveLoop px handlers
     ResumeWith message -> handlers (Right message) >> receiveLoop px handlers
+
+-- | Run receive message of a certain type in an endless loop.
+-- Like 'receiveLoopSuchThat' applied to 'fromDynamic'
+receiveLoopAs
+  :: forall r q a
+   . (SetMember Process (Process q) r, HasCallStack, Typeable a)
+  => SchedulerProxy q
+  -> (Either (Maybe String) a -> Eff r ())
+  -> Eff r ()
+receiveLoopAs px handlers = do
+  mReq <- send (ReceiveMessageSuchThat @a @q fromDynamic)
+  case mReq of
+    RetryLastAction   -> receiveLoopAs px handlers
+    ShutdownRequested -> handlers (Left Nothing) >> receiveLoopAs px handlers
+    OnError reason ->
+      handlers (Left (Just reason)) >> receiveLoopAs px handlers
+    ResumeWith message -> handlers (Right message) >> receiveLoopAs px handlers
+
+-- | Like 'receiveLoop' but /selective/: Only the messages of the given type will be
+-- received.
+receiveLoopSuchThat
+  :: forall r q a
+   . (SetMember Process (Process q) r, HasCallStack)
+  => SchedulerProxy q
+  -> (Dynamic -> Maybe a)
+  -> (Either (Maybe String) a -> Eff r ())
+  -> Eff r ()
+receiveLoopSuchThat px selectMesage handlers = do
+  mReq <- send (ReceiveMessageSuchThat @a @q selectMesage)
+  case mReq of
+    RetryLastAction -> receiveLoopSuchThat px selectMesage handlers
+    ShutdownRequested ->
+      handlers (Left Nothing) >> receiveLoopSuchThat px selectMesage handlers
+    OnError reason ->
+      handlers (Left (Just reason))
+        >> receiveLoopSuchThat px selectMesage handlers
+    ResumeWith message ->
+      handlers (Right message) >> receiveLoopSuchThat px selectMesage handlers
 
 -- | Returns the 'ProcessId' of the current process.
 self
