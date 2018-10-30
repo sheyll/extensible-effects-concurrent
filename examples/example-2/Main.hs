@@ -1,5 +1,5 @@
 -- | Another complete example for the library
-module Control.Eff.Concurrent.Examples2 where
+module Main where
 
 import           Data.Dynamic
 import           Control.Eff
@@ -117,8 +117,7 @@ serverLoop
   -> Eff r ()
 serverLoop px = evalState @Integer
   0
-  (manageObservers @Counter
-    (serveBoth px (counterHandler px) (pocketCalcHandler px))
+  (manageObservers @Counter (serve px (counterHandler px, pocketCalcHandler px))
   )
 
 

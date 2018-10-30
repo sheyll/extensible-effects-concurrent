@@ -1,5 +1,5 @@
 -- | A complete example for the library
-module Control.Eff.Concurrent.Examples where
+module Main where
 
 import           GHC.Stack
 import           Control.Eff
