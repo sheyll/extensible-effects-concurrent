@@ -3,6 +3,9 @@
 ## 0.8.0
 
 - Add selective receive
+- Complete `Api.Server` rewrite (simplification)
+- Move examples to `./examples/` and add executables to the
+  cabal file
 
 ## 0.7.3
 

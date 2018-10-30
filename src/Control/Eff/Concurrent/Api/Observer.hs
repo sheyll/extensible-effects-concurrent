@@ -35,6 +35,8 @@ import           Control.Eff.Concurrent.Process
 import           Control.Eff.Concurrent.Api
 import           Control.Eff.Concurrent.Api.Client
 import           Control.Eff.Concurrent.Api.Server
+import           Control.Eff.Exception
+import           Control.Eff.Extend
 import           Control.Eff.Log
 import           Control.Eff.State.Strict
 import           Control.Lens
@@ -191,19 +193,19 @@ spawnCallbackObserver
   => SchedulerProxy q
   -> (Server o -> Observation o -> Eff (Process q ': q) Bool)
   -> Eff r (Server (CallbackObserver o))
-spawnCallbackObserver px onObserve =
-  withFrozenCallStack $ asServer @(CallbackObserver o) <$> spawn @r @q
-    (do
-      let loopUntil = serve
-            px
-            (ApiHandler @(CallbackObserver o) (handleCast loopUntil)
-                                              (unhandledCallError px)
-                                              (defaultTermination px)
-            )
-      loopUntil
-    )
+spawnCallbackObserver px onObserve = withFrozenCallStack $ spawnServer
+  px
+  (ApiHandler @(CallbackObserver o) handleCast
+                                    (unhandledCallError px)
+                                    (defaultTermination px)
+  )
+  (runError @ExitCallbackObserver >=> return . const ())
  where
-  handleCast k (CbObserved fromSvr v) = onObserve fromSvr v >>= flip when k
+  handleCast (CbObserved fromSvr v) =
+    raise (onObserve fromSvr v) >>= flip when (throwError ExitCallbackObserver)
+
+data ExitCallbackObserver = ExitCallbackObserver
+
 
 -- | Use 'spawnCallbackObserver' to create a universal logging observer,
 -- using the 'Show' instance of the 'Observation'.

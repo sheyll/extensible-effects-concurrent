@@ -84,20 +84,16 @@ import           Control.Eff.Concurrent.Api.Client
                                                 )
 import           Control.Eff.Concurrent.Api.Server
                                                 ( serve
+                                                , spawnServer
                                                 , ApiHandler(..)
                                                 , unhandledCallError
                                                 , unhandledCastError
                                                 , defaultTermination
-                                                , serveBoth
-                                                , serve3
-                                                , tryApiHandler
-                                                , UnhandledRequest()
-                                                , catchUnhandled
-                                                , ensureAllHandled
-                                                , requestFromDynamic
-                                                , exitUnhandled
+                                                , Servable(..)
+                                                , ServerCallback(..)
+                                                , requestHandlerSelector
+                                                , terminationHandler
                                                 )
-
 import           Control.Eff.Concurrent.Api.Observer
                                                 ( Observer(..)
                                                 , Observable(..)

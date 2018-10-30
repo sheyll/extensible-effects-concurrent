@@ -3,54 +3,39 @@ module Control.Eff.Concurrent.Api.Server
   (
   -- * Api Server
     serve
+  , spawnServer
+  -- * Api Callbacks
   , ApiHandler(..)
-  -- * ApiHandler default callbacks
   , unhandledCallError
   , unhandledCastError
   , defaultTermination
-  -- * Multi Api Server
-  , serveBoth
-  , serve3
-  , tryApiHandler
-  , UnhandledRequest()
-  , catchUnhandled
-  , ensureAllHandled
-  , requestFromDynamic
-  , exitUnhandled
+  -- * Callback Composition
+  , Servable(..)
+  , ServerCallback(..)
+  , requestHandlerSelector
+  , terminationHandler
   )
 where
 
 import           Control.Eff
-import qualified Control.Eff.Exception         as Exc
-import           Control.Eff.Extend
 import           Control.Eff.Concurrent.Api
 import           Control.Eff.Concurrent.Api.Internal
 import           Control.Eff.Concurrent.Process
+import           Control.Lens
 import           Data.Proxy
 import           Data.Typeable                  ( Typeable
                                                 , typeRep
                                                 )
 import           Data.Dynamic
+import           Control.Applicative
+import           Data.Kind
 import           GHC.Stack
 
--- | Receive and process incoming requests until the process exits, using an 'ApiHandler'.
-serve
-  :: forall eff effScheduler api
-   . ( Typeable api
-     , SetMember Process (Process effScheduler) eff
-     , HasCallStack
-     )
-  => SchedulerProxy effScheduler
-  -> ApiHandler api eff
-  -> Eff eff ()
-serve px handlers =
-  receiveLoopSuchThat px (selectApiHandler px handlers) $ \case
-    Left  Nothing       -> applyApiHandler px handlers (Terminate Nothing)
-    Left  (Just reason) -> applyApiHandler px handlers (Terminate (Just reason))
-    Right handleIt      -> handleIt
 
 -- | A record of callbacks, handling requests sent to a /server/ 'Process', all
 -- belonging to a specific 'Api' family instance.
+-- The values of this type can be 'serve'ed or combined via 'Servable' or
+-- 'ServerCallback's.
 data ApiHandler api eff where
   ApiHandler ::
      { -- | A cast will not return a result directly. This is used for async
@@ -72,7 +57,118 @@ data ApiHandler api eff where
          => Maybe String -> Eff eff ()
      } -> ApiHandler api eff
 
-selectApiHandler
+
+-- | Building block for composition of 'ApiHandler'.
+-- A wrapper for 'ApiHandler'. Use this to combine 'ApiHandler', allowing a
+-- process to implement several 'Api' instances. The termination will be evenly
+-- propagated.
+-- Create this via e.g. 'Servable' instances
+-- To serve multiple apis use '<>' to combine server callbacks, e.g.
+--
+-- @@@
+-- let f = apiHandlerServerCallback px $ ApiHandler ...
+--     g = apiHandlerServerCallback px $ ApiHandler ...
+--     h = f <> g
+-- in serve px h
+-- @@@
+--
+data ServerCallback eff =
+  ServerCallback { _requestHandlerSelector :: MessageSelector (Eff eff ())
+                 , _terminationHandler :: Maybe String -> Eff eff ()
+                 }
+
+makeLenses ''ServerCallback
+
+instance Semigroup (ServerCallback eff) where
+  l <> r = l & requestHandlerSelector .~
+                  MessageSelector (\x ->
+                    runMessageSelector (view requestHandlerSelector l) x <|>
+                    runMessageSelector (view requestHandlerSelector r) x)
+             & terminationHandler .~
+                  (\errorMessage ->
+                      do (l^.terminationHandler) errorMessage
+                         (r^.terminationHandler) errorMessage)
+
+instance Monoid (ServerCallback eff) where
+  mappend = (<>)
+  mempty = ServerCallback
+              { _requestHandlerSelector = MessageSelector (const Nothing)
+              , _terminationHandler = const (return ())
+              }
+
+-- | Helper type class to allow composition of 'ApiHandler'.
+class Servable a where
+  -- | The effect of the callbacks
+  type ServerEff a :: [Type -> Type]
+  -- | The is used to let the spawn function return multiple 'Server' 'ProcessId's
+  -- in a type safe way, e.g. for a tuple instance of this class
+  -- @(Server a, Server b)@
+  type ServerPids a
+  -- | The is used to let the spawn function return multiple 'Server' 'ProcessId's
+  -- in a type safe way.
+  toServerPids :: proxy a -> ProcessId -> ServerPids a
+  -- | Convert the value to a 'ServerCallback'
+  toServerCallback :: (SetMember Process (Process effScheduler) (ServerEff a))
+    => SchedulerProxy effScheduler -> a -> ServerCallback (ServerEff a)
+
+instance Servable (ServerCallback eff)  where
+  type ServerEff (ServerCallback eff) = eff
+  type ServerPids (ServerCallback eff) = ProcessId
+  toServerCallback  = const id
+  toServerPids = const id
+
+instance Typeable a => Servable (ApiHandler a eff)  where
+  type ServerEff (ApiHandler a eff) = eff
+  type ServerPids (ApiHandler a eff) = Server a
+  toServerCallback  = apiHandlerServerCallback
+  toServerPids _ = asServer
+
+instance (ServerEff a ~ ServerEff b, Servable a, Servable b) => Servable (a, b) where
+  type ServerPids (a, b) = (ServerPids a, ServerPids b)
+  type ServerEff (a, b) = ServerEff a
+  toServerCallback px (a, b) = toServerCallback px a <> toServerCallback px b
+  toServerPids _ pid =
+    ( toServerPids (Proxy :: Proxy a) pid
+    , toServerPids (Proxy :: Proxy b) pid
+    )
+
+-- | Receive and process incoming requests until the process exits.
+serve
+  :: forall a effScheduler
+   . ( Servable a
+     , SetMember Process (Process effScheduler) (ServerEff a)
+     , HasCallStack
+     )
+  => SchedulerProxy effScheduler
+  -> a
+  -> Eff (ServerEff a) ()
+serve px a =
+  let serverCb = toServerCallback px a
+  in  receiveLoopSuchThat px (serverCb ^. requestHandlerSelector) $ \case
+        Left  reason   -> (serverCb ^. terminationHandler) reason
+        Right handleIt -> handleIt
+
+-- | Spawn a new process, that will receive and process incoming requests
+-- until the process exits. Also handle all internal effects.
+spawnServer
+  :: forall a effScheduler eff
+   . ( Servable a
+     , SetMember Process (Process effScheduler) (ServerEff a)
+     , SetMember Process (Process effScheduler) eff
+     , HasCallStack
+     )
+  => SchedulerProxy effScheduler
+  -> a
+  -> (  Eff (ServerEff a) ()
+     -> Eff (Process effScheduler ': effScheduler) ()
+     )
+  -> Eff eff (ServerPids a)
+spawnServer px a handleEff = do
+  pid <- spawn (handleEff (serve px a))
+  return (toServerPids (Proxy @a) pid)
+
+-- | Wrap an 'ApiHandler' into a composable 'ServerCallback' value.
+apiHandlerServerCallback
   :: forall eff effScheduler api
    . ( HasCallStack
      , Typeable api
@@ -80,14 +176,29 @@ selectApiHandler
      )
   => SchedulerProxy effScheduler
   -> ApiHandler api eff
-  -> Dynamic
-  -> Maybe (Eff eff ())
-selectApiHandler px handlers = fmap (applyApiHandler px handlers) . fromDynamic
+  -> ServerCallback eff
+apiHandlerServerCallback px handlers = mempty
+  { _requestHandlerSelector = selectHandlerMethod px handlers
+  , _terminationHandler     = _handleTerminate handlers
+  }
 
+-- | Try to parse an incoming message to an API request, and apply either
+-- the 'handleCall' method or the 'handleCast' method to it.
+selectHandlerMethod
+  :: forall eff effScheduler api
+   . ( HasCallStack
+     , Typeable api
+     , SetMember Process (Process effScheduler) eff
+     )
+  => SchedulerProxy effScheduler
+  -> ApiHandler api eff
+  -> MessageSelector (Eff eff ())
+selectHandlerMethod px handlers =
+  MessageSelector (fmap (applyHandlerMethod px handlers) . fromDynamic)
 
 -- | Apply either the '_handleCall', '_handleCast' or the '_handleTerminate'
 -- callback to an incoming request.
-applyApiHandler
+applyHandlerMethod
   :: forall eff effScheduler api
    . ( Typeable api
      , SetMember Process (Process effScheduler) eff
@@ -97,11 +208,11 @@ applyApiHandler
   -> ApiHandler api eff
   -> Request api
   -> Eff eff ()
-applyApiHandler _px handlers (Terminate e) = _handleTerminate handlers e
-applyApiHandler _ handlers (Cast request) = _handleCast handlers request
-applyApiHandler px handlers (Call fromPid request) = _handleCall handlers
-                                                                 request
-                                                                 sendReply
+applyHandlerMethod _px handlers (Terminate e) = _handleTerminate handlers e
+applyHandlerMethod _ handlers (Cast request) = _handleCast handlers request
+applyHandlerMethod px handlers (Call fromPid request) = _handleCall handlers
+                                                                    request
+                                                                    sendReply
  where
   sendReply :: Typeable reply => reply -> Eff eff ()
   sendReply reply =
@@ -152,128 +263,3 @@ defaultTermination
   -> Eff r ()
 defaultTermination px =
   withFrozenCallStack $ maybe (exitNormally px) (exitWithError px)
-
-
--- | 'serve' two 'ApiHandler's at once. The first handler is used for
--- termination handling.
-serveBoth
-  :: forall r q p1 p2
-   . ( Typeable p1
-     , Typeable p2
-     , SetMember Process (Process q) r
-     , HasCallStack
-     )
-  => SchedulerProxy q
-  -> ApiHandler p1 r
-  -> ApiHandler p2 r
-  -> Eff r ()
-serveBoth px h1 h2 = receiveLoop px $ \case
-  Left  Nothing       -> applyApiHandler px h1 (Terminate Nothing)
-  Left  (Just reason) -> applyApiHandler px h1 (Terminate (Just reason))
-  Right dyn           -> ensureAllHandled
-    px
-    (tryApiHandler px h1 dyn `catchUnhandled` tryApiHandler px h2)
-
--- | 'serve' three 'ApiHandler's at once. The first handler is used for
--- termination handling.
-serve3
-  :: forall r q p1 p2 p3
-   . ( Typeable p1
-     , Typeable p2
-     , Typeable p3
-     , SetMember Process (Process q) r
-     , HasCallStack
-     )
-  => SchedulerProxy q
-  -> ApiHandler p1 r
-  -> ApiHandler p2 r
-  -> ApiHandler p3 r
-  -> Eff r ()
-serve3 px h1 h2 h3 = receiveLoop px $ \mReq -> case mReq of
-  Left  Nothing       -> applyApiHandler px h1 (Terminate Nothing)
-  Left  (Just reason) -> applyApiHandler px h1 (Terminate (Just reason))
-  Right dyn           -> ensureAllHandled
-    px
-    (                tryApiHandler px h1 dyn
-    `catchUnhandled` tryApiHandler px h2
-    `catchUnhandled` tryApiHandler px h3
-    )
-
--- | The basic building block of the combination of 'ApiHandler's is this
--- function, which can not only be passed to 'receiveLoop', but also throws an
--- 'UnhandledRequest' exception if 'requestFromDynamic' failed, such that multiple
--- invokation of this function for different 'ApiHandler's can be tried, by using 'catchUnhandled'.
---
--- > tryApiHandler px handlers1 message
--- >   `catchUnhandled`
--- > tryApiHandler px handlers2
--- >   `catchUnhandled`
--- > tryApiHandler px handlers3
---
-tryApiHandler
-  :: forall r q p
-   . (Typeable p, SetMember Process (Process q) r, HasCallStack)
-  => SchedulerProxy q
-  -> ApiHandler p r
-  -> Dynamic
-  -> Eff (Exc.Exc UnhandledRequest ': r) ()
-tryApiHandler px handlers message = do
-  request <- requestFromDynamic message
-  raise (applyApiHandler px handlers request)
-
--- | An exception that is used by the mechanism that chains together multiple
--- different 'ApiHandler' allowing a single process to implement multiple
--- 'Api's. This exception is thrown by 'requestFromDynamic'. This
--- exception can be caught with 'catchUnhandled', this way, several
--- distinct 'ApiHandler' can be tried until one /fits/ or until the
--- 'exitUnhandled' is invoked.
-newtype UnhandledRequest = UnhandledRequest { fromUnhandledRequest :: Dynamic }
-
--- | If 'requestFromDynamic' failes to cast the message to a 'Request' for a
--- certain 'ApiHandler' it throws an 'UnhandledRequest' exception. That
--- exception is caught by this function and the raw message is given to the
--- handler function. This is the basis for chaining 'ApiHandler's.
-catchUnhandled
-  :: forall r a
-   . (Member (Exc.Exc UnhandledRequest) r, HasCallStack)
-  => Eff r a
-  -> (Dynamic -> Eff r a)
-  -> Eff r a
-catchUnhandled effect handler =
-  withFrozenCallStack $ effect `Exc.catchError` (handler . fromUnhandledRequest)
-
--- | Catch 'UnhandledRequest's and terminate the process with an error, if necessary.
-ensureAllHandled
-  :: forall r q
-   . (HasCallStack, SetMember Process (Process q) r)
-  => SchedulerProxy q
-  -> Eff (Exc.Exc UnhandledRequest ': r) ()
-  -> Eff r ()
-ensureAllHandled px effect = withFrozenCallStack $ do
-  result <- Exc.runError effect
-  either (exitUnhandled px . fromUnhandledRequest) return result
-
--- | Cast a 'Dynamic' value, and if that fails, throw an 'UnhandledRequest'
--- error.
-requestFromDynamic
-  :: forall r a
-   . (HasCallStack, Typeable a, Member (Exc.Exc UnhandledRequest) r)
-  => Dynamic
-  -> Eff r a
-requestFromDynamic message = withFrozenCallStack $ maybe
-  (Exc.throwError (UnhandledRequest message))
-  return
-  (fromDynamic message)
-
--- | If an incoming message could not be casted to a 'Request' corresponding to
--- an 'ApiHandler' (e.g. with 'requestFromDynamic') one should use this function to
--- exit the process with a corresponding error.
-exitUnhandled
-  :: forall r q
-   . (SetMember Process (Process q) r, HasCallStack)
-  => SchedulerProxy q
-  -> Dynamic
-  -> Eff r ()
-exitUnhandled px message = withFrozenCallStack $ do
-  let reason = "unhandled message: " ++ show message
-  exitWithError px reason
