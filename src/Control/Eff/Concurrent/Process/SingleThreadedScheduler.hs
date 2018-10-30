@@ -123,7 +123,7 @@ data OnYield r a where
   OnSend :: !ProcessId -> !Dynamic
          -> (ResumeProcess Bool -> Eff r (OnYield r a))
          -> OnYield r a
-  OnRecv :: (Dynamic -> Maybe b) -> (ResumeProcess b -> Eff r (OnYield r a))
+  OnRecv :: MessageSelector b -> (ResumeProcess b -> Eff r (OnYield r a))
          -> OnYield r a
   OnSendShutdown :: !ProcessId -> (ResumeProcess Bool -> Eff r (OnYield r a)) -> OnYield r a
 
@@ -236,7 +236,7 @@ handleProcess runEff yieldEff !newPid !msgQs allProcs@((!processState, !pid) :<|
                 partitionMessages (m :<| msgRest) acc  = maybe
                   (partitionMessages msgRest (acc :|> m))
                   (\res -> Just (res, acc Seq.>< msgRest))
-                  (selectMessage m)
+                  (runMessageSelector selectMessage m)
             in  case partitionMessages messages Empty of
                   Nothing -> handleProcess runEff
                                            yieldEff
@@ -267,7 +267,7 @@ runAsCoroutinePure runEff = runEff . handle_relay (return . OnDone) cont
   cont (ExitWithError !e    )        _k = return (OnExitError e)
   cont (RaiseError    !e    )        _k = return (OnRaiseError e)
   cont (SendMessage !tp !msg)        k  = return (OnSend tp msg k)
-  cont ReceiveMessage                k  = return (OnRecv Just k)
+  cont ReceiveMessage k = return (OnRecv (MessageSelector Just) k)
   cont (ReceiveMessageSuchThat f   ) k  = return (OnRecv f k)
   cont (SendShutdown           !pid) k  = return (OnSendShutdown pid k)
 

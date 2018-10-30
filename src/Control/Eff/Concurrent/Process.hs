@@ -19,6 +19,7 @@ module Control.Eff.Concurrent.Process
   , ConsProcess
   , ResumeProcess(..)
   , SchedulerProxy(..)
+  , MessageSelector(..)
   , thisSchedulerProxy
   , executeAndCatch
   , executeAndResume
@@ -112,7 +113,7 @@ data Process (r :: [Type -> Type]) b where
   -- return if an exception was caught or a shutdown was requested.
   ReceiveMessage :: Process r (ResumeProcess Dynamic)
   -- | Wait for the next message that matches a criterium. Similar to 'ReceiveMessage'.
-  ReceiveMessageSuchThat :: (Dynamic -> Maybe a) -> Process r (ResumeProcess a)
+  ReceiveMessageSuchThat :: MessageSelector a -> Process r (ResumeProcess a)
 
 -- | Every 'Process' action returns it's actual result wrapped in this type. It
 -- will allow to signal errors as well as pass on normal results such as
@@ -134,8 +135,31 @@ instance NFData a => NFData (ResumeProcess a)
 
 instance NFData1 ResumeProcess
 
+-- | A function that deciced if the next message will be received by
+-- 'ReceiveMessageSuchThat'. It conveniently is an instance of 'Monoid'
+-- with first come, first serve bais.
+newtype MessageSelector a =
+  MessageSelector {runMessageSelector :: Dynamic -> Maybe a }
+  deriving (Semigroup, Monoid, Functor)
+
+-- | Every function for 'Process' things needs such a proxy value
+-- for the low-level effect list, i.e. the effects identified by
+-- @__r__@ in @'Process' r : r@, this might be dependent on the
+-- scheduler implementation.
+data SchedulerProxy :: [Type -> Type] -> Type where
+  -- | Tell the typechecker what effects we have below 'Process'
+  SchedulerProxy :: SchedulerProxy q
+  -- | Like 'SchedulerProxy' but shorter
+  SP :: SchedulerProxy q
+  -- | Like 'SP' but different
+  Scheduler :: SchedulerProxy q
+
 -- | /Cons/ 'Process' onto a list of effects.
 type ConsProcess r = Process r ': r
+
+-- | Return a 'SchedulerProxy' for a 'Process' effect.
+thisSchedulerProxy :: Eff (Process r ': r) (SchedulerProxy r)
+thisSchedulerProxy = return SchedulerProxy
 
 -- | Execute a 'Process' action and resume the process, retry the action or exit
 -- the process when a shutdown was requested.
@@ -166,20 +190,6 @@ executeAndCatch px processAction = withFrozenCallStack $ do
     RetryLastAction   -> executeAndCatch px processAction
     ShutdownRequested -> send (Shutdown @q)
     OnError e         -> return (Left e)
-
--- | Every function for 'Process' things needs such a proxy value
--- for the low-level effect list, i.e. the effects identified by
--- @__r__@ in @'Process' r : r@, this might be dependent on the
--- scheduler implementation.
-data SchedulerProxy :: [Type -> Type] -> Type where
-  -- | Tell the typechecker what effects we have below 'Process'
-  SchedulerProxy :: SchedulerProxy q
-  -- | Like 'SchedulerProxy' but shorter
-  SP :: SchedulerProxy q
-
--- | Return a 'SchedulerProxy' for a 'Process' effect.
-thisSchedulerProxy :: Eff (Process r ': r) (SchedulerProxy r)
-thisSchedulerProxy = return SchedulerProxy
 
 -- | Use 'executeAndResume' to execute 'YieldProcess'. Refer to 'YieldProcess'
 -- for more information.
@@ -224,7 +234,7 @@ sendMessageAs
   -> ProcessId
   -> o
   -> Eff r ()
-sendMessageAs px pid = withFrozenCallStack $ sendMessage px pid . toDyn
+sendMessageAs px pid = withFrozenCallStack (sendMessage px pid . toDyn)
 
 -- | Exit a process addressed by the 'ProcessId'.
 -- See 'SendShutdown'.
@@ -234,7 +244,7 @@ sendShutdown
   => SchedulerProxy q
   -> ProcessId
   -> Eff r ()
-sendShutdown px pid = withFrozenCallStack $ void (sendShutdownChecked px pid)
+sendShutdown px pid = withFrozenCallStack (void (sendShutdownChecked px pid))
 
 -- | Like 'sendShutdown', but also return @True@ iff the process to exit exists.
 sendShutdownChecked
@@ -244,7 +254,7 @@ sendShutdownChecked
   -> ProcessId
   -> Eff r Bool
 sendShutdownChecked _ pid =
-  withFrozenCallStack $ executeAndResume (SendShutdown pid)
+  withFrozenCallStack (executeAndResume (SendShutdown pid))
 
 -- | Start a new process, the new process will execute an effect, the function
 -- will return immediately with a 'ProcessId'.
@@ -253,7 +263,7 @@ spawn
    . (HasCallStack, SetMember Process (Process q) r)
   => Eff (Process q ': q) ()
   -> Eff r ProcessId
-spawn child = withFrozenCallStack $ executeAndResume (Spawn @q child)
+spawn child = withFrozenCallStack (executeAndResume (Spawn @q child))
 
 -- | Like 'spawn' but return @()@.
 spawn_
@@ -261,7 +271,7 @@ spawn_
    . (HasCallStack, SetMember Process (Process q) r)
   => Eff (Process q ': q) ()
   -> Eff r ()
-spawn_ = withFrozenCallStack $ void . spawn
+spawn_ = withFrozenCallStack (void . spawn)
 
 -- | Block until a message was received.
 -- See 'ReceiveMessage' for more documentation.
@@ -270,7 +280,7 @@ receiveMessage
    . (HasCallStack, SetMember Process (Process q) r)
   => SchedulerProxy q
   -> Eff r Dynamic
-receiveMessage _ = withFrozenCallStack $ executeAndResume ReceiveMessage
+receiveMessage _ = withFrozenCallStack executeAndResume ReceiveMessage
 
 -- | Block until a message was received, that is not 'Nothing' after applying
 -- a callback to it.
@@ -279,7 +289,7 @@ receiveMessageSuchThat
   :: forall r q a
    . (HasCallStack, Typeable a, SetMember Process (Process q) r)
   => SchedulerProxy q
-  -> (Dynamic -> Maybe a)
+  -> MessageSelector a
   -> Eff r a
 receiveMessageSuchThat _ f =
   withFrozenCallStack (executeAndResume (ReceiveMessageSuchThat f))
@@ -293,7 +303,7 @@ receiveMessageAs
   => SchedulerProxy q
   -> Eff r a
 receiveMessageAs px =
-  withFrozenCallStack $ receiveMessageSuchThat px fromDynamic
+  withFrozenCallStack (receiveMessageSuchThat px (MessageSelector fromDynamic))
 
 -- | Enter a loop to receive messages and pass them to a callback, until the
 -- function returns 'False'.
@@ -321,7 +331,7 @@ receiveLoopAs
   -> (Either (Maybe String) a -> Eff r ())
   -> Eff r ()
 receiveLoopAs px handlers = do
-  mReq <- send (ReceiveMessageSuchThat @a @q fromDynamic)
+  mReq <- send (ReceiveMessageSuchThat @a @q (MessageSelector fromDynamic))
   case mReq of
     RetryLastAction   -> receiveLoopAs px handlers
     ShutdownRequested -> handlers (Left Nothing) >> receiveLoopAs px handlers
@@ -335,7 +345,7 @@ receiveLoopSuchThat
   :: forall r q a
    . (SetMember Process (Process q) r, HasCallStack)
   => SchedulerProxy q
-  -> (Dynamic -> Maybe a)
+  -> MessageSelector a
   -> (Either (Maybe String) a -> Eff r ())
   -> Eff r ()
 receiveLoopSuchThat px selectMesage handlers = do

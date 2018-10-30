@@ -70,19 +70,19 @@ instance Show ProcessInfo where
 -- | Contains all process info'elements, as well as the state needed to
 -- implement inter process communication. It contains also a 'LogChannel' to
 -- which the logs of all processes are forwarded to.
-data Scheduler =
-               Scheduler { _nextPid :: ProcessId
-                          , _processTable :: Map ProcessId ProcessInfo
-                          , _threadIdTable :: Map ProcessId ThreadId
-                          , _schedulerShuttingDown :: Bool
-                          , _logChannel :: LogChannel LogMessage
-                          }
+data SchedulerState =
+               SchedulerState { _nextPid :: ProcessId
+                              , _processTable :: Map ProcessId ProcessInfo
+                              , _threadIdTable :: Map ProcessId ThreadId
+                              , _schedulerShuttingDown :: Bool
+                              , _logChannel :: LogChannel LogMessage
+                              }
 
-makeLenses ''Scheduler
+makeLenses ''SchedulerState
 
 -- | A newtype wrapper around an 'STM.TVar' holding the scheduler state.
 -- This is needed by 'spawn' and provided by 'runScheduler'.
-newtype SchedulerVar = SchedulerVar { fromSchedulerVar :: STM.TVar Scheduler }
+newtype SchedulerVar = SchedulerVar { fromSchedulerVar :: STM.TVar SchedulerState }
   deriving Typeable
 
 -- | A sum-type with errors that can occur when scheduleing messages.
@@ -145,9 +145,10 @@ schedule e logC =
   withNewSchedulerState :: HasCallStack => (SchedulerVar -> IO a) -> IO a
   withNewSchedulerState mainProcessAction = do
     myTId <- myThreadId
-    Exc.bracket (newTVarIO (Scheduler myPid Map.empty Map.empty False logC))
-                (tearDownScheduler myTId)
-                (mainProcessAction . SchedulerVar)
+    Exc.bracket
+      (newTVarIO (SchedulerState myPid Map.empty Map.empty False logC))
+      (tearDownScheduler myTId)
+      (mainProcessAction . SchedulerVar)
    where
     myPid = 1
     tearDownScheduler myTId v = do
@@ -449,7 +450,7 @@ scheduleProcessWithCleanup shutdownAction processAction = withMessageQueue
                             enqueueAgain unmatched
                             return (Just result)
                           )
-                      . selectMsg
+                      . runMessageSelector selectMsg
                       )
                       msg
               in  untilMessageMatches []
@@ -551,13 +552,14 @@ withMessageQueue m = do
 
 overScheduler
   :: HasSchedulerIO r
-  => Mtl.StateT Scheduler STM.STM (Either SchedulerError a)
+  => Mtl.StateT SchedulerState STM.STM (Either SchedulerError a)
   -> Eff r (Either SchedulerError a)
 overScheduler stAction = do
   psVar <- getSchedulerTVar
   lift (overSchedulerIO psVar stAction)
 
-overSchedulerIO :: STM.TVar Scheduler -> Mtl.StateT Scheduler STM.STM a -> IO a
+overSchedulerIO
+  :: STM.TVar SchedulerState -> Mtl.StateT SchedulerState STM.STM a -> IO a
 overSchedulerIO psVar stAction = STM.atomically
   (do
     ps                   <- STM.readTVar psVar
@@ -566,7 +568,7 @@ overSchedulerIO psVar stAction = STM.atomically
     return result
   )
 
-getSchedulerTVar :: HasSchedulerIO r => Eff r (TVar Scheduler)
+getSchedulerTVar :: HasSchedulerIO r => Eff r (TVar SchedulerState)
 getSchedulerTVar = fromSchedulerVar <$> ask
 
 getSchedulerVar :: HasSchedulerIO r => Eff r SchedulerVar

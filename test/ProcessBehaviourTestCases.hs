@@ -138,9 +138,11 @@ selectiveReceiveTests schedulerFactory = setTravisTestOptions
             go n = do
               void $ receiveMessageSuchThat
                 SP
-                (\m -> do
-                  i <- fromDynamic m
-                  if i == n then Just i else Nothing
+                (MessageSelector
+                  (\m -> do
+                    i <- fromDynamic m
+                    if i == n then Just i else Nothing
+                  )
                 )
               go (n - 1)
 
