@@ -35,7 +35,10 @@ import qualified Control.Exception             as Exc
 import           Control.Concurrent            as Concurrent
 import           Control.Concurrent.STM        as STM
 import           Control.Eff
+import           Control.Eff.Cut               as Eff
 import           Control.Eff.Extend
+import           Control.Eff.Exception         as Eff
+import           Control.Eff.Choose            as Eff
 import           Control.Eff.Concurrent.Process
 import           Control.Eff.Lift
 import           Control.Eff.Log
@@ -52,13 +55,18 @@ import           Data.Dynamic
 import           Data.Map                       ( Map )
 import qualified Data.Map                      as Map
 import           Text.Printf
+import           Data.Sequence                  ( Seq(..)
+                                                , (><)
+                                                )
+import           Debug.Trace
+import qualified Data.Sequence                 as Seq
 
 -- | Information about a process, needed to implement 'MessagePassing' and
 -- 'Process' handlers. The message queue is backed by a 'STM.TQueue' and contains
 -- 'MessageQEntry' values.
 data ProcessInfo =
                  ProcessInfo { _processId         :: ProcessId
-                             , _messageQ          :: STM.TQueue (Maybe Dynamic)
+                             , _messageQ          :: STM.TVar (Seq (Maybe Dynamic))
                              , _shutdownRequested :: STM.TVar Bool
                              }
 
@@ -110,12 +118,17 @@ instance Exc.Exception SchedulerError
 type HasSchedulerIO r = ( HasCallStack
                         , SetMember Lift (Lift IO) r
                         , Member (Logs LogMessage) r
-                        , Member (Reader SchedulerVar) r)
+                        , Member (Reader SchedulerVar) r
+                        , Member Choose r
+                        , Member (Exc CutFalse) r
+                        )
 
 -- | The concrete list of 'Eff'ects for this scheduler implementation.
 -- See HasSchedulerIO
 type SchedulerIO =
-              '[ Reader SchedulerVar
+              '[ Exc CutFalse
+               , Choose
+               , Reader SchedulerVar
                , Logs LogMessage
                , Lift IO
                ]
@@ -213,31 +226,42 @@ scheduleProcessWithShutdownAction
   => SchedulerVar
   -> STM.TMVar ProcessId
   -> Eff (ConsProcess SchedulerIO) ()
-  -> IO (Either Exc.SomeException ())
+  -> IO ()
 scheduleProcessWithShutdownAction schedulerVar pidVar procAction = do
   cleanupVar <- newEmptyTMVarIO
   logC       <- getLogChannelIO schedulerVar
   eeres      <- Exc.try (runProcEffects cleanupVar logC)
-  let eres = join eeres
+  let eres = case eeres of
+        Left  se  -> [se]
+        Right ses -> ses
   getAndExecCleanup cleanupVar eres logC
   logChannelPutIO logC =<< debugMessageIO "process cleanup finished"
-  return eres
  where
 
-  runProcEffects cleanupVar l =
-    Data.Bifunctor.first Exc.SomeException <$> runLift
+  runProcEffects cleanupVar l = do
+    eresVar <- newEmptyTMVarIO
+    fmap (Data.Bifunctor.first Exc.SomeException) <$> runLift
       (logToChannel
         l
         (runReader
           schedulerVar
-          (scheduleProcessWithCleanup shutdownAction saveCleanupAndSchedule)
+          (Eff.makeChoice
+            (Eff.call
+              (scheduleProcessWithCleanup (shutdownAction eresVar)
+                                          saveCleanupAndSchedule
+              )
+            )
+          )
         )
       )
    where
-    shutdownAction = ShutdownAction
+    shutdownAction :: TMVar SchedulerError -> ShutdownAction
+    shutdownAction eresVar = ShutdownAction
       (\eres -> do
         let ex = either id (const ProcessShuttingDown) eres
-        Exc.throw ex
+        mt <- myThreadId
+        traceM (show mt ++ "++++++++++++++++++++++ about to throw " ++ show ex)
+        STM.atomically (putTMVar eresVar ex)
       )
     saveCleanupAndSchedule cleanUpAction pid = do
       lift
@@ -255,31 +279,43 @@ scheduleProcessWithShutdownAction schedulerVar pidVar procAction = do
         $ do
             logDebug "begin process"
             procAction
-  getAndExecCleanup cleanupVar eres lc = do
+  getAndExecCleanup cleanupVar eress lc = do
+    mt <- myThreadId
+    traceM
+      (show mt ++ "++++++++++++++++++++++ clean up with eres: " ++ show eress)
     mcleanup <- atomically (STM.tryTakeTMVar cleanupVar)
     traverse_ execCleanup mcleanup
    where
     execCleanup ca = do
       runCleanUpAction ca
-      logChannelPutIO lc =<< case eres of
-        Left se -> case Exc.fromException se of
-          Nothing -> errorMessageIO
-            ("process caught exception: " ++ Exc.displayException se)
-          Just schedulerErr
-            -> let exceptionMsg =
-                     " - full exception message: " ++ Exc.displayException se
-               in
-                 case schedulerErr of
-                   ProcessShuttingDown -> debugMessageIO "process shutdown"
-                   ProcessExitError m  -> errorMessageIO
-                     ("process exited with error: " ++ show m ++ exceptionMsg)
-                   ProcessRaisedError m -> errorMessageIO
-                     ("process raised error: " ++ show m ++ exceptionMsg)
-                   _ ->
-                     errorMessageIO
-                       ("scheduler error: " ++ show schedulerErr ++ exceptionMsg
-                       )
-        Right _ -> debugMessageIO "process function returned"
+      traverse_
+        (\eres -> logChannelPutIO lc =<< case eres of
+          Left se -> case Exc.fromException se of
+            Nothing -> errorMessageIO
+              ("process caught exception: " ++ Exc.displayException se)
+            Just schedulerErr
+              -> let exceptionMsg = " - full exception message: "
+                       ++ Exc.displayException se
+                 in
+                   case schedulerErr of
+                     ProcessShuttingDown -> debugMessageIO "process shutdown"
+                     ProcessExitError m ->
+                       errorMessageIO
+                         (  "process exited with error: "
+                         ++ show m
+                         ++ exceptionMsg
+                         )
+                     ProcessRaisedError m -> errorMessageIO
+                       ("process raised error: " ++ show m ++ exceptionMsg)
+                     _ ->
+                       errorMessageIO
+                         (  "scheduler error: "
+                         ++ show schedulerErr
+                         ++ exceptionMsg
+                         )
+          Right _ -> debugMessageIO "process function returned"
+        )
+        eress
 
 
 getLogChannel :: HasSchedulerIO r => Eff r (LogChannel LogMessage)
@@ -330,12 +366,163 @@ scheduleProcessWithCleanup
   -> (CleanUpAction -> ProcessId -> Eff (ConsProcess SchedulerIO) ())
   -> Eff SchedulerIO (Either SchedulerError ())
 scheduleProcessWithCleanup shutdownAction processAction = withMessageQueue
-  (\cleanUpAction pinfo -> handle_relay
-    return
+  (\cleanUpAction pinfo -> handle_relay_s
+    0
+    (const return)
     (go (pinfo ^. processId))
     (processAction cleanUpAction (pinfo ^. processId))
   )
  where
+  go
+    :: forall v a
+     . HasCallStack
+    => ProcessId
+    -> Int
+    -> Process SchedulerIO v
+    -> (Int -> Arr SchedulerIO v a)
+    -> Eff SchedulerIO a
+  go pid nextRef (SendMessage toPid reqIn) k =
+    shutdownOrGo pid (k nextRef) $ do
+      eres <- do
+        psVar <- getSchedulerTVar
+        lift
+          (   Right
+          <$> (do
+                p <- readTVarIO psVar
+                let mto = p ^. processTable . at toPid
+                case mto of
+                  Just toProc -> do
+                    atomically
+                      (modifyTVar' (toProc ^. messageQ) (Just reqIn :<|))
+                    return True
+                  Nothing -> return False
+              )
+          )
+      lift Concurrent.yield
+      let kArg = either (OnError . show @SchedulerError) ResumeWith eres
+      k nextRef kArg
+
+  go pid nextRef (SendShutdown toPid) k = shutdownOrGo pid (k nextRef) $ do
+    eres <- do
+      psVar <- getSchedulerTVar
+      lift
+        (   Right
+        <$> (do
+              p <- readTVarIO psVar
+              let mto = p ^. processTable . at toPid
+              case mto of
+                Just toProc -> atomically $ do
+                  writeTVar (toProc ^. shutdownRequested) True
+                  modifyTVar' (toProc ^. messageQ) (Nothing :<|) -- this wakes up a receiver
+                  return True
+                Nothing -> return False
+            )
+        )
+    let kArg   = either (OnError . show @SchedulerError) resume eres
+        resume = if toPid == pid then const ShutdownRequested else ResumeWith
+    lift Concurrent.yield
+    k nextRef kArg
+
+  go pid nextRef (Spawn child) k = shutdownOrGo pid (k nextRef) $ do
+    res <- spawnImpl child
+    k nextRef (ResumeWith res)
+
+  go pid nextRef ReceiveMessage k = shutdownOrGo pid (k nextRef) $ do
+    emq <- overProcessInfo pid (use messageQ)
+    case emq of
+      Left  e  -> k nextRef (OnError (show @SchedulerError e))
+      Right mq -> do
+        emdynMsg <- lift
+          (Right <$> atomically
+            (do
+              messages <- readTVar mq
+              case messages of
+                r :<| st -> do
+                  writeTVar mq st
+                  return r
+                Seq.Empty -> retry
+            )
+          )
+        k
+          nextRef
+          (either (OnError . show @SchedulerError)
+                  (maybe RetryLastAction ResumeWith)
+                  emdynMsg
+          )
+
+  go pid nextRef (ReceiveMessageSuchThat selectMessage) k =
+    shutdownOrGo pid (k nextRef) $ do
+      emq <- overProcessInfo pid (use messageQ)
+      case emq of
+        Left  e  -> k nextRef (OnError (show @SchedulerError e))
+        Right mq -> do
+          let
+            readTQueueUntilMatches =
+              let
+                partitionMessages Seq.Empty _acc =
+                  trace (show pid ++ ": message queue empty") Nothing
+                partitionMessages (Nothing :<| msgRest) acc =
+                  (trace
+                    (printf "%s: interrupted! putting back %d + %d"
+                            (show pid)
+                            (Seq.length acc)
+                            (Seq.length msgRest)
+                    )
+                    Just
+                    (Nothing, acc >< msgRest)
+                  )
+                partitionMessages (Just m :<| msgRest) acc = maybe
+                  (partitionMessages msgRest (acc :|> Just m))
+                  (\res -> Just
+                    (trace
+                      (printf "%s: message matched, putting back %d + %d"
+                              (show pid)
+                              (Seq.length acc)
+                              (Seq.length msgRest)
+                      )
+                      (Just res, acc >< msgRest)
+                    )
+                  )
+                  (runMessageSelector selectMessage m)
+                untilMessageMatches = do
+                  messages <- readTVar mq
+                  maybe
+                    retry
+                    (\(mMsg, messagesOut) -> do
+                      writeTVar mq messagesOut
+                      return mMsg
+                    )
+                    (partitionMessages messages Seq.Empty)
+              in
+                untilMessageMatches
+          emdynMsg <- lift (Right <$> atomically readTQueueUntilMatches)
+          k
+            nextRef
+            (either (OnError . show @SchedulerError)
+                    (maybe RetryLastAction ResumeWith)
+                    emdynMsg
+            )
+
+  go pid nextRef SelfPid k = shutdownOrGo pid (k nextRef) $ do
+    lift Concurrent.yield
+    k nextRef (ResumeWith pid)
+
+  go pid nextRef MakeReference k = shutdownOrGo pid (k nextRef) $ do
+    lift Concurrent.yield
+    k (nextRef + 1) (ResumeWith nextRef)
+
+  go pid nextRef YieldProcess !k = shutdownOrGo pid (k nextRef) $ do
+    lift Concurrent.yield
+    k nextRef (ResumeWith ())
+
+  go _pid _nextRef Shutdown _k = invokeShutdownAction shutdownAction (Right ())
+
+  go _pid _nextRef (ExitWithError msg) _k =
+    invokeShutdownAction shutdownAction (Left (ProcessExitError msg))
+
+  go _pid _nextRef (RaiseError msg) _k =
+    invokeShutdownAction shutdownAction (Left (ProcessExitError msg))
+
   shutdownOrGo
     :: forall v a
      . HasCallStack
@@ -365,118 +552,6 @@ scheduleProcessWithCleanup shutdownAction processAction = withMessageQueue
       Right False -> ok
       Left  e     -> k (OnError (show e))
 
-  go
-    :: forall v a
-     . HasCallStack
-    => ProcessId
-    -> Process SchedulerIO v
-    -> (v -> Eff SchedulerIO a)
-    -> Eff SchedulerIO a
-  go pid (SendMessage toPid reqIn) k = shutdownOrGo pid k $ do
-    eres <- do
-      psVar <- getSchedulerTVar
-      lift
-        (   Right
-        <$> (do
-              p <- readTVarIO psVar
-              let mto = p ^. processTable . at toPid
-              case mto of
-                Just toProc -> do
-                  atomically (writeTQueue (toProc ^. messageQ) (Just reqIn))
-                  return True
-                Nothing -> return False
-            )
-        )
-    lift Concurrent.yield
-    let kArg = either (OnError . show @SchedulerError) ResumeWith eres
-    k kArg
-
-  go pid (SendShutdown toPid) k = shutdownOrGo pid k $ do
-    eres <- do
-      psVar <- getSchedulerTVar
-      lift
-        (   Right
-        <$> (do
-              p <- readTVarIO psVar
-              let mto = p ^. processTable . at toPid
-              case mto of
-                Just toProc -> atomically $ do
-                  writeTVar (toProc ^. shutdownRequested) True
-                  writeTQueue (toProc ^. messageQ) Nothing -- this wakes up a receiver
-                  return True
-                Nothing -> return False
-            )
-        )
-    let kArg   = either (OnError . show @SchedulerError) resume eres
-        resume = if toPid == pid then const ShutdownRequested else ResumeWith
-    lift Concurrent.yield
-    k kArg
-
-  go pid (Spawn child) k = shutdownOrGo pid k $ do
-    res <- spawnImpl child
-    k (ResumeWith res)
-
-  go pid ReceiveMessage k = shutdownOrGo pid k $ do
-    emq <- overProcessInfo pid (use messageQ)
-    case emq of
-      Left  e  -> k (OnError (show @SchedulerError e))
-      Right mq -> do
-        emdynMsg <- lift (Right <$> atomically (readTQueue mq))
-        k
-          (either (OnError . show @SchedulerError)
-                  (maybe RetryLastAction ResumeWith)
-                  emdynMsg
-          )
-
-  go pid (ReceiveMessageSuchThat selectMsg) k = shutdownOrGo pid k $ do
-    emq <- overProcessInfo pid (use messageQ)
-    case emq of
-      Left  e  -> k (OnError (show @SchedulerError e))
-      Right mq -> do
-        let readTQueueUntilMatches =
-              let enqueueAgain = traverse_ (unGetTQueue mq)
-                  untilMessageMatches unmatched = do
-                    msg <- readTQueue mq
-                    maybe
-                      (do
-                        -- msg is 'Nothing', this means the receive call
-                        -- must be interrupted (e.g. because the process was killed, etc)
-                        enqueueAgain unmatched
-                        return Nothing
-                      )
-                      ( maybe
-                          (untilMessageMatches (msg : unmatched))
-                          (\result -> do
-                            enqueueAgain unmatched
-                            return (Just result)
-                          )
-                      . runMessageSelector selectMsg
-                      )
-                      msg
-              in  untilMessageMatches []
-
-        emdynMsg <- lift (Right <$> atomically readTQueueUntilMatches)
-        k
-          (either (OnError . show @SchedulerError)
-                  (maybe RetryLastAction ResumeWith)
-                  emdynMsg
-          )
-
-  go pid SelfPid k = shutdownOrGo pid k $ do
-    lift Concurrent.yield
-    k (ResumeWith pid)
-
-  go pid YieldProcess !k = shutdownOrGo pid k $ do
-    lift Concurrent.yield
-    k (ResumeWith ())
-
-  go _pid Shutdown _k = invokeShutdownAction shutdownAction (Right ())
-
-  go _pid (ExitWithError msg) _k =
-    invokeShutdownAction shutdownAction (Left (ProcessExitError msg))
-
-  go _pid (RaiseError msg) _k =
-    invokeShutdownAction shutdownAction (Left (ProcessExitError msg))
 
 data ShutdownAction =
   ShutdownAction (forall a . Either SchedulerError () -> IO a)
@@ -513,7 +588,7 @@ withMessageQueue m = do
           then return (Left SchedulerShuttingDown)
           else do
             pid               <- nextPid <<+= 1
-            channel           <- Mtl.lift newTQueue
+            channel           <- Mtl.lift (newTVar Seq.Empty)
             shutdownIndicator <- Mtl.lift (newTVar False)
             let pinfo = ProcessInfo pid channel shutdownIndicator
             threadIdTable . at pid .= Just myTId
@@ -522,33 +597,25 @@ withMessageQueue m = do
       )
   destroyQueue lc pid psVar = do
     didWork <- Exc.try
-      (overSchedulerIO
-        psVar
-        (do
-          os <- processTable . at pid <<.= Nothing
-          ot <- threadIdTable . at pid <<.= Nothing
-          return (os, isJust os || isJust ot)
+      (STM.atomically
+        (STM.modifyTVar'
+          psVar
+          (\ps ->
+            ps
+              &  processTable
+              .  at pid
+              .~ Nothing
+              &  threadIdTable
+              .  at pid
+              .~ Nothing
+          )
         )
       )
-    let getCause =
-          Exc.try @Exc.SomeException
-              (overSchedulerIO psVar (preuse (processTable . at pid)))
-            >>= either
-                  (return . (show pid ++) . show)
-                  (return . (maybe (show pid) show))
-
     case didWork of
-      Right (_pinfo, True ) -> return ()
-      Right (pinfo , False) -> logChannelPutIO lc
-        =<< errorMessageIO ("queue already destroyed: " ++ show pinfo)
+      Right () -> return ()
       Left (e :: Exc.SomeException) ->
-        getCause
-          >>= (   ( errorMessageIO
-                  . (("failed to destroy queue: " ++ show e ++ " ") ++)
-                  )
-              >=> logChannelPutIO lc
-              )
-
+        errorMessageIO ("failed to destroy queue: " ++ show e)
+          >>= logChannelPutIO lc
 
 overScheduler
   :: HasSchedulerIO r

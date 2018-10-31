@@ -56,23 +56,26 @@ counterHandler
      )
   => SchedulerProxy q
   -> ApiHandler Counter r
-counterHandler px = ApiHandler @Counter handleCast
-                                        handleCall
-                                        (defaultTermination px)
+counterHandler px = castAndCallHandler handleCastCounter handleCallCounter
  where
-  handleCast :: Api Counter 'Asynchronous -> Eff r ()
-  handleCast (ObserveCounter   o) = addObserver o
-  handleCast (UnobserveCounter o) = removeObserver o
-  handleCast Inc                  = do
+  handleCastCounter :: Api Counter 'Asynchronous -> Eff r ApiServerCmd
+  handleCastCounter (ObserveCounter o) =
+    addObserver o >> return HandleNextRequest
+  handleCastCounter (UnobserveCounter o) =
+    removeObserver o >> return HandleNextRequest
+  handleCastCounter Inc = do
     logInfo "Inc"
     modify (+ (1 :: Integer))
     currentCount <- get
     notifyObservers px (CountChanged currentCount)
-  handleCall :: Api Counter ( 'Synchronous x) -> (x -> Eff r ()) -> Eff r ()
-  handleCall Cnt reply = do
+    return HandleNextRequest
+  handleCallCounter
+    :: Api Counter ( 'Synchronous x) -> (x -> Eff r ()) -> Eff r ApiServerCmd
+  handleCallCounter Cnt reply = do
     c <- get
     logInfo ("Cnt is " ++ show c)
     reply c
+    return HandleNextRequest
 
 -- * Second API
 
@@ -92,23 +95,24 @@ pocketCalcHandler
      )
   => SchedulerProxy q
   -> ApiHandler PocketCalc r
-pocketCalcHandler px = ApiHandler @PocketCalc handleCast
-                                              handleCall
-                                              (defaultTermination px)
+pocketCalcHandler _ = castAndCallHandler handleCastCalc handleCallCalc
  where
-  handleCast :: Api PocketCalc 'Asynchronous -> Eff r ()
-  handleCast (AAdd x) = do
+  handleCastCalc :: Api PocketCalc 'Asynchronous -> Eff r ApiServerCmd
+  handleCastCalc (AAdd x) = do
     logInfo ("AsyncAdd " ++ show x)
     modify (+ x)
     c <- get @Integer
     logInfo ("Accumulator is " ++ show c)
-  handleCall :: Api PocketCalc ( 'Synchronous x) -> (x -> Eff r ()) -> Eff r ()
-  handleCall (Add x) reply = do
+    return HandleNextRequest
+  handleCallCalc
+    :: Api PocketCalc ( 'Synchronous x) -> (x -> Eff r ()) -> Eff r ApiServerCmd
+  handleCallCalc (Add x) reply = do
     logInfo ("Add " ++ show x)
     modify (+ x)
     c <- get
     logInfo ("Accumulator is " ++ show c)
     reply c
+    return HandleNextRequest
 
 serverLoop
   :: forall r q

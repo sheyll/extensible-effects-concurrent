@@ -1,5 +1,20 @@
 # Changelog for extensible-effects-concurrent
 
+## 0.9.0
+
+- Add a newtype for the argument to selective receives: `MessageSelector`
+- Add a `makeReference` function to `Process` which will return process local
+  unique `Int`s
+- Rename `spawnServer` to `spawnServerWithEffects` and add a simpler version of
+  `spawnServerWithEffects` called `spawnServer`
+- Make all  `ApiHandler` handler callbacks optional (by changing the type to `Maybe ...`)
+- `ApiHandler` must now return an `ApiServerCmd`.
+- Add `ApiServerCmd` which allows handler functions to leave to server loop without
+  exitting the process
+- Fix `Observer.Queue`
+- Rename fields in `ApiHandler`
+- Add smart constructors for `ApiHandler`
+
 ## 0.8.0
 
 - Add selective receive

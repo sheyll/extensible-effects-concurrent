@@ -104,8 +104,8 @@ forkLogger queueLen handle mFirstMsg = do
 
   logLoop :: TBQueue message -> IO ()
   logLoop tq = do
-    m <- atomically $ readTBQueue tq
-    handle m
+    m <- atomically $ flushTBQueue tq
+    traverse_ handle m
     logLoop tq
 
 -- | Filter logs sent to a 'LogChannel' using a predicate.

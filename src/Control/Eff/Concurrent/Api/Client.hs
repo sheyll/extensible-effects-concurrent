@@ -23,10 +23,12 @@ import           Control.Eff.Reader.Strict
 import           Control.Eff.Concurrent.Api
 import           Control.Eff.Concurrent.Api.Internal
 import           Control.Eff.Concurrent.Process
+import           Control.Monad                  ( (>=>) )
 import           Data.Dynamic
 import           Data.Typeable                  ( Typeable
                                                 , typeRep
                                                 )
+import           Debug.Trace
 import           GHC.Stack
 
 -- | Send an 'Api' request that has no return value and return as fast as
@@ -84,16 +86,50 @@ call
   -> Eff r result
 call px (Server pidInt) req = withFrozenCallStack $ do
   fromPid <- self px
-  let requestMessage = Call fromPid $! req
+  callRef <- makeReference px
+  let requestMessage = Call callRef fromPid $! req
+  traceM (show fromPid ++ " calling " ++ show pidInt ++ " ref " ++ show callRef)
   wasSent <- sendMessageChecked px pidInt (toDyn $! requestMessage)
   if wasSent
     then
-      let extractResult :: Response api result -> result
-          extractResult (Response _pxResult result) = result
-      in  extractResult <$> receiveMessageAs px
+      let
+        selectResult :: MessageSelector result
+        selectResult
+          = let
+              extractResult :: Response api result -> Maybe result
+              extractResult (Response _pxResult callRefMsg result) =
+                if callRefMsg == callRef
+                  then trace
+                    (  show fromPid
+                    ++ " got reply "
+                    ++ show pidInt
+                    ++ " ref "
+                    ++ show callRefMsg
+                    )
+                    (Just result)
+                  else trace
+                    (  show fromPid
+                    ++ " got non matching response "
+                    ++ show pidInt
+                    ++ " message ref: "
+                    ++ show callRefMsg
+                    ++ " expected ref: "
+                    ++ show callRef
+                    )
+                    Nothing
+            in
+              MessageSelector (fromDynamic >=> extractResult)
+      in
+        receiveMessageSuchThat px selectResult
     else raiseError
       px
-      ("Could not send request message " ++ show (typeRep requestMessage))
+      (  "failed to send a call for: '"
+      ++ show (typeRep requestMessage)
+      ++ "' to: "
+      ++ show pidInt
+      ++ " with call-ref: "
+      ++ show callRef
+      )
 
 
 -- | Instead of passing around a 'Server' value and passing to functions like

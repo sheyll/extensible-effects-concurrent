@@ -1,0 +1,22 @@
+Invalid option `-ta'
+
+Usage: stack test [TARGET] [--dry-run] [--pedantic] [--fast]
+                  [--ghc-options OPTIONS] [--flag PACKAGE:[-]FLAG]
+                  ([--dependencies-only] | [--only-snapshot] |
+                  [--only-dependencies]) ([--file-watch] | [--file-watch-poll])
+                  [--exec CMD [ARGS]] [--only-configure] [--trace] [--profile]
+                  [--no-strip] [--[no-]library-profiling]
+                  [--[no-]executable-profiling] [--[no-]library-stripping]
+                  [--[no-]executable-stripping] [--[no-]haddock]
+                  [--haddock-arguments HADDOCK_ARGS] [--[no-]open]
+                  [--[no-]haddock-deps] [--[no-]haddock-internal]
+                  [--[no-]haddock-hyperlink-source] [--[no-]copy-bins]
+                  [--[no-]copy-compiler-tool] [--[no-]prefetch]
+                  [--[no-]keep-going] [--[no-]keep-tmp-files]
+                  [--[no-]force-dirty] [--[no-]test] [--[no-]rerun-tests]
+                  [--ta|--test-arguments TEST_ARGS] [--coverage]
+                  [--no-run-tests] [--[no-]bench]
+                  [--ba|--benchmark-arguments BENCH_ARGS] [--no-run-benchmarks]
+                  [--[no-]reconfigure] [--[no-]cabal-verbose]
+                  [--[no-]split-objs] [--skip ARG] [--help]
+  Shortcut for 'build --test'

@@ -22,7 +22,9 @@ import           Control.Eff.Concurrent.Api.Observer
 import           Control.Eff.Reader.Strict
 import           Control.Exception
 import           Control.Monad.IO.Class
+import           Control.Monad                  ( unless )
 import           Data.Typeable
+import           Text.Printf
 import           GHC.Stack
 
 -- | Contains a 'TBQueue' capturing observations received by 'enqueueObservationsRegistered'
@@ -32,16 +34,25 @@ newtype ObservationQueue a = ObservationQueue (TBQueue (Observation a))
 -- | A 'Reader' for an 'ObservationQueue'.
 type ObservationQueueReader a = Reader (ObservationQueue a)
 
+logPrefix :: forall o proxy . (HasCallStack, Typeable o) => proxy o -> String
+logPrefix px = "<observation queue " ++ show (typeRep px) ++ ">"
+
 -- | Read queued observations captured by observing a 'Server' that implements
 -- an 'Observable' 'Api' using 'enqueueObservationsRegistered' or 'enqueueObservations'.
 -- This blocks until the next 'Observation' received. For a non-blocking
 -- variant use 'tryReadObservationQueue' or 'flushObservationQueue'.
 readObservationQueue
   :: forall o r
-   . (Member (ObservationQueueReader o) r, HasCallStack, MonadIO (Eff r))
+   . ( Member (ObservationQueueReader o) r
+     , HasCallStack
+     , MonadIO (Eff r)
+     , Typeable o
+     , Member (Logs LogMessage) r
+     )
   => Eff r (Observation o)
 readObservationQueue = withFrozenCallStack $ do
   ObservationQueue q <- ask @(ObservationQueue o)
+  logDebug ((logPrefix (Proxy @o)) ++ " reading")
   liftIO (atomically (readTBQueue q))
 
 -- | Read queued observations captured by observing a 'Server' that implements
@@ -50,9 +61,15 @@ readObservationQueue = withFrozenCallStack $ do
 -- Use 'readObservationQueue' to block until an observation is observed.
 tryReadObservationQueue
   :: forall o r
-   . (Member (ObservationQueueReader o) r, HasCallStack, MonadIO (Eff r))
+   . ( Member (ObservationQueueReader o) r
+     , HasCallStack
+     , MonadIO (Eff r)
+     , Typeable o
+     , Member (Logs LogMessage) r
+     )
   => Eff r (Maybe (Observation o))
 tryReadObservationQueue = withFrozenCallStack $ do
+  logDebug ((logPrefix (Proxy @o)) ++ " try reading")
   ObservationQueue q <- ask @(ObservationQueue o)
   liftIO (atomically (tryReadTBQueue q))
 
@@ -61,9 +78,15 @@ tryReadObservationQueue = withFrozenCallStack $ do
 -- variant use 'readObservationQueue'.
 flushObservationQueue
   :: forall o r
-   . (Member (ObservationQueueReader o) r, HasCallStack, MonadIO (Eff r))
+   . ( Member (ObservationQueueReader o) r
+     , HasCallStack
+     , MonadIO (Eff r)
+     , Typeable o
+     , Member (Logs LogMessage) r
+     )
   => Eff r [Observation o]
 flushObservationQueue = withFrozenCallStack $ do
+  logDebug ((logPrefix (Proxy @o)) ++ " flush")
   ObservationQueue q <- ask @(ObservationQueue o)
   liftIO (atomically (flushTBQueue q))
 
@@ -120,30 +143,58 @@ enqueueObservations px oSvr queueLimit k = withFrozenCallStack $ withQueue
   (do
     ObservationQueue q <- ask @(ObservationQueue o)
     do
+      logDebug
+        (printf "%s starting with queue limit: %d"
+                (logPrefix (Proxy @o))
+                queueLimit
+        )
       cbo <- spawnCallbackObserver
         px
-        (\_from observeration -> do
-          liftIO (atomically (writeTBQueue q observeration))
+        (\from observation -> do
+          logDebug
+            (printf "%s enqueue observation %s from %s"
+                    (logPrefix (Proxy @o))
+                    (show observation)
+                    (show from)
+            )
+          liftIO (atomically (writeTBQueue q observation))
           return True
         )
+      logDebug
+        (printf "%s started observer process %s"
+                (logPrefix (Proxy @o))
+                (show cbo)
+        )
       registerObserver SchedulerProxy cbo oSvr
+      logDebug
+        (printf "%s registered at: %s" (logPrefix (Proxy @o)) (show oSvr))
+      logDebug (printf "%s running" (logPrefix (Proxy @o)))
       res <- k
+      logDebug (printf "%s finished" (logPrefix (Proxy @o)))
       forgetObserver SchedulerProxy cbo oSvr
+      logDebug (printf "%s unregistered" (logPrefix (Proxy @o)))
       sendShutdown px (_fromServer cbo)
+      logDebug (printf "%s stopped observer process" (logPrefix (Proxy @o)))
       return res
   )
 
 withQueue
-  :: ( HasCallStack
+  :: forall a b e
+   . ( HasCallStack
      , MonadIO (Eff e)
      , Member (Logs LogMessage) e
+     , Typeable a
+     , Show (Observation a)
      , SetMember Lift (Lift IO) e
      )
   => Int
   -> Eff (ObservationQueueReader a ': e) b
   -> Eff e b
 withQueue queueLimit e = do
-  q   <- liftIO (newTBQueueIO queueLimit)
-  res <- liftTry @SomeException (runReader (ObservationQueue q) e)
-  _   <- liftIO (atomically (flushTBQueue q))
+  q    <- liftIO (newTBQueueIO queueLimit)
+  res  <- liftTry @SomeException (runReader (ObservationQueue q) e)
+  rest <- liftIO (atomically (flushTBQueue q))
+  unless
+    (null rest)
+    (logNotice (logPrefix (Proxy @a) ++ " unread observations: " ++ show rest))
   either (\em -> logError (show em) >> liftIO (throwIO em)) return res

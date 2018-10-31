@@ -42,6 +42,7 @@ import           Control.Eff.Concurrent.Process ( ProcessId(..)
                                                 , ConsProcess
                                                 , ResumeProcess(..)
                                                 , SchedulerProxy(..)
+                                                , MessageSelector(..)
                                                 , thisSchedulerProxy
                                                 , executeAndCatch
                                                 , executeAndResume
@@ -53,10 +54,14 @@ import           Control.Eff.Concurrent.Process ( ProcessId(..)
                                                 , spawn_
                                                 , receiveMessage
                                                 , receiveMessageAs
+                                                , receiveMessageSuchThat
                                                 , receiveLoop
+                                                , receiveLoopAs
+                                                , receiveLoopSuchThat
                                                 , self
                                                 , sendShutdown
                                                 , sendShutdownChecked
+                                                , makeReference
                                                 , exitWithError
                                                 , exitNormally
                                                 , raiseError
@@ -85,7 +90,20 @@ import           Control.Eff.Concurrent.Api.Client
 import           Control.Eff.Concurrent.Api.Server
                                                 ( serve
                                                 , spawnServer
+                                                , spawnServerWithEffects
                                                 , ApiHandler(..)
+                                                , castCallback
+                                                , callCallback
+                                                , terminateCallback
+                                                , apiHandler
+                                                , apiHandlerForever
+                                                , castHandler
+                                                , castHandlerForever
+                                                , callHandler
+                                                , callHandlerForever
+                                                , castAndCallHandler
+                                                , castAndCallHandlerForever
+                                                , ApiServerCmd(..)
                                                 , unhandledCallError
                                                 , unhandledCastError
                                                 , defaultTermination

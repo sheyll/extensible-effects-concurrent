@@ -48,22 +48,23 @@ example
 example px = do
   me <- self px
   logInfo ("I am " ++ show me)
-  server <- asServer @TestApi <$> spawn testServerLoop
+  server <- testServerLoop px
   logInfo ("Started server " ++ show server)
   let go = do
+        lift (putStr "Enter something: ")
         x <- lift getLine
         case x of
-          ('k' : rest) -> do
+          ('K' : rest) -> do
             callRegistered px (TerminateError rest)
             go
-          ('s' : _) -> do
+          ('S' : _) -> do
             callRegistered px Terminate
             go
-          ('c' : _) -> do
+          ('C' : _) -> do
             castRegistered px (Shout x)
             go
-          ('r' : rest) -> do
-            void (replicateM (read rest) (castRegistered px (Shout x)))
+          ('R' : rest) -> do
+            replicateM_ (read rest) (castRegistered px (Shout x))
             go
           ('q' : _) -> logInfo "Done."
           _         -> do
@@ -73,35 +74,52 @@ example px = do
   registerServer server go
 
 testServerLoop
-  :: forall r
-   . (HasCallStack, Member (Logs LogMessage) r, SetMember Lift (Lift IO) r)
-  => Eff (Process r ': r) ()
-testServerLoop = serve px $ ApiHandler handleCast handleCall handleTerminate
+  :: forall r q
+   . ( HasCallStack
+     , Member (Logs LogMessage) q
+     , SetMember Lift (Lift IO) q
+     , SetMember Process (Process q) r
+     )
+  => SchedulerProxy q
+  -> Eff r (Server TestApi)
+testServerLoop px = spawnServer px
+  $ ApiHandler (Just handleCastTest) (Just handleCallTest) Nothing -- (Just handleTerminateTest)
  where
-  px :: SchedulerProxy r
-  px = SchedulerProxy
-  handleCast :: Api TestApi 'Asynchronous -> Eff (Process r ': r) ()
-  handleCast (Shout x) = do
+  handleCastTest
+    :: Api TestApi 'Asynchronous -> Eff (Process q ': q) ApiServerCmd
+  handleCastTest (Shout x) = do
     me <- self px
     logInfo (show me ++ " Shouting: " ++ x)
-  handleCall
+    return HandleNextRequest
+  handleCallTest
     :: Api TestApi ( 'Synchronous x)
-    -> (x -> Eff (Process r ': r) ())
-    -> Eff (Process r ': r) ()
-  handleCall (SayHello "e1") _reply = do
+    -> (x -> Eff (Process q ': q) ())
+    -> Eff (Process q ': q) ApiServerCmd
+  handleCallTest (SayHello "e1") _reply = do
     me <- self px
     logInfo (show me ++ " raising an error")
     raiseError px "No body loves me... :,("
-  handleCall (SayHello "e2") _reply = do
+  handleCallTest (SayHello "e2") _reply = do
     me <- self px
     logInfo (show me ++ " throwing a MyException ")
     lift (Exc.throw MyException)
-  handleCall (SayHello "self") reply = do
+  handleCallTest (SayHello "self") reply = do
     me <- self px
     logInfo (show me ++ " casting to self")
     cast px (asServer @TestApi me) (Shout "from me")
     void (reply False)
-  handleCall (SayHello "die") reply = do
+    return HandleNextRequest
+  handleCallTest (SayHello "stop") reply = do
+    me <- self px
+    logInfo (show me ++ " stopping me")
+    void (reply False)
+    return (StopApiServer Nothing)
+  handleCallTest (SayHello "xxx") reply = do
+    me <- self px
+    logInfo (show me ++ " stopping me with xxx")
+    void (reply False)
+    return (StopApiServer (Just "xxx"))
+  handleCallTest (SayHello "die") reply = do
     me <- self px
     logInfo (show me ++ " throwing and catching ")
     catchRaisedError
@@ -109,21 +127,23 @@ testServerLoop = serve px $ ApiHandler handleCast handleCall handleTerminate
       (\er -> logInfo ("WOW: " ++ show er ++ " - No. This is wrong!"))
       (raiseError px "No body loves me... :,(")
     void (reply True)
-  handleCall (SayHello x) reply = do
+    return HandleNextRequest
+  handleCallTest (SayHello x) reply = do
     me <- self px
     logInfo (show me ++ " Got Hello: " ++ x)
     void (reply (length x > 3))
-  handleCall Terminate reply = do
+    return HandleNextRequest
+  handleCallTest Terminate reply = do
     me <- self px
     logInfo (show me ++ " exiting")
     void (reply ())
     exitNormally px
-  handleCall (TerminateError msg) reply = do
+  handleCallTest (TerminateError msg) reply = do
     me <- self px
     logInfo (show me ++ " exiting with error: " ++ msg)
     void (reply ())
     exitWithError px msg
-  handleTerminate msg = do
-    me <- self px
-    logInfo (show me ++ " is exiting: " ++ show msg)
-    maybe (exitNormally px) (exitWithError px) msg
+  -- handleTerminateTest msg = do
+  --   me <- self px
+  --   logInfo (show me ++ " is exiting: " ++ show msg)
+  --   maybe (exitNormally px) (exitWithError px) msg

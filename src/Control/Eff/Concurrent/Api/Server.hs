@@ -4,8 +4,21 @@ module Control.Eff.Concurrent.Api.Server
   -- * Api Server
     serve
   , spawnServer
+  , spawnServerWithEffects
   -- * Api Callbacks
   , ApiHandler(..)
+  , castCallback
+  , callCallback
+  , terminateCallback
+  , apiHandler
+  , apiHandlerForever
+  , castHandler
+  , castHandlerForever
+  , callHandler
+  , callHandlerForever
+  , castAndCallHandler
+  , castAndCallHandlerForever
+  , ApiServerCmd(..)
   , unhandledCallError
   , unhandledCastError
   , defaultTermination
@@ -30,7 +43,8 @@ import           Data.Dynamic
 import           Control.Applicative
 import           Data.Kind
 import           GHC.Stack
-
+import           Data.Maybe
+import           Data.Default
 
 -- | A record of callbacks, handling requests sent to a /server/ 'Process', all
 -- belonging to a specific 'Api' family instance.
@@ -39,24 +53,131 @@ import           GHC.Stack
 data ApiHandler api eff where
   ApiHandler ::
      { -- | A cast will not return a result directly. This is used for async
-       -- methods.
-       _handleCast
-         :: HasCallStack
-         => Api api 'Asynchronous -> Eff eff ()
+       -- methods. This returns an 'ApiServerCmd' to the server loop.
+       _castCallback
+         :: Maybe (Api api 'Asynchronous -> Eff eff ApiServerCmd)
       -- | A call is a blocking operation, the caller is blocked until this
       -- handler calls the reply continuation.
-     , _handleCall
-         :: forall reply . HasCallStack
-         => Api api ('Synchronous reply) -> (reply -> Eff eff ()) -> Eff eff ()
-     -- | This callback is called with @Nothing@ if the process exits
-     -- peacefully, or @Just "error message..."@ if the process exits with an
-     -- error. This function is responsible to exit the process if necessary.
+      -- This returns an 'ApiServerCmd' to the server loop.
+     , _callCallback
+         :: forall reply . Maybe (Api api ('Synchronous reply) -> (reply -> Eff eff ()) -> Eff eff ApiServerCmd)
+     -- | This callback is called with @Nothing@ if one of these things happen:
+     --
+     --  * the process exits
+     --  * '_callCallback' or '_castCallback' return 'StopApiServer'
+     --
+     -- If the process exist peacefully the parameter is 'Nothing',
+     -- otherwise @Just "error message..."@ if the process exits with an
+     -- error.
+     --
      -- The default behavior is defined in 'defaultTermination'.
-     , _handleTerminate
-         :: HasCallStack
-         => Maybe String -> Eff eff ()
+     , _terminateCallback
+         :: Maybe (Maybe String -> Eff eff ())
      } -> ApiHandler api eff
 
+
+instance Default (ApiHandler api eff) where
+  def = ApiHandler { _castCallback = def
+                   , _callCallback = def
+                   , _terminateCallback = def
+                   }
+
+-- | Create an 'ApiHandler' with a '_castCallback', a '_callCallback'  and
+--  a '_terminateCallback' implementation.
+apiHandler
+  :: (Api api 'Asynchronous -> Eff e ApiServerCmd)
+  -> (  forall r
+      . Api api ( 'Synchronous r)
+     -> (r -> Eff e ())
+     -> Eff e ApiServerCmd
+     )
+  -> (Maybe String -> Eff e ())
+  -> ApiHandler api e
+apiHandler c d e = ApiHandler
+  { _castCallback      = Just c
+  , _callCallback      = Just d
+  , _terminateCallback = Just e
+  }
+
+-- | Like 'apiHandler' but the server will loop until an error is raised or
+-- the process exits.
+-- The callback actions won't decide wether to stop the
+-- server or not, instead the 'ApiServerCmd' 'HandleNextRequest' is used.
+apiHandlerForever
+  :: (Api api 'Asynchronous -> Eff e ())
+  -> (forall r . Api api ( 'Synchronous r) -> (r -> Eff e ()) -> Eff e ())
+  -> (Maybe String -> Eff e ())
+  -> ApiHandler api e
+apiHandlerForever c d = apiHandler
+  (\someCast -> c someCast >> return HandleNextRequest)
+  (\someCall k -> d someCall k >> return HandleNextRequest)
+
+-- | Create an 'ApiHandler' with only a '_castCallback' implementation.
+castHandler
+  :: (Api api 'Asynchronous -> Eff eff ApiServerCmd) -> ApiHandler api eff
+castHandler c = def { _castCallback = Just c }
+
+-- | Like 'castHandler' but the server will loop until an error is raised or
+-- the process exits. See 'apiHandlerForver'.
+castHandlerForever
+  :: (Api api 'Asynchronous -> Eff eff ()) -> ApiHandler api eff
+castHandlerForever c =
+  castHandler (\someCast -> c someCast >> return HandleNextRequest)
+
+-- | Create an 'ApiHandler' with only a '_callCallback' implementation.
+callHandler
+  :: (  forall r
+      . Api api ( 'Synchronous r)
+     -> (r -> Eff e ())
+     -> Eff e ApiServerCmd
+     )
+  -> ApiHandler api e
+callHandler c = def { _callCallback = Just c }
+
+-- | Like 'callHandler' but the server will loop until an error is raised or
+-- the process exits. See 'apiHandlerForver'.
+callHandlerForever
+  :: (forall r . Api api ( 'Synchronous r) -> (r -> Eff e ()) -> Eff e ())
+  -> ApiHandler api e
+callHandlerForever d =
+  callHandler (\someCall k -> d someCall k >> return HandleNextRequest)
+
+-- | Create an 'ApiHandler' with only a '_castCallback' and '_callCallback' implementation.
+castAndCallHandler
+  :: (Api api 'Asynchronous -> Eff e ApiServerCmd)
+  -> (  forall r
+      . Api api ( 'Synchronous r)
+     -> (r -> Eff e ())
+     -> Eff e ApiServerCmd
+     )
+  -> ApiHandler api e
+castAndCallHandler c d = def { _castCallback = Just c, _callCallback = Just d }
+
+-- | Like 'castAndCallHandler' but the server will loop until an error is raised or
+-- the process exits. See 'apiHandlerForver'.
+castAndCallHandlerForever
+  :: (Api api 'Asynchronous -> Eff e ())
+  -> (forall r . Api api ( 'Synchronous r) -> (r -> Eff e ()) -> Eff e ())
+  -> ApiHandler api e
+castAndCallHandlerForever c d = castAndCallHandler
+  (\someCast -> c someCast >> return HandleNextRequest)
+  (\someCall k -> d someCall k >> return HandleNextRequest)
+
+-- | A command to the server loop started e.g. by 'server' or 'spawnServerWithEffects'.
+-- Typically returned by an 'ApiHandler' member to indicate if the server
+-- should continue or stop.
+data ApiServerCmd where
+  -- | Tell the server to keep the server loop running
+  HandleNextRequest  :: ApiServerCmd
+  -- | Tell the server to exit, this will make 'serve' stop handling requests without
+  -- exitting the process. '_terminateCallback' will be invoked with the given
+  -- optional reason.
+  StopApiServer :: Maybe String -> ApiServerCmd
+  --  SendReply :: reply -> ApiServerCmd () -> ApiServerCmd (reply -> Eff eff ())
+  deriving (Show, Typeable)
+
+
+makeLenses ''ApiHandler
 
 -- | Building block for composition of 'ApiHandler'.
 -- A wrapper for 'ApiHandler'. Use this to combine 'ApiHandler', allowing a
@@ -73,7 +194,7 @@ data ApiHandler api eff where
 -- @@@
 --
 data ServerCallback eff =
-  ServerCallback { _requestHandlerSelector :: MessageSelector (Eff eff ())
+  ServerCallback { _requestHandlerSelector :: MessageSelector (Eff eff ApiServerCmd)
                  , _terminationHandler :: Maybe String -> Eff eff ()
                  }
 
@@ -144,13 +265,32 @@ serve
   -> Eff (ServerEff a) ()
 serve px a =
   let serverCb = toServerCallback px a
+      stopServer reason = do
+        (serverCb ^. terminationHandler) reason
+        return (Just ())
   in  receiveLoopSuchThat px (serverCb ^. requestHandlerSelector) $ \case
-        Left  reason   -> (serverCb ^. terminationHandler) reason
-        Right handleIt -> handleIt
+        Left  reason   -> stopServer reason
+        Right handleIt -> handleIt >>= \case
+          HandleNextRequest    -> return Nothing
+          StopApiServer reason -> stopServer reason
+
+-- | Spawn a new process, that will receive and process incoming requests
+-- until the process exits.
+spawnServer
+  :: forall a effScheduler eff
+   . ( Servable a
+     , ServerEff a ~ (Process effScheduler ': effScheduler)
+     , SetMember Process (Process effScheduler) eff
+     , HasCallStack
+     )
+  => SchedulerProxy effScheduler
+  -> a
+  -> Eff eff (ServerPids a)
+spawnServer px a = spawnServerWithEffects px a id
 
 -- | Spawn a new process, that will receive and process incoming requests
 -- until the process exits. Also handle all internal effects.
-spawnServer
+spawnServerWithEffects
   :: forall a effScheduler eff
    . ( Servable a
      , SetMember Process (Process effScheduler) (ServerEff a)
@@ -163,7 +303,7 @@ spawnServer
      -> Eff (Process effScheduler ': effScheduler) ()
      )
   -> Eff eff (ServerPids a)
-spawnServer px a handleEff = do
+spawnServerWithEffects px a handleEff = do
   pid <- spawn (handleEff (serve px a))
   return (toServerPids (Proxy @a) pid)
 
@@ -179,7 +319,8 @@ apiHandlerServerCallback
   -> ServerCallback eff
 apiHandlerServerCallback px handlers = mempty
   { _requestHandlerSelector = selectHandlerMethod px handlers
-  , _terminationHandler     = _handleTerminate handlers
+  , _terminationHandler     = fromMaybe (const (return ()))
+                                        (_terminateCallback handlers)
   }
 
 -- | Try to parse an incoming message to an API request, and apply either
@@ -192,11 +333,11 @@ selectHandlerMethod
      )
   => SchedulerProxy effScheduler
   -> ApiHandler api eff
-  -> MessageSelector (Eff eff ())
+  -> MessageSelector (Eff eff ApiServerCmd)
 selectHandlerMethod px handlers =
   MessageSelector (fmap (applyHandlerMethod px handlers) . fromDynamic)
 
--- | Apply either the '_handleCall', '_handleCast' or the '_handleTerminate'
+-- | Apply either the '_callCallback', '_castCallback' or the '_terminateCallback'
 -- callback to an incoming request.
 applyHandlerMethod
   :: forall eff effScheduler api
@@ -207,54 +348,44 @@ applyHandlerMethod
   => SchedulerProxy effScheduler
   -> ApiHandler api eff
   -> Request api
-  -> Eff eff ()
-applyHandlerMethod _px handlers (Terminate e) = _handleTerminate handlers e
-applyHandlerMethod _ handlers (Cast request) = _handleCast handlers request
-applyHandlerMethod px handlers (Call fromPid request) = _handleCall handlers
-                                                                    request
-                                                                    sendReply
+  -> Eff eff ApiServerCmd
+applyHandlerMethod px handlers (Cast request) =
+  fromMaybe (unhandledCastError px) (_castCallback handlers) request
+applyHandlerMethod px handlers (Call callRef fromPid request) = fromMaybe
+  (unhandledCallError px)
+  (_callCallback handlers)
+  request
+  sendReply
  where
   sendReply :: Typeable reply => reply -> Eff eff ()
   sendReply reply =
-    sendMessage px fromPid (toDyn $! (Response (Proxy @api) $! reply))
+    sendMessage px fromPid (toDyn $! (Response (Proxy @api) callRef $! reply))
 
--- | A default handler to use in '_handleCall' in 'ApiHandler'. It will call
+-- | A default handler to use in '_callCallback' in 'ApiHandler'. It will call
 -- 'raiseError' with a nice error message.
 unhandledCallError
   :: forall p x r q
-   . ( Show (Api p ( 'Synchronous x))
-     , Typeable p
-     , HasCallStack
-     , SetMember Process (Process q) r
-     )
+   . (Typeable p, HasCallStack, SetMember Process (Process q) r)
   => SchedulerProxy q
   -> Api p ( 'Synchronous x)
   -> (x -> Eff r ())
-  -> Eff r ()
-unhandledCallError px api _ = withFrozenCallStack $ raiseError
-  px
-  ("Unhandled call: (" ++ show api ++ " :: " ++ show (typeRep (Proxy @p)) ++ ")"
-  )
+  -> Eff r ApiServerCmd
+unhandledCallError px _api _ = withFrozenCallStack
+  $ raiseError px ("unhandled call on api: " ++ show (typeRep (Proxy @p)))
 
--- | A default handler to use in '_handleCast' in 'ApiHandler'. It will call
+-- | A default handler to use in '_castCallback' in 'ApiHandler'. It will call
 -- 'raiseError' with a nice error message.
 unhandledCastError
   :: forall p r q
-   . ( Show (Api p 'Asynchronous)
-     , Typeable p
-     , HasCallStack
-     , SetMember Process (Process q) r
-     )
+   . (Typeable p, HasCallStack, SetMember Process (Process q) r)
   => SchedulerProxy q
   -> Api p 'Asynchronous
-  -> Eff r ()
-unhandledCastError px api = withFrozenCallStack $ raiseError
-  px
-  ("Unhandled cast: (" ++ show api ++ " :: " ++ show (typeRep (Proxy @p)) ++ ")"
-  )
+  -> Eff r ApiServerCmd
+unhandledCastError px _api = withFrozenCallStack
+  $ raiseError px ("unhandled cast on api: " ++ show (typeRep (Proxy @p)))
 
--- | Exit the process either normally of the error message is @Nothing@
--- or with 'exitWithError' otherwise.
+-- | Either do nothing, if the error message is @Nothing@,
+-- or call 'exitWithError' with the error message.
 defaultTermination
   :: forall q r
    . (HasCallStack, SetMember Process (Process q) r)
@@ -262,4 +393,4 @@ defaultTermination
   -> Maybe String
   -> Eff r ()
 defaultTermination px =
-  withFrozenCallStack $ maybe (exitNormally px) (exitWithError px)
+  withFrozenCallStack $ maybe (return ()) (exitWithError px)

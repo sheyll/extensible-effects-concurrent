@@ -1,9 +1,12 @@
 module ProcessBehaviourTestCases where
 
 import           Data.List                      ( sort )
-import           Data.Dynamic
 import           Data.Foldable                  ( traverse_ )
-import           Data.Dynamic                   ( fromDynamic )
+import           Data.Dynamic                   ( fromDynamic
+                                                , toDyn
+                                                )
+import           Data.Typeable
+import           Data.Default
 import           Control.Exception
 import           Control.Concurrent
 import           Control.Concurrent.STM
@@ -24,6 +27,7 @@ import           Control.Monad
 import           Test.Tasty
 import           Test.Tasty.HUnit
 import           Common
+import Debug.Trace
 
 test_forkIo :: TestTree
 test_forkIo = setTravisTestOptions
@@ -83,8 +87,8 @@ returnToSender
   -> String
   -> Eff r Bool
 returnToSender px toP msg = do
-  me <- self px
-  call px toP (ReturnToSender me msg)
+  me      <- self px
+  _       <- call px toP (ReturnToSender me msg)
   msgEcho <- receiveMessageAs @String px
   return (msgEcho == msg)
 
@@ -94,9 +98,7 @@ stopReturnToSender
   => SchedulerProxy q
   -> Server ReturnToSender
   -> Eff r ()
-stopReturnToSender px toP = do
-  me <- self px
-  call px toP StopReturnToSender
+stopReturnToSender px toP = call px toP StopReturnToSender
 
 returnToSenderServer
   :: forall q r
@@ -107,14 +109,18 @@ returnToSenderServer
   => SchedulerProxy q
   -> Eff r (Server ReturnToSender)
 returnToSenderServer px = asServer <$> spawn
-  (serve px $ ApiHandler
-    { _handleCall      = \m k -> case m of
-      StopReturnToSender -> k () >> exitNormally px
-      ReturnToSender fromP echoMsg ->
-        sendMessageChecked px fromP (toDyn echoMsg)
-          >>= (\res -> yieldProcess px >> k res)
-    , _handleCast      = logWarning . show
-    , _handleTerminate = logWarning . show
+  (serve px $ def
+    { _callCallback = Just
+                      (\m k -> case m of
+                        StopReturnToSender -> do
+                          k ()
+                          return (StopApiServer Nothing)
+                        ReturnToSender fromP echoMsg -> do
+                          ok <- sendMessageChecked px fromP (toDyn echoMsg)
+                          yieldProcess px
+                          k ok
+                          return HandleNextRequest
+                      )
     }
   )
 
@@ -310,7 +316,7 @@ errorTests schedulerFactory
               px
               (assertEff "error must be caught" . (== "test error 3"))
               (do
-                void (replicateM 100000 (void (self px)))
+                replicateM_ 100000 (void (self px))
                 void (raiseError px "test error 3")
               )
           ]
@@ -343,12 +349,7 @@ errorTests schedulerFactory
                       )
                 )
                 [0, 5 .. n]
-              oks <- replicateM
-                (length [0, 5 .. n])
-                (do
-                  j <- receiveMessageAs px
-                  return j
-                )
+              oks <- replicateM (length [0, 5 .. n]) (receiveMessageAs px)
               assertEff "" (sort oks == [0, 5 .. n])
           ]
         ]
@@ -401,8 +402,11 @@ concurrencyTests schedulerFactory
             child2 <- spawn
               (foreverCheap (void (sendMessage px 888 (toDyn ""))))
             True <- sendMessageChecked px child1 (toDyn "test")
+            traceM "now receiveMessageAs"
             i    <- receiveMessageAs px
+            traceM ("receiveMessageAs returned " ++ show i)
             True <- sendShutdownChecked px child2
+            traceM "sendShutdownChecked"
             assertEff "" (i == "test")
         , testCase "most processes send foreverCheap"
         $ scheduleAndAssert schedulerFactory
@@ -415,12 +419,7 @@ concurrencyTests schedulerFactory
                   $ void (sendMessage px 888 (toDyn "test message to 888"))
               )
               [0 .. n]
-            oks <- replicateM
-              (length [0, 5 .. n])
-              (do
-                j <- receiveMessageAs px
-                return j
-              )
+            oks <- replicateM (length [0, 5 .. n]) (receiveMessageAs px)
             assertEff "" (sort oks == [0, 5 .. n])
         , testCase "most processes self foreverCheap"
         $ scheduleAndAssert schedulerFactory
@@ -432,12 +431,7 @@ concurrencyTests schedulerFactory
                 foreverCheap $ void (self px)
               )
               [0 .. n]
-            oks <- replicateM
-              (length [0, 5 .. n])
-              (do
-                j <- receiveMessageAs px
-                return j
-              )
+            oks <- replicateM (length [0, 5 .. n]) (receiveMessageAs px)
             assertEff "" (sort oks == [0, 5 .. n])
         , testCase "most processes sendShutdown foreverCheap"
         $ scheduleAndAssert schedulerFactory
@@ -449,12 +443,7 @@ concurrencyTests schedulerFactory
                 foreverCheap $ void (sendShutdown px 999)
               )
               [0 .. n]
-            oks <- replicateM
-              (length [0, 5 .. n])
-              (do
-                j <- receiveMessageAs px
-                return j
-              )
+            oks <- replicateM (length [0, 5 .. n]) (receiveMessageAs px)
             assertEff "" (sort oks == [0, 5 .. n])
         , testCase "most processes spawn foreverCheap"
         $ scheduleAndAssert schedulerFactory
@@ -474,12 +463,7 @@ concurrencyTests schedulerFactory
                       )
               )
               [0 .. n]
-            oks <- replicateM
-              (length [0, 5 .. n])
-              (do
-                j <- receiveMessageAs px
-                return j
-              )
+            oks <- replicateM (length [0, 5 .. n]) (receiveMessageAs px)
             assertEff "" (sort oks == [0, 5 .. n])
         , testCase "most processes receive foreverCheap"
         $ scheduleAndAssert schedulerFactory
@@ -491,12 +475,7 @@ concurrencyTests schedulerFactory
                 foreverCheap $ void (receiveMessage px)
               )
               [0 .. n]
-            oks <- replicateM
-              (length [0, 5 .. n])
-              (do
-                j <- receiveMessageAs px
-                return j
-              )
+            oks <- replicateM (length [0, 5 .. n]) (receiveMessageAs px)
             assertEff "" (sort oks == [0, 5 .. n])
         ]
 

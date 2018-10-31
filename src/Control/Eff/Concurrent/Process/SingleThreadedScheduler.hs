@@ -103,6 +103,7 @@ scheduleM runEff yieldEff e = do
   handleProcess runEff
                 yieldEff
                 1
+                0
                 (Map.singleton 0 Seq.empty)
                 (Seq.singleton (y, 0))
 
@@ -126,6 +127,7 @@ data OnYield r a where
   OnRecv :: MessageSelector b -> (ResumeProcess b -> Eff r (OnYield r a))
          -> OnYield r a
   OnSendShutdown :: !ProcessId -> (ResumeProcess Bool -> Eff r (OnYield r a)) -> OnYield r a
+  OnMakeReference :: (ResumeProcess Int -> Eff r (OnYield r a)) -> OnYield r a
 
 -- | Internal 'Process' handler function.
 handleProcess
@@ -133,18 +135,20 @@ handleProcess
   => (forall a . Eff r a -> m a)
   -> m ()
   -> ProcessId
+  -> Int
   -> Map.Map ProcessId (Seq Dynamic)
   -> Seq (OnYield r finalResult, ProcessId)
   -> m (Either String finalResult)
-handleProcess _runEff _yieldEff _newPid _msgQs Empty =
+handleProcess _runEff _yieldEff _newPid _nextRef _msgQs Empty =
   return $ Left "no main process"
 
-handleProcess runEff yieldEff !newPid !msgQs allProcs@((!processState, !pid) :<| rest)
+handleProcess runEff yieldEff !newPid !nextRef !msgQs allProcs@((!processState, !pid) :<| rest)
   = let handleExit res = if pid == 0
           then return res
           else handleProcess runEff
                              yieldEff
                              newPid
+                             nextRef
                              (msgQs & at pid .~ Nothing)
                              rest
     in
@@ -166,7 +170,12 @@ handleProcess runEff yieldEff !newPid !msgQs allProcs@((!processState, !pid) :<|
           if suicide
             then do
               nextK <- runEff $ k ShutdownRequested
-              handleProcess runEff yieldEff newPid msgQs (rest :|> (nextK, pid))
+              handleProcess runEff
+                            yieldEff
+                            newPid
+                            nextRef
+                            msgQs
+                            (rest :|> (nextK, pid))
             else do
               let deliverTheGoodNews (targetState, tPid) = do
                     nextTargetState <- case targetState of
@@ -180,6 +189,7 @@ handleProcess runEff yieldEff !newPid !msgQs allProcs@((!processState, !pid) :<|
                       OnShutdown          -> return OnShutdown
                       OnExitError  er     -> return (OnExitError er)
                       OnRaiseError er     -> return (OnExitError er)
+                      OnMakeReference tk  -> tk ShutdownRequested
                     return (nextTargetState, tPid)
               nextTargets <- runEff $ traverse deliverTheGoodNews targets
               nextK       <- runEff $ k (ResumeWith targetFound)
@@ -187,24 +197,45 @@ handleProcess runEff yieldEff !newPid !msgQs allProcs@((!processState, !pid) :<|
                 runEff
                 yieldEff
                 newPid
+                nextRef
                 msgQs
                 (allButTarget Seq.>< (nextTargets :|> (nextK, pid)))
 
 
         OnSelf k -> do
           nextK <- runEff $ k (ResumeWith pid)
-          handleProcess runEff yieldEff newPid msgQs (rest :|> (nextK, pid))
+          handleProcess runEff
+                        yieldEff
+                        newPid
+                        nextRef
+                        msgQs
+                        (rest :|> (nextK, pid))
+
+        OnMakeReference k -> do
+          nextK <- runEff $ k (ResumeWith nextRef)
+          handleProcess runEff
+                        yieldEff
+                        newPid
+                        (nextRef + 1)
+                        msgQs
+                        (rest :|> (nextK, pid))
 
         OnYield k -> do
           yieldEff
           nextK <- runEff $ k (ResumeWith ())
-          handleProcess runEff yieldEff newPid msgQs (rest :|> (nextK, pid))
+          handleProcess runEff
+                        yieldEff
+                        newPid
+                        nextRef
+                        msgQs
+                        (rest :|> (nextK, pid))
 
         OnSend toPid msg k -> do
           nextK <- runEff $ k (ResumeWith (msgQs ^. at toPid . to isJust))
           handleProcess runEff
                         yieldEff
                         newPid
+                        nextRef
                         (msgQs & at toPid . _Just %~ (:|> msg))
                         (rest :|> (nextK, pid))
 
@@ -214,21 +245,33 @@ handleProcess runEff yieldEff !newPid !msgQs allProcs@((!processState, !pid) :<|
           handleProcess runEff
                         yieldEff
                         (newPid + 1)
+                        0
                         (msgQs & at newPid ?~ Seq.empty)
                         (rest :|> (nextK, pid) :|> (fk, newPid))
 
         recv@(OnRecv selectMessage k) -> case msgQs ^. at pid of
           Nothing -> do
             nextK <- runEff $ k (OnError (show pid ++ " has no message queue!"))
-            handleProcess runEff yieldEff newPid msgQs (rest :|> (nextK, pid))
+            handleProcess runEff
+                          yieldEff
+                          newPid
+                          nextRef
+                          msgQs
+                          (rest :|> (nextK, pid))
           Just Empty -> if Seq.length rest == 0
             then do
               nextK <- runEff
                 $ k (OnError ("Process " ++ show pid ++ " deadlocked!"))
-              handleProcess runEff yieldEff newPid msgQs (rest :|> (nextK, pid))
+              handleProcess runEff
+                            yieldEff
+                            newPid
+                            nextRef
+                            msgQs
+                            (rest :|> (nextK, pid))
             else handleProcess runEff
                                yieldEff
                                newPid
+                               nextRef
                                msgQs
                                (rest :|> (recv, pid))
           Just messages ->
@@ -241,6 +284,7 @@ handleProcess runEff yieldEff !newPid !msgQs allProcs@((!processState, !pid) :<|
                   Nothing -> handleProcess runEff
                                            yieldEff
                                            newPid
+                                           nextRef
                                            msgQs
                                            (rest :|> (recv, pid))
                   Just (result, otherMessages) -> do
@@ -248,6 +292,7 @@ handleProcess runEff yieldEff !newPid !msgQs allProcs@((!processState, !pid) :<|
                     handleProcess runEff
                                   yieldEff
                                   newPid
+                                  nextRef
                                   (msgQs & at pid . _Just .~ otherMessages)
                                   (rest :|> (nextK, pid))
 
@@ -270,6 +315,7 @@ runAsCoroutinePure runEff = runEff . handle_relay (return . OnDone) cont
   cont ReceiveMessage k = return (OnRecv (MessageSelector Just) k)
   cont (ReceiveMessageSuchThat f   ) k  = return (OnRecv f k)
   cont (SendShutdown           !pid) k  = return (OnSendShutdown pid k)
+  cont MakeReference                 k  = return (OnMakeReference k)
 
 -- | The concrete list of 'Eff'ects for running this pure scheduler on @IO@ and
 -- with string logging.

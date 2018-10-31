@@ -1,5 +1,5 @@
 name:           extensible-effects-concurrent
-version:        0.8
+version:        0.9.0
 description:    Please see the README on GitHub at <https://github.com/sheyll/extensible-effects-concurrent#readme>
 synopsis:       Message passing concurrency as extensible-effect
 homepage:       https://github.com/sheyll/extensible-effects-concurrent#readme
@@ -106,8 +106,10 @@ executable extensible-effects-concurrent-example-1
   hs-source-dirs: examples/example-1
   build-depends:
                 base >=4.9 && <5
+              , data-default
               , extensible-effects-concurrent
               , extensible-effects >= 3
+              , lens
   ghc-options: -Wall -threaded -fno-full-laziness -rtsopts -with-rtsopts=-N
   default-language: Haskell2010
   default-extensions:   BangPatterns
@@ -130,8 +132,10 @@ executable extensible-effects-concurrent-example-2
   hs-source-dirs: examples/example-2
   build-depends:
                 base >=4.9 && <5
+              , data-default
               , extensible-effects-concurrent
               , extensible-effects >= 3
+              , lens
   ghc-options: -Wall -threaded -fno-full-laziness -rtsopts -with-rtsopts=-N
   default-language: Haskell2010
   default-extensions:   BangPatterns
@@ -165,6 +169,7 @@ test-suite extensible-effects-concurrent-test
   ghc-options: -Wall -threaded -fno-full-laziness -rtsopts -with-rtsopts=-N
   build-depends:
                 base >=4.9 && <5
+              , data-default
               , extensible-effects-concurrent
               , extensible-effects >= 3
               , tasty

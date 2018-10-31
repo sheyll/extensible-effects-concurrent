@@ -134,4 +134,4 @@ handleLogsWithLoggingTHandler
   -> Eff (Logs message ': r) a
   -> Eff r a
 handleLogsWithLoggingTHandler foldHandler =
-  handleLogsWith (Eff.lift . foldHandler . flip ($))
+  handleLogsWith (Eff.lift . foldHandler . flip ($!))
