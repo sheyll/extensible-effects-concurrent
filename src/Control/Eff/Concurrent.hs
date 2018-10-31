@@ -143,7 +143,7 @@ import           Control.Eff.Concurrent.Process.ForkIOScheduler
                                                 ( schedule
                                                 , defaultMain
                                                 , defaultMainWithLogChannel
-                                                , SchedulerError(..)
+                                                , SchedulerExit(..)
                                                 , SchedulerIO
                                                 , forkIoScheduler
                                                 , HasSchedulerIO
