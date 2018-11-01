@@ -171,7 +171,7 @@ executeAndResume
    . (SetMember Process (Process q) r, HasCallStack)
   => Process q (ResumeProcess v)
   -> Eff r v
-executeAndResume processAction = withFrozenCallStack $ do
+executeAndResume processAction = do
   result <- send processAction
   case result of
     ResumeWith !value -> return value
@@ -186,7 +186,7 @@ executeAndCatch
   => SchedulerProxy q
   -> Eff r (ResumeProcess v)
   -> Eff r (Either String v)
-executeAndCatch px processAction = withFrozenCallStack $ do
+executeAndCatch px processAction = do
   result <- processAction
   case result of
     ResumeWith !value -> return (Right value)
@@ -201,7 +201,7 @@ yieldProcess
    . (HasCallStack, SetMember Process (Process q) r)
   => SchedulerProxy q
   -> Eff r ()
-yieldProcess _ = withFrozenCallStack $ executeAndResume YieldProcess
+yieldProcess _ = executeAndResume YieldProcess
 
 -- | Send a message to a process addressed by the 'ProcessId'.
 -- See 'SendMessage'.
@@ -212,8 +212,7 @@ sendMessage
   -> ProcessId
   -> Dynamic
   -> Eff r ()
-sendMessage px pid message =
-  withFrozenCallStack $ void (sendMessageChecked px pid message)
+sendMessage px pid message = void (sendMessageChecked px pid message)
 
 -- | Send a message to a process addressed by the 'ProcessId'.
 -- See 'SendMessage'. Return @True@ if the process existed.
@@ -226,7 +225,7 @@ sendMessageChecked
   -> Dynamic
   -> Eff r Bool
 sendMessageChecked _ pid message =
-  withFrozenCallStack $ executeAndResume (SendMessage pid $! message)
+  executeAndResume (SendMessage pid $! message)
 
 -- | Send a message to a process addressed by the 'ProcessId'.
 -- See 'SendMessage'.
@@ -237,7 +236,7 @@ sendMessageAs
   -> ProcessId
   -> o
   -> Eff r ()
-sendMessageAs px pid = withFrozenCallStack (sendMessage px pid . toDyn)
+sendMessageAs px pid = sendMessage px pid . toDyn
 
 -- | Exit a process addressed by the 'ProcessId'.
 -- See 'SendShutdown'.
@@ -247,7 +246,7 @@ sendShutdown
   => SchedulerProxy q
   -> ProcessId
   -> Eff r ()
-sendShutdown px pid = withFrozenCallStack (void (sendShutdownChecked px pid))
+sendShutdown px pid = void (sendShutdownChecked px pid)
 
 -- | Like 'sendShutdown', but also return @True@ iff the process to exit exists.
 sendShutdownChecked
@@ -257,7 +256,7 @@ sendShutdownChecked
   -> ProcessId
   -> Eff r Bool
 sendShutdownChecked _ pid =
-  withFrozenCallStack (executeAndResume (SendShutdown pid))
+  executeAndResume (SendShutdown pid)
 
 -- | Start a new process, the new process will execute an effect, the function
 -- will return immediately with a 'ProcessId'.
@@ -266,7 +265,7 @@ spawn
    . (HasCallStack, SetMember Process (Process q) r)
   => Eff (Process q ': q) ()
   -> Eff r ProcessId
-spawn child = withFrozenCallStack (executeAndResume (Spawn @q child))
+spawn child = executeAndResume (Spawn @q child)
 
 -- | Like 'spawn' but return @()@.
 spawn_
@@ -274,7 +273,7 @@ spawn_
    . (HasCallStack, SetMember Process (Process q) r)
   => Eff (Process q ': q) ()
   -> Eff r ()
-spawn_ = withFrozenCallStack (void . spawn)
+spawn_ = void . spawn
 
 -- | Block until a message was received.
 -- See 'ReceiveMessage' for more documentation.
@@ -283,7 +282,7 @@ receiveMessage
    . (HasCallStack, SetMember Process (Process q) r)
   => SchedulerProxy q
   -> Eff r Dynamic
-receiveMessage _ = withFrozenCallStack executeAndResume ReceiveMessage
+receiveMessage _ = executeAndResume ReceiveMessage
 
 -- | Block until a message was received, that is not 'Nothing' after applying
 -- a callback to it.
@@ -295,7 +294,7 @@ receiveMessageSuchThat
   -> MessageSelector a
   -> Eff r a
 receiveMessageSuchThat _ f =
-  withFrozenCallStack (executeAndResume (ReceiveMessageSuchThat f))
+  executeAndResume (ReceiveMessageSuchThat f)
 
 -- | Receive and cast the message to some 'Typeable' instance.
 -- See 'ReceiveMessageSuchThat' for more documentation.
@@ -306,7 +305,7 @@ receiveMessageAs
   => SchedulerProxy q
   -> Eff r a
 receiveMessageAs px =
-  withFrozenCallStack (receiveMessageSuchThat px (MessageSelector fromDynamic))
+  receiveMessageSuchThat px (MessageSelector fromDynamic)
 
 -- | Enter a loop to receive messages and pass them to a callback, until the
 -- function returns 'Just' a result.
@@ -368,14 +367,14 @@ self
   :: (HasCallStack, SetMember Process (Process q) r)
   => SchedulerProxy q
   -> Eff r ProcessId
-self _px = withFrozenCallStack $ executeAndResume SelfPid
+self _px = executeAndResume SelfPid
 
 -- | Generate a unique 'Int' for the current process.
 makeReference
   :: (HasCallStack, SetMember Process (Process q) r)
   => SchedulerProxy q
   -> Eff r Int
-makeReference _px = withFrozenCallStack $ executeAndResume MakeReference
+makeReference _px = executeAndResume MakeReference
 
 -- | Exit the process.
 exitNormally
@@ -383,7 +382,7 @@ exitNormally
    . (HasCallStack, SetMember Process (Process q) r)
   => SchedulerProxy q
   -> Eff r a
-exitNormally _ = withFrozenCallStack $ send (Shutdown @q)
+exitNormally _ = send (Shutdown @q)
 
 -- | Exit the process with an error.
 exitWithError
@@ -392,7 +391,7 @@ exitWithError
   => SchedulerProxy q
   -> String
   -> Eff r a
-exitWithError _ = withFrozenCallStack $ send . (ExitWithError @q $!)
+exitWithError _ = send . (ExitWithError @q $!)
 
 -- | Thrown an error, can be caught by 'catchRaisedError'.
 raiseError
@@ -401,7 +400,7 @@ raiseError
   => SchedulerProxy q
   -> String
   -> Eff r b
-raiseError _ = withFrozenCallStack $ send . (RaiseError @q $!)
+raiseError _ = send . (RaiseError @q $!)
 
 -- | Catch and handle an error raised by 'raiseError'. Works independent of the
 -- handler implementation.
@@ -412,7 +411,7 @@ catchRaisedError
   -> (String -> Eff r w)
   -> Eff r w
   -> Eff r w
-catchRaisedError _ onErr = withFrozenCallStack $ interpose return go
+catchRaisedError _ onErr = interpose return go
  where
   go :: forall b . Process q b -> (b -> Eff r w) -> Eff r w
   go (RaiseError emsg) _k = onErr emsg
@@ -425,8 +424,7 @@ ignoreProcessError
   => SchedulerProxy q
   -> Eff r a
   -> Eff r (Either String a)
-ignoreProcessError px =
-  withFrozenCallStack $ catchRaisedError px (return . Left) . fmap Right
+ignoreProcessError px = catchRaisedError px (return . Left) . fmap Right
 
 -- | Each process is identified by a single process id, that stays constant
 -- throughout the life cycle of a process. Also, message sending relies on these

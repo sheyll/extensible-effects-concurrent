@@ -370,8 +370,8 @@ unhandledCallError
   -> Api p ( 'Synchronous x)
   -> (x -> Eff r ())
   -> Eff r ApiServerCmd
-unhandledCallError px _api _ = withFrozenCallStack
-  $ raiseError px ("unhandled call on api: " ++ show (typeRep (Proxy @p)))
+unhandledCallError px _api _ =
+  raiseError px ("unhandled call on api: " ++ show (typeRep (Proxy @p)))
 
 -- | A default handler to use in '_castCallback' in 'ApiHandler'. It will call
 -- 'raiseError' with a nice error message.
@@ -381,8 +381,8 @@ unhandledCastError
   => SchedulerProxy q
   -> Api p 'Asynchronous
   -> Eff r ApiServerCmd
-unhandledCastError px _api = withFrozenCallStack
-  $ raiseError px ("unhandled cast on api: " ++ show (typeRep (Proxy @p)))
+unhandledCastError px _api =
+  raiseError px ("unhandled cast on api: " ++ show (typeRep (Proxy @p)))
 
 -- | Either do nothing, if the error message is @Nothing@,
 -- or call 'exitWithError' with the error message.
@@ -393,4 +393,4 @@ defaultTermination
   -> Maybe String
   -> Eff r ()
 defaultTermination px =
-  withFrozenCallStack $ maybe (return ()) (exitWithError px)
+  maybe (return ()) (exitWithError px)

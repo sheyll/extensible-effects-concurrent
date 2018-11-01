@@ -153,7 +153,7 @@ type SchedulerIO =
 -- | Start the message passing concurrency system then execute a 'Process' on
 -- top of 'SchedulerIO' effect. All logging is sent to standard output.
 defaultMain :: HasCallStack => Eff ProcEff () -> IO ()
-defaultMain c = withFrozenCallStack $ runLoggingT
+defaultMain c = runLoggingT
   (logChannelBracket 128
                      (Just (infoMessage "main process started"))
                      (schedule c)
@@ -165,7 +165,7 @@ defaultMain c = withFrozenCallStack $ runLoggingT
 defaultMainWithLogChannel
   :: HasCallStack => LogChannel LogMessage -> Eff ProcEff () -> IO ()
 defaultMainWithLogChannel logC c =
-  withFrozenCallStack $ closeLogChannelAfter logC (schedule c logC)
+  closeLogChannelAfter logC (schedule c logC)
 
 -- | A 'SchedulerProxy' for 'SchedulerIO'
 forkIoScheduler :: SchedulerProxy SchedulerIO
@@ -176,7 +176,7 @@ forkIoScheduler = SchedulerProxy
 -- effect and a 'LogChannel' for concurrent logging.
 schedule :: HasCallStack => Eff ProcEff () -> LogChannel LogMessage -> IO ()
 schedule e logC =
-  withFrozenCallStack $ void $ withNewSchedulerState $ \schedulerStateVar -> do
+  void $ withNewSchedulerState $ \schedulerStateVar -> do
     pidVar <- newEmptyTMVarIO
     runProcEff schedulerStateVar pidVar
       $ do

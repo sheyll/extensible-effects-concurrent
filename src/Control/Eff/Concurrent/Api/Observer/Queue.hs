@@ -50,7 +50,7 @@ readObservationQueue
      , Member (Logs LogMessage) r
      )
   => Eff r (Observation o)
-readObservationQueue = withFrozenCallStack $ do
+readObservationQueue = do
   ObservationQueue q <- ask @(ObservationQueue o)
   logDebug ((logPrefix (Proxy @o)) ++ " reading")
   liftIO (atomically (readTBQueue q))
@@ -68,7 +68,7 @@ tryReadObservationQueue
      , Member (Logs LogMessage) r
      )
   => Eff r (Maybe (Observation o))
-tryReadObservationQueue = withFrozenCallStack $ do
+tryReadObservationQueue = do
   logDebug ((logPrefix (Proxy @o)) ++ " try reading")
   ObservationQueue q <- ask @(ObservationQueue o)
   liftIO (atomically (tryReadTBQueue q))
@@ -85,7 +85,7 @@ flushObservationQueue
      , Member (Logs LogMessage) r
      )
   => Eff r [Observation o]
-flushObservationQueue = withFrozenCallStack $ do
+flushObservationQueue = do
   logDebug ((logPrefix (Proxy @o)) ++ " flush")
   ObservationQueue q <- ask @(ObservationQueue o)
   liftIO (atomically (flushTBQueue q))
@@ -110,7 +110,7 @@ enqueueObservationsRegistered
   -> Int
   -> Eff (ObservationQueueReader o ': r) a
   -> Eff r a
-enqueueObservationsRegistered px queueLimit k = withFrozenCallStack $ do
+enqueueObservationsRegistered px queueLimit k = do
   oSvr <- whereIsServer @o
   enqueueObservations px oSvr queueLimit k
 
@@ -138,7 +138,7 @@ enqueueObservations
   -> Int
   -> Eff (ObservationQueueReader o ': r) a
   -> Eff r a
-enqueueObservations px oSvr queueLimit k = withFrozenCallStack $ withQueue
+enqueueObservations px oSvr queueLimit k = withQueue
   queueLimit
   (do
     ObservationQueue q <- ask @(ObservationQueue o)

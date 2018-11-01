@@ -65,8 +65,8 @@ notifyObserver
   -> Server o
   -> Observation o
   -> Eff r ()
-notifyObserver px observer observed observation = withFrozenCallStack
-  $ cast px observer (observationMessage observed observation)
+notifyObserver px observer observed observation =
+  cast px observer (observationMessage observed observation)
 
 -- | Send the 'registerObserverMessage'
 registerObserver
@@ -75,8 +75,8 @@ registerObserver
   -> Server p
   -> Server o
   -> Eff r ()
-registerObserver px observer observed = withFrozenCallStack
-  $ cast px observed (registerObserverMessage (SomeObserver observer))
+registerObserver px observer observed =
+  cast px observed (registerObserverMessage (SomeObserver observer))
 
 -- | Send the 'forgetObserverMessage'
 forgetObserver
@@ -85,8 +85,8 @@ forgetObserver
   -> Server p
   -> Server o
   -> Eff r ()
-forgetObserver px observer observed = withFrozenCallStack
-  $ cast px observed (forgetObserverMessage (SomeObserver observer))
+forgetObserver px observer observed =
+  cast px observed (forgetObserverMessage (SomeObserver observer))
 
 -- | An existential wrapper around a 'Server' of an 'Observer'.
 -- Needed to support different types of observers to observe the
@@ -113,7 +113,7 @@ notifySomeObserver
   -> SomeObserver o
   -> Eff r ()
 notifySomeObserver px observed observation (SomeObserver observer) =
-  withFrozenCallStack $ notifyObserver px observer observed observation
+  notifyObserver px observer observed observation
 
 -- ** Manage 'Observers's
 
@@ -190,8 +190,10 @@ spawnCallbackObserver
   => SchedulerProxy q
   -> (Server o -> Observation o -> Eff (Process q ': q) Bool)
   -> Eff r (Server (CallbackObserver o))
-spawnCallbackObserver px onObserve =
-  withFrozenCallStack $ spawnServerWithEffects px (castHandler handleCastCbo) id
+spawnCallbackObserver px onObserve = spawnServerWithEffects
+  px
+  (castHandler handleCastCbo)
+  id
  where
   handleCastCbo (CbObserved fromSvr v) = do
     continueObservation <- onObserve fromSvr v
@@ -216,6 +218,6 @@ spawnLoggingObserver
      )
   => SchedulerProxy q
   -> Eff r (Server (CallbackObserver o))
-spawnLoggingObserver px = withFrozenCallStack $ spawnCallbackObserver
+spawnLoggingObserver px = spawnCallbackObserver
   px
   (\s o -> logDebug (show s ++ " OBSERVED: " ++ show o) >> return True)
