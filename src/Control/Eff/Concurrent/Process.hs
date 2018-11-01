@@ -20,6 +20,8 @@ module Control.Eff.Concurrent.Process
   , ResumeProcess(..)
   , SchedulerProxy(..)
   , MessageSelector(..)
+  , ProcessState(..)
+  , ProcessExitReason(..)
   , thisSchedulerProxy
   , executeAndCatch
   , executeAndResume
@@ -59,6 +61,8 @@ import           Control.Monad                  ( void )
 import           Data.Dynamic
 import           Data.Kind
 import           Text.Printf
+import           Data.Default
+import qualified Control.Exception             as Exc
 
 -- | The process effect is the basis for message passing concurrency. This
 -- effect describes an interface for concurrent, communicating isolated
@@ -164,6 +168,57 @@ type ConsProcess r = Process r ': r
 thisSchedulerProxy :: Eff (Process r ': r) (SchedulerProxy r)
 thisSchedulerProxy = return SchedulerProxy
 
+-- | The state that a 'Process' is currently in.
+data ProcessState =
+    ProcessIdle              -- ^ The process yielded it's timeslice
+  | ProcessBusy              -- ^ The process is busy with non-blocking
+  | BlockedByReceive         -- ^ The process blocked by a 'receiveMessage'
+  | BlockedByReceiveSuchThat -- ^ The process blocked by a 'receiveMessageSuchThat'
+  | ProcessShuttingDown      -- ^ The process was shutdown or crashed
+  deriving (Read, Show, Ord, Eq, Enum)
+
+instance Default ProcessState where def = ProcessBusy
+
+-- | A sum-type with reasons for why a process exists the scheduling loop,
+-- this includes errors, that can occur when scheduleing messages.
+data ProcessExitReason =
+    ProcessNotFound ProcessId
+    -- ^ No process info was found for a 'ProcessId' during internal
+    -- processing. NOTE: This is **ONLY** caused by internal errors, probably by
+    -- an incorrect 'MessagePassing' handler in this module. **Sending a message
+    -- to a process ALWAYS succeeds!** Even if the process does not exist.
+  | ProcessRaisedError String
+    -- ^ A process called 'raiseError'.
+  | ProcessExitError String
+    -- ^ A process called 'exitWithError'.
+  | ProcessCaughtIOException String Exc.SomeException
+    -- ^ A process called 'exitWithError'.
+  | ProcessShutDown
+    -- ^ A process exits.
+  | ProcessReturned
+    -- ^ A process function returned.
+  | SchedulerShuttingDown
+    -- ^ An action was not performed while the scheduler was exiting.
+  deriving (Typeable, Show)
+
+instance Semigroup ProcessExitReason where
+   SchedulerShuttingDown <> _ = SchedulerShuttingDown
+   _ <> SchedulerShuttingDown = SchedulerShuttingDown
+   ProcessReturned <> x = x
+   x <> ProcessReturned = x
+   ProcessShutDown <> x = x
+   x <> ProcessShutDown = x
+   (ProcessRaisedError e1) <> (ProcessRaisedError e2) =
+    ProcessRaisedError (e1 ++ " and " ++ e2 )
+   e1 <> e2 =
+    ProcessExitError (show e1 ++ " and " ++ show e2 )
+
+instance Monoid ProcessExitReason where
+  mempty = ProcessShutDown
+  mappend = (<>)
+
+instance Exc.Exception ProcessExitReason
+
 -- | Execute a 'Process' action and resume the process, retry the action or exit
 -- the process when a shutdown was requested.
 executeAndResume
@@ -255,8 +310,7 @@ sendShutdownChecked
   => SchedulerProxy q
   -> ProcessId
   -> Eff r Bool
-sendShutdownChecked _ pid =
-  executeAndResume (SendShutdown pid)
+sendShutdownChecked _ pid = executeAndResume (SendShutdown pid)
 
 -- | Start a new process, the new process will execute an effect, the function
 -- will return immediately with a 'ProcessId'.
@@ -293,8 +347,7 @@ receiveMessageSuchThat
   => SchedulerProxy q
   -> MessageSelector a
   -> Eff r a
-receiveMessageSuchThat _ f =
-  executeAndResume (ReceiveMessageSuchThat f)
+receiveMessageSuchThat _ f = executeAndResume (ReceiveMessageSuchThat f)
 
 -- | Receive and cast the message to some 'Typeable' instance.
 -- See 'ReceiveMessageSuchThat' for more documentation.
@@ -304,8 +357,7 @@ receiveMessageAs
    . (HasCallStack, Typeable a, SetMember Process (Process q) r)
   => SchedulerProxy q
   -> Eff r a
-receiveMessageAs px =
-  receiveMessageSuchThat px (MessageSelector fromDynamic)
+receiveMessageAs px = receiveMessageSuchThat px (MessageSelector fromDynamic)
 
 -- | Enter a loop to receive messages and pass them to a callback, until the
 -- function returns 'Just' a result.

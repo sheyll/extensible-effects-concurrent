@@ -43,6 +43,8 @@ import           Control.Eff.Concurrent.Process ( ProcessId(..)
                                                 , ResumeProcess(..)
                                                 , SchedulerProxy(..)
                                                 , MessageSelector(..)
+                                                , ProcessState(..)
+                                                , ProcessExitReason(..)
                                                 , thisSchedulerProxy
                                                 , executeAndCatch
                                                 , executeAndResume
@@ -143,7 +145,6 @@ import           Control.Eff.Concurrent.Process.ForkIOScheduler
                                                 ( schedule
                                                 , defaultMain
                                                 , defaultMainWithLogChannel
-                                                , ProcessExitReason(..)
                                                 , ProcEff
                                                 , SchedulerIO
                                                 , HasSchedulerIO
