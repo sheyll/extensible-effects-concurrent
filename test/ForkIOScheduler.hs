@@ -1,5 +1,4 @@
-module ForkIOScheduler
-where
+module ForkIOScheduler where
 
 import           Control.Exception
 import           Control.Concurrent
@@ -54,11 +53,9 @@ test_IOExceptionsIsolated = setTravisTestOptions $ testGroup
     ]
   , (howToExit, doExit    ) <-
     [ ("throw async exception", void (lift (throw UserInterrupt)))
-    , ( "division by zero"
-      , void (return ((123 :: Int) `div` 0) >>= lift . putStrLn . show)
-      )
-    , ("call 'fail'" , void (fail "test fail"))
-    , ("call 'error'", void (error "test error"))
+    , ("division by zero"     , void ((lift . print) ((123 :: Int) `div` 0)))
+    , ("call 'fail'"          , void (fail "test fail"))
+    , ("call 'error'"         , void (error "test error"))
     ]
   ]
 

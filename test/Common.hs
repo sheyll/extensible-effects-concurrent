@@ -35,9 +35,7 @@ withTestLogC doSchedule k = withResource
   )
 
 testLogC :: IO (LogChannel LogMessage)
-testLogC =
-  filterLogChannel (\m -> take (length logPrefix) (_lmMessage m) == logPrefix)
-    <$> forkLogger 1 printLogMessage Nothing
+testLogC = forkLogger 100 printLogMessage Nothing
 
 testLogJoin :: LogChannel LogMessage -> IO ()
 testLogJoin = joinLogChannel
