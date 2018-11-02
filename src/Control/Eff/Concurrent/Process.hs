@@ -170,7 +170,9 @@ thisSchedulerProxy = return SchedulerProxy
 
 -- | The state that a 'Process' is currently in.
 data ProcessState =
-    ProcessIdle              -- ^ The process yielded it's timeslice
+    ProcessBooting           -- ^ The process has just been started but not
+                             --   called 'handleProcess' yet.
+  | ProcessIdle              -- ^ The process yielded it's timeslice
   | ProcessBusy              -- ^ The process is busy with non-blocking
   | BlockedByReceive         -- ^ The process blocked by a 'receiveMessage'
   | BlockedByReceiveSuchThat -- ^ The process blocked by a 'receiveMessageSuchThat'

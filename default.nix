@@ -1,4 +1,4 @@
-{ q ? import <nixos> {  }
+{ q ? import <nixpkgs> {  }
 , compiler ? "ghc843" }:
 let
   cleanSrc = q.pkgs.lib.cleanSourceWith {

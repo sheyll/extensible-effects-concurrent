@@ -33,10 +33,12 @@ library
   hs-source-dirs:
       src
   build-depends:
+      async >= 2.2 && <3,
       base >=4.9 && <5,
       data-default,
       deepseq,
       directory,
+      enclosed-exceptions >= 1.0 && < 1.1,
       filepath,
       time,
       mtl,

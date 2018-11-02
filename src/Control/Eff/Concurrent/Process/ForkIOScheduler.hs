@@ -30,10 +30,12 @@ import qualified Control.Exception             as Exc
 import           Control.Eff.ExceptionExtra    (liftTry)
 import           Control.Concurrent            as Concurrent
 import           Control.Concurrent.STM        as STM
+import qualified Control.Concurrent.Async      as Async
+import           Control.Concurrent.Async      (Async(..))
 import           Control.Eff
 import           Control.Eff.Extend
 import qualified Control.Eff.Exception         as Eff
-import qualified Control.Eff.State.Lazy        as Eff
+import qualified Control.Eff.State.Strict      as Eff
 import           Control.Eff.Concurrent.Process
 import           Control.Eff.Lift
 import           Control.Eff.Log
@@ -42,14 +44,16 @@ import           Control.Monad.Log              ( runLoggingT )
 import           Control.Lens
 import           Control.Monad                  ( when
                                                 , void
-                                                , join
                                                 , (>=>)
                                                 )
+import           Control.Monad.Trans.Control     ()
 import qualified Control.Monad.State           as Mtl
+import qualified Control.Exception.Enclosed    as Exceptions
 import           Data.Dynamic
 import           Data.Map                       ( Map )
 import qualified Data.Map                      as Map
 import           Text.Printf
+import           Data.Default
 import           Data.Sequence                  ( Seq(..)
                                                 , (><)
                                                 )
@@ -58,38 +62,75 @@ import qualified Data.Sequence                 as Seq
 import           System.Timeout
 
 
+-- | A message queue of a process, contains the actual queue and maybe an
+-- exit reason.
+data MessageQ = MessageQ { _incomingMessages :: Seq Dynamic
+                         , _shutdownRequests :: Maybe ProcessExitReason
+                         }
+
+instance Default MessageQ where def = MessageQ def def
+
+makeLenses ''MessageQ
+
 -- | Information about a process, needed to implement 'MessagePassing' and
 -- 'Process' handlers. The message queue is backed by a 'STM.TQueue' and contains
 -- 'MessageQEntry' values.
 data ProcessInfo =
                  ProcessInfo { _processId         :: ProcessId
-                             , _messageQ          :: STM.TVar (Seq (Maybe Dynamic))
-                             , _shutdownRequested :: STM.TVar Bool
-                             , _processState      :: ProcessState
+                             , _processThreadId   :: Async ProcessExitReason
+                             , _processState      :: TVar ProcessState
+                             , _messageQ          :: TVar MessageQ
                              }
 
 makeLenses ''ProcessInfo
 
+-- | Create a new 'ProcessInfo'
+newProcessInfo :: HasCallStack => ProcessId -> Async ProcessExitReason -> STM ProcessInfo
+newProcessInfo a b = ProcessInfo a b <$> newTVar ProcessBooting <*> newTVar def
+
 instance Show ProcessInfo where
-  show p =  "ProcessInfo: " ++ show (p ^. processId) ++ " " ++ show (p ^. processState)
+  show p =  "process info: " ++ show (p ^. processId)
 
 -- | Contains all process info'elements, as well as the state needed to
 -- implement inter process communication. It contains also a 'LogChannel' to
 -- which the logs of all processes are forwarded to.
 data SchedulerState =
-               SchedulerState { _nextPid :: ProcessId
-                              , _processTable :: Map ProcessId ProcessInfo
-                              , _threadIdTable :: Map ProcessId ThreadId
-                              , _schedulerShuttingDown :: Bool
-                              , _logChannel :: LogChannel LogMessage
+               SchedulerState { _logChannel :: LogChannel LogMessage
+                              , _nextPid :: TVar ProcessId
+                              , _processTable :: TVar (Map ProcessId ProcessInfo)
                               }
 
 makeLenses ''SchedulerState
 
--- | A newtype wrapper around an 'STM.TVar' holding the scheduler state.
--- This is needed by 'spawn' and provided by 'runScheduler'.
-newtype SchedulerVar = SchedulerVar { fromSchedulerVar :: STM.TVar SchedulerState }
-  deriving Typeable
+-- | Create a new 'SchedulerState'
+newSchedulerState :: HasCallStack => LogChannel LogMessage -> STM SchedulerState
+newSchedulerState lc = SchedulerState lc <$> newTVar 1 <*> newTVar def
+
+-- | Create a new 'SchedulerState' run an IO action, catching all exceptions,
+-- and when the actions returns, clean up and kill all processes.
+withNewSchedulerState
+  :: HasCallStack => LogChannel LogMessage -> Eff SchedulerIO () -> Eff LoggingAndIO ()
+withNewSchedulerState logC mainProcessAction =
+  Exceptions.tryAny (lift (atomically (newSchedulerState logC)))
+    >>= either
+      (logError . ("scheduler setup crashed " ++) . Exc.displayException)
+      (flip runReader
+        ( (logNotice "scheduler loop returned"
+            *> Exceptions.tryAny mainProcessAction
+            <* logNotice "scheduler loop returned")
+          >>= either
+            (logError . ("scheduler loop crashed " ++) . Exc.displayException)
+            (\result ->
+              do logDebug "scheduler cleanup begin"
+                 Exceptions.tryAny tearDownScheduler
+                  >>= either
+                    (logError . ("scheduler cleanup crashed " ++) . Exc.displayException)
+                    (const (logDebug "scheduler cleanup done"))
+                 return result)))
+
+
+ where
+    tearDownScheduler = _
 
 -- | The concrete list of 'Eff'ects of processes compatible with this scheduler.
 -- This builds upon 'SchedulerIO'.
@@ -99,24 +140,45 @@ type ProcEff = ConsProcess SchedulerIO
 -- | Type class constraint to indicate that an effect union contains the
 -- effects required by every process and the scheduler implementation itself.
 type HasSchedulerIO r = ( HasCallStack
-                        , SetMember Lift (Lift IO) r
+                        , Lifted IO r
                         , SchedulerIO <:: r
                         )
 
 -- | The concrete list of 'Eff'ects for this scheduler implementation.
-type SchedulerIO =
-              '[ Reader SchedulerVar
-               , Logs LogMessage
+type SchedulerIO = ( Reader SchedulerState : LoggingAndIO)
+
+-- | Basic effects: 'Logs' 'LogMessage' and 'Lift' IO
+type LoggingAndIO =
+              '[ Logs LogMessage
                , Lift IO
                ]
+
+-- | Handle the 'LoggingAndIO' effects, using a 'LogChannel' for the 'Logs'
+-- effect. Also safely catch any exceptions.
+handleLoggingAndIO
+  :: HasCallStack
+  => Eff LoggingAndIO a
+  -> LogChannel LogMessage
+  -> IO (Either Exc.SomeException a)
+handleLoggingAndIO e lc = Exceptions.tryAny (runLift (logToChannel lc e))
+
+-- | Like 'handleLoggingAndIO' but return @()@.
+handleLoggingAndIO_
+  :: HasCallStack
+  => Eff LoggingAndIO a
+  -> LogChannel LogMessage
+  -> IO ()
+handleLoggingAndIO_ =
+  -- (void .) . handleLoggingAndIO
+  ((.).(.)) void handleLoggingAndIO
 
 -- | Start the message passing concurrency system then execute a 'Process' on
 -- top of 'SchedulerIO' effect. All logging is sent to standard output.
 defaultMain :: HasCallStack => Eff ProcEff () -> IO ()
 defaultMain c = runLoggingT
   (logChannelBracket 128
-                     (Just (infoMessage "main process started"))
-                     (schedule c)
+                     Nothing
+                     (handleLoggingAndIO_ (schedule c))
   )
   (printLogMessage :: LogMessage -> IO ())
 
@@ -125,7 +187,7 @@ defaultMain c = runLoggingT
 defaultMainWithLogChannel
   :: HasCallStack => LogChannel LogMessage -> Eff ProcEff () -> IO ()
 defaultMainWithLogChannel logC c =
-  closeLogChannelAfter logC (schedule c logC)
+  closeLogChannelAfter logC (handleLoggingAndIO_ (schedule c) logC)
 
 -- | A 'SchedulerProxy' for 'SchedulerIO'
 forkIoScheduler :: SchedulerProxy SchedulerIO
@@ -134,69 +196,19 @@ forkIoScheduler = SchedulerProxy
 -- | This is the main entry point to running a message passing concurrency
 -- application. This function takes a 'Process' on top of the 'SchedulerIO'
 -- effect and a 'LogChannel' for concurrent logging.
-schedule :: HasCallStack => Eff ProcEff () -> LogChannel LogMessage -> IO ()
+schedule :: HasCallStack => Eff ProcEff () -> Eff LoggingAndIO ()
 schedule e logC =
-  void $ withNewSchedulerState $ \schedulerStateVar -> do
+  void $ withNewSchedulerState logC $ \schedulerStateVar -> do
     pidVar <- newEmptyTMVarIO
     runProcEff schedulerStateVar pidVar
       $ do
           logNotice "++++++++ main process started ++++++++"
           e
           logNotice "++++++++ main process returned ++++++++"
- where
-  withNewSchedulerState :: HasCallStack => (SchedulerVar -> IO a) -> IO a
-  withNewSchedulerState mainProcessAction =
-    Exc.bracket
-      (newTVarIO (SchedulerState myPid Map.empty Map.empty False logC))
-      tearDownScheduler
-      (mainProcessAction . SchedulerVar)
-   where
-    myPid = 1
-    tearDownScheduler v = do
-      logChannelPutIO logC =<< debugMessageIO "begin scheduler tear down"
-      atomically (modifyTVar' v (schedulerShuttingDown .~ True))
-      yield
-      do sch <- readTVarIO v
-         logChannelPutIO logC =<< debugMessageIO
-           (  "killing "
-           ++ let ts = (sch ^.. threadIdTable . traversed)
-             in  if length ts > 100
-                   then show (length ts) ++ " threads"
-                   else show ts
-           )
-         imapM_ killProcThread (sch ^. threadIdTable)
-      yield
-      let shutdownTimeout = 1000000
-      inTime <- timeout shutdownTimeout
-        (atomically
-          (do
-            scheduler <- readTVar v
-            let allThreadsDead =
-                  scheduler
-                    ^. threadIdTable
-                    .  to Map.null
-                    && scheduler
-                    ^. processTable
-                    .  to Map.null
-            STM.check allThreadsDead
-          ))
-      logChannelPutIO logC  =<<
-        maybe
-           (do pt <- atomically ( (view processTable <$> readTVar v) <*
-                                   modifyTVar v
-                                     ( (threadIdTable .~ Map.empty)
-                                     . (processTable  .~ Map.empty))
-                                )
-               errorMessageIO ("timeout while shutting down threads " ++ show pt ++ "\n\n\n"))
-           (const (infoMessageIO "all threads dead"))
-           inTime
-      threadDelay 1000000
-
-    killProcThread _pid tid = killThread tid >> yield
 
 runProcEff
   :: HasCallStack
-  => SchedulerVar
+  => SchedulerState
   -> STM.TMVar ProcessId
   -> Eff ProcEff ()
   -> IO ()
@@ -207,19 +219,17 @@ runProcEff schedulerVar pidVar procAction = do
  where
   go :: LogChannel LogMessage -> IO ProcessExitReason
   go l = do
-    eres2   <- Exc.try
-      (runLift
-        (logToChannel
-          l
+    eres2   <- Exc.try -- TODO make exception safe
+      (handleLoggingAndIO logC
           (runReader schedulerVar
               (interceptLogging (setLogMessageThreadId >=> logMsg)
-                  (runProcessWithMessageQueue storePidAndRunProcess)))))
+                  (runProcessWithMessageQueue storePidAndRunProcess))))
     case eres2 of
       Left  s    -> return (ProcessCaughtIOException  "runProcEff" s)
       Right res1 -> return res1
    where
     storePidAndRunProcess pid = do
-      lift (atomically (STM.putTMVar pidVar pid))
+      lift (atomically (STM.putTMVar pidVar pid)) -- TODO make exception safe
       logDebug "enter process"
       procAction
       logDebug "process returned"
@@ -263,6 +273,10 @@ runProcessWithMessageQueue procAction =
   withNewMessageQueue $  -- Sxyz = xy(xz)
     handleProcess <*> procAction
 
+data ProcessLoopState = PLS { _nextRef :: Int }
+instance Default ProcessLoopState where
+  def = ProcessLoopState 0
+
 handleProcess
   :: HasCallStack
   => ProcessId
@@ -287,6 +301,30 @@ handleProcess pid =
                     k nextRef' z))
       )
  where
+  stepProcess :: forall v a
+     . HasCallStack
+    => ProcessLoopState
+    -> Process SchedulerIO v
+    -> (ProcessLoopState -> Arr SchedulerIO (Either ProcessExitReason v) a)
+    -> Eff SchedulerIO a
+  stepProcess pls request kontinuation = error "todo"
+    -- check process exists
+    --   1. check thread table, if it has no entry for this process
+    --      exit with @kontinuation (Left ...)@
+    --
+    -- handle process shutdown requests:
+    --   1. take process exit reason
+    --   2. set process state to ProcessShuttingDown
+    --   3. apply kontinuation to (Left bad news)
+    --
+    -- *** handle the actual request
+    --
+
+
+
+
+
+
   go
     :: forall v a
      . HasCallStack
@@ -315,7 +353,7 @@ handleProcess pid =
 
   go nextRef ReceiveMessage k = shutdownOrGo (k nextRef) $ do
     void $ runSchedulerState $ runProcessInfoState pid $ setProcessState BlockedByReceive
-    emdynMsg <- runSchedulerState $
+    eMDynMsg <- runSchedulerState $
       runProcessInfoState pid $ do
         mq <- use messageQ
         lift $ do
@@ -329,13 +367,13 @@ handleProcess pid =
     k nextRef
       (Right (either (OnError . show @ProcessExitReason)
                      (maybe RetryLastAction ResumeWith)
-                     emdynMsg))
+                     eMDynMsg))
 
   go nextRef (ReceiveMessageSuchThat selectMessage) k =
     shutdownOrGo (k nextRef) $ do
       void $ runSchedulerState $ runProcessInfoState pid
            $ setProcessState BlockedByReceiveSuchThat
-      emdynMsg <- runSchedulerState $
+      eMDynMsg <- runSchedulerState $
         runProcessInfoState pid $ do
           mq <- use messageQ
           lift $
@@ -361,7 +399,7 @@ handleProcess pid =
       k nextRef
         (Right (either (OnError . show @ProcessExitReason)
                 (maybe RetryLastAction ResumeWith)
-                emdynMsg
+                eMDynMsg
         ))
 
   go nextRef SelfPid k = shutdownOrGo (k nextRef) $ do
@@ -435,7 +473,7 @@ createQueue = do
             pid               <- nextPid <<+= 1
             channel           <- lift (newTVar Seq.Empty)
             shutdownIndicator <- lift (newTVar False)
-            let pinfo = ProcessInfo pid channel shutdownIndicator ProcessIdle
+            let pinfo = ProcessInfo pid channel shutdownIndicator ProcessBooting
             threadIdTable . at pid .= Just myTId
             processTable . at pid .= Just pinfo
             return pid
@@ -458,14 +496,8 @@ destroyQueue retries pid = do
 
 -- Scheduler Accessor
 
-getLogChannelIO :: SchedulerVar -> IO (LogChannel LogMessage)
-getLogChannelIO s = view logChannel <$> readTVarIO (fromSchedulerVar s)
-
-getSchedulerTVar :: HasSchedulerIO r => Eff r (TVar SchedulerState)
-getSchedulerTVar = fromSchedulerVar <$> ask
-
-getSchedulerVar :: HasSchedulerIO r => Eff r SchedulerVar
-getSchedulerVar = ask
+getSchedulerState :: HasSchedulerIO r => Eff r SchedulerState
+getSchedulerState = ask
 
 -- State-ful Scheduler Accessors
 
@@ -526,8 +558,8 @@ getAndResetShutdownRequested = do
     writeTVar mq False
     return old
 
-
-type SchedulerStateEff = '[Eff.State SchedulerState, Eff.Exc ProcessExitReason, Lift STM]
+type StmStateEff s = '[Eff.State s, Eff.Exc ProcessExitReason, Lift STM]
+type SchedulerStateEff = StmStateEff SchedulerState
 type ProcessInfoStateEff = '[Eff.State ProcessInfo, Eff.Exc ProcessExitReason, Lift STM]
 
 instance Mtl.MonadState SchedulerState (Eff SchedulerStateEff) where
