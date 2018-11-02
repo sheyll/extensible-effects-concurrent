@@ -272,36 +272,60 @@ logWithSeverity !s =
     . flip (set lmMessage) def
 
 -- | Log a 'String' as 'emergencySeverity'.
-logEmergency :: (HasCallStack, Member (Logs LogMessage) e, MonadIO (Eff e)) => String -> Eff e ()
+logEmergency
+  :: (HasCallStack, Member (Logs LogMessage) e, MonadIO (Eff e))
+  => String
+  -> Eff e ()
 logEmergency = withFrozenCallStack (logWithSeverity emergencySeverity)
 
 -- | Log a message with 'alertSeverity'.
-logAlert :: (HasCallStack, Member (Logs LogMessage) e, MonadIO (Eff e)) => String -> Eff e ()
+logAlert
+  :: (HasCallStack, Member (Logs LogMessage) e, MonadIO (Eff e))
+  => String
+  -> Eff e ()
 logAlert = withFrozenCallStack (logWithSeverity alertSeverity)
 
 -- | Log a 'criticalSeverity' message.
-logCritical :: (HasCallStack, Member (Logs LogMessage) e, MonadIO (Eff e)) => String -> Eff e ()
+logCritical
+  :: (HasCallStack, Member (Logs LogMessage) e, MonadIO (Eff e))
+  => String
+  -> Eff e ()
 logCritical = withFrozenCallStack (logWithSeverity criticalSeverity)
 
 -- | Log a 'errorSeverity' message.
-logError :: HasCallStack => Member (Logs LogMessage) e => String -> Eff e ()
-logError = withFrozenCallStack (logWithSeverity errorSeverity, MonadIO (Eff e), MonadIO (Eff e))
+logError
+  :: (HasCallStack, Member (Logs LogMessage) e, MonadIO (Eff e))
+  => String
+  -> Eff e ()
+logError = withFrozenCallStack (logWithSeverity errorSeverity)
 
 -- | Log a 'warningSeverity' message.
-logWarning :: (HasCallStack, Member (Logs LogMessage) e) => String -> Eff e ()
-logWarning = withFrozenCallStack (logWithSeverity warningSeverity, MonadIO (Eff e))
+logWarning
+  :: (HasCallStack, Member (Logs LogMessage) e, MonadIO (Eff e))
+  => String
+  -> Eff e ()
+logWarning = withFrozenCallStack (logWithSeverity warningSeverity)
 
 -- | Log a 'noticeSeverity' message.
-logNotice :: (HasCallStack, Member (Logs LogMessage) e) => String -> Eff e ()
-logNotice = withFrozenCallStack (logWithSeverity noticeSeverity, MonadIO (Eff e))
+logNotice
+  :: (HasCallStack, Member (Logs LogMessage) e, MonadIO (Eff e))
+  => String
+  -> Eff e ()
+logNotice = withFrozenCallStack (logWithSeverity noticeSeverity)
 
 -- | Log a 'informationalSeverity' message.
-logInfo :: (HasCallStack, Member (Logs LogMessage) e) => String -> Eff e ()
-logInfo = withFrozenCallStack (logWithSeverity informationalSeverity, MonadIO (Eff e))
+logInfo
+  :: (HasCallStack, Member (Logs LogMessage) e, MonadIO (Eff e))
+  => String
+  -> Eff e ()
+logInfo = withFrozenCallStack (logWithSeverity informationalSeverity)
 
 -- | Log a 'debugSeverity' message.
-logDebug :: (HasCallStack, Member (Logs LogMessage) e) => String -> Eff e ()
-logDebug = withFrozenCallStack (logWithSeverity debugSeverity, MonadIO (Eff e))
+logDebug
+  :: (HasCallStack, Member (Logs LogMessage) e, MonadIO (Eff e))
+  => String
+  -> Eff e ()
+logDebug = withFrozenCallStack (logWithSeverity debugSeverity)
 
 -- | Construct a 'LogMessage' with 'errorSeverity'
 errorMessage :: HasCallStack => String -> LogMessage
