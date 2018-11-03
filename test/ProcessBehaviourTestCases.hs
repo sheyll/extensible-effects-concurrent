@@ -31,10 +31,8 @@ import           Debug.Trace
 
 test_forkIo :: TestTree
 test_forkIo = setTravisTestOptions
-  (withTestLogC
-    (handleLoggingAndIO_
-      (schedule (\factory -> testGroup "ForkIOScheduler" [allTests factory]))
-    )
+  (withTestLogC (\c lc -> handleLoggingAndIO_ (ForkIO.schedule c) lc)
+                (\factory -> testGroup "ForkIOScheduler" [allTests factory])
   )
 
 test_singleThreaded :: TestTree
@@ -620,6 +618,7 @@ sendShutdownTests schedulerFactory =
         $ \assertEff -> do
             me <- self px
             r  <- send (SendShutdown @r me ExitNormally)
+            traceShowM (show me ++": returned from SendShutdow to self " ++ show r)
             assertEff
               "ShutdownRequested must be returned"
               (case r of

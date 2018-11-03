@@ -9,8 +9,6 @@ import           Common
 import           Control.Concurrent.STM
 import           Control.DeepSeq
 import           Control.Monad.IO.Class
-import qualified Data.Sequence                 as Seq
-
 
 demo
   :: (Member (Logs String) e, Member (Logs OtherLogMsg) e, MonadIO (Eff e))

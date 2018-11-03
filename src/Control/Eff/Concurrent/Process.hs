@@ -66,7 +66,6 @@ import           Data.Default
 import           Data.Dynamic
 import           Data.Kind
 import           GHC.Stack
-import           Text.Printf
 import qualified Control.Exception             as Exc
 
 -- | The process effect is the basis for message passing concurrency. This
@@ -217,12 +216,7 @@ instance Default ProcessState where def = ProcessBusy
 -- | A sum-type with reasons for why a process exists the scheduling loop,
 -- this includes errors, that can occur when scheduleing messages.
 data ProcessExitReason =
-    ProcessNotFound ProcessId -- TODO remove
-    -- ^ No process info was found for a 'ProcessId' during internal
-    -- processing. NOTE: This is **ONLY** caused by internal errors, probably by
-    -- an incorrect 'MessagePassing' handler in this module. **Sending a message
-    -- to a process ALWAYS succeeds!** Even if the process does not exist.
-  | ProcessRaisedError String
+    ProcessRaisedError String
     -- ^ A process called 'raiseError'.
   | ProcessCaughtIOException String String
     -- ^ A process called 'exitWithError'.
@@ -534,24 +528,23 @@ newtype ProcessId = ProcessId { _fromProcessId :: Int }
   deriving (Eq,Ord,Typeable,Bounded,Num, Enum, Integral, Real, NFData)
 
 instance Read ProcessId where
-  readsPrec _ ('<':'0':'.':rest1) =
+  readsPrec _ ('!':rest1) =
     case reads rest1 of
-      [(c, '.':'0':'>':rest2)] -> [(ProcessId c, rest2)]
+      [(c, rest2)] -> [(ProcessId c, rest2)]
       _ -> []
   readsPrec _ _ = []
 
 instance Show ProcessId where
-  show (ProcessId c) =
-    printf "<0.%d.0>" c
+  showsPrec _ (ProcessId !c) = showChar '!' . shows c
 
 makeLenses ''ProcessId
 
 -- | Log the 'ProcessExitReaons'
 logProcessExit
-  :: ('[Logs LogMessage] <:: e, MonadIO (Eff e))
+  :: ('[Logs LogMessage] <:: e, MonadIO (Eff e), HasCallStack)
   => ProcessExitReason
   -> Eff e ()
-logProcessExit ex = case ex of
+logProcessExit ex = withFrozenCallStack $ case ex of
   ProcessReturned                   -> logDebug "returned"
   ProcessShutDown ExitNormally      -> logDebug "shutdown"
   ProcessShutDown (ExitWithError m) -> logError ("exit with error: " ++ show m)

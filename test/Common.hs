@@ -9,8 +9,8 @@ import           Control.Eff.Lift
 import           Control.Monad                  ( void )
 import           Test.Tasty
 import           Test.Tasty.HUnit
-import           Control.Monad.IO.Class
 import           Test.Tasty.Runners
+import           GHC.Stack
 
 setTravisTestOptions :: TestTree -> TestTree
 setTravisTestOptions =
@@ -30,19 +30,19 @@ withTestLogC doSchedule k = withResource
     (return
       (\e -> do
         logC <- logCFactory
-        doSchedule e logC -- noLogger
+        doSchedule e logC
+        -- doSchedule e nullLogChannel
       )
     )
   )
 
 testLogC :: IO (LogChannel LogMessage)
-testLogC = forkLogger 100 printLogMessage Nothing
+testLogC =
+  -- filterLogChannel ((< informationalSeverity) . _lmSeverity) <$>
+  forkLogger 1000 printLogMessage Nothing
 
 testLogJoin :: LogChannel LogMessage -> IO ()
 testLogJoin = joinLogChannel
-
-tlog :: (Member (Logs LogMessage) r, MonadIO (Eff r)) => String -> Eff r ()
-tlog = logInfo
 
 untilShutdown :: Member t r => t (ResumeProcess v) -> Eff r ()
 untilShutdown pa = do
@@ -59,7 +59,7 @@ scheduleAndAssert
      -> Eff (Process r ': r) ()
      )
   -> IO ()
-scheduleAndAssert schedulerFactory testCaseAction = do
+scheduleAndAssert schedulerFactory testCaseAction = withFrozenCallStack $ do
   resultVar <- newEmptyTMVarIO
   void
     (applySchedulerFactory

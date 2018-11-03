@@ -5,6 +5,8 @@ module Control.Eff.Log.Message
   , renderRFC5424
   , printLogMessage
   , relogAsDebugMessages
+  , increaseLogMessageDistance
+  , dropDistantLogMessages
   , logWithSeverity
   , logEmergency
   , logAlert
@@ -64,6 +66,7 @@ module Control.Eff.Log.Message
   , lmSrcLoc
   , lmThreadId
   , lmMessage
+  , lmDistance
   , setCallStack
   , setLogMessageTimestamp
   , setLogMessageThreadId
@@ -73,22 +76,23 @@ module Control.Eff.Log.Message
   )
 where
 
-import           Data.Time.Clock
-import           Data.Time.Format
-import           Control.Lens
-import           Control.Eff
-import           Control.Eff.Log.Handler
-import           GHC.Stack
-import           Data.Default
+import           Control.Concurrent
 import           Control.DeepSeq
+import           Control.Eff
+import           Control.Eff.Lift
+import           Control.Eff.Log.Handler
+import           Control.Lens
+import           Control.Monad                  ( (>=>) )
 import           Control.Monad.IO.Class
+import           Data.Default
 import           Data.Maybe
 import           Data.String
-import           Control.Concurrent
+import           Data.Time.Clock
+import           Data.Time.Format
 import           GHC.Generics
-import           Text.Printf
+import           GHC.Stack
 import           System.FilePath.Posix
-import           Control.Monad                  ( (>=>) )
+import           Text.Printf
 
 -- | A message data type inspired by the RFC-5424 Syslog Protocol
 data LogMessage =
@@ -102,11 +106,12 @@ data LogMessage =
              , _lmStructuredData :: [StructuredDataElement]
              , _lmThreadId :: Maybe ThreadId
              , _lmSrcLoc :: Maybe SrcLoc
-             , _lmMessage :: String}
+             , _lmMessage :: String
+             , _lmDistance :: Int }
   deriving (Eq, Generic)
 
 showLmMessage :: LogMessage -> [String]
-showLmMessage (LogMessage _f _s _ts _hn _an _pid _mi _sd ti loc msg) =
+showLmMessage (LogMessage _f _s _ts _hn _an _pid _mi _sd ti loc msg _dist) =
   if null msg
     then []
     else
@@ -125,7 +130,7 @@ showLmMessage (LogMessage _f _s _ts _hn _an _pid _mi _sd ti loc msg) =
 
 -- | Render a 'LogMessage' human readable.
 renderLogMessage :: LogMessage -> String
-renderLogMessage l@(LogMessage _f s ts hn an pid mi sd _ _ _) =
+renderLogMessage l@(LogMessage _f s ts hn an pid mi sd _ _ _ _) =
   unwords $ filter
     (not . null)
     ( maybe
@@ -144,7 +149,7 @@ renderLogMessage l@(LogMessage _f s ts hn an pid mi sd _ _ _) =
 -- | Render a 'LogMessage' according to the rules in the given RFC, except for
 -- the rules concerning unicode and ascii
 renderRFC5424 :: LogMessage -> String
-renderRFC5424 l@(LogMessage f s ts hn an pid mi sd _ _ _) = unwords
+renderRFC5424 l@(LogMessage f s ts hn an pid mi sd _ _ _ _) = unwords
   ( ("<" ++ show (fromSeverity s + fromFacility f * 8) ++ ">" ++ "1")
   : maybe
       "-"
@@ -223,7 +228,7 @@ setCallStack cs m = case getCallStack cs of
   (_, srcLoc) : _ -> m & lmSrcLoc ?~ srcLoc
 
 instance Default LogMessage where
-  def = LogMessage def def def def def def def def def def ""
+  def = LogMessage def def def def def def def def def def "" 0
 
 instance IsString LogMessage where
   fromString = infoMessage
@@ -245,6 +250,24 @@ setLogMessageThreadId :: MonadIO m => LogMessage -> m LogMessage
 setLogMessageThreadId m = do
   t <- liftIO myThreadId
   return (m & lmThreadId ?~ t)
+
+-- | Increase the /distance/ of log messages by one.
+-- Logs can be filtered by their distance with 'dropDistantLogMessages'
+increaseLogMessageDistance
+  :: (HasCallStack, Member (Logs LogMessage) e, MonadIO (Eff e), Lifted IO e)
+  => Eff e a
+  -> Eff e a
+increaseLogMessageDistance = interceptLogging (logMsg . over lmDistance (+ 1))
+
+-- | Drop all log messages with an 'lmDistance' greater than the given
+-- value.
+dropDistantLogMessages
+  :: (SetMember Lift (Lift IO) r, Member (Logs LogMessage) r)
+  => Int
+  -> Eff r a
+  -> Eff r a
+dropDistantLogMessages maxDistance = foldLogMessages
+  (\lm -> if lm ^. lmDistance > maxDistance then Nothing else Just lm)
 
 -- | Handle a 'Logs' effect for 'String' messages by re-logging the messages
 -- as 'LogMessage's with 'debugSeverity'.

@@ -9,6 +9,7 @@ import qualified Control.Eff.Concurrent.Process.SingleThreadedScheduler
                                                as Pure
 import           Control.Eff.Concurrent
 import           Control.Eff.State.Strict
+import           Control.Eff.Lift
 import           Control.Monad
 
 main :: IO ()
@@ -36,7 +37,7 @@ instance Observable Counter where
   forgetObserverMessage = UnobserveCounter
 
 logCounterObservations
-  :: (SetMember Process (Process q) r, Member (Logs LogMessage) q)
+  :: (SetMember Process (Process q) r, Member (Logs LogMessage) q, Lifted IO q)
   => SchedulerProxy q
   -> Eff r (Server (CallbackObserver Counter))
 logCounterObservations px = spawnCallbackObserver
@@ -53,6 +54,7 @@ counterHandler
      , Member (State Integer) r
      , Member (Logs LogMessage) r
      , SetMember Process (Process q) r
+     , Lifted IO r
      )
   => SchedulerProxy q
   -> ApiHandler Counter r
@@ -92,6 +94,7 @@ pocketCalcHandler
    . ( Member (State Integer) r
      , Member (Logs LogMessage) r
      , SetMember Process (Process q) r
+     , Lifted IO r
      )
   => SchedulerProxy q
   -> ApiHandler PocketCalc r
@@ -116,7 +119,10 @@ pocketCalcHandler _ = castAndCallHandler handleCastCalc handleCallCalc
 
 serverLoop
   :: forall r q
-   . (Member (Logs LogMessage) r, SetMember Process (Process q) r)
+   . ( Member (Logs LogMessage) r
+     , SetMember Process (Process q) r
+     , Lifted IO r
+     )
   => SchedulerProxy q
   -> Eff r ()
 serverLoop px = evalState @Integer
@@ -127,9 +133,12 @@ serverLoop px = evalState @Integer
 
 -- ** Counter client
 counterExample
-  :: ( Member (Logs LogMessage) r
+  :: ( SetMember Process (Process q) r
      , Member (Logs LogMessage) q
-     , SetMember Process (Process q) r
+     , Member (Logs LogMessage) r
+     , Lifted IO q
+     , Lifted IO r
+     , q <:: r
      )
   => SchedulerProxy q
   -> Eff r ()
@@ -167,4 +176,4 @@ counterExample px = do
   cnt cntServer1
   cast px cntServer2 Inc
   cnt cntServer2
-  void $ sendShutdown px pid2
+  void $ sendShutdown px pid2 (ExitWithError "test test test")

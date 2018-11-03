@@ -2,7 +2,7 @@
 module Control.Eff.Log.Channel
   ( LogChannel()
   , logToChannel
-  , noLogger
+  , nullLogChannel
   , forkLogger
   , filterLogChannel
   , joinLogChannel
@@ -12,12 +12,15 @@ module Control.Eff.Log.Channel
   , logChannelPutIO
   , JoinLogChannelException()
   , KillLogChannelException()
+  , handleLoggingAndIO
+  , handleLoggingAndIO_
   )
 where
 
 import           Control.Concurrent
 import           Control.Concurrent.STM
 import           Control.Eff                   as Eff
+import           Control.Eff.Lift
 import           Control.Exception              ( bracket )
 import qualified Control.Exception             as Exc
 import           Control.Monad                  ( void
@@ -33,6 +36,7 @@ import           Data.Foldable                  ( traverse_ )
 import           Data.Kind                      ( )
 import           Data.String
 import           Data.Typeable
+import           GHC.Stack
 
 -- | A log channel processes logs from the 'Logs' effect by en-queuing them in a
 -- shared queue read from a seperate processes. A channel can contain log
@@ -68,8 +72,8 @@ logChannelPutIO c                         m = atomically $ do
 
 -- | Create a 'LogChannel' that will discard all messages sent
 -- via 'forwardLogstochannel' or 'logChannelPutIO'.
-noLogger :: LogChannel message
-noLogger = DiscardLogs
+nullLogChannel :: LogChannel message
+nullLogChannel = DiscardLogs
 
 -- | Fork a new process, that applies a monadic action to all log messages sent
 -- via 'logToChannel' or 'logChannelPutIO'.
@@ -116,7 +120,7 @@ filterLogChannel
   :: (message -> Bool) -> LogChannel message -> LogChannel message
 filterLogChannel = FilteredLogChannel
 
--- | Run an action and close a 'LogChannel' created by 'noLogger', 'forkLogger'
+-- | Run an action and close a 'LogChannel' created by 'nullLogChannel', 'forkLogger'
 -- or 'filterLogChannel' afterwards using 'joinLogChannel'. If a
 -- 'Exc.SomeException' was thrown, the log channel is killed with
 -- 'killLogChannel', and the exception is re-thrown.
@@ -190,3 +194,14 @@ logChannelBracket queueLen mWelcome f = control
     let logHandler = void . runInIO . logMessage
     bracket (forkLogger queueLen logHandler mWelcome) joinLogChannel f
   )
+
+-- | Handle the 'LoggingAndIO' effects, using a 'LogChannel' for the 'Logs'
+-- effect.
+handleLoggingAndIO
+  :: HasCallStack => Eff '[Logs m, Lift IO] a -> LogChannel m -> IO a
+handleLoggingAndIO e lc = runLift (logToChannel lc e)
+
+-- | Like 'handleLoggingAndIO' but return @()@.
+handleLoggingAndIO_
+  :: HasCallStack => Eff '[Logs m, Lift IO] a -> LogChannel m -> IO ()
+handleLoggingAndIO_ = ((.) . (.)) void handleLoggingAndIO

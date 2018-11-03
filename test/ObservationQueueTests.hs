@@ -4,7 +4,6 @@ import           Control.Eff.Concurrent
 import           Data.Typeable
 import           Control.Eff
 import           GHC.Stack
-import           Control.Lens
 
 data FooApi deriving Typeable
 

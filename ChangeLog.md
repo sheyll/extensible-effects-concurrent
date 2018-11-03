@@ -2,6 +2,17 @@
 
 ## 0.9.0
 
+- Make `ForkIOScheduler` faster and more robust
+- Add `ProcessExitReason`
+- Add `ProcessState`
+- Add `ShutdownRequest` type
+- Rewrite logging to be a `Reader` of a `LogWriter`
+- Remove pure logging, the `Logs...` constraint must be
+  accompanied by `Lifted IO` (or `MonadIO`) in many log functions
+  most prominently `logMsg`
+- Add a `lmDistance` field in `LogMessage`
+- Add `increaseLogMessageDistance` and `dropDistantLogMessages`
+  using the new `lmDistance` field
 - Add a newtype for the argument to selective receives: `MessageSelector`
 - Add a `makeReference` function to `Process` which will return process local
   unique `Int`s
@@ -135,10 +146,6 @@
 - Change `Api.Server` `serve` to loop instead of handling just one request
 - Allow combining multiple `ApiHandler` such that one process can handle
   multiple APIs
-
-### TODO
-
-- Add `Kill` action to `Process`
 
 ## 0.1.3.0
 
