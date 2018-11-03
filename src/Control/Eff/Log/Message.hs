@@ -249,7 +249,7 @@ setLogMessageThreadId m = do
 -- | Handle a 'Logs' effect for 'String' messages by re-logging the messages
 -- as 'LogMessage's with 'debugSeverity'.
 relogAsDebugMessages
-  :: (HasCallStack, Member (Logs LogMessage) e)
+  :: (HasCallStack, Member (Logs LogMessage) e, MonadIO (Eff e))
   => Eff (Logs String ': e) a
   -> Eff e a
 relogAsDebugMessages e = withFrozenCallStack

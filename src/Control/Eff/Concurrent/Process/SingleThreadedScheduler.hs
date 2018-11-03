@@ -68,11 +68,11 @@ scheduleMonadIOEff = -- schedule (lift yield)
 --
 -- @since 0.4.0.0
 scheduleIOWithLogging
-  :: (NFData l, MonadIO m)
-  => (l -> m ())
-  -> Eff (ConsProcess '[Logs l, Lift m]) a
-  -> m (Either String a)
-scheduleIOWithLogging handleLog = scheduleIO (handleLogsLifted handleLog)
+  :: (NFData l)
+  => (l -> IO ())
+  -> Eff (ConsProcess '[Logs l, Lift IO]) a
+  -> IO (Either String a)
+scheduleIOWithLogging handleLog = scheduleIO (handleLogsWith handleLog)
 
 -- | Handle the 'Process' effect, as well as all lower effects using an effect handler function.
 --
@@ -118,15 +118,14 @@ data OnYield r a where
           -> (ResumeProcess ProcessId -> Eff r (OnYield r a))
           -> OnYield r a
   OnDone :: !a -> OnYield r a
-  OnShutdown :: OnYield r a
-  OnExitError :: !String -> OnYield r a
+  OnShutdown :: ShutdownRequest -> OnYield r a
   OnRaiseError :: !String -> OnYield r a
   OnSend :: !ProcessId -> !Dynamic
          -> (ResumeProcess Bool -> Eff r (OnYield r a))
          -> OnYield r a
   OnRecv :: MessageSelector b -> (ResumeProcess b -> Eff r (OnYield r a))
          -> OnYield r a
-  OnSendShutdown :: !ProcessId -> (ResumeProcess Bool -> Eff r (OnYield r a)) -> OnYield r a
+  OnSendShutdown :: !ProcessId -> !ShutdownRequest -> (ResumeProcess Bool -> Eff r (OnYield r a)) -> OnYield r a
   OnMakeReference :: (ResumeProcess Int -> Eff r (OnYield r a)) -> OnYield r a
 
 -- | Internal 'Process' handler function.
@@ -153,15 +152,14 @@ handleProcess runEff yieldEff !newPid !nextRef !msgQs allProcs@((!processState, 
                              rest
     in
       case processState of
-        OnDone r                   -> handleExit (Right r)
+        OnDone       r                 -> handleExit (Right r)
 
-        OnShutdown -> handleExit (Left "process exited normally")
+        OnShutdown ExitNormally -> handleExit (Left "process exited normally")
+        OnShutdown   (ExitWithError e) -> handleExit (Left e)
 
-        OnRaiseError errM          -> handleExit (Left errM)
+        OnRaiseError errM              -> handleExit (Left errM)
 
-        OnExitError  errM          -> handleExit (Left errM)
-
-        OnSendShutdown targetPid k -> do
+        OnSendShutdown targetPid sr k  -> do
           let allButTarget =
                 Seq.filter (\(_, e) -> e /= pid && e /= targetPid) allProcs
               targets     = Seq.filter (\(_, e) -> e == targetPid) allProcs
@@ -169,7 +167,7 @@ handleProcess runEff yieldEff !newPid !nextRef !msgQs allProcs@((!processState, 
               targetFound = suicide || not (Seq.null targets)
           if suicide
             then do
-              nextK <- runEff $ k ShutdownRequested
+              nextK <- runEff $ k (ShutdownRequested sr)
               handleProcess runEff
                             yieldEff
                             newPid
@@ -177,20 +175,20 @@ handleProcess runEff yieldEff !newPid !nextRef !msgQs allProcs@((!processState, 
                             msgQs
                             (rest :|> (nextK, pid))
             else do
-              let deliverTheGoodNews (targetState, tPid) = do
-                    nextTargetState <- case targetState of
-                      OnSendShutdown _ tk -> tk ShutdownRequested
-                      OnYield tk          -> tk ShutdownRequested
-                      OnSelf  tk          -> tk ShutdownRequested
-                      OnSend _ _ tk       -> tk ShutdownRequested
-                      OnRecv  _ tk        -> tk ShutdownRequested
-                      OnSpawn _ tk        -> tk ShutdownRequested
-                      OnDone x            -> return (OnDone x)
-                      OnShutdown          -> return OnShutdown
-                      OnExitError  er     -> return (OnExitError er)
-                      OnRaiseError er     -> return (OnExitError er)
-                      OnMakeReference tk  -> tk ShutdownRequested
-                    return (nextTargetState, tPid)
+              let
+                deliverTheGoodNews (targetState, tPid) = do
+                  nextTargetState <- case targetState of
+                    OnSendShutdown _ _ tk -> tk (ShutdownRequested sr)
+                    OnYield tk            -> tk (ShutdownRequested sr)
+                    OnSelf  tk            -> tk (ShutdownRequested sr)
+                    OnSend _ _ tk         -> tk (ShutdownRequested sr)
+                    OnRecv  _ tk          -> tk (ShutdownRequested sr)
+                    OnSpawn _ tk          -> tk (ShutdownRequested sr)
+                    OnDone          x     -> return (OnDone x)
+                    OnShutdown      _     -> return (OnShutdown sr)
+                    OnRaiseError er -> return (OnShutdown (ExitWithError er))
+                    OnMakeReference tk    -> tk (ShutdownRequested sr)
+                  return (nextTargetState, tPid)
               nextTargets <- runEff $ traverse deliverTheGoodNews targets
               nextK       <- runEff $ k (ResumeWith targetFound)
               handleProcess
@@ -305,17 +303,16 @@ runAsCoroutinePure
 runAsCoroutinePure runEff = runEff . handle_relay (return . OnDone) cont
  where
   cont :: Process r x -> (x -> Eff r (OnYield r v)) -> Eff r (OnYield r v)
-  cont YieldProcess                  k  = return (OnYield k)
-  cont SelfPid                       k  = return (OnSelf k)
-  cont (Spawn e)                     k  = return (OnSpawn e k)
-  cont Shutdown                      _k = return OnShutdown
-  cont (ExitWithError !e    )        _k = return (OnExitError e)
-  cont (RaiseError    !e    )        _k = return (OnRaiseError e)
-  cont (SendMessage !tp !msg)        k  = return (OnSend tp msg k)
-  cont ReceiveMessage k = return (OnRecv (MessageSelector Just) k)
-  cont (ReceiveMessageSuchThat f   ) k  = return (OnRecv f k)
-  cont (SendShutdown           !pid) k  = return (OnSendShutdown pid k)
-  cont MakeReference                 k  = return (OnMakeReference k)
+  cont YieldProcess               k  = return (OnYield k)
+  cont SelfPid                    k  = return (OnSelf k)
+  cont (Spawn      e        )     k  = return (OnSpawn e k)
+  cont (Shutdown   !sr      )     _k = return (OnShutdown sr)
+  cont (RaiseError !e       )     _k = return (OnRaiseError e)
+  cont (SendMessage !tp !msg)     k  = return (OnSend tp msg k)
+  cont ReceiveMessage             k  = return (OnRecv (MessageSelector Just) k)
+  cont (ReceiveMessageSuchThat f) k  = return (OnRecv f k)
+  cont (SendShutdown !pid !sr   ) k  = return (OnSendShutdown pid sr k)
+  cont MakeReference              k  = return (OnMakeReference k)
 
 -- | The concrete list of 'Eff'ects for running this pure scheduler on @IO@ and
 -- with string logging.

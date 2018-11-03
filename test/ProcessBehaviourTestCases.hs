@@ -27,12 +27,14 @@ import           Control.Monad
 import           Test.Tasty
 import           Test.Tasty.HUnit
 import           Common
-import Debug.Trace
+import           Debug.Trace
 
 test_forkIo :: TestTree
 test_forkIo = setTravisTestOptions
-  (withTestLogC ForkIO.schedule
-                (\factory -> testGroup "ForkIOScheduler" [allTests factory])
+  (withTestLogC
+    (handleLoggingAndIO_
+      (schedule (\factory -> testGroup "ForkIOScheduler" [allTests factory]))
+    )
   )
 
 test_singleThreaded :: TestTree
@@ -111,16 +113,16 @@ returnToSenderServer
 returnToSenderServer px = asServer <$> spawn
   (serve px $ def
     { _callCallback = Just
-                      (\m k -> case m of
-                        StopReturnToSender -> do
-                          k ()
-                          return (StopApiServer Nothing)
-                        ReturnToSender fromP echoMsg -> do
-                          ok <- sendMessageChecked px fromP (toDyn echoMsg)
-                          yieldProcess px
-                          k ok
-                          return HandleNextRequest
-                      )
+                        (\m k -> case m of
+                          StopReturnToSender -> do
+                            k ()
+                            return (StopApiServer Nothing)
+                          ReturnToSender fromP echoMsg -> do
+                            ok <- sendMessageChecked px fromP (toDyn echoMsg)
+                            yieldProcess px
+                            k ok
+                            return HandleNextRequest
+                        )
     }
   )
 
@@ -403,9 +405,9 @@ concurrencyTests schedulerFactory
               (foreverCheap (void (sendMessage px 888 (toDyn ""))))
             True <- sendMessageChecked px child1 (toDyn "test")
             traceM "now receiveMessageAs"
-            i    <- receiveMessageAs px
+            i <- receiveMessageAs px
             traceM ("receiveMessageAs returned " ++ show i)
-            True <- sendShutdownChecked px child2
+            True <- sendShutdownChecked px child2 ExitNormally
             traceM "sendShutdownChecked"
             assertEff "" (i == "test")
         , testCase "most processes send foreverCheap"
@@ -440,7 +442,7 @@ concurrencyTests schedulerFactory
             traverse_
               (\(i :: Int) -> spawn $ do
                 when (i `rem` 5 == 0) $ void $ sendMessage px me (toDyn i)
-                foreverCheap $ void (sendShutdown px 999)
+                foreverCheap $ void (sendShutdown px 999 ExitNormally)
               )
               [0 .. n]
             oks <- replicateM (length [0, 5 .. n]) (receiveMessageAs px)
@@ -521,8 +523,10 @@ exitTests schedulerFactory =
             , ( "sending"
               , void (send (SendMessage @r 44444 (toDyn "test message")))
               )
-            , ("sending shutdown", void (send (SendShutdown @r 44444)))
-            , ("selfpid-ing"     , void (send (SelfPid @r)))
+            , ( "sending shutdown"
+              , void (send (SendShutdown @r 44444 ExitNormally))
+              )
+            , ("selfpid-ing", void (send (SelfPid @r)))
             , ( "spawn-ing"
               , void (send (Spawn @r (void (send (ReceiveMessage @r)))))
               )
@@ -541,8 +545,10 @@ exitTests schedulerFactory =
             , ( "sending"
               , void (send (SendMessage @r 44444 (toDyn "test message")))
               )
-            , ("sending shutdown", void (send (SendShutdown @r 44444)))
-            , ("selfpid-ing"     , void (send (SelfPid @r)))
+            , ( "sending shutdown"
+              , void (send (SendShutdown @r 44444 ExitNormally))
+              )
+            , ("selfpid-ing", void (send (SelfPid @r)))
             , ( "spawn-ing"
               , void (send (Spawn @r (void (send (ReceiveMessage @r)))))
               )
@@ -564,7 +570,7 @@ exitTests schedulerFactory =
                   lift (threadDelay 1000)
                   doExit
                 lift (threadDelay 100000)
-                wasStillRunningP1 <- sendShutdownChecked px p1
+                wasStillRunningP1 <- sendShutdownChecked px p1 ExitNormally
                 assertEff "the other process was still running"
                           wasStillRunningP1
           | (busyWith , busyEffect) <-
@@ -572,8 +578,10 @@ exitTests schedulerFactory =
             , ( "sending"
               , void (send (SendMessage @r 44444 (toDyn "test message")))
               )
-            , ("sending shutdown", void (send (SendShutdown @r 44444)))
-            , ("selfpid-ing"     , void (send (SelfPid @r)))
+            , ( "sending shutdown"
+              , void (send (SendShutdown @r 44444 ExitNormally))
+              )
+            , ("selfpid-ing", void (send (SelfPid @r)))
             , ( "spawn-ing"
               , void (send (Spawn @r (void (send (ReceiveMessage @r)))))
               )
@@ -586,7 +594,7 @@ exitTests schedulerFactory =
             , ( "sendShutdown to self"
               , do
                 me <- self px
-                void (sendShutdown px me)
+                void (sendShutdown px me ExitNormally)
               )
             ]
           ]
@@ -605,18 +613,18 @@ sendShutdownTests schedulerFactory =
         "sendShutdown"
         [ testCase "... self" $ applySchedulerFactory schedulerFactory $ do
           me <- self px
-          void $ sendShutdown px me
+          void $ sendShutdown px me ExitNormally
           raiseError px "sendShutdown must not return"
         , testCase "... self low-level"
         $ scheduleAndAssert schedulerFactory
         $ \assertEff -> do
             me <- self px
-            r  <- send (SendShutdown @r me)
+            r  <- send (SendShutdown @r me ExitNormally)
             assertEff
               "ShutdownRequested must be returned"
               (case r of
-                ShutdownRequested -> True
-                _                 -> False
+                ShutdownRequested ExitNormally -> True
+                _                              -> False
               )
         , testGroup
           "... other process"
@@ -629,7 +637,7 @@ sendShutdownTests schedulerFactory =
                   untilShutdown (SendMessage @r 666 (toDyn "test"))
                   void (sendMessage px me (toDyn "OK"))
                 )
-              void (sendShutdown px other)
+              void (sendShutdown px other ExitNormally)
               a <- receiveMessageAs px
               assertEff "" (a == "OK")
           , testCase "while it is receiving"
@@ -641,7 +649,7 @@ sendShutdownTests schedulerFactory =
                   untilShutdown (ReceiveMessage @r)
                   void (sendMessage px me (toDyn "OK"))
                 )
-              void (sendShutdown px other)
+              void (sendShutdown px other ExitNormally)
               a <- receiveMessageAs px
               assertEff "" (a == "OK")
           , testCase "while it is self'ing"
@@ -653,7 +661,7 @@ sendShutdownTests schedulerFactory =
                   untilShutdown (SelfPid @r)
                   void (sendMessage px me (toDyn "OK"))
                 )
-              void (sendShutdown px other)
+              void (sendShutdown px other (ExitWithError "testError"))
               a <- receiveMessageAs px
               assertEff "" (a == "OK")
           , testCase "while it is spawning"
@@ -665,7 +673,7 @@ sendShutdownTests schedulerFactory =
                   untilShutdown (Spawn @r (return ()))
                   void (sendMessage px me (toDyn "OK"))
                 )
-              void (sendShutdown px other)
+              void (sendShutdown px other ExitNormally)
               a <- receiveMessageAs px
               assertEff "" (a == "OK")
           , testCase "while it is sending shutdown messages"
@@ -674,10 +682,10 @@ sendShutdownTests schedulerFactory =
               me    <- self px
               other <- spawn
                 (do
-                  untilShutdown (SendShutdown @r 777)
+                  untilShutdown (SendShutdown @r 777 ExitNormally)
                   void (sendMessage px me (toDyn "OK"))
                 )
-              void (sendShutdown px other)
+              void (sendShutdown px other ExitNormally)
               a <- receiveMessageAs px
               assertEff "" (a == "OK")
           ]

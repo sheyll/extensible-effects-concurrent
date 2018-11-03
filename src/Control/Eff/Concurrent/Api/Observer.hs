@@ -36,6 +36,7 @@ import           Control.Eff.Concurrent.Api
 import           Control.Eff.Concurrent.Api.Client
 import           Control.Eff.Concurrent.Api.Server
 import           Control.Eff.Log
+import           Control.Eff.Lift
 import           Control.Eff.State.Strict
 import           Control.Lens
 
@@ -200,9 +201,6 @@ spawnCallbackObserver px onObserve = spawnServerWithEffects
     return
       (if continueObservation then HandleNextRequest else StopApiServer Nothing)
 
-
--- | Use 'spawnCallbackObserver' to create a universal logging observer,
--- using the 'Show' instance of the 'Observation'.
 -- | Start a new process for an 'Observer' that schedules
 -- all observations to an effectful callback.
 --
@@ -214,6 +212,7 @@ spawnLoggingObserver
      , Show (Observation o)
      , Observable o
      , Member (Logs LogMessage) q
+     , Lifted IO q
      , HasCallStack
      )
   => SchedulerProxy q

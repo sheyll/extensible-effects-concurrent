@@ -1,38 +1,46 @@
 module LoggingTests where
 
 import           Control.Eff
+import           Control.Eff.Lift
 import           Control.Eff.Log
 import           Test.Tasty
 import           Test.Tasty.HUnit
 import           Common
+import           Control.Concurrent.STM
 import           Control.DeepSeq
+import           Control.Monad.IO.Class
 import qualified Data.Sequence                 as Seq
 
 
-demo :: Member (Logs String) e => Eff e ()
+demo
+  :: (Member (Logs String) e, Member (Logs OtherLogMsg) e, MonadIO (Eff e))
+  => Eff e ()
 demo = do
   logMsg "jo"
-  logMsg "test 123"
+  logMsg (OtherLogMsg "test 123")
 
 
 test_loggingInterception :: TestTree
 test_loggingInterception = setTravisTestOptions $ testGroup
   "Intercept Logging"
   [ testCase "Convert Log Message Type" $ do
-      let (((), strLogs), otherLogs) = run
-            (captureLogs @OtherLogMsg
-              (captureLogs @String (interceptLogging toOtherLogMsg demo))
-            )
-      assertEqual "string logs must be empty" Seq.empty strLogs
-      assertEqual "other logs should contain all logging"
-                  (Seq.fromList [OtherLogMsg "jo", OtherLogMsg "test 123"])
-                  otherLogs
+      otherLogsQueue  <- newTQueueIO @OtherLogMsg
+      stringLogsQueue <- newTQueueIO @String
+      runLift
+        (handleLogsWith
+          (atomically . writeTQueue stringLogsQueue)
+          (handleLogsWith (atomically . writeTQueue otherLogsQueue)
+                          (interceptLogging reverseStringLogs demo)
+          )
+        )
+      otherLogs <- atomically (flushTQueue otherLogsQueue)
+      strLogs   <- atomically (flushTQueue stringLogsQueue)
+      assertEqual "string logs" ["oj"]                   strLogs
+      assertEqual "other logs"  [OtherLogMsg "test 123"] otherLogs
   ]
 
 newtype OtherLogMsg = OtherLogMsg String deriving (Eq, NFData, Show)
 
-toOtherLogMsg :: ('[Logs String, Logs OtherLogMsg] <:: e) => String -> Eff e ()
-toOtherLogMsg = logMsg . OtherLogMsg
-
-demo2 :: Member (Logs LogMessage) e => Eff e ()
-demo2 = relogAsDebugMessages demo
+reverseStringLogs
+  :: ('[Logs String, Lift IO] <:: e, MonadIO (Eff e)) => String -> Eff e ()
+reverseStringLogs = logMsg . reverse

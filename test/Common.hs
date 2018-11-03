@@ -9,6 +9,7 @@ import           Control.Eff.Lift
 import           Control.Monad                  ( void )
 import           Test.Tasty
 import           Test.Tasty.HUnit
+import           Control.Monad.IO.Class
 import           Test.Tasty.Runners
 
 setTravisTestOptions :: TestTree -> TestTree
@@ -40,18 +41,15 @@ testLogC = forkLogger 100 printLogMessage Nothing
 testLogJoin :: LogChannel LogMessage -> IO ()
 testLogJoin = joinLogChannel
 
-tlog :: Member (Logs LogMessage) r => String -> Eff r ()
-tlog = logInfo . (logPrefix ++)
-
-logPrefix :: String
-logPrefix = "[TEST] "
+tlog :: (Member (Logs LogMessage) r, MonadIO (Eff r)) => String -> Eff r ()
+tlog = logInfo
 
 untilShutdown :: Member t r => t (ResumeProcess v) -> Eff r ()
 untilShutdown pa = do
   r <- send pa
   case r of
-    ShutdownRequested -> return ()
-    _                 -> untilShutdown pa
+    ShutdownRequested _ -> return ()
+    _                   -> untilShutdown pa
 
 scheduleAndAssert
   :: forall r

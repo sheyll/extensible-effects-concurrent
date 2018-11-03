@@ -45,6 +45,7 @@ import           Control.Eff.Concurrent.Process ( ProcessId(..)
                                                 , MessageSelector(..)
                                                 , ProcessState(..)
                                                 , ProcessExitReason(..)
+                                                , ShutdownRequest(..)
                                                 , thisSchedulerProxy
                                                 , executeAndCatch
                                                 , executeAndResume
@@ -69,6 +70,7 @@ import           Control.Eff.Concurrent.Process ( ProcessId(..)
                                                 , raiseError
                                                 , catchRaisedError
                                                 , ignoreProcessError
+                                                , logProcessExit
                                                 )
 import           Control.Eff.Concurrent.Api     ( Api
                                                 , Synchronicity(..)
