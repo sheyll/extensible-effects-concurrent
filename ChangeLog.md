@@ -1,5 +1,9 @@
 # Changelog for extensible-effects-concurrent
 
+## 0.9.1 (WIP)
+
+- Improve some show instances and logging
+
 ## 0.9.0
 
 - Make `ForkIOScheduler` faster and more robust

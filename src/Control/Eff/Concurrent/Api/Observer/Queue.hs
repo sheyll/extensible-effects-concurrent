@@ -35,7 +35,7 @@ newtype ObservationQueue a = ObservationQueue (TBQueue (Observation a))
 type ObservationQueueReader a = Reader (ObservationQueue a)
 
 logPrefix :: forall o proxy . (HasCallStack, Typeable o) => proxy o -> String
-logPrefix px = "<observation queue " ++ show (typeRep px) ++ ">"
+logPrefix px = "observation queue: " ++ show (typeRep px)
 
 -- | Read queued observations captured by observing a 'Server' that implements
 -- an 'Observable' 'Api' using 'enqueueObservationsRegistered' or 'enqueueObservations'.

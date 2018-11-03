@@ -72,16 +72,11 @@ data Synchronicity =
 newtype Server api = Server { _fromServer :: ProcessId }
   deriving (Eq,Ord,Typeable)
 
-instance Read (Server api) where
-  readsPrec _ ('[':'#':rest1) =
-    case reads (dropWhile (/= '#') rest1) of
-      [(c, ']':rest2)] -> [(Server c, rest2)]
-      _ -> []
-  readsPrec _ _ = []
 
 instance Typeable api => Show (Server api) where
-  show s@(Server c) =
-    "[#" ++ show (typeRep s) ++ "#" ++ show c ++ "]"
+  showsPrec d s@(Server c) =
+    showParen (d >= 10)
+      (showsPrec 11 (typeRep s) . showsPrec 11 c)
 
 makeLenses ''Server
 

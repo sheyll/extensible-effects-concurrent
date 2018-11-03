@@ -550,5 +550,5 @@ logProcessExit ex = withFrozenCallStack $ case ex of
   ProcessShutDown (ExitWithError m) -> logError ("exit with error: " ++ show m)
   ProcessCaughtIOException w m ->
     logError ("runtime exception: " ++ m ++ " caught here: " ++ w)
-  ProcessRaisedError m -> logError ("unhandled process exception: " ++ show m)
-  _                    -> logError ("scheduler error: " ++ show ex)
+  ProcessRaisedError m  -> logError ("unhandled process exception: " ++ show m)
+  SchedulerShuttingDown -> logInfo "scheduler schutting down"
