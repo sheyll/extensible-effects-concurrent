@@ -21,27 +21,38 @@ test_loopTests
       in
           setTravisTestOptions $ testGroup
               "Loops without space leaks"
-              [ testCase "scheduleMonadIOEff with many yields from replicateCheapM_" $ do
-                  res <-
-                      Scheduler.scheduleIOWithLogging
-                          ($! (putStrLn . (">>> " ++)))
-                      $ replicateCheapM_ soMany
-                      $ yieldProcess SP
-                  res @=? Right ()
-              , testCase "replicateCheapM_ of strict Int increments via the state effect" $ do
-                  let
-                      res = run
-                          (execState
-                              (0 :: Int)
-                              (replicateCheapM_ soMany $ modify (force . (+ 1)))
-                          )
-                  res @=? soMany
-              , testCase
-               "'foreverCheap' inside a child process and 'replicateCheapM_' in the main process"
+              [ testCase
+                      "scheduleMonadIOEff with many yields from replicateCheapM_"
                   $ do
                         res <-
                             Scheduler.scheduleIOWithLogging
+                                (multiMessageLogWriter
                                     ($! (putStrLn . (">>> " ++)))
+                                )
+                            $ replicateCheapM_ soMany
+                            $ yieldProcess SP
+                        res @=? Right ()
+              , testCase
+                      "replicateCheapM_ of strict Int increments via the state effect"
+                  $ do
+                        let
+                            res = run
+                                (execState
+                                    (0 :: Int)
+                                    ( replicateCheapM_ soMany
+                                    $ modify (force . (+ 1))
+                                    )
+                                )
+                        res @=? soMany
+              , testCase
+                      "'foreverCheap' inside a child process and 'replicateCheapM_' in the main process"
+                  $ do
+                        res <-
+                            Scheduler.scheduleIOWithLogging
+                                    (multiMessageLogWriter
+                                        ($! (putStrLn . (">>> " ++)))
+                                    )
+
                                 $ do
                                       me <- self SP
                                       spawn_
@@ -61,35 +72,43 @@ test_loopWithLeaksTests
       in
           setTravisTestOptions $ testGroup
               "Loops WITH space leaks"
-              [ testCase "scheduleMonadIOEff with many yields from replicateM_" $ do
-                    res <-
-                        Scheduler.scheduleIOWithLogging
-                            ($! (putStrLn . (">>> " ++)))
-                        $ replicateM_ soMany
-                        $ yieldProcess SP
-                    res @=? Right ()
-                , testCase "replicateM_ of strict Int increments via the state effect" $ do
-                    let
-                        res = run
-                            (execState
-                                (0 :: Int)
-                                (replicateM_ soMany $ modify (force . (+ 1)))
-                            )
-                    res @=? soMany
-                , testCase
-                        "'forever' inside a child process and 'replicateM_' in the main process"
-                    $ do
+              [ testCase "scheduleMonadIOEff with many yields from replicateM_"
+                  $ do
                         res <-
                             Scheduler.scheduleIOWithLogging
+                                (multiMessageLogWriter
                                     ($! (putStrLn . (">>> " ++)))
+                                )
+                            $ replicateM_ soMany
+                            $ yieldProcess SP
+                        res @=? Right ()
+              , testCase
+                      "replicateM_ of strict Int increments via the state effect"
+                  $ do
+                        let
+                            res =
+                                run
+                                    (execState
+                                        (0 :: Int)
+                                        ( replicateM_ soMany
+                                        $ modify (force . (+ 1))
+                                        )
+                                    )
+                        res @=? soMany
+              , testCase
+                      "'forever' inside a child process and 'replicateM_' in the main process"
+                  $ do
+                        res <-
+                            Scheduler.scheduleIOWithLogging
+                                    (multiMessageLogWriter
+                                        ($! (putStrLn . (">>> " ++)))
+                                    )
                                 $ do
-                                        me <- self SP
-                                        spawn_
-                                            (forever $ sendMessageAs SP me ()
-                                            )
-                                        replicateM_
-                                            soMany
-                                            (void (receiveMessageAs @() SP))
+                                      me <- self SP
+                                      spawn_ (forever $ sendMessageAs SP me ())
+                                      replicateM_
+                                          soMany
+                                          (void (receiveMessageAs @() SP))
 
                         res @=? Right ()
-            ]
+              ]

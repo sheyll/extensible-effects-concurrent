@@ -61,7 +61,6 @@ import           Control.Eff.Log.Handler
 import           Control.Eff.Log.Message
 import           Control.Lens
 import           Control.Monad                  ( void )
-import           Control.Monad.IO.Class
 import           Data.Default
 import           Data.Dynamic
 import           Data.Kind
@@ -540,10 +539,7 @@ instance Show ProcessId where
 makeLenses ''ProcessId
 
 -- | Log the 'ProcessExitReaons'
-logProcessExit
-  :: ('[Logs LogMessage] <:: e, MonadIO (Eff e), HasCallStack)
-  => ProcessExitReason
-  -> Eff e ()
+logProcessExit :: (HasCallStack, HasLogWriter LogMessage h e) => ProcessExitReason -> Eff e ()
 logProcessExit ex = withFrozenCallStack $ case ex of
   ProcessReturned                   -> logDebug "returned"
   ProcessShutDown ExitNormally      -> logDebug "shutdown"

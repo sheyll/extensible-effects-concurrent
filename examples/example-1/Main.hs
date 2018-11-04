@@ -38,10 +38,8 @@ mainProcessSpawnsAChildAndReturns px = void (spawn (void (receiveMessage px)))
 example
   :: ( HasCallStack
      , SetMember Process (Process q) r
-     , Member (Logs LogMessage) r
-     , Member (Logs LogMessage) q
-     , SetMember Lift (Lift IO) q
-     , SetMember Lift (Lift IO) r
+     , HasLoggingIO r
+     , HasLoggingIO q
      )
   => SchedulerProxy q
   -> Eff r ()
@@ -75,15 +73,11 @@ example px = do
 
 testServerLoop
   :: forall r q
-   . ( HasCallStack
-     , Member (Logs LogMessage) q
-     , SetMember Lift (Lift IO) q
-     , SetMember Process (Process q) r
-     )
+   . (HasCallStack, SetMember Process (Process q) r, HasLoggingIO q)
   => SchedulerProxy q
   -> Eff r (Server TestApi)
 testServerLoop px = spawnServer px
-  $ ApiHandler (Just handleCastTest) (Just handleCallTest) Nothing -- (Just handleTerminateTest)
+  $ apiHandler handleCastTest handleCallTest handleTerminateTest
  where
   handleCastTest
     :: Api TestApi 'Asynchronous -> Eff (Process q ': q) ApiServerCmd
@@ -143,7 +137,7 @@ testServerLoop px = spawnServer px
     logInfo (show me ++ " exiting with error: " ++ msg)
     void (reply ())
     exitWithError px msg
-  -- handleTerminateTest msg = do
-  --   me <- self px
-  --   logInfo (show me ++ " is exiting: " ++ show msg)
-  --   maybe (exitNormally px) (exitWithError px) msg
+  handleTerminateTest msg = do
+    me <- self px
+    logInfo (show me ++ " is exiting: " ++ show msg)
+    maybe (exitNormally px) (exitWithError px) msg

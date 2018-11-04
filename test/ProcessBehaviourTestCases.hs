@@ -30,23 +30,20 @@ import           Common
 import           Debug.Trace
 
 test_forkIo :: TestTree
-test_forkIo = setTravisTestOptions
-  (withTestLogC (\c lc -> handleLoggingAndIO_ (ForkIO.schedule c) lc)
-                (\factory -> testGroup "ForkIOScheduler" [allTests factory])
-  )
+test_forkIo = setTravisTestOptions $ withTestLogC
+  (\c lc -> handleLoggingAndIO_ (ForkIO.schedule c) lc)
+  (\factory -> testGroup "ForkIOScheduler" [allTests factory])
+
 
 test_singleThreaded :: TestTree
-test_singleThreaded = setTravisTestOptions
-  (withTestLogC
-    (\e logC ->
+test_singleThreaded = setTravisTestOptions $ withTestLogC
+  (\e logC ->
         -- void (runLift (logToChannel logC (SingleThreaded.schedule (return ()) e)))
-      let runEff :: Eff '[Logs LogMessage, Lift IO] a -> IO a
-          runEff = runLift . logToChannel logC
-      in  void $ SingleThreaded.scheduleM runEff yield e
-    )
-    (\factory -> testGroup "SingleThreadedScheduler" [allTests factory])
+    let runEff :: Eff '[Logs LogMessage, Lift IO] a -> IO a
+        runEff = flip handleLoggingAndIO logC
+    in  void $ SingleThreaded.scheduleM runEff yield e
   )
-
+  (\factory -> testGroup "SingleThreadedScheduler" [allTests factory])
 
 allTests
   :: forall r
@@ -66,7 +63,6 @@ allTests schedulerFactory = localOption
     , selectiveReceiveTests schedulerFactory
     ]
   )
-
 
 data ReturnToSender
   deriving Typeable
@@ -604,10 +600,12 @@ sendShutdownTests
    . (Member (Logs LogMessage) r, SetMember Lift (Lift IO) r)
   => IO (Eff (Process r ': r) () -> IO ())
   -> TestTree
-sendShutdownTests schedulerFactory =
-  let px :: SchedulerProxy r
+sendShutdownTests schedulerFactory
+  = let
+      px :: SchedulerProxy r
       px = SchedulerProxy
-  in  testGroup
+    in
+      testGroup
         "sendShutdown"
         [ testCase "... self" $ applySchedulerFactory schedulerFactory $ do
           me <- self px
@@ -618,7 +616,8 @@ sendShutdownTests schedulerFactory =
         $ \assertEff -> do
             me <- self px
             r  <- send (SendShutdown @r me ExitNormally)
-            traceShowM (show me ++": returned from SendShutdow to self " ++ show r)
+            traceShowM
+              (show me ++ ": returned from SendShutdow to self " ++ show r)
             assertEff
               "ShutdownRequested must be returned"
               (case r of

@@ -14,8 +14,8 @@ import           Control.Monad
 
 main :: IO ()
 main = do
-  ForkIO.defaultMain (counterExample SchedulerProxy)
-  Pure.defaultMain (counterExample SchedulerProxy)
+  ForkIO.defaultMain (void (counterExample SchedulerProxy))
+  print $ Pure.schedulePure (counterExample SchedulerProxy)
 
 -- * First API
 
@@ -37,7 +37,7 @@ instance Observable Counter where
   forgetObserverMessage = UnobserveCounter
 
 logCounterObservations
-  :: (SetMember Process (Process q) r, Member (Logs LogMessage) q, Lifted IO q)
+  :: (SetMember Process (Process q) r, HasLogging m q)
   => SchedulerProxy q
   -> Eff r (Server (CallbackObserver Counter))
 logCounterObservations px = spawnCallbackObserver
@@ -49,12 +49,13 @@ logCounterObservations px = spawnCallbackObserver
   )
 
 counterHandler
-  :: forall r q
+  :: forall r q m
    . ( Member (State (Observers Counter)) r
      , Member (State Integer) r
-     , Member (Logs LogMessage) r
+     , HasLogging m q
+     , HasLogging m r
      , SetMember Process (Process q) r
-     , Lifted IO r
+     , Lifted m r
      )
   => SchedulerProxy q
   -> ApiHandler Counter r
@@ -90,11 +91,10 @@ data instance Api PocketCalc x where
 deriving instance Show (Api PocketCalc x)
 
 pocketCalcHandler
-  :: forall r q
+  :: forall r q m
    . ( Member (State Integer) r
-     , Member (Logs LogMessage) r
+     , HasLogging m r
      , SetMember Process (Process q) r
-     , Lifted IO r
      )
   => SchedulerProxy q
   -> ApiHandler PocketCalc r
@@ -118,11 +118,8 @@ pocketCalcHandler _ = castAndCallHandler handleCastCalc handleCallCalc
     return HandleNextRequest
 
 serverLoop
-  :: forall r q
-   . ( Member (Logs LogMessage) r
-     , SetMember Process (Process q) r
-     , Lifted IO r
-     )
+  :: forall r q m
+   . (HasLogging m r, HasLogging m q, SetMember Process (Process q) r)
   => SchedulerProxy q
   -> Eff r ()
 serverLoop px = evalState @Integer
@@ -130,22 +127,16 @@ serverLoop px = evalState @Integer
   (manageObservers @Counter (serve px (counterHandler px, pocketCalcHandler px))
   )
 
-
 -- ** Counter client
 counterExample
-  :: ( SetMember Process (Process q) r
-     , Member (Logs LogMessage) q
-     , Member (Logs LogMessage) r
-     , Lifted IO q
-     , Lifted IO r
-     , q <:: r
-     )
+  :: (SetMember Process (Process q) r, HasLogging m r, HasLogging m q, q <:: r)
   => SchedulerProxy q
-  -> Eff r ()
-counterExample px = do
+  -> Eff r Integer
+counterExample px = execState (0 :: Integer) $ do
   let cnt sv = do
         r <- call px sv Cnt
         logInfo (show sv ++ " " ++ show r)
+        modify (+ r)
   pid1 <- spawn (serverLoop px)
   pid2 <- spawn (serverLoop px)
   let cntServer1  = asServer @Counter pid1

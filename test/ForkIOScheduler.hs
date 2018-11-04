@@ -3,9 +3,10 @@ module ForkIOScheduler where
 import           Control.Exception
 import           Control.Concurrent
 import           Control.Concurrent.STM
-import           Control.Eff.Loop
 import           Control.Eff.Extend
 import           Control.Eff.Lift
+import           Control.Eff.Log
+import           Control.Eff.Loop
 import           Control.Eff.Concurrent.Process
 import           Control.Eff.Concurrent.Process.ForkIOScheduler
                                                as Scheduler
@@ -14,6 +15,7 @@ import           Test.Tasty
 import           Test.Tasty.HUnit
 import           Data.Dynamic
 import           Common
+import           Data.Default
 
 test_IOExceptionsIsolated :: TestTree
 test_IOExceptionsIsolated = setTravisTestOptions $ testGroup
@@ -26,18 +28,23 @@ test_IOExceptionsIsolated = setTravisTestOptions $ testGroup
         )
       $ do
           aVar <- newEmptyTMVarIO
-          lc   <- testLogC
-          Scheduler.defaultMainWithLogChannel lc $ do
-            p1 <- spawn $ foreverCheap busyEffect
-            lift (threadDelay 1000)
-            void $ spawn $ do
-              lift (threadDelay 1000)
-              doExit
-            lift (threadDelay 100000)
-            wasStillRunningP1 <- sendShutdownChecked forkIoScheduler
-                                                     p1
-                                                     ExitNormally
-            lift (atomically (putTMVar aVar wasStillRunningP1))
+          withAsyncLogChannel
+            1000
+            def
+            (Scheduler.defaultMainWithLogChannel
+              (do
+                p1 <- spawn $ foreverCheap busyEffect
+                lift (threadDelay 1000)
+                void $ spawn $ do
+                  lift (threadDelay 1000)
+                  doExit
+                lift (threadDelay 100000)
+                wasStillRunningP1 <- sendShutdownChecked forkIoScheduler
+                                                         p1
+                                                         ExitNormally
+                lift (atomically (putTMVar aVar wasStillRunningP1))
+              )
+            )
 
           wasStillRunningP1 <- atomically (takeTMVar aVar)
           assertBool "the other process was still running" wasStillRunningP1
@@ -67,11 +74,12 @@ test_mainProcessSpawnsAChildAndReturns :: TestTree
 test_mainProcessSpawnsAChildAndReturns = setTravisTestOptions
   (testCase
     "spawn a child and return"
-    (do
-      lc <- testLogC
-      Scheduler.defaultMainWithLogChannel
-        lc
+    (withAsyncLogChannel
+      1000
+      def
+      (Scheduler.defaultMainWithLogChannel
         (void (spawn (void (receiveMessage forkIoScheduler))))
+      )
     )
   )
 
@@ -79,15 +87,16 @@ test_mainProcessSpawnsAChildAndExitsNormally :: TestTree
 test_mainProcessSpawnsAChildAndExitsNormally = setTravisTestOptions
   (testCase
     "spawn a child and exit normally"
-    (do
-      lc <- testLogC
-      Scheduler.defaultMainWithLogChannel
-        lc
+    (withAsyncLogChannel
+      1000
+      def
+      (Scheduler.defaultMainWithLogChannel
         (do
           void (spawn (void (receiveMessage forkIoScheduler)))
           void (exitNormally forkIoScheduler)
           fail "This should not happen!!"
         )
+      )
     )
   )
 
@@ -97,10 +106,10 @@ test_mainProcessSpawnsAChildInABusySendLoopAndExitsNormally =
   setTravisTestOptions
     (testCase
       "spawn a child with a busy send loop and exit normally"
-      (do
-        lc <- testLogC
-        Scheduler.defaultMainWithLogChannel
-          lc
+      (withAsyncLogChannel
+        1000
+        def
+        (Scheduler.defaultMainWithLogChannel
           (do
             void
               (spawn
@@ -111,6 +120,7 @@ test_mainProcessSpawnsAChildInABusySendLoopAndExitsNormally =
             void (exitNormally forkIoScheduler)
             fail "This should not happen!!"
           )
+        )
       )
     )
 
@@ -119,15 +129,16 @@ test_mainProcessSpawnsAChildBothReturn :: TestTree
 test_mainProcessSpawnsAChildBothReturn = setTravisTestOptions
   (testCase
     "spawn a child and let it return and return"
-    (do
-      lc <- testLogC
-      Scheduler.defaultMainWithLogChannel
-        lc
+    (withAsyncLogChannel
+      1000
+      def
+      (Scheduler.defaultMainWithLogChannel
         (do
           child <- spawn (void (receiveMessageAs @String forkIoScheduler))
           True  <- sendMessageChecked forkIoScheduler child (toDyn "test")
           return ()
         )
+      )
     )
   )
 
@@ -135,10 +146,10 @@ test_mainProcessSpawnsAChildBothExitNormally :: TestTree
 test_mainProcessSpawnsAChildBothExitNormally = setTravisTestOptions
   (testCase
     "spawn a child and let it exit and exit"
-    (do
-      lc <- testLogC
-      Scheduler.defaultMainWithLogChannel
-        lc
+    (withAsyncLogChannel
+      1000
+      def
+      (Scheduler.defaultMainWithLogChannel
         (do
           child <- spawn
             (do
@@ -150,5 +161,6 @@ test_mainProcessSpawnsAChildBothExitNormally = setTravisTestOptions
           void (exitNormally forkIoScheduler)
           error "This should not happen!!"
         )
+      )
     )
   )

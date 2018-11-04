@@ -6,11 +6,14 @@ import           Control.Eff
 import           Control.Eff.Extend
 import           Control.Eff.Log
 import           Control.Eff.Lift
-import           Control.Monad                  ( void )
+import           Control.Monad                  ( void
+                                                , when
+                                                )
 import           Test.Tasty
 import           Test.Tasty.HUnit
 import           Test.Tasty.Runners
 import           GHC.Stack
+import           Control.Lens
 
 setTravisTestOptions :: TestTree -> TestTree
 setTravisTestOptions =
@@ -23,26 +26,20 @@ withTestLogC
   :: (e -> LogChannel LogMessage -> IO ())
   -> (IO (e -> IO ()) -> TestTree)
   -> TestTree
-withTestLogC doSchedule k = withResource
-  testLogC
-  testLogJoin
-  (\logCFactory -> k
-    (return
-      (\e -> do
-        logC <- logCFactory
-        doSchedule e logC
-        -- doSchedule e nullLogChannel
+withTestLogC doSchedule k =
+  k
+  (return
+    (\e -> withAsyncLogChannel
+      1000
+      (multiMessageLogWriter
+        (\writeWith ->
+          writeWith
+            (\m -> when (view lmSeverity m < debugSeverity) (printLogMessage m))
+        )
       )
+      (doSchedule e)
     )
   )
-
-testLogC :: IO (LogChannel LogMessage)
-testLogC =
-  -- filterLogChannel ((< informationalSeverity) . _lmSeverity) <$>
-  forkLogger 1000 printLogMessage Nothing
-
-testLogJoin :: LogChannel LogMessage -> IO ()
-testLogJoin = joinLogChannel
 
 untilShutdown :: Member t r => t (ResumeProcess v) -> Eff r ()
 untilShutdown pa = do

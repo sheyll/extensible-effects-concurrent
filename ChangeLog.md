@@ -2,7 +2,10 @@
 
 ## 0.9.1 (WIP)
 
-- Improve some show instances and logging
+- Improve some Show instances, e.g. ProcessId
+- Rewrite Logging API:
+  - Vastly simplified API
+
 
 ## 0.9.0
 

@@ -8,11 +8,8 @@ import           Test.Tasty.HUnit
 import           Common
 import           Control.Concurrent.STM
 import           Control.DeepSeq
-import           Control.Monad.IO.Class
 
-demo
-  :: (Member (Logs String) e, Member (Logs OtherLogMsg) e, MonadIO (Eff e))
-  => Eff e ()
+demo :: (HasLogWriterIO String e, HasLogWriterIO OtherLogMsg e) => Eff e ()
 demo = do
   logMsg "jo"
   logMsg (OtherLogMsg "test 123")
@@ -25,12 +22,15 @@ test_loggingInterception = setTravisTestOptions $ testGroup
       otherLogsQueue  <- newTQueueIO @OtherLogMsg
       stringLogsQueue <- newTQueueIO @String
       runLift
-        (handleLogsWith
-          (atomically . writeTQueue stringLogsQueue)
-          (handleLogsWith (atomically . writeTQueue otherLogsQueue)
-                          (interceptLogging reverseStringLogs demo)
+        (handleLogs
+          (multiMessageLogWriter ($ (atomically . writeTQueue stringLogsQueue)))
+          (handleLogs
+            (multiMessageLogWriter ($ (atomically . writeTQueue otherLogsQueue))
+            )
+            demo -- (mapLogMessages (reverse @String) demo)
           )
         )
+
       otherLogs <- atomically (flushTQueue otherLogsQueue)
       strLogs   <- atomically (flushTQueue stringLogsQueue)
       assertEqual "string logs" ["oj"]                   strLogs
@@ -38,7 +38,3 @@ test_loggingInterception = setTravisTestOptions $ testGroup
   ]
 
 newtype OtherLogMsg = OtherLogMsg String deriving (Eq, NFData, Show)
-
-reverseStringLogs
-  :: ('[Logs String, Lift IO] <:: e, MonadIO (Eff e)) => String -> Eff e ()
-reverseStringLogs = logMsg . reverse

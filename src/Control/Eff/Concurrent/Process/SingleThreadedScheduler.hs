@@ -36,8 +36,16 @@ import           Data.Maybe
 -- @schedulePure == runIdentity . 'scheduleM' (Identity . run)  (return ())@
 --
 -- @since 0.3.0.2
-schedulePure :: Eff (ConsProcess '[]) a -> Either String a
-schedulePure = runIdentity . scheduleM (Identity . run) (return ())
+schedulePure
+  :: (  HasLogWriterProxy Identity
+     => Eff (ConsProcess '[LogsM LogMessage Identity, Lift Identity]) a
+     )
+  -> Either String a
+schedulePure e = runIdentity
+  (scheduleM (runLift . handleLogs traceLogMessageWriter)
+             (return ())
+             (usingLogWriterProxy (LogWriterProxy @Identity) e)
+  )
 
 -- | Invoke 'schedule' with @lift 'Control.Concurrent.yield'@ as yield effect.
 -- @scheduleIO runEff == 'scheduleM' (runLift . runEff) (liftIO 'yield')@
@@ -69,10 +77,10 @@ scheduleMonadIOEff = -- schedule (lift yield)
 -- @since 0.4.0.0
 scheduleIOWithLogging
   :: (NFData l)
-  => (l -> IO ())
+  => LogWriter l IO
   -> Eff (ConsProcess '[Logs l, Lift IO]) a
   -> IO (Either String a)
-scheduleIOWithLogging handleLog = scheduleIO (handleLogsWith handleLog)
+scheduleIOWithLogging h = scheduleIO (handleLogs h)
 
 -- | Handle the 'Process' effect, as well as all lower effects using an effect handler function.
 --
@@ -334,5 +342,5 @@ defaultMain
 defaultMain =
   void
     . runLift
-    . handleLogsWithLoggingTHandler ($ printLogMessage)
+    . handleLogs (multiMessageLogWriter ($ printLogMessage))
     . scheduleMonadIOEff

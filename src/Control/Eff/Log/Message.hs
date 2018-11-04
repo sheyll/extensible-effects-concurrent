@@ -2,9 +2,14 @@
 -- logging them.
 module Control.Eff.Log.Message
   ( LogMessage(..)
+  , HasLogging
+  , HasLoggingIO
   , renderRFC5424
   , printLogMessage
-  , relogAsDebugMessages
+  , ioLogMessageHandler
+  , ioLogMessageWriter
+  , traceLogMessageWriter
+  , renderLogMessage
   , increaseLogMessageDistance
   , dropDistantLogMessages
   , logWithSeverity
@@ -85,10 +90,12 @@ import           Control.Lens
 import           Control.Monad                  ( (>=>) )
 import           Control.Monad.IO.Class
 import           Data.Default
+import           Data.Foldable
 import           Data.Maybe
 import           Data.String
 import           Data.Time.Clock
 import           Data.Time.Format
+import           Debug.Trace
 import           GHC.Generics
 import           GHC.Stack
 import           System.FilePath.Posix
@@ -110,6 +117,13 @@ data LogMessage =
              , _lmDistance :: Int }
   deriving (Eq, Generic)
 
+-- | A convenient alias for the constraints that enable logging of 'LogMessage's
+-- in the monad, which is 'Lift'ed into a given @Eff@ effect list.
+type HasLogging writerM effect = (HasLogWriter LogMessage writerM effect)
+
+-- | Like 'HasLogging' but with 'IO' as effect.
+type HasLoggingIO effect = (HasLogWriterIO LogMessage effect)
+
 showLmMessage :: LogMessage -> [String]
 showLmMessage (LogMessage _f _s _ts _hn _an _pid _mi _sd ti loc msg _dist) =
   if null msg
@@ -126,6 +140,12 @@ showLmMessage (LogMessage _f _s _ts _hn _an _pid _mi _sd ti loc msg _dist) =
             )
           )
           loc
+
+-- | A 'LogWriter' that applys 'renderLogMessage' to the log message and then
+-- traces it using 'traceM'.
+traceLogMessageWriter :: Monad m => LogWriter LogMessage m
+traceLogMessageWriter =
+  foldingLogWriter (traverse_ (traceM . renderLogMessage))
 
 
 -- | Render a 'LogMessage' human readable.
@@ -237,53 +257,62 @@ instance IsString LogMessage where
 printLogMessage :: LogMessage -> IO ()
 printLogMessage = setLogMessageTimestamp >=> putStrLn . renderLogMessage
 
+-- | Set a timestamp (if not set), the thread id (if not set) using IO actions
+-- then /write/ the log message using the 'IO' and 'String' based 'LogWriter'.
+ioLogMessageWriter
+  :: HasCallStack => LogWriter String IO -> LogWriter LogMessage IO
+ioLogMessageWriter delegatee = foldingLogWriter
+  (   traverse setLogMessageTimestamp
+  >=> traverse setLogMessageThreadId
+  >=> (writeAllLogMessages delegatee . fmap renderLogMessage)
+  )
+
+-- | Use 'ioLogMessageWriter' to /handle/ logging using 'handleLogs'.
+ioLogMessageHandler
+  :: (HasCallStack, Lifted IO e)
+  => LogWriter String IO
+  -> (HasLogWriterProxy IO => Eff (Logs LogMessage ': e) a)
+  -> Eff e a
+ioLogMessageHandler delegatee = handleLogs (ioLogMessageWriter delegatee)
+
 -- | An IO action that sets the current UTC time (see 'enableLogMessageTimestamps')
 -- in 'lmTimestamp'.
 setLogMessageTimestamp :: MonadIO m => LogMessage -> m LogMessage
-setLogMessageTimestamp m = do
-  now <- liftIO getCurrentTime
-  return (m & lmTimestamp ?~ now)
+setLogMessageTimestamp m = if isNothing (m ^. lmTimestamp)
+  then do
+    now <- liftIO getCurrentTime
+    return (m & lmTimestamp ?~ now)
+  else return m
 
 -- | An IO action appends the the 'ThreadId' of the calling process (see 'myThreadId')
 -- to 'lmMessage'.
 setLogMessageThreadId :: MonadIO m => LogMessage -> m LogMessage
-setLogMessageThreadId m = do
-  t <- liftIO myThreadId
-  return (m & lmThreadId ?~ t)
+setLogMessageThreadId m = if isNothing (m ^. lmThreadId)
+  then do
+    t <- liftIO myThreadId
+    return (m & lmThreadId ?~ t)
+  else return m
 
 -- | Increase the /distance/ of log messages by one.
 -- Logs can be filtered by their distance with 'dropDistantLogMessages'
 increaseLogMessageDistance
-  :: (HasCallStack, Member (Logs LogMessage) e, MonadIO (Eff e), Lifted IO e)
-  => Eff e a
-  -> Eff e a
-increaseLogMessageDistance = interceptLogging (logMsg . over lmDistance (+ 1))
+  :: (HasCallStack, HasLogWriter LogMessage h e) => Eff e a -> Eff e a
+increaseLogMessageDistance = mapLogMessages (over lmDistance (+ 1))
 
 -- | Drop all log messages with an 'lmDistance' greater than the given
 -- value.
-dropDistantLogMessages
-  :: (SetMember Lift (Lift IO) r, Member (Logs LogMessage) r)
-  => Int
-  -> Eff r a
-  -> Eff r a
-dropDistantLogMessages maxDistance = foldLogMessages
-  (\lm -> if lm ^. lmDistance > maxDistance then Nothing else Just lm)
-
--- | Handle a 'Logs' effect for 'String' messages by re-logging the messages
--- as 'LogMessage's with 'debugSeverity'.
-relogAsDebugMessages
-  :: (HasCallStack, Member (Logs LogMessage) e, MonadIO (Eff e))
-  => Eff (Logs String ': e) a
-  -> Eff e a
-relogAsDebugMessages e = withFrozenCallStack
-  (do
-    LogWriter logMsgLogger <- askLogWriter
-    handleLogsWith (logMsgLogger . debugMessage) e
-  )
+dropDistantLogMessages :: (HasLogging m r) => Int -> Eff r a -> Eff r a
+dropDistantLogMessages maxDistance =
+  filterLogMessages (\lm -> lm ^. lmDistance <= maxDistance)
 
 -- | Log a 'String' as 'LogMessage' with a given 'Severity'.
 logWithSeverity
-  :: (HasCallStack, Member (Logs LogMessage) e, MonadIO (Eff e))
+  :: ( HasLogWriterProxy h
+     , HasCallStack
+     , Monad h
+     , Member (LogsM LogMessage h) e
+     , Lifted h e
+     )
   => Severity
   -> String
   -> Eff e ()
@@ -296,56 +325,96 @@ logWithSeverity !s =
 
 -- | Log a 'String' as 'emergencySeverity'.
 logEmergency
-  :: (HasCallStack, Member (Logs LogMessage) e, MonadIO (Eff e))
+  :: ( HasCallStack
+     , HasLogWriterProxy h
+     , Monad h
+     , Member (LogsM LogMessage h) e
+     , Lifted h e
+     )
   => String
   -> Eff e ()
 logEmergency = withFrozenCallStack (logWithSeverity emergencySeverity)
 
 -- | Log a message with 'alertSeverity'.
 logAlert
-  :: (HasCallStack, Member (Logs LogMessage) e, MonadIO (Eff e))
+  :: ( HasCallStack
+     , HasLogWriterProxy h
+     , Monad h
+     , Member (LogsM LogMessage h) e
+     , Lifted h e
+     )
   => String
   -> Eff e ()
 logAlert = withFrozenCallStack (logWithSeverity alertSeverity)
 
 -- | Log a 'criticalSeverity' message.
 logCritical
-  :: (HasCallStack, Member (Logs LogMessage) e, MonadIO (Eff e))
+  :: ( HasCallStack
+     , HasLogWriterProxy h
+     , Monad h
+     , Member (LogsM LogMessage h) e
+     , Lifted h e
+     )
   => String
   -> Eff e ()
 logCritical = withFrozenCallStack (logWithSeverity criticalSeverity)
 
 -- | Log a 'errorSeverity' message.
 logError
-  :: (HasCallStack, Member (Logs LogMessage) e, MonadIO (Eff e))
+  :: ( HasCallStack
+     , HasLogWriterProxy h
+     , Monad h
+     , Member (LogsM LogMessage h) e
+     , Lifted h e
+     )
   => String
   -> Eff e ()
 logError = withFrozenCallStack (logWithSeverity errorSeverity)
 
 -- | Log a 'warningSeverity' message.
 logWarning
-  :: (HasCallStack, Member (Logs LogMessage) e, MonadIO (Eff e))
+  :: ( HasCallStack
+     , HasLogWriterProxy h
+     , Monad h
+     , Member (LogsM LogMessage h) e
+     , Lifted h e
+     )
   => String
   -> Eff e ()
 logWarning = withFrozenCallStack (logWithSeverity warningSeverity)
 
 -- | Log a 'noticeSeverity' message.
 logNotice
-  :: (HasCallStack, Member (Logs LogMessage) e, MonadIO (Eff e))
+  :: ( HasCallStack
+     , HasLogWriterProxy h
+     , Monad h
+     , Member (LogsM LogMessage h) e
+     , Lifted h e
+     )
   => String
   -> Eff e ()
 logNotice = withFrozenCallStack (logWithSeverity noticeSeverity)
 
 -- | Log a 'informationalSeverity' message.
 logInfo
-  :: (HasCallStack, Member (Logs LogMessage) e, MonadIO (Eff e))
+  :: ( HasCallStack
+     , HasLogWriterProxy h
+     , Monad h
+     , Member (LogsM LogMessage h) e
+     , Lifted h e
+     )
   => String
   -> Eff e ()
 logInfo = withFrozenCallStack (logWithSeverity informationalSeverity)
 
 -- | Log a 'debugSeverity' message.
 logDebug
-  :: (HasCallStack, Member (Logs LogMessage) e, MonadIO (Eff e))
+  :: ( HasLogWriterProxy h
+     , HasCallStack
+     , Monad h
+     , Member (LogsM LogMessage h) e
+     , Lifted h e
+     )
   => String
   -> Eff e ()
 logDebug = withFrozenCallStack (logWithSeverity debugSeverity)

@@ -36,7 +36,6 @@ import           Control.Eff.Concurrent.Api
 import           Control.Eff.Concurrent.Api.Client
 import           Control.Eff.Concurrent.Api.Server
 import           Control.Eff.Log
-import           Control.Eff.Lift
 import           Control.Eff.State.Strict
 import           Control.Lens
 
@@ -180,12 +179,12 @@ instance (Observable o) => Observer (CallbackObserver o) o where
 -- | Start a new process for an 'Observer' that schedules
 -- all observations to an effectful callback.
 spawnCallbackObserver
-  :: forall o r q
+  :: forall o r q logWriter
    . ( SetMember Process (Process q) r
      , Typeable o
      , Show (Observation o)
      , Observable o
-     , Member (Logs LogMessage) q
+     , HasLogging logWriter q
      , HasCallStack
      )
   => SchedulerProxy q
@@ -206,13 +205,12 @@ spawnCallbackObserver px onObserve = spawnServerWithEffects
 --
 -- @since 0.3.0.0
 spawnLoggingObserver
-  :: forall o r q
+  :: forall o r q logWriter
    . ( SetMember Process (Process q) r
      , Typeable o
      , Show (Observation o)
      , Observable o
-     , Member (Logs LogMessage) q
-     , Lifted IO q
+     , HasLogging logWriter q
      , HasCallStack
      )
   => SchedulerProxy q

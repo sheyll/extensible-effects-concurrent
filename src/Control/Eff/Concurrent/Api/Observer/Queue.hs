@@ -47,7 +47,7 @@ readObservationQueue
      , HasCallStack
      , MonadIO (Eff r)
      , Typeable o
-     , Member (Logs LogMessage) r
+     , HasLoggingIO r
      )
   => Eff r (Observation o)
 readObservationQueue = do
@@ -65,7 +65,7 @@ tryReadObservationQueue
      , HasCallStack
      , MonadIO (Eff r)
      , Typeable o
-     , Member (Logs LogMessage) r
+     , HasLoggingIO r
      )
   => Eff r (Maybe (Observation o))
 tryReadObservationQueue = do
@@ -82,7 +82,7 @@ flushObservationQueue
      , HasCallStack
      , MonadIO (Eff r)
      , Typeable o
-     , Member (Logs LogMessage) r
+     , HasLoggingIO r
      )
   => Eff r [Observation o]
 flushObservationQueue = do
@@ -99,11 +99,9 @@ enqueueObservationsRegistered
      , Typeable o
      , Show (Observation o)
      , Observable o
-     , Member (Logs LogMessage) q
-     , MonadIO (Eff (Process q ': q))
-     , MonadIO (Eff r)
-     , SetMember Lift (Lift IO) r
-     , Member (Logs LogMessage) r
+     , HasLoggingIO q
+     , HasLoggingIO r
+     , Lifted IO r
      , HasCallStack
      )
   => SchedulerProxy q
@@ -126,11 +124,9 @@ enqueueObservations
      , Typeable o
      , Show (Observation o)
      , Observable o
-     , Member (Logs LogMessage) q
-     , MonadIO (Eff (Process q ': q))
-     , MonadIO (Eff r)
-     , SetMember Lift (Lift IO) r
-     , Member (Logs LogMessage) r
+     , HasLoggingIO r
+     , HasLoggingIO q
+     , Lifted IO q
      , HasCallStack
      )
   => SchedulerProxy q
@@ -180,13 +176,7 @@ enqueueObservations px oSvr queueLimit k = withQueue
 
 withQueue
   :: forall a b e
-   . ( HasCallStack
-     , MonadIO (Eff e)
-     , Member (Logs LogMessage) e
-     , Typeable a
-     , Show (Observation a)
-     , SetMember Lift (Lift IO) e
-     )
+   . (HasCallStack, Typeable a, Show (Observation a), HasLoggingIO e)
   => Int
   -> Eff (ObservationQueueReader a ': e) b
   -> Eff e b
