@@ -54,7 +54,7 @@ firstExample px = do
 **Running** this example causes this output:
 (_not entirely true because of async logging, but true enough_)
 
-```text
+```
 2018-11-05T10:50:42 DEBUG     scheduler loop entered                                                   ForkIOScheduler.hs line 131
 2018-11-05T10:50:42 DEBUG            !1 [ThreadId 11] enter process                                                            ForkIOScheduler.hs line 437
 2018-11-05T10:50:42 NOTICE           !1 [ThreadId 11] ++++++++ main process started ++++++++                                   ForkIOScheduler.hs line 394
