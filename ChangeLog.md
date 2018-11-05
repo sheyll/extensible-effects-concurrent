@@ -1,6 +1,10 @@
 # Changelog for extensible-effects-concurrent
 
-## 0.9.1 (WIP)
+## 0.9.2
+
+- Try to adapt the dependency versions to make hackage happy again
+
+## 0.9.1
 
 - Add smart constructors for `MessageSelector`
 - Remove `ReceiveMessage` `Process` action
