@@ -3,10 +3,6 @@ module Main where
 
 import           Data.Dynamic
 import           Control.Eff
-import qualified Control.Eff.Concurrent.Process.ForkIOScheduler
-                                               as ForkIO
-import qualified Control.Eff.Concurrent.Process.SingleThreadedScheduler
-                                               as Pure
 import           Control.Eff.Concurrent
 import           Control.Eff.State.Strict
 import           Control.Eff.Lift
@@ -14,8 +10,8 @@ import           Control.Monad
 
 main :: IO ()
 main = do
-  ForkIO.defaultMain (void (counterExample SchedulerProxy))
-  print $ Pure.schedulePure (counterExample SchedulerProxy)
+  defaultMain (void (counterExample SchedulerProxy))
+  print (schedulePure (counterExample SchedulerProxy))
 
 -- * First API
 
