@@ -44,6 +44,8 @@ import           Control.Applicative
 import           Data.Kind
 import           GHC.Stack
 import           Data.Maybe
+import           GHC.Generics
+import           Control.DeepSeq
 import           Data.Default
 
 -- | A record of callbacks, handling requests sent to a /server/ 'Process', all
@@ -174,8 +176,9 @@ data ApiServerCmd where
   -- optional reason.
   StopApiServer :: Maybe String -> ApiServerCmd
   --  SendReply :: reply -> ApiServerCmd () -> ApiServerCmd (reply -> Eff eff ())
-  deriving (Show, Typeable)
+  deriving (Show, Typeable, Generic)
 
+instance NFData ApiServerCmd
 
 makeLenses ''ApiHandler
 
@@ -202,7 +205,7 @@ makeLenses ''ServerCallback
 
 instance Semigroup (ServerCallback eff) where
   l <> r = l & requestHandlerSelector .~
-                  MessageSelector (\x ->
+                  selectDynamicMessageLazy (\x ->
                     runMessageSelector (view requestHandlerSelector l) x <|>
                     runMessageSelector (view requestHandlerSelector r) x)
              & terminationHandler .~
@@ -213,7 +216,7 @@ instance Semigroup (ServerCallback eff) where
 instance Monoid (ServerCallback eff) where
   mappend = (<>)
   mempty = ServerCallback
-              { _requestHandlerSelector = MessageSelector (const Nothing)
+              { _requestHandlerSelector = selectDynamicMessageLazy (const Nothing)
               , _terminationHandler = const (return ())
               }
 
@@ -335,7 +338,7 @@ selectHandlerMethod
   -> ApiHandler api eff
   -> MessageSelector (Eff eff ApiServerCmd)
 selectHandlerMethod px handlers =
-  MessageSelector (fmap (applyHandlerMethod px handlers) . fromDynamic)
+  selectDynamicMessageLazy (fmap (applyHandlerMethod px handlers) . fromDynamic)
 
 -- | Apply either the '_callCallback', '_castCallback' or the '_terminateCallback'
 -- callback to an incoming request.
@@ -392,5 +395,4 @@ defaultTermination
   => SchedulerProxy q
   -> Maybe String
   -> Eff r ()
-defaultTermination px =
-  maybe (return ()) (exitWithError px)
+defaultTermination px = maybe (return ()) (exitWithError px)

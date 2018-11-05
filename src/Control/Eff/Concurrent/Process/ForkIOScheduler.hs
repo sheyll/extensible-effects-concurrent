@@ -318,8 +318,7 @@ handleProcess myProcessInfo =
           then diskontinue (ProcessShutDown r)
           else kontinue (ShutdownRequested shutdownRequest)
       Spawn _                  -> kontinue (ShutdownRequested shutdownRequest)
-      ReceiveMessage           -> kontinue (ShutdownRequested shutdownRequest)
-      ReceiveMessageSuchThat _ -> kontinue (ShutdownRequested shutdownRequest)
+      ReceiveSelectedMessage _ -> kontinue (ShutdownRequested shutdownRequest)
       SelfPid                  -> kontinue (ShutdownRequested shutdownRequest)
       MakeReference            -> kontinue (ShutdownRequested shutdownRequest)
       YieldProcess             -> kontinue (ShutdownRequested shutdownRequest)
@@ -342,8 +341,7 @@ handleProcess myProcessInfo =
           then kontinue nextRef (ShutdownRequested msg)
           else interpretSendShutdown toPid msg >>= kontinue nextRef . ResumeWith
       Spawn child              -> spawnNewProcess child >>= kontinue nextRef . ResumeWith . fst
-      ReceiveMessage           -> interpretReceive (MessageSelector Just) >>= kontinue nextRef
-      ReceiveMessageSuchThat f -> interpretReceive f >>= kontinue nextRef
+      ReceiveSelectedMessage f -> interpretReceive f >>= kontinue nextRef
       SelfPid                  -> kontinue nextRef (ResumeWith myPid)
       MakeReference            -> kontinue (nextRef + 1) (ResumeWith nextRef)
       YieldProcess             -> kontinue nextRef (ResumeWith  ())

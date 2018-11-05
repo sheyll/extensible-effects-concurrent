@@ -49,7 +49,9 @@ test_IOExceptionsIsolated = setTravisTestOptions $ testGroup
           wasStillRunningP1 <- atomically (takeTMVar aVar)
           assertBool "the other process was still running" wasStillRunningP1
   | (busyWith , busyEffect) <-
-    [ ("receiving", void (send (ReceiveMessage @SchedulerIO)))
+    [ ( "receiving"
+      , void (send (ReceiveSelectedMessage @SchedulerIO selectAnyMessageLazy))
+      )
     , ( "sending"
       , void (send (SendMessage @SchedulerIO 44444 (toDyn "test message")))
       )
@@ -59,7 +61,14 @@ test_IOExceptionsIsolated = setTravisTestOptions $ testGroup
     , ("selfpid-ing", void (send (SelfPid @SchedulerIO)))
     , ( "spawn-ing"
       , void
-        (send (Spawn @SchedulerIO (void (send (ReceiveMessage @SchedulerIO)))))
+        (send
+          (Spawn @SchedulerIO
+            (void
+              (send (ReceiveSelectedMessage @SchedulerIO selectAnyMessageLazy)
+              )
+            )
+          )
+        )
       )
     ]
   , (howToExit, doExit    ) <-

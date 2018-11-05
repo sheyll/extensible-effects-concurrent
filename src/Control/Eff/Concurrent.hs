@@ -42,7 +42,20 @@ import           Control.Eff.Concurrent.Process ( ProcessId(..)
                                                 , ConsProcess
                                                 , ResumeProcess(..)
                                                 , SchedulerProxy(..)
-                                                , MessageSelector(..)
+                                                , MessageSelector
+                                                  ( runMessageSelector
+                                                  )
+                                                , selectMessage
+                                                , selectMessageLazy
+                                                , selectMessageProxy
+                                                , selectMessageProxyLazy
+                                                , filterMessage
+                                                , filterMessageLazy
+                                                , selectMessageWith
+                                                , selectMessageWithLazy
+                                                , selectDynamicMessage
+                                                , selectDynamicMessageLazy
+                                                , selectAnyMessageLazy
                                                 , ProcessState(..)
                                                 , ProcessExitReason(..)
                                                 , ShutdownRequest(..)
@@ -57,7 +70,7 @@ import           Control.Eff.Concurrent.Process ( ProcessId(..)
                                                 , spawn_
                                                 , receiveMessage
                                                 , receiveMessageAs
-                                                , receiveMessageSuchThat
+                                                , receiveSelectedMessage
                                                 , receiveLoop
                                                 , receiveLoopAs
                                                 , receiveLoopSuchThat

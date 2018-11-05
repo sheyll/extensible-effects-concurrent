@@ -45,6 +45,7 @@ import           Control.Eff.Concurrent.Process
 import           Control.Monad
 import           Data.Foldable
 import           Data.Typeable                  ( Typeable )
+import Control.DeepSeq
 import           System.Timeout
 
 -- | Contains the communication channels to interact with a scheduler running in
@@ -140,7 +141,7 @@ submitCast sc svr request = submit sc (cast SchedulerProxy svr request)
 -- | Combination of 'submit' and 'cast'.
 submitCall
   :: forall o q r
-   . (SetMember Lift (Lift IO) r, Typeable o, Typeable q)
+   . (SetMember Lift (Lift IO) r, Typeable o, Typeable q, NFData q)
   => SchedulerSession r
   -> Server o
   -> Api o ( 'Synchronous q)

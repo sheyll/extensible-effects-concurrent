@@ -2,10 +2,12 @@
 
 ## 0.9.1 (WIP)
 
+- Add smart constructors for `MessageSelector`
+- Remove `ReceiveMessage` `Process` action
+- Rename `ReceiveMessageSuchThat` to `ReceiveSelectedMessage`
 - Improve some Show instances, e.g. ProcessId
 - Rewrite Logging API:
   - Vastly simplified API
-
 
 ## 0.9.0
 
@@ -25,7 +27,7 @@
   unique `Int`s
 - Rename `spawnServer` to `spawnServerWithEffects` and add a simpler version of
   `spawnServerWithEffects` called `spawnServer`
-- Make all  `ApiHandler` handler callbacks optional (by changing the type to `Maybe ...`)
+- Make all `ApiHandler` handler callbacks optional (by changing the type to `Maybe ...`)
 - `ApiHandler` must now return an `ApiServerCmd`.
 - Add `ApiServerCmd` which allows handler functions to leave to server loop without
   exitting the process

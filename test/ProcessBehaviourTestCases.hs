@@ -2,9 +2,7 @@ module ProcessBehaviourTestCases where
 
 import           Data.List                      ( sort )
 import           Data.Foldable                  ( traverse_ )
-import           Data.Dynamic                   ( fromDynamic
-                                                , toDyn
-                                                )
+import           Data.Dynamic                   ( toDyn )
 import           Data.Typeable
 import           Data.Default
 import           Control.Exception
@@ -138,14 +136,8 @@ selectiveReceiveTests schedulerFactory = setTravisTestOptions
             go :: Int -> Eff (Process r ': r) ()
             go 0 = sendMessageAs SP donePid True
             go n = do
-              void $ receiveMessageSuchThat
-                SP
-                (MessageSelector
-                  (\m -> do
-                    i <- fromDynamic m
-                    if i == n then Just i else Nothing
-                  )
-                )
+              void $ receiveSelectedMessage
+                        SP (filterMessage (==n))
               go (n - 1)
 
           senderLoop receviverPid =
@@ -513,7 +505,9 @@ exitTests schedulerFactory =
                   void $ atomically $ takeTMVar schedulerDoneVar
           | e <- [ThreadKilled, UserInterrupt, HeapOverflow, StackOverflow]
           , (busyWith, busyEffect) <-
-            [ ("receiving", void (send (ReceiveMessage @r)))
+            [ ( "receiving"
+              , void (send (ReceiveSelectedMessage @r (filterMessage (=="test message"))))
+              )
             , ( "sending"
               , void (send (SendMessage @r 44444 (toDyn "test message")))
               )
@@ -522,7 +516,14 @@ exitTests schedulerFactory =
               )
             , ("selfpid-ing", void (send (SelfPid @r)))
             , ( "spawn-ing"
-              , void (send (Spawn @r (void (send (ReceiveMessage @r)))))
+              , void
+                (send
+                  (Spawn @r
+                    (void
+                      (send (ReceiveSelectedMessage @r selectAnyMessageLazy))
+                    )
+                  )
+                )
               )
             , ("sleeping", lift (threadDelay 100000))
             ]
@@ -535,7 +536,9 @@ exitTests schedulerFactory =
                 void $ spawn $ foreverCheap busyEffect
                 lift (threadDelay 10000)
           | (busyWith, busyEffect) <-
-            [ ("receiving", void (send (ReceiveMessage @r)))
+            [ ( "receiving"
+              , void (send (ReceiveSelectedMessage @r (filterMessage (=="test message"))))
+              )
             , ( "sending"
               , void (send (SendMessage @r 44444 (toDyn "test message")))
               )
@@ -544,7 +547,14 @@ exitTests schedulerFactory =
               )
             , ("selfpid-ing", void (send (SelfPid @r)))
             , ( "spawn-ing"
-              , void (send (Spawn @r (void (send (ReceiveMessage @r)))))
+              , void
+                (send
+                  (Spawn @r
+                    (void
+                      (send (ReceiveSelectedMessage @r selectAnyMessageLazy))
+                    )
+                  )
+                )
               )
             ]
           ]
@@ -568,7 +578,9 @@ exitTests schedulerFactory =
                 assertEff "the other process was still running"
                           wasStillRunningP1
           | (busyWith , busyEffect) <-
-            [ ("receiving", void (send (ReceiveMessage @r)))
+            [ ( "receiving"
+              , void (send (ReceiveSelectedMessage @r (filterMessage (=="test message"))))
+              )
             , ( "sending"
               , void (send (SendMessage @r 44444 (toDyn "test message")))
               )
@@ -577,7 +589,14 @@ exitTests schedulerFactory =
               )
             , ("selfpid-ing", void (send (SelfPid @r)))
             , ( "spawn-ing"
-              , void (send (Spawn @r (void (send (ReceiveMessage @r)))))
+              , void
+                (send
+                  (Spawn @r
+                    (void
+                      (send (ReceiveSelectedMessage @r selectAnyMessageLazy))
+                    )
+                  )
+                )
               )
             ]
           , (howToExit, doExit    ) <-
@@ -644,7 +663,8 @@ sendShutdownTests schedulerFactory
               me    <- self px
               other <- spawn
                 (do
-                  untilShutdown (ReceiveMessage @r)
+                  untilShutdown
+                    (ReceiveSelectedMessage @r selectAnyMessageLazy)
                   void (sendMessage px me (toDyn "OK"))
                 )
               void (sendShutdown px other ExitNormally)

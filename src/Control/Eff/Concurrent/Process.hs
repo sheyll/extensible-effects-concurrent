@@ -19,7 +19,18 @@ module Control.Eff.Concurrent.Process
   , ConsProcess
   , ResumeProcess(..)
   , SchedulerProxy(..)
-  , MessageSelector(..)
+  , MessageSelector(runMessageSelector)
+  , selectMessage
+  , selectMessageLazy
+  , selectMessageProxy
+  , selectMessageProxyLazy
+  , filterMessage
+  , filterMessageLazy
+  , selectMessageWith
+  , selectMessageWithLazy
+  , selectDynamicMessage
+  , selectDynamicMessageLazy
+  , selectAnyMessageLazy
   , ProcessState(..)
   , ProcessExitReason(..)
   , ShutdownRequest(..)
@@ -34,7 +45,7 @@ module Control.Eff.Concurrent.Process
   , spawn_
   , receiveMessage
   , receiveMessageAs
-  , receiveMessageSuchThat
+  , receiveSelectedMessage
   , receiveLoop
   , receiveLoopAs
   , receiveLoopSuchThat
@@ -60,7 +71,9 @@ import           Control.Eff.Extend
 import           Control.Eff.Log.Handler
 import           Control.Eff.Log.Message
 import           Control.Lens
-import           Control.Monad                  ( void )
+import           Control.Monad                  ( void
+                                                , (>=>)
+                                                )
 import           Data.Default
 import           Data.Dynamic
 import           Data.Kind
@@ -114,12 +127,11 @@ data Process (r :: [Type -> Type]) b where
   -- destination process does not exist, or does not accept messages of the
   -- given type.
   SendMessage :: ProcessId -> Dynamic -> Process r (ResumeProcess Bool)
-  -- | Receive a message. This should block until an a message was received. The
-  -- message is returned as a 'ProcessMessage' value. The function should also
-  -- return if an exception was caught or a shutdown was requested.
-  ReceiveMessage :: Process r (ResumeProcess Dynamic)
-  -- | Wait for the next message that matches a criterium. Similar to 'ReceiveMessage'.
-  ReceiveMessageSuchThat :: MessageSelector a -> Process r (ResumeProcess a)
+  -- | Receive a message that matches a criterium.
+  -- This should block until an a message was received. The message is returned
+  -- as a 'ProcessMessage' value. The function should also return if an exception
+  -- was caught or a shutdown was requested.
+  ReceiveSelectedMessage :: forall r a . MessageSelector a -> Process r (ResumeProcess a)
   -- | Generate a unique 'Int' for the current process.
   MakeReference :: Process r (ResumeProcess Int)
 
@@ -146,8 +158,7 @@ instance Show (Process r b) where
       . showChar ' '
       . showsPrec 10 sr
       )
-    ReceiveMessage           -> showString "ReceiveMessage"
-    ReceiveMessageSuchThat _ -> showString "ReceiveMessageSuchThat"
+    ReceiveSelectedMessage _ -> showString "ReceiveSelectedMessage"
     MakeReference            -> showString "MakeReference"
 
 -- | Every 'Process' action returns it's actual result wrapped in this type. It
@@ -171,11 +182,98 @@ instance NFData a => NFData (ResumeProcess a)
 instance NFData1 ResumeProcess
 
 -- | A function that deciced if the next message will be received by
--- 'ReceiveMessageSuchThat'. It conveniently is an instance of 'Monoid'
+-- 'ReceiveSelectedMessage'. It conveniently is an instance of 'Monoid'
 -- with first come, first serve bais.
 newtype MessageSelector a =
   MessageSelector {runMessageSelector :: Dynamic -> Maybe a }
   deriving (Semigroup, Monoid, Functor)
+
+
+-- | Create a message selector for a value that can be obtained by 'fromDynamic'.
+-- It will also 'force' the result.
+--
+-- @since 0.9.1
+selectMessage :: (NFData t, Typeable t) => MessageSelector t
+selectMessage = selectDynamicMessage fromDynamic
+
+-- | Create a message selector for a value that can be obtained by 'fromDynamic'.
+-- It will also 'force' the result.
+--
+-- @since 0.9.1
+selectMessageLazy :: Typeable t => MessageSelector t
+selectMessageLazy = selectDynamicMessageLazy fromDynamic
+
+-- | Create a message selector from a predicate. It will 'force' the result.
+--
+-- @since 0.9.1
+filterMessage :: (Typeable a, NFData a) => (a -> Bool) -> MessageSelector a
+filterMessage predicate = selectDynamicMessage
+  (\d -> case fromDynamic d of
+    Just a | predicate a -> Just a
+    _                    -> Nothing
+  )
+
+-- | Create a message selector from a predicate. It will 'force' the result.
+--
+-- @since 0.9.1
+filterMessageLazy :: Typeable a => (a -> Bool) -> MessageSelector a
+filterMessageLazy predicate = selectDynamicMessageLazy
+  (\d -> case fromDynamic d of
+    Just a | predicate a -> Just a
+    _                    -> Nothing
+  )
+
+-- | Select a message of type @a@ and apply the given function to it.
+-- If the function returns 'Just' The 'ReceiveSelectedMessage' function will
+-- return the result (sans @Maybe@). It will 'force' the result.
+--
+-- @since 0.9.1
+selectMessageWith
+  :: (Typeable a, NFData b) => (a -> Maybe b) -> MessageSelector b
+selectMessageWith f = selectDynamicMessage (fromDynamic >=> f)
+
+-- | Select a message of type @a@ and apply the given function to it.
+-- If the function returns 'Just' The 'ReceiveSelectedMessage' function will
+-- return the result (sans @Maybe@). It will 'force' the result.
+--
+-- @since 0.9.1
+selectMessageWithLazy :: Typeable a => (a -> Maybe b) -> MessageSelector b
+selectMessageWithLazy f = selectDynamicMessageLazy (fromDynamic >=> f)
+
+-- | Create a message selector. It will 'force' the result.
+--
+-- @since 0.9.1
+selectDynamicMessage :: NFData a => (Dynamic -> Maybe a) -> MessageSelector a
+selectDynamicMessage = MessageSelector . (force .)
+
+-- | Create a message selector.
+--
+-- @since 0.9.1
+selectDynamicMessageLazy :: (Dynamic -> Maybe a) -> MessageSelector a
+selectDynamicMessageLazy = MessageSelector
+
+-- | Create a message selector that will match every message. This is /lazy/
+-- because the result is not 'force'ed.
+--
+-- @since 0.9.1
+selectAnyMessageLazy :: MessageSelector Dynamic
+selectAnyMessageLazy = MessageSelector Just
+
+-- | Create a message selector for a value that can be obtained by 'fromDynamic'
+-- with a proxy argument. It will also 'force' the result.
+--
+-- @since 0.9.1
+selectMessageProxy
+  :: forall proxy t . (NFData t, Typeable t) => proxy t -> MessageSelector t
+selectMessageProxy _ = selectDynamicMessage fromDynamic
+
+-- | Create a message selector for a value that can be obtained by 'fromDynamic'
+-- with a proxy argument. It will also 'force' the result.
+--
+-- @since 0.9.1
+selectMessageProxyLazy
+  :: forall proxy t . (Typeable t) => proxy t -> MessageSelector t
+selectMessageProxyLazy _ = selectDynamicMessageLazy fromDynamic
 
 -- | Every function for 'Process' things needs such a proxy value
 -- for the low-level effect list, i.e. the effects identified by
@@ -375,32 +473,33 @@ receiveMessage
    . (HasCallStack, SetMember Process (Process q) r)
   => SchedulerProxy q
   -> Eff r Dynamic
-receiveMessage _ = executeAndResume ReceiveMessage
+receiveMessage _ =
+  executeAndResume (ReceiveSelectedMessage selectAnyMessageLazy)
 
 -- | Block until a message was received, that is not 'Nothing' after applying
 -- a callback to it.
--- See 'ReceiveMessageSuchThat' for more documentation.
-receiveMessageSuchThat
+-- See 'ReceiveSelectedMessage' for more documentation.
+receiveSelectedMessage
   :: forall r q a
    . (HasCallStack, Typeable a, SetMember Process (Process q) r)
   => SchedulerProxy q
   -> MessageSelector a
   -> Eff r a
-receiveMessageSuchThat _ f = executeAndResume (ReceiveMessageSuchThat f)
+receiveSelectedMessage _ f = executeAndResume (ReceiveSelectedMessage f)
 
 -- | Receive and cast the message to some 'Typeable' instance.
--- See 'ReceiveMessageSuchThat' for more documentation.
--- This will wait for a message of the return type using 'receiveMessageSuchThat'
+-- See 'ReceiveSelectedMessage' for more documentation.
+-- This will wait for a message of the return type using 'receiveSelectedMessage'
 receiveMessageAs
   :: forall a r q
    . (HasCallStack, Typeable a, SetMember Process (Process q) r)
   => SchedulerProxy q
   -> Eff r a
-receiveMessageAs px = receiveMessageSuchThat px (MessageSelector fromDynamic)
+receiveMessageAs px = receiveSelectedMessage px (MessageSelector fromDynamic)
 
 -- | Enter a loop to receive messages and pass them to a callback, until the
 -- function returns 'Just' a result.
--- See 'receiveMesage' or 'ReceiveMessage' for more documentation.
+-- See 'selectAnyMessageLazy' or 'ReceiveSelectedMessage' for more documentation.
 receiveLoop
   :: forall r q endOfLoopResult
    . (SetMember Process (Process q) r, HasCallStack)
@@ -408,7 +507,7 @@ receiveLoop
   -> (Either (Maybe String) Dynamic -> Eff r (Maybe endOfLoopResult))
   -> Eff r endOfLoopResult
 receiveLoop px handlers = do
-  mReq <- send (ReceiveMessage @q)
+  mReq <- send (ReceiveSelectedMessage @q selectAnyMessageLazy)
   mRes <- case mReq of
     RetryLastAction                          -> return Nothing
     ShutdownRequested ExitNormally           -> handlers (Left Nothing)
@@ -427,7 +526,7 @@ receiveLoopAs
   -> (Either (Maybe String) a -> Eff r (Maybe endOfLoopResult))
   -> Eff r endOfLoopResult
 receiveLoopAs px handlers = do
-  mReq <- send (ReceiveMessageSuchThat @a @q (MessageSelector fromDynamic))
+  mReq <- send (ReceiveSelectedMessage @q @a (MessageSelector fromDynamic))
   mRes <- case mReq of
     RetryLastAction                          -> return Nothing
     ShutdownRequested ExitNormally           -> handlers (Left Nothing)
@@ -447,7 +546,7 @@ receiveLoopSuchThat
   -> (Either (Maybe String) a -> Eff r (Maybe endOfLoopResult))
   -> Eff r endOfLoopResult
 receiveLoopSuchThat px selectMesage handlers = do
-  mReq <- send (ReceiveMessageSuchThat @a @q selectMesage)
+  mReq <- send (ReceiveSelectedMessage @q @a selectMesage)
   mRes <- case mReq of
     RetryLastAction                          -> return Nothing
     ShutdownRequested ExitNormally           -> handlers (Left Nothing)
@@ -539,7 +638,10 @@ instance Show ProcessId where
 makeLenses ''ProcessId
 
 -- | Log the 'ProcessExitReaons'
-logProcessExit :: (HasCallStack, HasLogWriter LogMessage h e) => ProcessExitReason -> Eff e ()
+logProcessExit
+  :: (HasCallStack, HasLogWriter LogMessage h e)
+  => ProcessExitReason
+  -> Eff e ()
 logProcessExit ex = withFrozenCallStack $ case ex of
   ProcessReturned                   -> logDebug "returned"
   ProcessShutDown ExitNormally      -> logDebug "shutdown"

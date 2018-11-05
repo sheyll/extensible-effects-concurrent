@@ -257,7 +257,7 @@ handleProcess runEff yieldEff !newPid !nextRef !msgQs allProcs@((!processState, 
                         (msgQs & at newPid ?~ Seq.empty)
                         (rest :|> (nextK, pid) :|> (fk, newPid))
 
-        recv@(OnRecv selectMessage k) -> case msgQs ^. at pid of
+        recv@(OnRecv messageSelector k) -> case msgQs ^. at pid of
           Nothing -> do
             nextK <- runEff $ k (OnError (show pid ++ " has no message queue!"))
             handleProcess runEff
@@ -287,7 +287,7 @@ handleProcess runEff yieldEff !newPid !nextRef !msgQs allProcs@((!processState, 
                 partitionMessages (m :<| msgRest) acc  = maybe
                   (partitionMessages msgRest (acc :|> m))
                   (\res -> Just (res, acc Seq.>< msgRest))
-                  (runMessageSelector selectMessage m)
+                  (runMessageSelector messageSelector m)
             in  case partitionMessages messages Empty of
                   Nothing -> handleProcess runEff
                                            yieldEff
@@ -319,8 +319,7 @@ runAsCoroutinePure runEff = runEff . handle_relay (return . OnDone) cont
   cont (Shutdown   !sr      )     _k = return (OnShutdown sr)
   cont (RaiseError !e       )     _k = return (OnRaiseError e)
   cont (SendMessage !tp !msg)     k  = return (OnSend tp msg k)
-  cont ReceiveMessage             k  = return (OnRecv (MessageSelector Just) k)
-  cont (ReceiveMessageSuchThat f) k  = return (OnRecv f k)
+  cont (ReceiveSelectedMessage f) k  = return (OnRecv f k)
   cont (SendShutdown !pid !sr   ) k  = return (OnSendShutdown pid sr k)
   cont MakeReference              k  = return (OnMakeReference k)
 

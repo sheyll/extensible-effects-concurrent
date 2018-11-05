@@ -23,11 +23,11 @@ import           Control.Eff.Reader.Strict
 import           Control.Eff.Concurrent.Api
 import           Control.Eff.Concurrent.Api.Internal
 import           Control.Eff.Concurrent.Process
-import           Control.Monad                  ( (>=>) )
 import           Data.Dynamic
 import           Data.Typeable                  ( Typeable
                                                 , typeRep
                                                 )
+import           Control.DeepSeq
 import           GHC.Stack
 
 -- | Send an 'Api' request that has no return value and return as fast as
@@ -78,6 +78,7 @@ call
      , Typeable (Api api ( 'Synchronous result))
      , Typeable result
      , HasCallStack
+     , NFData result
      )
   => SchedulerProxy q
   -> Server api
@@ -95,8 +96,8 @@ call px (Server pidInt) req = do
             let extractResult :: Response api result -> Maybe result
                 extractResult (Response _pxResult callRefMsg result) =
                   if callRefMsg == callRef then Just result else Nothing
-            in  MessageSelector (fromDynamic >=> extractResult)
-      in  receiveMessageSuchThat px selectResult
+            in  selectMessageWith extractResult
+      in  receiveSelectedMessage px selectResult
     else raiseError
       px
       (  "failed to send a call for: '"
@@ -135,7 +136,7 @@ whereIsServer = ask
 -- | Like 'call' but take the 'Server' from the reader provided by
 -- 'registerServer'.
 callRegistered
-  :: (Typeable reply, ServesApi o r q, HasCallStack)
+  :: (Typeable reply, ServesApi o r q, HasCallStack, NFData reply)
   => SchedulerProxy q
   -> Api o ( 'Synchronous reply)
   -> Eff r reply
@@ -154,6 +155,7 @@ callRegisteredA
      , Typeable reply
      , ServesApi o r q
      , HasCallStack
+     , NFData (f reply)
      )
   => SchedulerProxy q
   -> Api o ( 'Synchronous (f reply))
