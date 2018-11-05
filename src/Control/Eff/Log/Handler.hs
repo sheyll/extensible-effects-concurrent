@@ -181,7 +181,7 @@ interceptLogging interceptor  =
 
 -- | Map a pure function over log messages.
 mapLogMessages
-  :: forall r m h a
+  :: forall m h r a
    . (HasLogWriter m h r)
   => (m -> m)
   -> (HasLogWriterProxy h => Eff r a)

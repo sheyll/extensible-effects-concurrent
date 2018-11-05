@@ -99,14 +99,16 @@ scheduleIOWithLogging h = scheduleIO (handleLogs h)
 --
 -- @since 0.4.0.0
 scheduleM
-  :: Monad m
+  :: forall m r a
+   . Monad m
   => (forall b . Eff r b -> m b)
   -> m () -- ^ An that performs a __yield__ w.r.t. the underlying effect
   --  @r@. E.g. if @Lift IO@ is present, this might be:
   --  @lift 'Control.Concurrent.yield'.
-  -> Eff (ConsProcess r) a
+  -> (HasLogWriterProxy m => Eff (ConsProcess r) a)
   -> m (Either String a)
-scheduleM runEff yieldEff e = do
+scheduleM runEff yieldEff e' = do
+  let e = (usingLogWriterProxy (LogWriterProxy @m) e')
   y <- runAsCoroutinePure runEff e
   handleProcess runEff
                 yieldEff

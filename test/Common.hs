@@ -26,15 +26,15 @@ withTestLogC
   :: (e -> LogChannel LogMessage -> IO ())
   -> (IO (e -> IO ()) -> TestTree)
   -> TestTree
-withTestLogC doSchedule k =
-  k
+withTestLogC doSchedule k = k
   (return
     (\e -> withAsyncLogChannel
       1000
       (multiMessageLogWriter
         (\writeWith ->
           writeWith
-            (\m -> when (view lmSeverity m < debugSeverity) (printLogMessage m))
+            (\m -> when (view lmSeverity m < noticeSeverity) (printLogMessage m)
+            )
         )
       )
       (doSchedule e)

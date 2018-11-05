@@ -27,7 +27,7 @@ test_loggingInterception = setTravisTestOptions $ testGroup
           (handleLogs
             (multiMessageLogWriter ($ (atomically . writeTQueue otherLogsQueue))
             )
-            demo -- (mapLogMessages (reverse @String) demo)
+            (mapLogMessages @String reverse  demo)
           )
         )
 
