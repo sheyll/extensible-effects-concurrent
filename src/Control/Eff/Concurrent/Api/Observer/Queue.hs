@@ -19,6 +19,7 @@ import           Control.Eff.Log
 import           Control.Eff.Concurrent.Api
 import           Control.Eff.Concurrent.Api.Client
 import           Control.Eff.Concurrent.Api.Observer
+import           Control.Eff.Concurrent.Api.Server
 import           Control.Eff.Reader.Strict
 import           Control.Exception
 import           Control.Monad.IO.Class
@@ -154,7 +155,7 @@ enqueueObservations px oSvr queueLimit k = withQueue
                     (show from)
             )
           liftIO (atomically (writeTBQueue q observation))
-          return True
+          return HandleNextRequest
         )
       logDebug
         (printf "%s started observer process %s"

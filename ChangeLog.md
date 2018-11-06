@@ -1,5 +1,9 @@
 # Changelog for extensible-effects-concurrent
 
+## 0.11.1
+
+- Fix a compilation error
+
 ## 0.11.0
 
 - Change the return type of `spawnCallbackObserver` from

@@ -43,7 +43,7 @@ logCounterObservations px = spawnCallbackObserver
   (\fromSvr msg -> do
     me <- self px
     logInfo (show me ++ " observed on: " ++ show fromSvr ++ ": " ++ show msg)
-    return True
+    return HandleNextRequest
   )
 
 counterHandler
