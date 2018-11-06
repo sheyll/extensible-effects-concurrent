@@ -38,8 +38,8 @@ mainProcessSpawnsAChildAndReturns px = void (spawn (void (receiveMessage px)))
 example
   :: ( HasCallStack
      , SetMember Process (Process q) r
-     , HasLoggingIO r
-     , HasLoggingIO q
+     , HasLogging IO r
+     , HasLogging IO q
      )
   => SchedulerProxy q
   -> Eff r ()
@@ -73,7 +73,7 @@ example px = do
 
 testServerLoop
   :: forall r q
-   . (HasCallStack, SetMember Process (Process q) r, HasLoggingIO q)
+   . (HasCallStack, SetMember Process (Process q) r, HasLogging IO q)
   => SchedulerProxy q
   -> Eff r (Server TestApi)
 testServerLoop px = spawnServer px

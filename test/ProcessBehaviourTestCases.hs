@@ -37,7 +37,7 @@ test_singleThreaded :: TestTree
 test_singleThreaded = setTravisTestOptions $ withTestLogC
   (\e logC ->
         -- void (runLift (logToChannel logC (SingleThreaded.schedule (return ()) e)))
-    let runEff :: Eff '[Logs LogMessage, Lift IO] a -> IO a
+    let runEff :: Eff '[Logs LogMessage, LogWriterReader LogMessage IO, Lift IO] a -> IO a
         runEff = flip handleLoggingAndIO logC
     in  void $ SingleThreaded.scheduleM runEff yield e
   )

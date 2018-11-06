@@ -47,7 +47,7 @@ readObservationQueue
      , HasCallStack
      , MonadIO (Eff r)
      , Typeable o
-     , HasLoggingIO r
+     , HasLogging IO r
      )
   => Eff r (Observation o)
 readObservationQueue = do
@@ -65,7 +65,7 @@ tryReadObservationQueue
      , HasCallStack
      , MonadIO (Eff r)
      , Typeable o
-     , HasLoggingIO r
+     , HasLogging IO r
      )
   => Eff r (Maybe (Observation o))
 tryReadObservationQueue = do
@@ -82,7 +82,7 @@ flushObservationQueue
      , HasCallStack
      , MonadIO (Eff r)
      , Typeable o
-     , HasLoggingIO r
+     , HasLogging IO r
      )
   => Eff r [Observation o]
 flushObservationQueue = do
@@ -99,8 +99,8 @@ enqueueObservationsRegistered
      , Typeable o
      , Show (Observation o)
      , Observable o
-     , HasLoggingIO q
-     , HasLoggingIO r
+     , HasLogging IO q
+     , HasLogging IO r
      , Lifted IO r
      , HasCallStack
      )
@@ -124,8 +124,8 @@ enqueueObservations
      , Typeable o
      , Show (Observation o)
      , Observable o
-     , HasLoggingIO r
-     , HasLoggingIO q
+     , HasLogging IO r
+     , HasLogging IO q
      , Lifted IO q
      , HasCallStack
      )
@@ -176,7 +176,7 @@ enqueueObservations px oSvr queueLimit k = withQueue
 
 withQueue
   :: forall a b e
-   . (HasCallStack, Typeable a, Show (Observation a), HasLoggingIO e)
+   . (HasCallStack, Typeable a, Show (Observation a), HasLogging IO e)
   => Int
   -> Eff (ObservationQueueReader a ': e) b
   -> Eff e b

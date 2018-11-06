@@ -1,5 +1,11 @@
 # Changelog for extensible-effects-concurrent
 
+## 0.10.0
+
+- Re-introduce a Logs Effect but keep the LogWriter Reader
+- Get rid of the LogWriterProxy and the implicit argument
+- Make logging stricter: require log message to be NFData instances
+
 ## 0.9.2
 
 - Try to adapt the dependency versions to make hackage happy again

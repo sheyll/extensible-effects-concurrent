@@ -9,7 +9,7 @@ import           Common
 import           Control.Concurrent.STM
 import           Control.DeepSeq
 
-demo :: (HasLogWriterIO String e, HasLogWriterIO OtherLogMsg e) => Eff e ()
+demo :: ([Logs String, Logs OtherLogMsg] <:: e) => Eff e ()
 demo = do
   logMsg "jo"
   logMsg (OtherLogMsg "test 123")
@@ -22,9 +22,9 @@ test_loggingInterception = setTravisTestOptions $ testGroup
       otherLogsQueue  <- newTQueueIO @OtherLogMsg
       stringLogsQueue <- newTQueueIO @String
       runLift
-        (handleLogs
+        (writeLogs
           (multiMessageLogWriter ($ (atomically . writeTQueue stringLogsQueue)))
-          (handleLogs
+          (writeLogs
             (multiMessageLogWriter ($ (atomically . writeTQueue otherLogsQueue))
             )
             (mapLogMessages @String reverse  demo)

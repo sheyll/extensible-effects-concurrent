@@ -21,7 +21,6 @@ import           Data.Kind                      ( )
 import           Control.DeepSeq
 import           GHC.Stack
 
-
 -- | Fork a new process in which the given log message writer, will listen
 -- on a message queue in a 'LogChannel', which is passed to the second function.
 -- If the function returns or throws, the logging process will be killed.
@@ -68,11 +67,11 @@ withAsyncLogChannel queueLen ioWriter action = do
 -- When the queue is full, flush it
 handleLoggingAndIO
   :: (NFData m, HasCallStack)
-  => (HasLogWriterProxy IO => Eff '[Logs m, Lift IO] a)
+  => Eff '[Logs m, LogWriterReader m IO, Lift IO] a
   -> LogChannel m
   -> IO a
 handleLoggingAndIO e lc = runLift
-  (handleLogs (foldingLogWriter (traverse_ logChannelPutIO)) e)
+  (writeLogs (foldingLogWriter (traverse_ logChannelPutIO)) e)
  where
   logQ = fromLogChannel lc
   logChannelPutIO (force -> me) = do
@@ -86,7 +85,7 @@ handleLoggingAndIO e lc = runLift
 -- | Like 'handleLoggingAndIO' but return @()@.
 handleLoggingAndIO_
   :: (NFData m, HasCallStack)
-  => (HasLogWriterProxy IO => Eff '[Logs m, Lift IO] a)
+  => Eff '[Logs m, LogWriterReader m IO, Lift IO] a
   -> LogChannel m
   -> IO ()
 handleLoggingAndIO_ e lc = void (handleLoggingAndIO e lc)

@@ -122,7 +122,9 @@ newSchedulerState = SchedulerState <$> newTVar 1 <*> newTVar def <*> newTVar def
 -- | Create a new 'SchedulerState' run an IO action, catching all exceptions,
 -- and when the actions returns, clean up and kill all processes.
 withNewSchedulerState
-  :: (HasLoggingIO SchedulerIO, HasCallStack) => Eff SchedulerIO () -> Eff LoggingAndIO ()
+  :: (HasLogging IO SchedulerIO, HasCallStack)
+  => Eff SchedulerIO ()
+  -> Eff LoggingAndIO ()
 withNewSchedulerState mainProcessAction =
   Exceptions.tryAny (lift (atomically newSchedulerState))
     >>= either
@@ -176,13 +178,13 @@ type SchedulerIO = ( Reader SchedulerState : LoggingAndIO)
 -- | Basic effects: 'Logs' 'LogMessage' and 'Lift' IO
 type LoggingAndIO =
               '[ Logs LogMessage
+               , LogWriterReader LogMessage IO
                , Lift IO
                ]
 
 -- | Start the message passing concurrency system then execute a 'Process' on
 -- top of 'SchedulerIO' effect. All logging is sent to standard output.
-defaultMain
-  :: HasCallStack => (HasLogWriterProxy IO => Eff ProcEff ()) -> IO ()
+defaultMain :: HasCallStack => Eff ProcEff () -> IO ()
 defaultMain c =
   withAsyncLogChannel 1024
     (multiMessageLogWriter ($ printLogMessage))
@@ -191,12 +193,8 @@ defaultMain c =
 -- | Start the message passing concurrency system then execute a 'Process' on
 -- top of 'SchedulerIO' effect. All logging is sent to standard output.
 defaultMainWithLogChannel
-  :: HasCallStack
-  => (HasLogWriterProxy IO => Eff ProcEff ())
-  -> LogChannel LogMessage
-  -> IO ()
-defaultMainWithLogChannel c =
-  handleLoggingAndIO_ (schedule c)
+  :: HasCallStack => Eff ProcEff () -> LogChannel LogMessage -> IO ()
+defaultMainWithLogChannel = handleLoggingAndIO_ . schedule
 
 -- | A 'SchedulerProxy' for 'SchedulerIO'
 forkIoScheduler :: SchedulerProxy SchedulerIO
@@ -222,7 +220,7 @@ tryReplaceReason e = withFrozenCallStack $ do
 -- ** MessagePassing execution
 
 handleProcess
-  :: (HasLoggingIO SchedulerIO, HasCallStack)
+  :: (HasLogging IO SchedulerIO, HasCallStack)
   => ProcessInfo
   -> Eff ProcEff ProcessExitReason
   -> Eff SchedulerIO ProcessExitReason
@@ -384,7 +382,7 @@ handleProcess myProcessInfo =
 -- application. This function takes a 'Process' on top of the 'SchedulerIO'
 -- effect and a 'LogChannel' for concurrent logging.
 schedule
-  :: (HasLoggingIO SchedulerIO, HasCallStack)
+  :: (HasLogging IO SchedulerIO, HasCallStack)
   => Eff ProcEff ()
   -> Eff LoggingAndIO ()
 schedule procEff =
@@ -403,7 +401,7 @@ schedule procEff =
   ) >>= restoreM
 
 spawnNewProcess
-  :: (HasLoggingIO SchedulerIO, HasCallStack)
+  :: (HasLogging IO SchedulerIO, HasCallStack)
   => Eff ProcEff ()
   -> Eff SchedulerIO (ProcessId, Async ProcessExitReason)
 spawnNewProcess mfa = do
@@ -424,8 +422,9 @@ spawnNewProcess mfa = do
 
       let pid = procInfo ^. processId
           logAppendProcInfo =
-            interceptLogging
-              (lift . setLogMessageThreadId >=> logMsg . addProcessId)
+            traverseLogMessages
+              (   lift . traverse setLogMessageThreadId
+              >=> traverse (return . addProcessId))
             where
               addProcessId =
                 over lmProcessId (maybe (Just (printf "% 9s" (show pid))) Just)

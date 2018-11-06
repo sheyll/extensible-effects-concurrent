@@ -179,12 +179,12 @@ instance (Observable o) => Observer (CallbackObserver o) o where
 -- | Start a new process for an 'Observer' that schedules
 -- all observations to an effectful callback.
 spawnCallbackObserver
-  :: forall o r q logWriter
+  :: forall o r q
    . ( SetMember Process (Process q) r
      , Typeable o
      , Show (Observation o)
      , Observable o
-     , HasLogging logWriter q
+     , Member (Logs LogMessage) q
      , HasCallStack
      )
   => SchedulerProxy q
@@ -205,12 +205,13 @@ spawnCallbackObserver px onObserve = spawnServerWithEffects
 --
 -- @since 0.3.0.0
 spawnLoggingObserver
-  :: forall o r q logWriter
+  :: forall o r q
    . ( SetMember Process (Process q) r
      , Typeable o
      , Show (Observation o)
      , Observable o
-     , HasLogging logWriter q
+     , Member (Logs LogMessage) q
+     , Member (Logs LogMessage) r
      , HasCallStack
      )
   => SchedulerProxy q

@@ -36,16 +36,8 @@ import           Data.Maybe
 -- @schedulePure == runIdentity . 'scheduleM' (Identity . run)  (return ())@
 --
 -- @since 0.3.0.2
-schedulePure
-  :: (  HasLogWriterProxy Identity
-     => Eff (ConsProcess '[LogsM LogMessage Identity, Lift Identity]) a
-     )
-  -> Either String a
-schedulePure e = runIdentity
-  (scheduleM (runLift . handleLogs traceLogMessageWriter)
-             (return ())
-             (usingLogWriterProxy (LogWriterProxy @Identity) e)
-  )
+schedulePure :: Eff (ConsProcess '[Logs LogMessage]) a -> Either String a
+schedulePure e = run (scheduleM ignoreLogs (return ()) e)
 
 -- | Invoke 'schedule' with @lift 'Control.Concurrent.yield'@ as yield effect.
 -- @scheduleIO runEff == 'scheduleM' (runLift . runEff) (liftIO 'yield')@
@@ -78,9 +70,9 @@ scheduleMonadIOEff = -- schedule (lift yield)
 scheduleIOWithLogging
   :: (NFData l)
   => LogWriter l IO
-  -> Eff (ConsProcess '[Logs l, Lift IO]) a
+  -> Eff (ConsProcess '[Logs l, LogWriterReader l IO, Lift IO]) a
   -> IO (Either String a)
-scheduleIOWithLogging h = scheduleIO (handleLogs h)
+scheduleIOWithLogging h = scheduleIO (writeLogs h)
 
 -- | Handle the 'Process' effect, as well as all lower effects using an effect handler function.
 --
@@ -105,10 +97,9 @@ scheduleM
   -> m () -- ^ An that performs a __yield__ w.r.t. the underlying effect
   --  @r@. E.g. if @Lift IO@ is present, this might be:
   --  @lift 'Control.Concurrent.yield'.
-  -> (HasLogWriterProxy m => Eff (ConsProcess r) a)
+  -> Eff (ConsProcess r) a
   -> m (Either String a)
-scheduleM runEff yieldEff e' = do
-  let e = (usingLogWriterProxy (LogWriterProxy @m) e')
+scheduleM runEff yieldEff e = do
   y <- runAsCoroutinePure runEff e
   handleProcess runEff
                 yieldEff
@@ -315,10 +306,10 @@ runAsCoroutinePure runEff = runEff . handle_relay (return . OnDone) cont
   cont :: Process r x -> (x -> Eff r (OnYield r v)) -> Eff r (OnYield r v)
   cont YieldProcess               k  = return (OnYield k)
   cont SelfPid                    k  = return (OnSelf k)
-  cont (Spawn      e        )     k  = return (OnSpawn e k)
-  cont (Shutdown   !sr      )     _k = return (OnShutdown sr)
-  cont (RaiseError !e       )     _k = return (OnRaiseError e)
-  cont (SendMessage !tp !msg)     k  = return (OnSend tp msg k)
+  cont (Spawn      e            ) k  = return (OnSpawn e k)
+  cont (Shutdown   !sr          ) _k = return (OnShutdown sr)
+  cont (RaiseError !e           ) _k = return (OnRaiseError e)
+  cont (SendMessage !tp !msg    ) k  = return (OnSend tp msg k)
   cont (ReceiveSelectedMessage f) k  = return (OnRecv f k)
   cont (SendShutdown !pid !sr   ) k  = return (OnSendShutdown pid sr k)
   cont MakeReference              k  = return (OnMakeReference k)
@@ -327,6 +318,7 @@ runAsCoroutinePure runEff = runEff . handle_relay (return . OnDone) cont
 -- with string logging.
 type LoggingAndIo =
               '[ Logs LogMessage
+               , LogWriterReader LogMessage IO
                , Lift IO
                ]
 
@@ -338,10 +330,14 @@ singleThreadedIoScheduler = SchedulerProxy
 -- @String@ effects.
 defaultMain
   :: HasCallStack
-  => Eff '[Process '[Logs LogMessage, Lift IO], Logs LogMessage, Lift IO] ()
+  => Eff
+       ( ConsProcess
+           '[Logs LogMessage, LogWriterReader LogMessage IO, Lift IO]
+       )
+       ()
   -> IO ()
 defaultMain =
   void
     . runLift
-    . handleLogs (multiMessageLogWriter ($ printLogMessage))
+    . writeLogs (multiMessageLogWriter ($ printLogMessage))
     . scheduleMonadIOEff

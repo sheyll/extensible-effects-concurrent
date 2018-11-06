@@ -5,7 +5,6 @@ import           Data.Dynamic
 import           Control.Eff
 import           Control.Eff.Concurrent
 import           Control.Eff.State.Strict
-import           Control.Eff.Lift
 import           Control.Monad
 
 main :: IO ()
@@ -33,7 +32,10 @@ instance Observable Counter where
   forgetObserverMessage = UnobserveCounter
 
 logCounterObservations
-  :: (SetMember Process (Process q) r, HasLogging m q)
+  :: ( SetMember Process (Process q) r
+     , Member (Logs LogMessage) q
+     , Member (Logs LogMessage) r
+     )
   => SchedulerProxy q
   -> Eff r (Server (CallbackObserver Counter))
 logCounterObservations px = spawnCallbackObserver
@@ -45,13 +47,12 @@ logCounterObservations px = spawnCallbackObserver
   )
 
 counterHandler
-  :: forall r q m
+  :: forall r q
    . ( Member (State (Observers Counter)) r
      , Member (State Integer) r
-     , HasLogging m q
-     , HasLogging m r
      , SetMember Process (Process q) r
-     , Lifted m r
+     , Member (Logs LogMessage) q
+     , Member (Logs LogMessage) r
      )
   => SchedulerProxy q
   -> ApiHandler Counter r
@@ -87,10 +88,10 @@ data instance Api PocketCalc x where
 deriving instance Show (Api PocketCalc x)
 
 pocketCalcHandler
-  :: forall r q m
+  :: forall r q
    . ( Member (State Integer) r
-     , HasLogging m r
      , SetMember Process (Process q) r
+     , Member (Logs LogMessage) r
      )
   => SchedulerProxy q
   -> ApiHandler PocketCalc r
@@ -114,8 +115,11 @@ pocketCalcHandler _ = castAndCallHandler handleCastCalc handleCallCalc
     return HandleNextRequest
 
 serverLoop
-  :: forall r q m
-   . (HasLogging m r, HasLogging m q, SetMember Process (Process q) r)
+  :: forall r q
+   . ( Member (Logs LogMessage) q
+     , Member (Logs LogMessage) r
+     , SetMember Process (Process q) r
+     )
   => SchedulerProxy q
   -> Eff r ()
 serverLoop px = evalState @Integer
@@ -125,7 +129,11 @@ serverLoop px = evalState @Integer
 
 -- ** Counter client
 counterExample
-  :: (SetMember Process (Process q) r, HasLogging m r, HasLogging m q, q <:: r)
+  :: ( SetMember Process (Process q) r
+     , Member (Logs LogMessage) q
+     , Member (Logs LogMessage) r
+     , q <:: r
+     )
   => SchedulerProxy q
   -> Eff r Integer
 counterExample px = execState (0 :: Integer) $ do

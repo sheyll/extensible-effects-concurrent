@@ -3,7 +3,6 @@
 module Control.Eff.Log.Message
   ( LogMessage(..)
   , HasLogging
-  , HasLoggingIO
   , renderRFC5424
   , printLogMessage
   , ioLogMessageHandler
@@ -120,9 +119,6 @@ data LogMessage =
 -- | A convenient alias for the constraints that enable logging of 'LogMessage's
 -- in the monad, which is 'Lift'ed into a given @Eff@ effect list.
 type HasLogging writerM effect = (HasLogWriter LogMessage writerM effect)
-
--- | Like 'HasLogging' but with 'IO' as effect.
-type HasLoggingIO effect = (HasLogWriterIO LogMessage effect)
 
 showLmMessage :: LogMessage -> [String]
 showLmMessage (LogMessage _f _s _ts _hn _an _pid _mi _sd ti loc msg _dist) =
@@ -271,9 +267,10 @@ ioLogMessageWriter delegatee = foldingLogWriter
 ioLogMessageHandler
   :: (HasCallStack, Lifted IO e)
   => LogWriter String IO
-  -> (HasLogWriterProxy IO => Eff (Logs LogMessage ': e) a)
+  -> Eff (Logs LogMessage ': LogWriterReader LogMessage IO ': e) a
   -> Eff e a
-ioLogMessageHandler delegatee = handleLogs (ioLogMessageWriter delegatee)
+ioLogMessageHandler delegatee =
+  writeLogs (ioLogMessageWriter delegatee)
 
 -- | An IO action that sets the current UTC time (see 'enableLogMessageTimestamps')
 -- in 'lmTimestamp'.
@@ -307,11 +304,8 @@ dropDistantLogMessages maxDistance =
 
 -- | Log a 'String' as 'LogMessage' with a given 'Severity'.
 logWithSeverity
-  :: ( HasLogWriterProxy h
-     , HasCallStack
-     , Monad h
-     , Member (LogsM LogMessage h) e
-     , Lifted h e
+  :: ( HasCallStack
+     , Member (Logs LogMessage) e
      )
   => Severity
   -> String
@@ -326,10 +320,7 @@ logWithSeverity !s =
 -- | Log a 'String' as 'emergencySeverity'.
 logEmergency
   :: ( HasCallStack
-     , HasLogWriterProxy h
-     , Monad h
-     , Member (LogsM LogMessage h) e
-     , Lifted h e
+     , Member (Logs LogMessage) e
      )
   => String
   -> Eff e ()
@@ -338,10 +329,7 @@ logEmergency = withFrozenCallStack (logWithSeverity emergencySeverity)
 -- | Log a message with 'alertSeverity'.
 logAlert
   :: ( HasCallStack
-     , HasLogWriterProxy h
-     , Monad h
-     , Member (LogsM LogMessage h) e
-     , Lifted h e
+     , Member (Logs LogMessage) e
      )
   => String
   -> Eff e ()
@@ -350,10 +338,7 @@ logAlert = withFrozenCallStack (logWithSeverity alertSeverity)
 -- | Log a 'criticalSeverity' message.
 logCritical
   :: ( HasCallStack
-     , HasLogWriterProxy h
-     , Monad h
-     , Member (LogsM LogMessage h) e
-     , Lifted h e
+     , Member (Logs LogMessage) e
      )
   => String
   -> Eff e ()
@@ -362,10 +347,7 @@ logCritical = withFrozenCallStack (logWithSeverity criticalSeverity)
 -- | Log a 'errorSeverity' message.
 logError
   :: ( HasCallStack
-     , HasLogWriterProxy h
-     , Monad h
-     , Member (LogsM LogMessage h) e
-     , Lifted h e
+     , Member (Logs LogMessage) e
      )
   => String
   -> Eff e ()
@@ -374,10 +356,7 @@ logError = withFrozenCallStack (logWithSeverity errorSeverity)
 -- | Log a 'warningSeverity' message.
 logWarning
   :: ( HasCallStack
-     , HasLogWriterProxy h
-     , Monad h
-     , Member (LogsM LogMessage h) e
-     , Lifted h e
+     , Member (Logs LogMessage) e
      )
   => String
   -> Eff e ()
@@ -386,10 +365,7 @@ logWarning = withFrozenCallStack (logWithSeverity warningSeverity)
 -- | Log a 'noticeSeverity' message.
 logNotice
   :: ( HasCallStack
-     , HasLogWriterProxy h
-     , Monad h
-     , Member (LogsM LogMessage h) e
-     , Lifted h e
+     , Member (Logs LogMessage) e
      )
   => String
   -> Eff e ()
@@ -398,10 +374,7 @@ logNotice = withFrozenCallStack (logWithSeverity noticeSeverity)
 -- | Log a 'informationalSeverity' message.
 logInfo
   :: ( HasCallStack
-     , HasLogWriterProxy h
-     , Monad h
-     , Member (LogsM LogMessage h) e
-     , Lifted h e
+     , Member (Logs LogMessage) e
      )
   => String
   -> Eff e ()
@@ -409,11 +382,8 @@ logInfo = withFrozenCallStack (logWithSeverity informationalSeverity)
 
 -- | Log a 'debugSeverity' message.
 logDebug
-  :: ( HasLogWriterProxy h
-     , HasCallStack
-     , Monad h
-     , Member (LogsM LogMessage h) e
-     , Lifted h e
+  :: ( HasCallStack
+     , Member (Logs LogMessage) e
      )
   => String
   -> Eff e ()

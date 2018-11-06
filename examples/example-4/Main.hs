@@ -19,7 +19,7 @@ main = defaultMain
 
 newtype WhoAreYou = WhoAreYou ProcessId deriving (Typeable, NFData)
 
-firstExample :: (HasLoggingIO q) => SchedulerProxy q -> Eff (Process q ': q) ()
+firstExample :: (HasLogging IO q) => SchedulerProxy q -> Eff (Process q ': q) ()
 firstExample px = do
   person <- spawn
     (do
