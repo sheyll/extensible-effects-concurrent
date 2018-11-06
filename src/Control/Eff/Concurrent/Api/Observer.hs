@@ -188,17 +188,13 @@ spawnCallbackObserver
      , HasCallStack
      )
   => SchedulerProxy q
-  -> (Server o -> Observation o -> Eff (Process q ': q) Bool)
+  -> (Server o -> Observation o -> Eff (Process q ': q) ApiServerCmd)
   -> Eff r (Server (CallbackObserver o))
 spawnCallbackObserver px onObserve = spawnServerWithEffects
   px
   (castHandler handleCastCbo)
   id
- where
-  handleCastCbo (CbObserved fromSvr v) = do
-    continueObservation <- onObserve fromSvr v
-    return
-      (if continueObservation then HandleNextRequest else StopApiServer Nothing)
+  where handleCastCbo (CbObserved fromSvr v) = onObserve fromSvr v
 
 -- | Start a new process for an 'Observer' that schedules
 -- all observations to an effectful callback.
@@ -218,4 +214,6 @@ spawnLoggingObserver
   -> Eff r (Server (CallbackObserver o))
 spawnLoggingObserver px = spawnCallbackObserver
   px
-  (\s o -> logDebug (show s ++ " OBSERVED: " ++ show o) >> return True)
+  (\s o ->
+    logDebug (show s ++ " OBSERVED: " ++ show o) >> return HandleNextRequest
+  )

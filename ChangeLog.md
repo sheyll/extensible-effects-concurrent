@@ -1,5 +1,10 @@
 # Changelog for extensible-effects-concurrent
 
+## 0.11.0
+
+- Change the return type of `spawnCallbackObserver` from
+  `Bool` to `ApiServerCmd`
+
 ## 0.10.0
 
 - Re-introduce a Logs Effect but keep the LogWriter Reader
