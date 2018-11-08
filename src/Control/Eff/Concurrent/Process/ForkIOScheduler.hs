@@ -24,12 +24,10 @@ module Control.Eff.Concurrent.Process.ForkIOScheduler
   )
 where
 
-import           GHC.Stack
-import           Data.Kind                      ( )
 import           Control.Exception.Safe        as Safe
 import qualified Control.Eff.ExceptionExtra    as ExcExtra ()
 import           Control.Concurrent.STM        as STM
-import           Control.Concurrent             (threadDelay, yield)
+import           Control.Concurrent             (yield)
 import qualified Control.Concurrent.Async      as Async
 import           Control.Concurrent.Async      (Async(..))
 import           Control.Eff
@@ -44,16 +42,17 @@ import           Control.Monad                  ( when
                                                 , (>=>)
                                                 )
 import           Control.Monad.Trans.Control     (MonadBaseControl(..))
-import           Data.Dynamic
-import           Data.Map                       ( Map )
 import           Data.Default
+import           Data.Dynamic
+import           Data.Foldable
+import           Data.Kind                      ( )
+import           Data.Map                       ( Map )
+import           Data.Maybe
 import           Data.Sequence                  ( Seq(..) )
 import qualified Data.Sequence                 as Seq
-import Control.DeepSeq
-import Text.Printf
-import Data.Foldable
-import Data.Maybe
-
+import           GHC.Stack
+import           Text.Printf
+import           System.Timeout
 
 -- * Process Types
 
@@ -127,7 +126,7 @@ withNewSchedulerState mainProcessAction =
     (lift (atomically newSchedulerState))
     (\exceptions schedulerState -> do
       traverse_
-        (logError . ("scheduler setup crashed " ++) . Safe.displayException)
+        (logError . ("scheduler setup crashed with: " ++) . Safe.displayException)
         exceptions
       logDebug "scheduler cleanup begin"
       runReader schedulerState tearDownScheduler
@@ -148,14 +147,14 @@ withNewSchedulerState mainProcessAction =
       logNotice ("cancelling processes: " ++ show (toListOf (ifolded.asIndex) allProcesses))
       void
         (liftBaseWith
-          (\runS -> Async.race
+          (\runS -> timeout 5000000
             (Async.mapConcurrently
               (\a -> do
                 Async.cancel a
                 runS (logNotice ("process cancelled: "++ show (asyncThreadId a)))
               )
-              allProcesses)
-            (threadDelay 5000000)))
+              allProcesses
+             >> runS (logNotice "all processes cancelled"))))
 
 -- | The concrete list of 'Eff'ects of processes compatible with this scheduler.
 -- This builds upon 'SchedulerIO'.
@@ -328,7 +327,7 @@ handleProcess myProcessInfo =
       RaiseError e             -> diskontinue (ProcessRaisedError e)
     where
 
-      interpretSend !toPid !msg =
+      interpretSend !toPid msg =
         setMyProcessState ProcessBusySending *>
         getSchedulerState >>= lift . atomically . enqueueMessageOtherProcess toPid msg
 
@@ -388,7 +387,6 @@ spawnNewProcess
 spawnNewProcess mfa = do
   schedulerState <- getSchedulerState
   procInfo <- allocateProcInfo schedulerState
-  let pid = procInfo ^. processId
   procAsync <- doForkProc procInfo schedulerState
   return (procInfo ^. processId, procAsync)
  where
@@ -407,7 +405,7 @@ spawnNewProcess mfa = do
       let addProcessId = over lmProcessId
             (maybe (Just (printf "% 9s" (show pid))) Just)
       in traverseLogMessages
-         (lift . traverse setLogMessageThreadId
+         (traverse setLogMessageThreadId
           >=> traverse (return . addProcessId))
 
     doForkProc procInfo schedulerState =

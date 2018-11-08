@@ -4,6 +4,10 @@
 
 - Remove `SchedulerShuttingDown`
 - Improve logging for exceptions in `ForkIOScheduler`
+- Fix a bug in the logging system that caused all log filters to be forgotten
+  when using unliftings such as `MonadBaseControl`, `MonadThrow`, `MonadCatch`
+  and `MonadMask`
+- Fix the scheduler schutdown to not always run into the cancellation timeout
 
 ## 0.11.1
 
