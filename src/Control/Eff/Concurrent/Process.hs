@@ -323,15 +323,13 @@ data ProcessExitReason =
     -- ^ A process function returned.
   | ProcessCancelled
     -- ^ A process was cancelled (i.e. killed, in 'Async.cancel')
-  | SchedulerShuttingDown
-    -- ^ An action was not performed while the scheduler was exiting.
   deriving (Typeable, Show, Generic)
 
 instance NFData ProcessExitReason
 
 instance Semigroup ProcessExitReason where
-   SchedulerShuttingDown <> _ = SchedulerShuttingDown
-   _ <> SchedulerShuttingDown = SchedulerShuttingDown
+   ProcessCancelled <> _ = ProcessCancelled
+   _ <> ProcessCancelled = ProcessCancelled
    ProcessReturned <> x = x
    x <> ProcessReturned = x
    ProcessShutDown ExitNormally <> x = x
@@ -650,5 +648,5 @@ logProcessExit ex = withFrozenCallStack $ case ex of
   ProcessShutDown (ExitWithError m) -> logError ("exit with error: " ++ show m)
   ProcessCaughtIOException w m ->
     logError ("runtime exception: " ++ m ++ " caught here: " ++ w)
-  ProcessRaisedError m  -> logError ("unhandled process exception: " ++ show m)
-  SchedulerShuttingDown -> logInfo "scheduler schutting down"
+  ProcessRaisedError m -> logError ("unhandled process exception: " ++ show m)
+  ProcessCancelled     -> logError "process cancelled asynchronously"

@@ -26,8 +26,8 @@ where
 
 import           GHC.Stack
 import           Data.Kind                      ( )
-import           Control.Exception.Safe        as Exc
-import qualified Control.Eff.ExceptionExtra    as ExcExtra
+import           Control.Exception.Safe        as Safe
+import qualified Control.Eff.ExceptionExtra    as ExcExtra ()
 import           Control.Concurrent.STM        as STM
 import           Control.Concurrent             (threadDelay, yield)
 import qualified Control.Concurrent.Async      as Async
@@ -50,8 +50,8 @@ import           Data.Default
 import           Data.Sequence                  ( Seq(..) )
 import qualified Data.Sequence                 as Seq
 import Control.DeepSeq
-import Control.Monad.IO.Class
 import Text.Printf
+import Data.Foldable
 import Data.Maybe
 
 
@@ -101,12 +101,10 @@ data SchedulerState =
 
 makeLenses ''SchedulerState
 
-
 -- * Process Implementation
 
 instance Show ProcessInfo where
   show p =  "process info: " ++ show (p ^. processId)
-
 
 -- | Create a new 'ProcessInfo'
 newProcessInfo :: HasCallStack => ProcessId -> STM ProcessInfo
@@ -125,22 +123,22 @@ withNewSchedulerState
   => Eff SchedulerIO ()
   -> Eff LoggingAndIO ()
 withNewSchedulerState mainProcessAction =
-  Exceptions.tryAny (lift (atomically newSchedulerState))
-    >>= either
-      (logError . ("scheduler setup crashed " ++) . Exc.displayException)
-      (flip runReader
-        ( (logDebug "scheduler loop entered"
-            *> ExcExtra.liftTry @Exc.SomeException mainProcessAction
-            <* logDebug "scheduler loop returned")
-          >>= either
-            (logError . ("scheduler loop crashed " ++) . Exc.displayException)
-            (\result ->
-              do logDebug "scheduler cleanup begin"
-                 Exceptions.tryAny tearDownScheduler
-                  >>= either
-                    (logError . ("scheduler cleanup crashed " ++) . Exc.displayException)
-                    (const (logDebug "scheduler cleanup done"))
-                 return result)))
+   Safe.bracketWithError
+    (lift (atomically newSchedulerState))
+    (\exceptions schedulerState -> do
+      traverse_
+        (logError . ("scheduler setup crashed " ++) . Safe.displayException)
+        exceptions
+      logDebug "scheduler cleanup begin"
+      runReader schedulerState tearDownScheduler
+      )
+    (\schedulerState  -> do
+      logDebug "scheduler loop entered"
+      x <- runReader schedulerState mainProcessAction
+      logDebug "scheduler loop returned"
+      return x
+    )
+
  where
     tearDownScheduler = do
       schedulerState <- getSchedulerState
@@ -199,24 +197,6 @@ defaultMainWithLogChannel = handleLoggingAndIO_ . schedule
 forkIoScheduler :: SchedulerProxy SchedulerIO
 forkIoScheduler = SchedulerProxy
 
--- | Run a process effect that returns a 'ProcessExitReason' catching all
--- exceptions. If a runtime exception (e.g. 'SomeException') is caught, it
--- will be '<>'
-tryReplaceReason
-  :: (MonadBaseControl IO (Eff e), Lifted IO e, HasCallStack)
-  => Eff e ProcessExitReason
-  -> Eff e ProcessExitReason
-tryReplaceReason e = withFrozenCallStack $ do
-  let here = prettyCallStack callStack
-  res <- ExcExtra.liftTry e
-  case res of
-    Left (x :: Exc.SomeException) ->
-        case Exc.fromException x of
-          Just Async.AsyncCancelled ->
-            return SchedulerShuttingDown
-          Nothing ->
-            return (force (ProcessCaughtIOException here (Exc.displayException x)))
-    Right res1 -> return res1
 
 -- ** MessagePassing execution
 
@@ -401,66 +381,81 @@ schedule procEff =
       )
   ) >>= restoreM
 
-
-
 spawnNewProcess
   :: (HasLogging IO SchedulerIO, HasCallStack)
   => Eff ProcEff ()
   -> Eff SchedulerIO (ProcessId, Async ProcessExitReason)
 spawnNewProcess mfa = do
   schedulerState <- getSchedulerState
-  liftBaseWith
-    (\inScheduler -> Exc.mask (\unmask -> do
+  procInfo <- allocateProcInfo schedulerState
+  let pid = procInfo ^. processId
+  procAsync <- doForkProc procInfo schedulerState
+  return (procInfo ^. processId, procAsync)
+ where
+    allocateProcInfo schedulerState =
+      lift (atomically (do
+          let nextPidVar = schedulerState ^. nextPid
+              processInfosVar = schedulerState ^. processTable
+          pid <- readTVar nextPidVar
+          modifyTVar' nextPidVar (+1)
+          procInfo <- newProcessInfo pid
+          modifyTVar' processInfosVar (at pid ?~ procInfo)
+          return procInfo
+          ))
 
-      let nextPidVar = schedulerState ^. nextPid
-          processInfosVar = schedulerState ^. processTable
-          cancellationsVar = schedulerState ^. processCancellationTable
+    logAppendProcInfo pid =
+      let addProcessId = over lmProcessId
+            (maybe (Just (printf "% 9s" (show pid))) Just)
+      in traverseLogMessages
+         (lift . traverse setLogMessageThreadId
+          >=> traverse (return . addProcessId))
 
-      procInfo <- atomically (do
-        pid <- readTVar nextPidVar
-        modifyTVar' nextPidVar (+1)
-        procInfo <- newProcessInfo pid
-        modifyTVar' processInfosVar (at pid ?~ procInfo)
-        return procInfo)
+    doForkProc procInfo schedulerState =
+      restoreM =<< liftBaseWith
+        (\inScheduler -> do
+          let cancellationsVar = schedulerState ^. processCancellationTable
+              processInfosVar = schedulerState ^. processTable
+              pid = procInfo ^. processId
+          procAsync <- Async.async (inScheduler (logAppendProcInfo pid
+            (Safe.bracketWithError
+              (logDebug "enter process")
+              (\mExc () ->
+                  do let e = case mExc of
+                               Nothing ->
+                                 ProcessReturned
+                               Just exc ->
+                                 case Safe.fromException exc of
+                                   Just Async.AsyncCancelled ->
+                                     ProcessCancelled
 
-      let pid = procInfo ^. processId
-          logAppendProcInfo =
-            traverseLogMessages
-              (   lift . traverse setLogMessageThreadId
-              >=> traverse (return . addProcessId))
-            where
-              addProcessId =
-                over lmProcessId (maybe (Just (printf "% 9s" (show pid))) Just)
+                                   Nothing ->
+                                     ProcessCaughtIOException
+                                         (prettyCallStack callStack)
+                                         (Safe.displayException exc)
+                     lift (atomically
+                       (do modifyTVar' processInfosVar (at pid .~ Nothing)
+                           modifyTVar' cancellationsVar (at pid .~ Nothing)))
+                     case e of
+                      ProcessCancelled ->
+                        logProcessExit e
 
-      procAsync <- Async.async
-        (unmask
-          (inScheduler
-            (logAppendProcInfo
-              (do
-                logDebug "enter process"
-                e <- tryReplaceReason
-                  (handleProcess procInfo (mfa *> return ProcessReturned))
-                logProcessExit e
-                lastProcessState <- lift (readTVarIO (procInfo ^. processState))
-                when (  lastProcessState /= ProcessShuttingDown
-                    && lastProcessState /= ProcessIdle )
-                  (logNotice
-                    ("process was not in shutting down state when it exitted: "
-                      ++ show lastProcessState))
-                return e
+                      _ -> do
+                        logProcessExit e
+                        lastProcessState <-
+                          lift (readTVarIO (procInfo ^. processState))
+                        when (  lastProcessState /= ProcessShuttingDown
+                             && lastProcessState /= ProcessIdle )
+                          (logNotice
+                            ( "process was not in shutting down state: "
+                            ++ show lastProcessState))
+
               )
-            )
-          )
-        <* atomically
-              (do modifyTVar' processInfosVar (at pid .~ Nothing)
-                  modifyTVar' cancellationsVar (at pid .~ Nothing)
-              )
-        )
-      atomically (modifyTVar' cancellationsVar (at pid ?~ procAsync))
-      return (pid, procAsync)))
-    >>= restoreM
+              (const
+                (handleProcess procInfo (mfa >> return ProcessReturned))))))
+          atomically (modifyTVar' cancellationsVar (at pid ?~ procAsync))
+          return procAsync)
 
--- Scheduler Accessor
+-- * Scheduler Accessor
 
 getSchedulerState :: HasSchedulerIO r => Eff r SchedulerState
 getSchedulerState = ask

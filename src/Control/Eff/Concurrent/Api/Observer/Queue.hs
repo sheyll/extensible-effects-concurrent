@@ -12,7 +12,7 @@ where
 
 import           Control.Concurrent.STM
 import           Control.Eff
-import           Control.Eff.ExceptionExtra
+import           Control.Eff.ExceptionExtra     ( )
 import           Control.Eff.Lift
 import           Control.Eff.Concurrent.Process
 import           Control.Eff.Log
@@ -21,7 +21,7 @@ import           Control.Eff.Concurrent.Api.Client
 import           Control.Eff.Concurrent.Api.Observer
 import           Control.Eff.Concurrent.Api.Server
 import           Control.Eff.Reader.Strict
-import           Control.Exception
+import           Control.Exception.Safe        as Safe
 import           Control.Monad.IO.Class
 import           Control.Monad                  ( unless )
 import           Data.Typeable
@@ -104,6 +104,7 @@ enqueueObservationsRegistered
      , HasLogging IO r
      , Lifted IO r
      , HasCallStack
+     , MonadCatch (Eff r)
      )
   => SchedulerProxy q
   -> Int
@@ -129,6 +130,7 @@ enqueueObservations
      , HasLogging IO q
      , Lifted IO q
      , HasCallStack
+     , MonadCatch (Eff r)
      )
   => SchedulerProxy q
   -> Server o
@@ -177,13 +179,18 @@ enqueueObservations px oSvr queueLimit k = withQueue
 
 withQueue
   :: forall a b e
-   . (HasCallStack, Typeable a, Show (Observation a), HasLogging IO e)
+   . ( HasCallStack
+     , Typeable a
+     , Show (Observation a)
+     , HasLogging IO e
+     , MonadCatch (Eff e)
+     )
   => Int
   -> Eff (ObservationQueueReader a ': e) b
   -> Eff e b
 withQueue queueLimit e = do
   q    <- liftIO (newTBQueueIO queueLimit)
-  res  <- liftTry @SomeException (runReader (ObservationQueue q) e)
+  res  <- Safe.tryAny (runReader (ObservationQueue q) e)
   rest <- liftIO (atomically (flushTBQueue q))
   unless
     (null rest)

@@ -1,5 +1,10 @@
 # Changelog for extensible-effects-concurrent
 
+## 0.12.0
+
+- Remove `SchedulerShuttingDown`
+- Improve logging for exceptions in `ForkIOScheduler`
+
 ## 0.11.1
 
 - Fix a compilation error

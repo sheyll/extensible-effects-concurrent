@@ -33,7 +33,7 @@ withTestLogC doSchedule k = k
       (multiMessageLogWriter
         (\writeWith ->
           writeWith
-            (\m -> when (view lmSeverity m < noticeSeverity) (printLogMessage m)
+            (\m -> when (view lmSeverity m <= debugSeverity) (printLogMessage m)
             )
         )
       )

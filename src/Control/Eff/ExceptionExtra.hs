@@ -142,3 +142,43 @@ instance Catch.MonadMask (Eff e) => Catch.MonadMask (Eff (Strict.Reader x ': e))
         (lower acquire)
         (((.).(.)) lower release)
         (lower . use))
+
+-- ** Lifted IO
+
+instance Catch.MonadThrow m => Catch.MonadThrow (Eff '[Lift m]) where
+  throwM exception = lift (Catch.throwM exception)
+
+instance Catch.MonadCatch m => Catch.MonadCatch (Eff '[Lift m]) where
+  catch effect handler = do
+    let nestedEffects = runLift effect
+        nestedHandler exception = runLift (handler exception)
+    lift (Catch.catch nestedEffects nestedHandler)
+
+instance Catch.MonadMask m => Catch.MonadMask (Eff '[Lift m]) where
+  mask maskedEffect = do
+    lift
+      (Catch.mask
+        (\nestedUnmask -> runLift
+          (maskedEffect
+            (\unmasked -> lift (nestedUnmask (runLift unmasked))
+            )
+          )
+        )
+      )
+  uninterruptibleMask maskedEffect = do
+    lift
+      (Catch.uninterruptibleMask
+        (\nestedUnmask -> runLift
+          (maskedEffect
+            (\unmasked ->
+              lift (nestedUnmask (runLift unmasked))
+            )
+          )
+        )
+      )
+  generalBracket acquire release use = do
+    lift
+      (Catch.generalBracket
+        (runLift acquire)
+        (((.).(.)) runLift release)
+        (runLift . use))
