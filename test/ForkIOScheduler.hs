@@ -2,6 +2,7 @@ module ForkIOScheduler where
 
 import           Control.Exception
 import           Control.Concurrent
+import           Control.Concurrent.Async
 import           Control.Concurrent.STM
 import           Control.Eff.Extend
 import           Control.Eff.Lift
@@ -64,8 +65,7 @@ test_IOExceptionsIsolated = setTravisTestOptions $ testGroup
         (send
           (Spawn @SchedulerIO
             (void
-              (send (ReceiveSelectedMessage @SchedulerIO selectAnyMessageLazy)
-              )
+              (send (ReceiveSelectedMessage @SchedulerIO selectAnyMessageLazy))
             )
           )
         )
@@ -73,6 +73,7 @@ test_IOExceptionsIsolated = setTravisTestOptions $ testGroup
     ]
   , (howToExit, doExit    ) <-
     [ ("throw async exception", void (lift (throw UserInterrupt)))
+    , ("cancel process"       , void (lift (throw AsyncCancelled)))
     , ("division by zero"     , void ((lift . print) ((123 :: Int) `div` 0)))
     , ("call 'fail'"          , void (fail "test fail"))
     , ("call 'error'"         , void (error "test error"))

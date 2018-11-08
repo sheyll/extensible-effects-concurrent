@@ -26,7 +26,7 @@ where
 
 import           GHC.Stack
 import           Data.Kind                      ( )
-import qualified Control.Exception             as Exc
+import           Control.Exception.Safe        as Exc
 import qualified Control.Eff.ExceptionExtra    as ExcExtra
 import           Control.Concurrent.STM        as STM
 import           Control.Concurrent             (threadDelay, yield)
@@ -44,7 +44,6 @@ import           Control.Monad                  ( when
                                                 , (>=>)
                                                 )
 import           Control.Monad.Trans.Control     (MonadBaseControl(..))
-import qualified Control.Exception.Enclosed    as Exceptions
 import           Data.Dynamic
 import           Data.Map                       ( Map )
 import           Data.Default
@@ -204,18 +203,20 @@ forkIoScheduler = SchedulerProxy
 -- exceptions. If a runtime exception (e.g. 'SomeException') is caught, it
 -- will be '<>'
 tryReplaceReason
-  :: (MonadIO (Eff e), MonadBaseControl IO (Eff e), Lifted IO e, HasCallStack)
+  :: (MonadBaseControl IO (Eff e), Lifted IO e, HasCallStack)
   => Eff e ProcessExitReason
   -> Eff e ProcessExitReason
 tryReplaceReason e = withFrozenCallStack $ do
   let here = prettyCallStack callStack
-  res <- ExcExtra.liftTry @Exc.SomeException (ExcExtra.liftTry @Async.AsyncCancelled e)  -- Exceptions.tryAny e
+  res <- ExcExtra.liftTry e
   case res of
-    Left s ->
-      liftIO (Exc.evaluate (force (ProcessCaughtIOException here (Exc.displayException s))))
-    Right (Left _) ->
-      return SchedulerShuttingDown
-    Right (Right res1) -> return res1
+    Left (x :: Exc.SomeException) ->
+        case Exc.fromException x of
+          Just Async.AsyncCancelled ->
+            return SchedulerShuttingDown
+          Nothing ->
+            return (force (ProcessCaughtIOException here (Exc.displayException x)))
+    Right res1 -> return res1
 
 -- ** MessagePassing execution
 
@@ -400,6 +401,8 @@ schedule procEff =
       )
   ) >>= restoreM
 
+
+
 spawnNewProcess
   :: (HasLogging IO SchedulerIO, HasCallStack)
   => Eff ProcEff ()
@@ -407,7 +410,7 @@ spawnNewProcess
 spawnNewProcess mfa = do
   schedulerState <- getSchedulerState
   liftBaseWith
-    (\inScheduler -> do
+    (\inScheduler -> Exc.mask (\unmask -> do
 
       let nextPidVar = schedulerState ^. nextPid
           processInfosVar = schedulerState ^. processTable
@@ -430,29 +433,31 @@ spawnNewProcess mfa = do
                 over lmProcessId (maybe (Just (printf "% 9s" (show pid))) Just)
 
       procAsync <- Async.async
-        (inScheduler
-          (logAppendProcInfo
-            (do
-              logDebug "enter process"
-              e <- tryReplaceReason
-                (handleProcess procInfo (mfa *> return ProcessReturned))
-              logProcessExit e
-              lastProcessState <- lift (readTVarIO (procInfo ^. processState))
-              when (  lastProcessState /= ProcessShuttingDown
-                   && lastProcessState /= ProcessIdle )
-                (logNotice
-                  ("process was not in shutting down state when it exitted: "
-                    ++ show lastProcessState))
-              return e
+        (unmask
+          (inScheduler
+            (logAppendProcInfo
+              (do
+                logDebug "enter process"
+                e <- tryReplaceReason
+                  (handleProcess procInfo (mfa *> return ProcessReturned))
+                logProcessExit e
+                lastProcessState <- lift (readTVarIO (procInfo ^. processState))
+                when (  lastProcessState /= ProcessShuttingDown
+                    && lastProcessState /= ProcessIdle )
+                  (logNotice
+                    ("process was not in shutting down state when it exitted: "
+                      ++ show lastProcessState))
+                return e
+              )
             )
           )
-          <* atomically
-                (do modifyTVar' processInfosVar (at pid .~ Nothing)
-                    modifyTVar' cancellationsVar (at pid .~ Nothing)
-                )
+        <* atomically
+              (do modifyTVar' processInfosVar (at pid .~ Nothing)
+                  modifyTVar' cancellationsVar (at pid .~ Nothing)
+              )
         )
       atomically (modifyTVar' cancellationsVar (at pid ?~ procAsync))
-      return (pid, procAsync))
+      return (pid, procAsync)))
     >>= restoreM
 
 -- Scheduler Accessor

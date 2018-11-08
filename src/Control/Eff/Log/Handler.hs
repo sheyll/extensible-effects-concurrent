@@ -27,9 +27,11 @@ import           Control.Eff                   as Eff
 import           Control.Eff.Extend
 import           Control.Eff.Reader.Strict
 import           Control.Eff.Lift              as Eff
+import qualified Control.Exception.Safe        as Safe
 import           Data.Foldable                  ( traverse_ )
 import           Data.Default
 import           Control.Monad
+import qualified Control.Monad.Catch           as Catch
 import           Control.Monad.Trans.Control    ( MonadBaseControl
                                                   ( restoreM
                                                   , liftBaseWith
@@ -286,3 +288,63 @@ instance
       raise (raise (liftBaseWith (\runInBase -> f (runInBase . writeLogs l))))
 
     restoreM = raise . raise . restoreM
+
+
+instance (Lifted m e, Catch.MonadThrow (Eff e))
+  => Catch.MonadThrow (Eff (Logs l ': LogWriterReader l m ': e)) where
+  throwM exception = raise (raise (Catch.throwM exception))
+
+instance (Applicative m, Lifted m e, Catch.MonadCatch (Eff e))
+  => Catch.MonadCatch (Eff (Logs l ': LogWriterReader l m ': e)) where
+  catch effect handler = do
+    logWriter <- ask @(LogWriter l m)
+    let lower                   = writeLogs logWriter
+        nestedEffects           = lower effect
+        nestedHandler exception = lower (handler exception)
+    raise (raise (Catch.catch nestedEffects nestedHandler))
+
+instance (Applicative m, Lifted m e, Catch.MonadMask (Eff e))
+  => Catch.MonadMask (Eff (Logs l ': LogWriterReader l m ': e)) where
+  mask maskedEffect = do
+    logWriter <- ask @(LogWriter l m)
+    let
+      lower :: Eff (Logs l ': LogWriterReader l m ': e) a -> Eff e a
+      lower = writeLogs logWriter
+    raise
+      (raise
+        (Catch.mask
+          (\nestedUnmask -> lower
+            (maskedEffect
+              ( raise . raise . nestedUnmask . lower )
+            )
+          )
+        )
+      )
+  uninterruptibleMask maskedEffect = do
+    logWriter <- ask @(LogWriter l m)
+    let
+      lower :: Eff (Logs l ': LogWriterReader l m ': e) a -> Eff e a
+      lower = writeLogs logWriter
+    raise
+      (raise
+        (Catch.uninterruptibleMask
+          (\nestedUnmask -> lower
+            (maskedEffect
+              ( raise . raise . nestedUnmask . lower )
+            )
+          )
+        )
+      )
+  generalBracket acquire release use = do
+    logWriter <- ask @(LogWriter l m)
+    let
+      lower :: Eff (Logs l ': LogWriterReader l m ': e) a -> Eff e a
+      lower = writeLogs logWriter
+    raise
+      (raise
+        (Catch.generalBracket
+          (lower acquire)
+          (((.).(.)) lower release)
+          (lower . use)
+        )
+      )

@@ -321,6 +321,8 @@ data ProcessExitReason =
     -- ^ A process exits.
   | ProcessReturned
     -- ^ A process function returned.
+  | ProcessCancelled
+    -- ^ A process was cancelled (i.e. killed, in 'Async.cancel')
   | SchedulerShuttingDown
     -- ^ An action was not performed while the scheduler was exiting.
   deriving (Typeable, Show, Generic)
