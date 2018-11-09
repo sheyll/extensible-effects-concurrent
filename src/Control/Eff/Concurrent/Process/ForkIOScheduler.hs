@@ -47,6 +47,8 @@ import           Data.Dynamic
 import           Data.Foldable
 import           Data.Kind                      ( )
 import           Data.Map                       ( Map )
+import           Data.Set                       ( Set )
+import qualified Data.Set                       as Set
 import           Data.Maybe
 import           Data.Sequence                  ( Seq(..) )
 import qualified Data.Sequence                 as Seq
@@ -84,6 +86,7 @@ data ProcessInfo =
                  ProcessInfo { _processId         :: ProcessId
                              , _processState      :: TVar ProcessState
                              , _messageQ          :: TVar MessageQ
+                             , _processLinks      :: TVar (Set ProcessId)
                              }
 
 makeLenses ''ProcessInfo
@@ -110,7 +113,8 @@ instance Show ProcessInfo where
 
 -- | Create a new 'ProcessInfo'
 newProcessInfo :: HasCallStack => ProcessId -> STM ProcessInfo
-newProcessInfo a = ProcessInfo a <$> newTVar ProcessBooting <*> newTVar def
+newProcessInfo a =
+  ProcessInfo a <$> newTVar ProcessBooting <*> newTVar def <*> newTVar def
 
 -- * Scheduler Implementation
 
@@ -378,9 +382,24 @@ handleProcess myProcessInfo =
       Interrupt e              -> kontinue nextRef (Interrupted e)
       Monitor _                -> kontinue nextRef (Interrupted (ProcessError "Not Yet Implemented: Monitor"))
       Demonitor _              -> kontinue nextRef (Interrupted (ProcessError "Not Yet Implemented: Demonitor"))
-      Link _                   -> kontinue nextRef (Interrupted (ProcessError "Not Yet Implemented: Link"))
+      Link toPid               -> interpretLink toPid
+                                    >>= kontinue nextRef . either Interrupted ResumeWith
       Unlink _                 -> kontinue nextRef (Interrupted (ProcessError "Not Yet Implemented: Unlink"))
     where
+      interpretLink !toPid = do
+        setMyProcessState ProcessBusyLinking
+        schedulerState <- getSchedulerState
+        let procInfosVar = schedulerState^.processTable
+        lift $ atomically $ do
+          procInfos <- readTVar procInfosVar
+          case procInfos ^. at toPid of
+            Just toProcInfo -> do
+              modifyTVar' (toProcInfo ^. processLinks) (Set.insert myPid)
+              modifyTVar' (myProcessInfo ^. processLinks) (Set.insert toPid)
+              return (Right ())
+            Nothing ->
+              return (Left
+                (LinkedProcessCrashed toPid Crash Recoverable))
 
       interpretSend !toPid msg =
         setMyProcessState ProcessBusySending *>
@@ -479,6 +498,42 @@ spawnNewProcess mfa = do
          (traverse setLogMessageThreadId
           >=> traverse (return . addProcessId))
 
+    triggerProcessLinks !pid !exitSeverity !exitRecovery linkSetVar = do
+      logCritical "0 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXxx"
+      schedulerState <- getSchedulerState
+      let sendIt !linkedPid = do
+            let msg = SomeProcessExitReason
+                      (LinkedProcessCrashed pid exitSeverity exitRecovery)
+            logCritical ("1 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXxx " ++ show linkedPid)
+            lift $ atomically $ do
+              procInfos <- readTVar (schedulerState ^. processTable)
+              let mLinkedProcInfo = procInfos ^? at linkedPid . _Just
+              case mLinkedProcInfo of
+                Nothing ->
+                  return (Left linkedPid)
+                Just linkedProcInfo ->
+                  let linkedMsgQVar    = linkedProcInfo ^. messageQ
+                      linkedLinkSetVar = linkedProcInfo ^. processLinks
+                  in do linkedLinkSet <- readTVar linkedLinkSetVar
+                        if Set.member pid linkedLinkSet
+                          then do
+                            writeTVar   linkedLinkSetVar
+                                        (Set.delete pid linkedLinkSet)
+                            modifyTVar' linkedMsgQVar
+                                        (shutdownRequests ?~ msg)
+                            return (Right linkedPid)
+                          else
+                            return (Left linkedPid)
+      linkedPids <- lift (atomically (do linkSet <- readTVar linkSetVar
+                                         writeTVar linkSetVar def
+                                         return linkSet))
+      logCritical ("6 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXxx" ++ show linkedPids)
+      res <- traverse sendIt (toList linkedPids)
+      logCritical ("7 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXxx" ++ show linkedPids)
+      traverse_ (logDebug . either (("linked process already dead: " ++) . show)
+                (("sent linked process exit to: " ++) . show))
+                res
+
     doForkProc procInfo schedulerState =
       restoreM =<< liftBaseWith
         (\inScheduler -> do
@@ -504,6 +559,11 @@ spawnNewProcess mfa = do
                      lift (atomically
                        (do modifyTVar' processInfosVar (at pid .~ Nothing)
                            modifyTVar' cancellationsVar (at pid .~ Nothing)))
+                     -- handle links and monitors
+                     --    links are stored as pids in a set in the process info
+                     triggerProcessLinks pid (toExitSeverity e) (toExitRecovery e) (procInfo ^. processLinks)
+                     logCritical ("8 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXxx" )
+                     -- log the exit reason and die
                      case e of
                       Killed ->
                         logProcessExit e
@@ -512,11 +572,13 @@ spawnNewProcess mfa = do
                         logProcessExit e
                         lastProcessState <-
                           lift (readTVarIO (procInfo ^. processState))
+                        logCritical ("9 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXxx" )
                         when (  lastProcessState /= ProcessShuttingDown
                              && lastProcessState /= ProcessIdle )
                           (logNotice
                             ( "process was not in shutting down state: "
                             ++ show lastProcessState))
+                        logCritical ("10 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXxx" )
 
               )
               (const

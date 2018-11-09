@@ -9,7 +9,6 @@ module Control.Eff.Concurrent.Api.Client
   -- * Server Process Registration
   , castRegistered
   , callRegistered
-  , callRegisteredA
   , ServesApi
   , ServerReader
   , whereIsServer
@@ -143,25 +142,6 @@ callRegistered
 callRegistered px method = do
   serverPid <- whereIsServer
   call px serverPid method
-
--- | Like 'callRegistered' but also catch errors raised if e.g. the server
--- crashed. By allowing 'Alternative' instances to contain the reply,
--- application level errors can be combined with errors rising from inter
--- process communication.
-callRegisteredA
-  :: forall r q o f reply
-   . ( Alternative f
-     , Typeable f
-     , Typeable reply
-     , ServesApi o r q
-     , HasCallStack
-     , NFData (f reply)
-     )
-  => SchedulerProxy q
-  -> Api o ( 'Synchronous (f reply))
-  -> Eff r (f reply)
-callRegisteredA px method =
-  handleInterrupts px (const (return (empty @f))) (callRegistered px method)
 
 -- | Like 'cast' but take the 'Server' from the reader provided by
 -- 'registerServer'.

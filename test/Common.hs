@@ -7,7 +7,6 @@ import           Control.Eff.Extend
 import           Control.Eff.Log
 import           Control.Eff.Lift
 import           Control.Monad                  ( void
-                                                , when
                                                 )
 import           Test.Tasty
 import           Test.Tasty.HUnit
@@ -30,12 +29,8 @@ withTestLogC doSchedule k = k
   (return
     (\e -> withAsyncLogChannel
       1000
-      (multiMessageLogWriter
-        (\writeWith ->
-          writeWith
-            (\m -> when (view lmSeverity m < debugSeverity) (printLogMessage m)
-            )
-        )
+      (multiMessageLogWriter (\writeWith -> writeWith (\m ->  -- when (view lmSeverity m < debugSeverity) $
+                                                             printLogMessage m))
       )
       (doSchedule e)
     )

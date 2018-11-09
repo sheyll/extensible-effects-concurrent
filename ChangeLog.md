@@ -2,6 +2,10 @@
 
 ## 0.12.0
 
+- Add process `Link`ing and `Monitoring`.
+- Make the distinction between recoverable and non-recoverable exit explicit in
+  the type parameter of `ProcessExitReason`, and introduce `interruptXXXX`
+  functions in addition to `shutdownXXXX` functions, to throw recoverable exits.
 - Merge `ShutdownRequest` and `ProcessExitReason`
 - Rename `receiveLoopSuchThat` to `receiveSelectedLoop`
 - Pass the exit reason to the callback passed to `receiveSelectedLoop`

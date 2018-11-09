@@ -61,6 +61,7 @@ allTests schedulerFactory = localOption
     , pingPongTests schedulerFactory
     , yieldLoopTests schedulerFactory
     , selectiveReceiveTests schedulerFactory
+    , linkingTests schedulerFactory
     ]
   )
 
@@ -287,64 +288,38 @@ errorTests schedulerFactory
       testGroup
         "causing and handling errors"
         [ testGroup
-          "raiseError"
-          [ testCase "unhandled raiseError"
-          $ applySchedulerFactory schedulerFactory
-          $ do
-              void $ raiseError px "test error"
-              error "This should not happen"
-          , testCase "catch raiseError 1"
-          $ scheduleAndAssert schedulerFactory
-          $ \assertEff -> handleInterrupts
-              px
-              ( assertEff "error must be caught"
-              . (== ProcessError "test error 2")
-              )
-              (void (raiseError px "test error 2"))
-          , testCase "catch raiseError from a long sub block"
-          $ scheduleAndAssert schedulerFactory
-          $ \assertEff -> handleInterrupts
-              px
-              ( assertEff "error must be caught"
-              . (== ProcessError "test error 3")
-              )
-              (do
-                replicateM_ 100000 (void (self px))
-                void (raiseError px "test error 3")
-              )
-          ]
-        , testGroup
-          "exitWithError"
-          [ testCase "unhandled exitWithError"
-          $ applySchedulerFactory schedulerFactory
-          $ do
-              void $ exitWithError px "test error"
-              error "This should not happen"
-          , testCase "cannot catch exitWithError"
-          $ applySchedulerFactory schedulerFactory
-          $ do
-              void $ ignoreInterrupts px $ exitWithError px "test error 4"
-              error "This should not happen"
-          , testCase "multi process exitWithError"
-          $ scheduleAndAssert schedulerFactory
-          $ \assertEff -> do
-              me <- self px
-              let n = 15
-              traverse_
-                (\(i :: Int) -> spawn $ if i `rem` 5 == 0
-                  then do
-                    void $ sendMessage px me (toDyn i)
-                    void (exitWithError px (show i ++ " died"))
-                    assertEff "this should not be reached" False
-                  else
-                    foreverCheap
-                      (void (sendMessage px 888 (toDyn "test message to 888"))
-                      )
-                )
-                [0, 5 .. n]
-              oks <- replicateM (length [0, 5 .. n]) (receiveMessageAs px)
-              assertEff "" (sort oks == [0, 5 .. n])
-          ]
+            "exitWithError"
+            [ testCase "unhandled exitWithError"
+            $ applySchedulerFactory schedulerFactory
+            $ do
+                void $ exitWithError px "test error"
+                error "This should not happen"
+            , testCase "cannot catch exitWithError"
+            $ applySchedulerFactory schedulerFactory
+            $ do
+                void $ ignoreInterrupts px $ exitWithError px "test error 4"
+                error "This should not happen"
+            , testCase "multi process exitWithError"
+            $ scheduleAndAssert schedulerFactory
+            $ \assertEff -> do
+                me <- self px
+                let n = 15
+                traverse_
+                  (\(i :: Int) -> spawn $ if i `rem` 5 == 0
+                    then do
+                      void $ sendMessage px me (toDyn i)
+                      void (exitWithError px (show i ++ " died"))
+                      assertEff "this should not be reached" False
+                    else
+                      foreverCheap
+                        (void
+                          (sendMessage px 888 (toDyn "test message to 888"))
+                        )
+                  )
+                  [0, 5 .. n]
+                oks <- replicateM (length [0, 5 .. n]) (receiveMessageAs px)
+                assertEff "" (sort oks == [0, 5 .. n])
+            ]
         ]
 
 concurrencyTests
@@ -731,14 +706,72 @@ sendShutdownTests schedulerFactory
           , testCase "handleInterrupt handles my own interrupts"
           $ scheduleAndAssert schedulerFactory
           $ \assertEff ->
-              do
-                  handleInterrupts
-                    SP
-                    (\e ->
-                      assertEff "" (ProcessError "test" == e) >> return True
-                    )
-                    (interruptProcess SP (ProcessError "test") >> return False
-                    )
+              SP
+                  (\e ->
+                    assertEff "" (ProcessError "test" == e) >> return True
+                  )
+                  (interruptProcess SP (ProcessError "test") >> return False)
                 >>= assertEff "exception handler not invoked"
           ]
         ]
+
+
+linkingTests
+  :: forall r
+   . (Member (Logs LogMessage) r, SetMember Lift (Lift IO) r)
+  => IO (Eff (Process r ': r) () -> IO ())
+  -> TestTree
+linkingTests schedulerFactory = setTravisTestOptions
+  (testGroup
+    "process linking tests"
+    [
+       -- link from process bar to process foo, then exit foo normally and handle the
+       -- resulting interrupt in bar. Bar will send the exit reason to the
+       -- waiting main process, which will then place an assertion on the
+       -- correctnes of the exit reason.
+      testCase "link processes, shutdown normal no recovery"
+    $ applySchedulerFactory schedulerFactory
+    $ do
+        let
+          foo = void (receiveAnyMessage SP)
+          bar fooPid parentPid = handleInterrupts
+            SP
+            (\er -> do
+              logCritical
+                ("4--------------------------------------------------------------"
+                )
+              void (sendMessageAs SP parentPid er)
+              logCritical
+                ("4--------------------------------------------------------------"
+                )
+            )
+            (do
+              linkProcess SP fooPid
+              logCritical
+                ("1--------------------------------------------------------------"
+                )
+              sendShutdown SP fooPid (NotRecovered ExitNormally)
+              logCritical
+                ("2--------------------------------------------------------------"
+                )
+              void (receiveAnyMessage SP)
+              logCritical
+                ("3--------------------------------------------------------------"
+                )
+            )
+
+        fooPid <- spawn foo
+        me     <- self SP
+        spawn_ (bar fooPid me)
+        er <- receiveMessageAs @(ProcessExitReason 'Recoverable) SP
+        lift (er @=? LinkedProcessCrashed fooPid NormalExit NoRecovery)
+    , testCase "link process with it self"
+    $ applySchedulerFactory schedulerFactory
+    $ do
+        me <- self SP
+        handleInterrupts
+          SP
+          (\er -> lift (False @? ("unexpected interrupt: " ++ show er)))
+          (linkProcess SP me)
+    ]
+  )

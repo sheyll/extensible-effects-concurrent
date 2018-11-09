@@ -67,10 +67,6 @@ module Control.Eff.Concurrent.Process
   , sendShutdownChecked
   , sendInterrupt
   , sendInterruptChecked
-  , interruptProcess
-  , raiseError
-  , handleInterrupts
-  , ignoreInterrupts
   , exitBecause
   , exitNormally
   , exitWithError
@@ -94,6 +90,7 @@ import           Data.Default
 import           Data.Dynamic
 import           Data.Kind
 import           GHC.Stack
+import           Data.Function
 import qualified Control.Exception             as Exc
 
 -- | The process effect is the basis for message passing concurrency. This
@@ -132,9 +129,6 @@ data Process (r :: [Type -> Type]) b where
   -- returns,
   Shutdown :: ProcessExitReason 'NoRecovery   -> Process r a
   -- | Raise an error, that can be handled.
-  Interrupt :: ProcessExitReason 'Recoverable -> Process r (ResumeProcess a)
-  -- | Request that another a process exits. The targeted process is shutdown
-  -- without mercy, it has no way of preventing the exit.
   SendShutdown :: ProcessId  -> ProcessExitReason 'NoRecovery  -> Process r (ResumeProcess Bool)
   -- | Request that another a process interrupts. The targeted process is interrupted
   -- and gets an 'Interrupted', the target process may decide to ignore the
@@ -161,13 +155,13 @@ data Process (r :: [Type -> Type]) b where
   -- will be sent immediately, w.thout exit reason
   Monitor :: ProcessId -> Process r (ResumeProcess Int)
   -- | Remove a monitor.
-  Demonitor :: Int -> Process r (ResumeProcess Bool)
+  Demonitor :: Int -> Process r (ResumeProcess ())
   -- | Connect the calling process to another process, such that
   -- if one of the processes crashes (i.e. 'isCrash' returns 'True'), the other
   -- is shutdown with the 'ProcessExitReaon' 'LinkedProcessCrashed'.
-  Link :: ProcessId -> Process r (ResumeProcess Bool)
+  Link :: ProcessId -> Process r (ResumeProcess ())
   -- | Unlink the calling proccess from the other process.
-  Unlink :: ProcessId -> Process r (ResumeProcess Bool)
+  Unlink :: ProcessId -> Process r (ResumeProcess ())
 
 instance Show (Process r b) where
   showsPrec d = \case
@@ -175,8 +169,6 @@ instance Show (Process r b) where
     SelfPid      -> showString "lookup the current process id"
     Spawn    _   -> showString "spawn a new process"
     Shutdown sr  -> showParen (d >= 10) (showString "shutdown " . showsPrec 10 sr)
-    Interrupt sr ->
-      showParen (d >= 10) (showString "interrupt " . showsPrec 10 sr)
     SendShutdown toPid sr -> showParen
       (d >= 10)
       ( showString "shutting down "
@@ -343,31 +335,55 @@ data ProcessState =
   | ProcessBusySendingShutdown  -- ^ The process is busy with killing
   | ProcessBusySendingInterrupt -- ^ The process is busy with killing
   | ProcessBusyReceiving        -- ^ The process blocked by a 'receiveAnyMessage'
+  | ProcessBusyLinking          -- ^ The process blocked by a 'linkProcess'
+  | ProcessBusyUnlinking        -- ^ The process blocked by a 'unlinkProcess'
+  | ProcessBusyMonitoring       -- ^ The process blocked by a 'monitor'
+  | ProcessBusyDemonitoring     -- ^ The process blocked by a 'demonitor'
   | ProcessInterrupted          -- ^ The process was interrupted
   | ProcessShuttingDown         -- ^ The process was shutdown or crashed
   deriving (Read, Show, Ord, Eq, Enum, Generic)
 
 instance NFData ProcessState
 
-instance Default ProcessState where def = ProcessBusy
+instance Default ProcessState where def = ProcessBooting
 
 -- | This kind is used to indicate if a 'ProcessExitReason' can be treated like
 -- a short interrupt which can be handled or ignored.
 data ExitRecovery = Recoverable | NoRecovery
+  deriving (Typeable, Ord, Eq, Generic)
+
+instance NFData ExitRecovery
+
+instance Show ExitRecovery where
+  showsPrec d =
+    showParen (d>=10) .
+    (\case
+        Recoverable -> showString "recoverable"
+        NoRecovery  -> showString "not recoverable")
 
 -- | Get the 'ExitRecover'y
 toExitRecovery :: ProcessExitReason r -> ExitRecovery
 toExitRecovery = \case
-  ExitNormally              -> Recoverable
-  (LinkedProcessCrashed _ ) -> Recoverable
-  (ProcessError         _ ) -> Recoverable
-  (NotRecovered         _ ) -> NoRecovery
-  (UnexpectedException _ _) -> NoRecovery
-  Killed                    -> NoRecovery
+  ExitNormally                 -> Recoverable
+  (LinkedProcessCrashed _ _ _) -> Recoverable
+  (ProcessError _            ) -> Recoverable
+  (NotRecovered _            ) -> NoRecovery
+  (UnexpectedException _ _   ) -> NoRecovery
+  Killed                       -> NoRecovery
 
 -- | This value indicates wether a process exitted in way consistent with
 -- the planned behaviour or not.
 data ExitSeverity = NormalExit | Crash
+  deriving (Typeable, Ord, Eq, Generic)
+
+instance Show ExitSeverity where
+  showsPrec d =
+    showParen (d>=10) .
+    (\case
+        NormalExit -> showString "exit success"
+        Crash      -> showString "crash")
+
+instance NFData ExitSeverity
 
 -- | Get the 'ExitSeverity' of a 'ProcessExitReason'.
 toExitSeverity :: ProcessExitReason e -> ExitSeverity
@@ -382,7 +398,7 @@ data ProcessExitReason (t :: ExitRecovery) where
       :: ProcessExitReason 'Recoverable
     -- ^ A process function returned or exitted without any error.
     LinkedProcessCrashed
-      :: ProcessId -> ProcessExitReason 'Recoverable
+      :: ProcessId -> ExitSeverity -> ExitRecovery -> ProcessExitReason 'Recoverable
     -- ^ A linked process is down
     ProcessError
       :: String -> ProcessExitReason 'Recoverable
@@ -403,35 +419,38 @@ instance Show (ProcessExitReason x) where
   showsPrec d =
     showParen (d>=10) .
     (\case
-        ExitNormally            -> showString "exit normally"
-        LinkedProcessCrashed m  -> showString "linked process crashed: " . shows m
-        ProcessError reason     -> showString "error: " . showString reason
-        NotRecovered         e  -> showString "not recovered from: " . shows e
-        UnexpectedException w m ->   showString "unhandled runtime exception: "
-                                   . showString m
-                                   . showString " caught here: "
-                                   . showString w
-        Killed                  -> showString "killed"
+        ExitNormally                -> showString "exit normally"
+        LinkedProcessCrashed m n o  ->  showString "linked process crashed: "
+                                        . shows m . showChar ' '
+                                        . shows n . showChar ' '
+                                        . shows o
+        ProcessError reason         -> showString "error: " . showString reason
+        NotRecovered         e      -> showString "not recovered from: " . shows e
+        UnexpectedException w m     ->   showString "unhandled runtime exception: "
+                                       . showString m
+                                       . showString " caught here: "
+                                       . showString w
+        Killed                      -> showString "killed"
     )
 
 instance Exc.Exception (ProcessExitReason 'Recoverable)
 instance Exc.Exception (ProcessExitReason 'NoRecovery )
 
 instance NFData (ProcessExitReason x) where
-  rnf ExitNormally = ()
-  rnf (LinkedProcessCrashed !l) = rnf l
+  rnf ExitNormally = rnf ()
+  rnf (LinkedProcessCrashed !l !m !n) = rnf l `seq` rnf m `seq` rnf n `seq` ()
   rnf (ProcessError !l) = rnf l
   rnf (NotRecovered !l) = rnf l
   rnf (UnexpectedException !l1 !l2) = rnf l1 `seq` rnf l2 `seq` ()
-  rnf Killed = ()
+  rnf Killed = rnf ()
 
 instance Ord (ProcessExitReason x) where
   compare ExitNormally ExitNormally = EQ
   compare ExitNormally _ = LT
   compare _ ExitNormally = GT
-  compare (LinkedProcessCrashed l) (LinkedProcessCrashed r) = compare l r
-  compare (LinkedProcessCrashed _) _ = LT
-  compare _ (LinkedProcessCrashed _) = GT
+  compare (LinkedProcessCrashed l m n) (LinkedProcessCrashed r s t) = compare l r <> compare m s <> compare n t
+  compare (LinkedProcessCrashed _ _ _) _ = LT
+  compare _ (LinkedProcessCrashed _ _ _) = GT
   compare (ProcessError l) (ProcessError r) = compare l r
   compare (NotRecovered l) (NotRecovered r) = compare l r
   compare (NotRecovered _) _ = LT
@@ -444,7 +463,7 @@ instance Ord (ProcessExitReason x) where
 
 instance Eq (ProcessExitReason x) where
   (==) ExitNormally ExitNormally = True
-  (==) (LinkedProcessCrashed l) (LinkedProcessCrashed r) = (==) l r
+  (==) (LinkedProcessCrashed l m n) (LinkedProcessCrashed r s t) = l == r && m == s && n == t
   (==) (ProcessError l) (ProcessError r) = (==) l r
   (==) (NotRecovered l) (NotRecovered r) = (==) l r
   (==) (UnexpectedException l1 l2) (UnexpectedException r1 r2) =
@@ -469,6 +488,9 @@ isRecoverable _                               = False
 data SomeProcessExitReason where
   SomeProcessExitReason :: ProcessExitReason x -> SomeProcessExitReason
 
+instance Eq SomeProcessExitReason where
+  (==) = (==) `on` fromSomeProcessExitReason
+
 -- | Partition a 'SomeProcessExitReason' back into either a 'NoRecovery'
 -- or a 'Recoverable' 'ProcessExitReason'
 fromSomeProcessExitReason
@@ -477,12 +499,12 @@ fromSomeProcessExitReason
        (ProcessExitReason 'NoRecovery)
        (ProcessExitReason 'Recoverable)
 fromSomeProcessExitReason (SomeProcessExitReason e) = case e of
-  recoverable@ExitNormally              -> Right recoverable
-  recoverable@(LinkedProcessCrashed _ ) -> Right recoverable
-  recoverable@(ProcessError         _ ) -> Right recoverable
-  noRecovery@( NotRecovered         _ ) -> Left noRecovery
-  noRecovery@( UnexpectedException _ _) -> Left noRecovery
-  noRecovery@Killed                     -> Left noRecovery
+  recoverable@ExitNormally                 -> Right recoverable
+  recoverable@(LinkedProcessCrashed _ _ _) -> Right recoverable
+  recoverable@(ProcessError _            ) -> Right recoverable
+  noRecovery@( NotRecovered _            ) -> Left noRecovery
+  noRecovery@( UnexpectedException _ _   ) -> Left noRecovery
+  noRecovery@Killed                        -> Left noRecovery
 
 -- | Print a 'ProcessExitReason' to 'Just' a formatted 'String' when 'isCrash'
 -- is 'True'.
@@ -759,7 +781,7 @@ demonitor
    . (HasCallStack, SetMember Process (Process q) r)
   => SchedulerProxy q
   -> Int
-  -> Eff r Bool
+  -> Eff r ()
 demonitor _px = executeAndResume . Demonitor . force
 
 -- | Connect the calling process to another process, such that
@@ -770,7 +792,7 @@ linkProcess
    . (HasCallStack, SetMember Process (Process q) r)
   => SchedulerProxy q
   -> ProcessId
-  -> Eff r Bool
+  -> Eff r ()
 linkProcess _px = executeAndResume . Link . force
 
 -- | Unlink the calling proccess from the other process.
@@ -779,7 +801,7 @@ unlinkProcess
    . (HasCallStack, SetMember Process (Process q) r)
   => SchedulerProxy q
   -> ProcessId
-  -> Eff r Bool
+  -> Eff r ()
 unlinkProcess _px = executeAndResume . Unlink . force
 
 -- | Exit the process with a 'ProcessExitReaon'.
@@ -807,50 +829,6 @@ exitWithError
   -> String
   -> Eff r a
 exitWithError px = exitBecause px . NotRecovered . ProcessError
-
--- | Interrupt the current process, the interrupt can be handled by
--- either using 'catchInterrupts', or functions like 'executeAndCatch' or the
--- receive loop functions.
-interruptProcess
-  :: forall r q b
-   . (HasCallStack, SetMember Process (Process q) r)
-  => SchedulerProxy q
-  -> ProcessExitReason 'Recoverable
-  -> Eff r b
-interruptProcess _ = executeAndResume . Interrupt @q . force
-
--- | Thrown an error, can be caught by 'handleInterrupts'.
-raiseError
-  :: forall r q b
-   . (HasCallStack, SetMember Process (Process q) r)
-  => SchedulerProxy q
-  -> String
-  -> Eff r b
-raiseError px = interruptProcess px . ProcessError
-
--- | Handle process interruptions caused by 'interruptProcess', 'raiseError' or
--- by being the target of 'sendInterrupt'.
-handleInterrupts
-  :: forall r q w
-   . (HasCallStack, SetMember Process (Process q) r)
-  => SchedulerProxy q
-  -> (ProcessExitReason 'Recoverable -> Eff r w)
-  -> Eff r w
-  -> Eff r w
-handleInterrupts _ onErr = interpose return go
- where
-  go :: forall b . Process q b -> (b -> Eff r w) -> Eff r w
-  go (Interrupt emsg) _k = onErr emsg
-  go s                k  = send s >>= k
-
--- | Like 'handleInterrupts' it catches 'raiseError', but instead of invoking a
--- user provided handler, the result is wrapped into an 'Either'.
-ignoreInterrupts
-  :: (HasCallStack, SetMember Process (Process q) r)
-  => SchedulerProxy q
-  -> Eff r a
-  -> Eff r (Either (ProcessExitReason 'Recoverable) a)
-ignoreInterrupts px = handleInterrupts px (return . Left) . fmap Right
 
 -- | Each process is identified by a single process id, that stays constant
 -- throughout the life cycle of a process. Also, message sending relies on these

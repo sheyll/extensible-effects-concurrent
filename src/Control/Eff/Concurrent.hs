@@ -94,10 +94,6 @@ import           Control.Eff.Concurrent.Process ( ProcessId(..)
                                                 , sendShutdownChecked
                                                 , sendInterrupt
                                                 , sendInterruptChecked
-                                                , interruptProcess
-                                                , raiseError
-                                                , handleInterrupts
-                                                , ignoreInterrupts
                                                 , exitBecause
                                                 , exitNormally
                                                 , exitWithError
@@ -116,7 +112,6 @@ import           Control.Eff.Concurrent.Api.Client
                                                 , call
                                                 , castRegistered
                                                 , callRegistered
-                                                , callRegisteredA
                                                 , ServesApi
                                                 , registerServer
                                                 , whereIsServer

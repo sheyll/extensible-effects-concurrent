@@ -226,8 +226,7 @@ handleProcess runEff yieldEff !newPid !nextRef !msgQs allProcs@((!processState, 
               suicide     = targetPid == pid
               targetFound = suicide || not (Seq.null targets)
           if suicide
-            then do
-              handleExit (Left sr)
+            then handleExit (Left sr)
             else do
               let deliverTheGoodNews (targetState, tPid) = do
                     nextTargetState <- case targetState of
@@ -368,9 +367,8 @@ runAsCoroutinePure runEff = runEff . handle_relay (return . OnDone) cont
   cont :: Process r x -> (x -> Eff r (OnYield r v)) -> Eff r (OnYield r v)
   cont YieldProcess               k  = return (OnYield k)
   cont SelfPid                    k  = return (OnSelf k)
-  cont (Spawn     e             ) k  = return (OnSpawn e k)
-  cont (Shutdown  !sr           ) _k = return (OnShutdown sr)
-  cont (Interrupt !e            ) k  = return (OnInterrupt e k)
+  cont (Spawn    e              ) k  = return (OnSpawn e k)
+  cont (Shutdown !sr            ) _k = return (OnShutdown sr)
   cont (SendMessage !tp !msg    ) k  = return (OnSend tp msg k)
   cont (ReceiveSelectedMessage f) k  = return (OnRecv f k)
   cont (SendInterrupt !tp  !er  ) k  = return (OnSendInterrupt tp er k)

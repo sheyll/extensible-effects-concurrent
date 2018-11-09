@@ -114,15 +114,6 @@ testServerLoop px = spawnServer px
     logInfo (show me ++ " stopping me with xxx")
     void (reply False)
     return (StopApiServer (ProcessError "xxx"))
-  handleCallTest (SayHello "die") reply = do
-    me <- self px
-    logInfo (show me ++ " throwing and catching ")
-    handleInterrupts
-      px
-      (\er -> logInfo ("WOW: " ++ show er ++ " - No. This is wrong!"))
-      (raiseError px "No body loves me... :,(")
-    void (reply True)
-    return HandleNextRequest
   handleCallTest (SayHello x) reply = do
     me <- self px
     logInfo (show me ++ " Got Hello: " ++ x)
