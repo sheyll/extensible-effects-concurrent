@@ -21,7 +21,7 @@ test_pureScheduler = setTravisTestOptions $ testGroup
                   adderChild <- spawn $ do
                       (from, arg1, arg2) <- receiveMessageAs SP
                       sendMessageAs SP from ((arg1 + arg2) :: Int)
-                      foreverCheap $ void $ receiveMessage SP
+                      foreverCheap $ void $ receiveAnyMessage SP
 
                   multChild <- spawn $ do
                       (from, arg1, arg2) <- receiveMessageAs SP
@@ -42,7 +42,7 @@ test_mainProcessSpawnsAChildAndExitsNormally = setTravisTestOptions
         "spawn a child and exit normally"
         (Scheduler.defaultMain
             (do
-                void (spawn (void (receiveMessage singleThreadedIoScheduler)))
+                void (spawn (void (receiveAnyMessage singleThreadedIoScheduler)))
                 void (exitNormally singleThreadedIoScheduler)
                 fail "This should not happen!!"
             )

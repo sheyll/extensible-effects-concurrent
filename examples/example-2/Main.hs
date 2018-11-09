@@ -171,4 +171,4 @@ counterExample px = execState (0 :: Integer) $ do
   cnt cntServer1
   cast px cntServer2 Inc
   cnt cntServer2
-  void $ sendShutdown px pid2 (ExitWithError "test test test")
+  void $ sendShutdown px pid2 (ExitWithErrorSR "test test test")

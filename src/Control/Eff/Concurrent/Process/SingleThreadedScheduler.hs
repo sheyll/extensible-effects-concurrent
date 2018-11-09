@@ -119,14 +119,14 @@ data OnYield r a where
           -> (ResumeProcess ProcessId -> Eff r (OnYield r a))
           -> OnYield r a
   OnDone :: !a -> OnYield r a
-  OnShutdown :: ShutdownRequest -> OnYield r a
+  OnShutdown :: ProcessExitReason -> OnYield r a
   OnRaiseError :: !String -> OnYield r a
   OnSend :: !ProcessId -> !Dynamic
          -> (ResumeProcess Bool -> Eff r (OnYield r a))
          -> OnYield r a
   OnRecv :: MessageSelector b -> (ResumeProcess b -> Eff r (OnYield r a))
          -> OnYield r a
-  OnSendShutdown :: !ProcessId -> !ShutdownRequest -> (ResumeProcess Bool -> Eff r (OnYield r a)) -> OnYield r a
+  OnSendShutdown :: !ProcessId -> !ProcessExitReason -> (ResumeProcess Bool -> Eff r (OnYield r a)) -> OnYield r a
   OnMakeReference :: (ResumeProcess Int -> Eff r (OnYield r a)) -> OnYield r a
 
 -- | Internal 'Process' handler function.
@@ -153,14 +153,14 @@ handleProcess runEff yieldEff !newPid !nextRef !msgQs allProcs@((!processState, 
                              rest
     in
       case processState of
-        OnDone       r                 -> handleExit (Right r)
+        OnDone       r                -> handleExit (Right r)
 
         OnShutdown ExitNormally -> handleExit (Left "process exited normally")
-        OnShutdown   (ExitWithError e) -> handleExit (Left e)
+        OnShutdown   e                -> handleExit (Left (show e))
 
-        OnRaiseError errM              -> handleExit (Left errM)
+        OnRaiseError errM             -> handleExit (Left errM)
 
-        OnSendShutdown targetPid sr k  -> do
+        OnSendShutdown targetPid sr k -> do
           let allButTarget =
                 Seq.filter (\(_, e) -> e /= pid && e /= targetPid) allProcs
               targets     = Seq.filter (\(_, e) -> e == targetPid) allProcs

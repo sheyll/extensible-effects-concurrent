@@ -2,6 +2,16 @@
 
 ## 0.12.0
 
+- Merge `ShutdownRequest` and `ProcessExitReason`
+- Rename `receiveLoopSuchThat` to `receiveSelectedLoop`
+- Pass the exit reason to the callback passed to `receiveSelectedLoop`
+- Rename `receiveMessage` to `receiveAnyMessage`
+- Rename `receiveAnyLoop` to `receiveAnyLoop`
+- Pass the exit reason to the callback passed to `receiveAnyLoop`
+- Rename `receiveMessage` to `receiveAnyMessage`
+- Rename `receiveMessageAs` to `receiveMessage`
+- Rename `receiveLoop` to `receiveLoop`
+- Pass the exit reason to the callback passed to `receiveAnyLoop`
 - Remove `SchedulerShuttingDown`
 - Improve logging for exceptions in `ForkIOScheduler`
 - Fix a bug in the logging system that caused all log filters to be forgotten
@@ -179,7 +189,7 @@
 - Add initial test suite
 - Fix shutdown error in `ForkIoScheduler`
 - Rename `Dispatcher` to `Scheduler`
-- Add `receiveLoop` function to `Process`
+- Add `receiveAnyLoop` function to `Process`
 - Change `Api.Server` `serve` to loop instead of handling just one request
 - Allow combining multiple `ApiHandler` such that one process can handle
   multiple APIs

@@ -12,7 +12,7 @@
 --
 -- >>> s <- forkInteractiveScheduler Control.Eff.Concurrent.Process.SingleThreadedScheduler.defaultMain
 --
--- >>> fooPid <- submit s (spawn (foreverCheap (receiveMessage SP >>= (logMsg . fromMaybe "Huh!??" . fromDynamic))))
+-- >>> fooPid <- submit s (spawn (foreverCheap (receiveAnyMessage SP >>= (logMsg . fromMaybe "Huh!??" . fromDynamic))))
 --
 -- >>> fooPid
 -- <0.1.0>

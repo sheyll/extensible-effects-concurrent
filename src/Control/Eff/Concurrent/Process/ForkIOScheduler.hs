@@ -59,7 +59,7 @@ import           System.Timeout
 -- | A message queue of a process, contains the actual queue and maybe an
 -- exit reason.
 data MessageQ = MessageQ { _incomingMessages :: Seq Dynamic
-                         , _shutdownRequests :: Maybe ShutdownRequest
+                         , _shutdownRequests :: Maybe ProcessExitReason
                          }
 
 instance Default MessageQ where def = MessageQ def def
@@ -68,7 +68,7 @@ makeLenses ''MessageQ
 
 -- | Return any '_shutdownRequests' from a 'MessageQ' in a 'TVar' and
 -- reset the '_shutdownRequests' field to 'Nothing' in the 'TVar'.
-tryTakeNextShutdownRequestSTM :: TVar MessageQ -> STM (Maybe ShutdownRequest)
+tryTakeNextShutdownRequestSTM :: TVar MessageQ -> STM (Maybe ProcessExitReason)
 tryTakeNextShutdownRequestSTM mqVar = do
   mq <- readTVar mqVar
   when (isJust (mq^.shutdownRequests))
@@ -285,7 +285,7 @@ handleProcess myProcessInfo =
      . HasCallStack
     => Arr SchedulerIO v a
     -> Arr SchedulerIO ProcessExitReason a
-    -> ShutdownRequest
+    -> ProcessExitReason
     -> Process SchedulerIO v
     -> Eff SchedulerIO a
   interpretRequestAfterShutdownRequest kontinue diskontinue shutdownRequest =
@@ -293,15 +293,15 @@ handleProcess myProcessInfo =
       SendMessage _ _          -> kontinue (ShutdownRequested shutdownRequest)
       SendShutdown toPid r     ->
         if toPid == myPid
-          then diskontinue (ProcessShutDown r)
+          then diskontinue r
           else kontinue (ShutdownRequested shutdownRequest)
       Spawn _                  -> kontinue (ShutdownRequested shutdownRequest)
       ReceiveSelectedMessage _ -> kontinue (ShutdownRequested shutdownRequest)
       SelfPid                  -> kontinue (ShutdownRequested shutdownRequest)
       MakeReference            -> kontinue (ShutdownRequested shutdownRequest)
       YieldProcess             -> kontinue (ShutdownRequested shutdownRequest)
-      Shutdown r               -> diskontinue (ProcessShutDown r)
-      RaiseError e             -> diskontinue (ProcessRaisedError e)
+      Shutdown r               -> diskontinue r
+      RaiseError e             -> diskontinue (ExitWithError e)
 
   interpretRequest
     :: forall v a
@@ -323,8 +323,8 @@ handleProcess myProcessInfo =
       SelfPid                  -> kontinue nextRef (ResumeWith myPid)
       MakeReference            -> kontinue (nextRef + 1) (ResumeWith nextRef)
       YieldProcess             -> kontinue nextRef (ResumeWith  ())
-      Shutdown r               -> diskontinue (ProcessShutDown r)
-      RaiseError e             -> diskontinue (ProcessRaisedError e)
+      Shutdown r               -> diskontinue r
+      RaiseError e             -> diskontinue (ExitWithError e)
     where
 
       interpretSend !toPid msg =
@@ -420,21 +420,21 @@ spawnNewProcess mfa = do
               (\mExc () ->
                   do let e = case mExc of
                                Nothing ->
-                                 ProcessReturned
+                                 ExitNormally
                                Just exc ->
                                  case Safe.fromException exc of
                                    Just Async.AsyncCancelled ->
-                                     ProcessCancelled
+                                     Killed
 
                                    Nothing ->
-                                     ProcessCaughtIOException
+                                     UnexpectedException
                                          (prettyCallStack callStack)
                                          (Safe.displayException exc)
                      lift (atomically
                        (do modifyTVar' processInfosVar (at pid .~ Nothing)
                            modifyTVar' cancellationsVar (at pid .~ Nothing)))
                      case e of
-                      ProcessCancelled ->
+                      Killed ->
                         logProcessExit e
 
                       _ -> do
@@ -449,7 +449,7 @@ spawnNewProcess mfa = do
 
               )
               (const
-                (handleProcess procInfo (mfa >> return ProcessReturned))))))
+                (handleProcess procInfo (mfa >> return ExitNormally))))))
           atomically (modifyTVar' cancellationsVar (at pid ?~ procAsync))
           return procAsync)
 
@@ -468,7 +468,7 @@ enqueueMessageOtherProcess toPid msg schedulerState =
                 return True)
 
 enqueueShutdownRequest ::
-  HasCallStack => ProcessId -> ShutdownRequest -> SchedulerState -> STM Bool
+  HasCallStack => ProcessId -> ProcessExitReason -> SchedulerState -> STM Bool
 enqueueShutdownRequest toPid msg schedulerState =
   view (at toPid) <$> readTVar (schedulerState ^. processTable)
    >>= maybe (return False)

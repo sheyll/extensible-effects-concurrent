@@ -88,7 +88,7 @@ test_mainProcessSpawnsAChildAndReturns = setTravisTestOptions
       1000
       def
       (Scheduler.defaultMainWithLogChannel
-        (void (spawn (void (receiveMessage forkIoScheduler))))
+        (void (spawn (void (receiveAnyMessage forkIoScheduler))))
       )
     )
   )
@@ -102,7 +102,7 @@ test_mainProcessSpawnsAChildAndExitsNormally = setTravisTestOptions
       def
       (Scheduler.defaultMainWithLogChannel
         (do
-          void (spawn (void (receiveMessage forkIoScheduler)))
+          void (spawn (void (receiveAnyMessage forkIoScheduler)))
           void (exitNormally forkIoScheduler)
           fail "This should not happen!!"
         )

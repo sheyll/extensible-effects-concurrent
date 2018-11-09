@@ -58,7 +58,6 @@ import           Control.Eff.Concurrent.Process ( ProcessId(..)
                                                 , selectAnyMessageLazy
                                                 , ProcessState(..)
                                                 , ProcessExitReason(..)
-                                                , ShutdownRequest(..)
                                                 , thisSchedulerProxy
                                                 , executeAndCatch
                                                 , executeAndResume
@@ -68,12 +67,12 @@ import           Control.Eff.Concurrent.Process ( ProcessId(..)
                                                 , sendMessageChecked
                                                 , spawn
                                                 , spawn_
-                                                , receiveMessage
+                                                , receiveAnyMessage
                                                 , receiveMessageAs
                                                 , receiveSelectedMessage
+                                                , receiveAnyLoop
                                                 , receiveLoop
-                                                , receiveLoopAs
-                                                , receiveLoopSuchThat
+                                                , receiveSelectedLoop
                                                 , self
                                                 , sendShutdown
                                                 , sendShutdownChecked

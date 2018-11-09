@@ -33,7 +33,7 @@ mainProcessSpawnsAChildAndReturns
   :: (HasCallStack, SetMember Process (Process q) r)
   => SchedulerProxy q
   -> Eff r ()
-mainProcessSpawnsAChildAndReturns px = void (spawn (void (receiveMessage px)))
+mainProcessSpawnsAChildAndReturns px = void (spawn (void (receiveAnyMessage px)))
 
 example
   :: ( HasCallStack

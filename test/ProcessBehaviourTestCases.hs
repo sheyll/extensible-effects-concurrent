@@ -364,7 +364,7 @@ concurrencyTests schedulerFactory
               (const
                 (spawn
                   (do
-                    m <- receiveMessage px
+                    m <- receiveAnyMessage px
                     void (sendMessage px me m)
                   )
                 )
@@ -384,7 +384,7 @@ concurrencyTests schedulerFactory
             me     <- self px
             child1 <- spawn
               (do
-                m <- receiveMessage px
+                m <- receiveAnyMessage px
                 void (sendMessage px me m)
               )
             child2 <- spawn
@@ -460,7 +460,7 @@ concurrencyTests schedulerFactory
             traverse_
               (\(i :: Int) -> spawn $ do
                 when (i `rem` 5 == 0) $ void $ sendMessage px me (toDyn i)
-                foreverCheap $ void (receiveMessage px)
+                foreverCheap $ void (receiveAnyMessage px)
               )
               [0 .. n]
             oks <- replicateM (length [0, 5 .. n]) (receiveMessageAs px)
@@ -679,7 +679,7 @@ sendShutdownTests schedulerFactory
                   untilShutdown (SelfPid @r)
                   void (sendMessage px me (toDyn "OK"))
                 )
-              void (sendShutdown px other (ExitWithError "testError"))
+              void (sendShutdown px other (ExitWithErrorSR "testError"))
               a <- receiveMessageAs px
               assertEff "" (a == "OK")
           , testCase "while it is spawning"

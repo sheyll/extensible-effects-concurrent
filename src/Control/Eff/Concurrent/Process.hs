@@ -33,7 +33,8 @@ module Control.Eff.Concurrent.Process
   , selectAnyMessageLazy
   , ProcessState(..)
   , ProcessExitReason(..)
-  , ShutdownRequest(..)
+  , isCrash
+  , toCrashReason
   , thisSchedulerProxy
   , executeAndCatch
   , executeAndResume
@@ -43,21 +44,22 @@ module Control.Eff.Concurrent.Process
   , sendMessageChecked
   , spawn
   , spawn_
-  , receiveMessage
+  , receiveAnyMessage
   , receiveMessageAs
   , receiveSelectedMessage
+  , receiveAnyLoop
   , receiveLoop
-  , receiveLoopAs
-  , receiveLoopSuchThat
+  , receiveSelectedLoop
   , self
   , sendShutdown
   , sendShutdownChecked
   , makeReference
-  , exitWithError
-  , exitNormally
-  , raiseError
   , catchRaisedError
+  , raiseError
   , ignoreProcessError
+  , exitBecause
+  , exitNormally
+  , exitWithError
   , logProcessExit
   )
 where
@@ -114,13 +116,13 @@ data Process (r :: [Type -> Type]) b where
   Spawn :: Eff (Process r ': r) () -> Process r (ResumeProcess ProcessId)
   -- | Process exit, this is the same as if the function that was applied to a
   -- spawn function returned.
-  Shutdown :: ShutdownRequest -> Process r a
+  Shutdown :: ProcessExitReason -> Process r a
   -- | Raise an error, that can be handled.
   RaiseError :: String -> Process r b
   -- | Request that another a process exits. The targeted process is interrupted
   -- and gets a 'ShutdownRequested', the target process may decide to ignore the shutdown
   -- requests.
-  SendShutdown :: ProcessId -> ShutdownRequest -> Process r (ResumeProcess Bool)
+  SendShutdown :: ProcessId -> ProcessExitReason -> Process r (ResumeProcess Bool)
   --  LinkProcesses :: ProcessId -> ProcessId -> Process ()
   -- | Send a message to a process addressed by the 'ProcessId'. Sending a
   -- message should **always succeed** and return **immediately**, even if the
@@ -137,43 +139,41 @@ data Process (r :: [Type -> Type]) b where
 
 instance Show (Process r b) where
   showsPrec d = \case
-    YieldProcess -> showString "YieldProcess"
-    SelfPid      -> showString "SelfPid"
-    Spawn    _   -> showString "Spawn"
+    YieldProcess -> showString "yield process"
+    SelfPid      -> showString "lookup the current process id"
+    Spawn    _   -> showString "spawn a new process"
     Shutdown sr  ->
-      showParen (d >= 10) (showString "Shutdown " . showsPrec 10 sr)
+      showParen (d >= 10) (showString "shutdown " . showsPrec 10 sr)
     RaiseError sr ->
-      showParen (d >= 10) (showString "RaiseError " . showsPrec 10 sr)
+      showParen (d >= 10) (showString "raise an error " . showsPrec 10 sr)
     SendShutdown toPid sr -> showParen
       (d >= 10)
-      ( showString "SendShutdown "
+      ( showString "send shutdown to "
       . showsPrec 10 toPid
       . showChar ' '
       . showsPrec 10 sr
       )
     SendMessage toPid sr -> showParen
       (d >= 10)
-      ( showString "SendMessage "
+      ( showString "send a message to "
       . showsPrec 10 toPid
       . showChar ' '
       . showsPrec 10 sr
       )
-    ReceiveSelectedMessage _ -> showString "ReceiveSelectedMessage"
-    MakeReference            -> showString "MakeReference"
+    ReceiveSelectedMessage _ -> showString "receive a message"
+    MakeReference            -> showString "generate a unique reference"
 
 -- | Every 'Process' action returns it's actual result wrapped in this type. It
 -- will allow to signal errors as well as pass on normal results such as
 -- incoming messages.
 data ResumeProcess v where
-  -- | The process received a 'ShutdownRequest'.
-  ShutdownRequested :: ShutdownRequest -> ResumeProcess v
+  -- | The process received a 'ProcessExitReason'.
+  ShutdownRequested :: ProcessExitReason -> ResumeProcess v
   -- | The process is required to exit from an error condition, that cannot be
   -- recovered from.
   OnError :: String -> ResumeProcess v
   -- | The process may resume to do work, using the given result.
   ResumeWith :: a -> ResumeProcess a
-  -- | This indicates that the action did not complete, and maybe retried
-  RetryLastAction :: ResumeProcess v
   deriving ( Typeable, Foldable, Functor, Show, Eq, Ord
            , Traversable, Generic, Generic1)
 
@@ -302,7 +302,7 @@ data ProcessState =
   | ProcessBusy                -- ^ The process is busy with non-blocking
   | ProcessBusySending         -- ^ The process is busy with sending a message
   | ProcessBusySendingShutdown -- ^ The process is busy with killing
-  | ProcessBusyReceiving       -- ^ The process blocked by a 'receiveMessage'
+  | ProcessBusyReceiving       -- ^ The process blocked by a 'receiveAnyMessage'
   | ProcessShuttingDown        -- ^ The process was shutdown or crashed
   deriving (Read, Show, Ord, Eq, Enum, Generic)
 
@@ -313,46 +313,73 @@ instance Default ProcessState where def = ProcessBusy
 -- | A sum-type with reasons for why a process exists the scheduling loop,
 -- this includes errors, that can occur when scheduleing messages.
 data ProcessExitReason =
-    ProcessRaisedError String
+    ExitNormally
+    -- ^ A process function returned or exitted without any error.
+  | ExitWithError String
     -- ^ A process called 'raiseError'.
-  | ProcessCaughtIOException String String
-    -- ^ A process called 'exitWithError'.
-  | ProcessShutDown ShutdownRequest
-    -- ^ A process exits.
-  | ProcessReturned
-    -- ^ A process function returned.
-  | ProcessCancelled
-    -- ^ A process was cancelled (i.e. killed, in 'Async.cancel')
-  deriving (Typeable, Show, Generic)
+  | LinkedProcessCrashed ProcessId
+    -- ^ A linked process is down
+  | UnexpectedException String String
+    -- ^ An unexpected runtime exception was thrown, i.e. an exception
+    -- derived from 'Control.Exception.Safe.SomeException'
+  | Killed
+    -- ^ A process was cancelled (e.g. killed, in 'Async.cancel')
+  deriving (Typeable, Generic, Eq, Ord)
+
+-- | A predicate for crashes. A /crash/ happens when a process exits
+-- with an 'ExitReason' other than 'ExitNormally'
+isCrash :: ProcessExitReason -> Bool
+isCrash ExitNormally = False
+isCrash _            = True
+
+-- | A predicate for recoverable exit reasons. This predicate defines the
+-- exit reasonson which functions such as 'executeAndCatch'
+isCrash :: ProcessExitReason -> Bool
+isCrash ExitNormally = False
+isCrash _            = True
+
+-- | Print a 'ProcessExitReaon' to 'Just' a formatted 'String' when 'isCrash'
+-- is 'True'.
+-- This can be useful in combination with view patterns, e.g.:
+--
+-- > logCrash :: ProcessExitReason -> Eff e ()
+-- > logCrash (toCrashReason -> Just reason) = logError reason
+-- > logCrash _ = return ()
+--
+-- Though this can be improved to:
+--
+-- > logCrash = traverse_ logError . toCrashReason
+--
+toCrashReason :: ProcessExitReason -> Maybe String
+toCrashReason e | isCrash e = Just (show e)
+                | otherwise = Nothing
+
+instance Show ProcessExitReason where
+  showsPrec d =
+    showParen (d>=10) .
+    (\case
+        ExitNormally            -> showString "exit normally"
+        ExitWithError reason    -> showString "error: " . showString reason
+        LinkedProcessCrashed m  -> showString "linked process crashed: " . shows m
+        UnexpectedException w m ->   showString "unhandled runtime exception: "
+                                   . showString m
+                                   . showString " caught here: "
+                                   . showString w
+        Killed                  -> showString "killed"
+    )
 
 instance NFData ProcessExitReason
 
 instance Semigroup ProcessExitReason where
-   ProcessCancelled <> _ = ProcessCancelled
-   _ <> ProcessCancelled = ProcessCancelled
-   ProcessReturned <> x = x
-   x <> ProcessReturned = x
-   ProcessShutDown ExitNormally <> x = x
-   x <> ProcessShutDown ExitNormally = x
-   (ProcessRaisedError e1) <> (ProcessRaisedError e2) =
-    ProcessRaisedError (e1 ++ " and " ++ e2 )
-   e1 <> e2 =
-    ProcessShutDown (ExitWithError (show e1 ++ " and " ++ show e2 ))
+   ExitNormally <> x = x
+   x <> ExitNormally = x
+   e1 <> e2 = ExitWithError (show e1 ++ " and " ++ show e2 )
 
 instance Monoid ProcessExitReason where
-  mempty = ProcessShutDown ExitNormally
+  mempty = ExitNormally
   mappend = (<>)
 
 instance Exc.Exception ProcessExitReason
-
--- | When a process sends a process shutdown request to another process,
--- it can specify the reason for the shutdown using this data type.
-data ShutdownRequest =
-    ExitNormally
-  | ExitWithError String
-  deriving (Typeable, Show, Generic, Eq, Ord)
-
-instance NFData ShutdownRequest
 
 -- | Execute a 'Process' action and resume the process, retry the action or exit
 -- the process when a shutdown was requested.
@@ -364,10 +391,9 @@ executeAndResume
 executeAndResume processAction = do
   result <- send processAction
   case result of
-    ResumeWith !value   -> return value
-    RetryLastAction     -> executeAndResume processAction
-    ShutdownRequested r -> send (Shutdown @q r)
-    OnError           e -> send (Shutdown @q (ExitWithError e))
+    ResumeWith        !value -> return value
+    ShutdownRequested r      -> send (Shutdown @q r)
+    OnError           e      -> send (Shutdown @q (ExitWithError e))
 
 -- | Execute a and action and resume the process, retry the action, shutdown the process or return an error.
 executeAndCatch
@@ -376,13 +402,12 @@ executeAndCatch
   => SchedulerProxy q
   -> Eff r (ResumeProcess v)
   -> Eff r (Either String v)
-executeAndCatch px processAction = do
+executeAndCatch _px processAction = do
   result <- processAction
   case result of
-    ResumeWith !value   -> return (Right value)
-    RetryLastAction     -> executeAndCatch px processAction
-    ShutdownRequested r -> send (Shutdown @q r)
-    OnError           e -> return (Left e)
+    ResumeWith        !value -> return (Right value)
+    ShutdownRequested r      -> send (Shutdown @q r)
+    OnError           e      -> return (Left e)
 
 -- | Use 'executeAndResume' to execute 'YieldProcess'. Refer to 'YieldProcess'
 -- for more information.
@@ -435,7 +460,7 @@ sendShutdown
    . (HasCallStack, SetMember Process (Process q) r)
   => SchedulerProxy q
   -> ProcessId
-  -> ShutdownRequest
+  -> ProcessExitReason
   -> Eff r ()
 sendShutdown px pid s = void (sendShutdownChecked px pid s)
 
@@ -445,7 +470,7 @@ sendShutdownChecked
    . (HasCallStack, SetMember Process (Process q) r)
   => SchedulerProxy q
   -> ProcessId
-  -> ShutdownRequest
+  -> ProcessExitReason
   -> Eff r Bool
 sendShutdownChecked _ pid s = executeAndResume (SendShutdown pid s)
 
@@ -468,12 +493,12 @@ spawn_ = void . spawn
 
 -- | Block until a message was received.
 -- See 'ReceiveMessage' for more documentation.
-receiveMessage
+receiveAnyMessage
   :: forall r q
    . (HasCallStack, SetMember Process (Process q) r)
   => SchedulerProxy q
   -> Eff r Dynamic
-receiveMessage _ =
+receiveAnyMessage _ =
   executeAndResume (ReceiveSelectedMessage selectAnyMessageLazy)
 
 -- | Block until a message was received, that is not 'Nothing' after applying
@@ -500,60 +525,54 @@ receiveMessageAs px = receiveSelectedMessage px (MessageSelector fromDynamic)
 -- | Enter a loop to receive messages and pass them to a callback, until the
 -- function returns 'Just' a result.
 -- See 'selectAnyMessageLazy' or 'ReceiveSelectedMessage' for more documentation.
-receiveLoop
+receiveAnyLoop
   :: forall r q endOfLoopResult
    . (SetMember Process (Process q) r, HasCallStack)
   => SchedulerProxy q
-  -> (Either (Maybe String) Dynamic -> Eff r (Maybe endOfLoopResult))
+  -> (Either ProcessExitReason Dynamic -> Eff r (Maybe endOfLoopResult))
   -> Eff r endOfLoopResult
-receiveLoop px handlers = do
+receiveAnyLoop px handlers = do
   mReq <- send (ReceiveSelectedMessage @q selectAnyMessageLazy)
   mRes <- case mReq of
-    RetryLastAction                          -> return Nothing
-    ShutdownRequested ExitNormally           -> handlers (Left Nothing)
-    ShutdownRequested (ExitWithError reason) -> handlers (Left (Just reason))
-    OnError           reason                 -> handlers (Left (Just reason))
-    ResumeWith        message                -> handlers (Right message)
-  maybe (receiveLoop px handlers) return mRes
+    ShutdownRequested reason  -> handlers (Left reason)
+    OnError           reason  -> handlers (Left (ExitWithError reason))
+    ResumeWith        message -> handlers (Right message)
+  maybe (receiveAnyLoop px handlers) return mRes
 
 -- | Run receive message of a certain type until the handler
 -- function returns 'Just' a result.
--- Like 'receiveLoopSuchThat' applied to 'fromDynamic'
-receiveLoopAs
+-- Like 'receiveSelectedLoop' applied to 'fromDynamic'
+receiveLoop
   :: forall r q a endOfLoopResult
    . (SetMember Process (Process q) r, HasCallStack, Typeable a)
   => SchedulerProxy q
-  -> (Either (Maybe String) a -> Eff r (Maybe endOfLoopResult))
+  -> (Either ProcessExitReason a -> Eff r (Maybe endOfLoopResult))
   -> Eff r endOfLoopResult
-receiveLoopAs px handlers = do
+receiveLoop px handlers = do
   mReq <- send (ReceiveSelectedMessage @q @a (MessageSelector fromDynamic))
   mRes <- case mReq of
-    RetryLastAction                          -> return Nothing
-    ShutdownRequested ExitNormally           -> handlers (Left Nothing)
-    ShutdownRequested (ExitWithError reason) -> handlers (Left (Just reason))
-    OnError           reason                 -> handlers (Left (Just reason))
-    ResumeWith        message                -> handlers (Right message)
-  maybe (receiveLoopAs px handlers) return mRes
+    ShutdownRequested reason  -> handlers (Left reason)
+    OnError           reason  -> handlers (Left (ExitWithError reason))
+    ResumeWith        message -> handlers (Right message)
+  maybe (receiveLoop px handlers) return mRes
 
 
--- | Like 'receiveLoop' but /selective/: Only the messages of the given type will be
+-- | Like 'receiveAnyLoop' but /selective/: Only the messages of the given type will be
 -- received.
-receiveLoopSuchThat
+receiveSelectedLoop
   :: forall r q a endOfLoopResult
    . (SetMember Process (Process q) r, HasCallStack)
   => SchedulerProxy q
   -> MessageSelector a
-  -> (Either (Maybe String) a -> Eff r (Maybe endOfLoopResult))
+  -> (Either ProcessExitReason a -> Eff r (Maybe endOfLoopResult))
   -> Eff r endOfLoopResult
-receiveLoopSuchThat px selectMesage handlers = do
+receiveSelectedLoop px selectMesage handlers = do
   mReq <- send (ReceiveSelectedMessage @q @a selectMesage)
   mRes <- case mReq of
-    RetryLastAction                          -> return Nothing
-    ShutdownRequested ExitNormally           -> handlers (Left Nothing)
-    ShutdownRequested (ExitWithError reason) -> handlers (Left (Just reason))
-    OnError           reason                 -> handlers (Left (Just reason))
-    ResumeWith        message                -> handlers (Right message)
-  maybe (receiveLoopSuchThat px selectMesage handlers) return mRes
+    ShutdownRequested reason  -> handlers (Left reason)
+    OnError           reason  -> handlers (Left (ExitWithError reason))
+    ResumeWith        message -> handlers (Right message)
+  maybe (receiveSelectedLoop px selectMesage handlers) return mRes
 
 -- | Returns the 'ProcessId' of the current process.
 self
@@ -568,6 +587,15 @@ makeReference
   => SchedulerProxy q
   -> Eff r Int
 makeReference _px = executeAndResume MakeReference
+
+-- | Exit the process with a 'ProcessExitReaon'.
+exitBecause
+  :: forall r q a
+   . (HasCallStack, SetMember Process (Process q) r)
+  => SchedulerProxy q
+  -> ProcessExitReason
+  -> Eff r a
+exitBecause _ = send . Shutdown @q
 
 -- | Exit the process.
 exitNormally
@@ -642,11 +670,83 @@ logProcessExit
   :: (HasCallStack, HasLogWriter LogMessage h e)
   => ProcessExitReason
   -> Eff e ()
-logProcessExit ex = withFrozenCallStack $ case ex of
-  ProcessReturned                   -> logDebug "returned"
-  ProcessShutDown ExitNormally      -> logDebug "shutdown"
-  ProcessShutDown (ExitWithError m) -> logError ("exit with error: " ++ show m)
-  ProcessCaughtIOException w m ->
-    logError ("runtime exception: " ++ m ++ " caught here: " ++ w)
-  ProcessRaisedError m -> logError ("unhandled process exception: " ++ show m)
-  ProcessCancelled     -> logError "process cancelled asynchronously"
+logProcessExit (toCrashReason -> Just ex) = withFrozenCallStack (logError ex)
+logProcessExit ex = withFrozenCallStack (logInfo (show ex))
+
+-- | Scheduler commands.
+data SchedulerCommand b where
+  -- | Monitor another process. When the monitored process exits a
+  --  'MonitoredProcessDown' is sent to the calling process.
+  -- The return value is a unique identifier for that monitor.
+  -- There can be multiple monitors on the same process,
+  -- and a message for each will be sent.
+  -- If the process is already dead, the 'MonitoredProcessDown' message
+  -- will be sent immediately, w.thout exit reason
+  Monitor :: ProcessId -> SchedulerCommand Int
+  -- | Remove a monitor.
+  Demonitor :: Int -> SchedulerCommand Int
+  -- | Connect the calling process to another process, such that
+  -- if one of the processes crashes (i.e. 'isCrash' returns 'True'), the other
+  -- is shutdown with the 'ProcessExitReaon' 'LinkedProcessCrashed'.
+  Link :: ProcessId -> SchedulerCommand ()
+  -- | Unlink the calling proccess from the other process.
+  Unlink :: ProcessId -> SchedulerCommand ()
+  deriving Typeable
+
+instance Show (SchedulerCommand v) where
+  showsPrec d =
+    showParen
+      (d>=10)
+    . (\case
+          Monitor pid -> showString "monitor " . shows pid
+          Demonitor i -> showString "demonitor " . shows i
+          Link l -> showString "link " . shows l
+          Unlink l -> showString "unlink " . shows l
+          CatchUnlink -> showString "catch crashes of linked processes"
+          CrashOnUnlink -> showString "crash when a linked process crashes"
+      )
+
+deriving instance Eq (SchedulerCommand v)
+
+deriving instance Ord (SchedulerCommand v)
+
+-- * Scheduler Events
+
+-- | A monitored process exitted.
+-- This message is sent to a process by the scheduler, when
+-- a process that was monitored via a 'SchedulerCommand' died.
+data MonitoredProcessDown = MonitoredProcessDown ProcessId Int ProcessExitReason
+  deriving (Typeable, Generic, Eq, Ord)
+
+instance NFData MonitoredProcessDown
+
+instance Show MonitoredProcessDown where
+  showsPrec d =
+    showParen
+      (d>=10)
+    . (\case
+          MonitoredProcessDown pid ref reason ->
+            showString "monitored process down "
+             . showsPrec 11 pid . showChar ' '
+             . showsPrec 11 ref . showChar ' '
+             . showsPrec 11 reason
+      )
+
+-- | A process linked to the current process via a 'SchedulerCommand' crashed,
+-- and the current process
+data CaughtLinkedProcessCrashed =
+  CaughtLinkedProcessCrashed ProcessId ProcessExitReason
+  deriving (Typeable, Generic, Eq, Ord)
+
+instance NFData CaughtLinkedProcessCrashed
+
+instance Show CaughtLinkedProcessCrashed where
+  showsPrec d =
+    showParen
+      (d>=10)
+    . (\case
+          CaughtLinkedProcessCrashed pid reason ->
+            showString "caught unlink from "
+             . showsPrec 11 pid . showChar ' '
+             . showsPrec 11 reason
+      )
