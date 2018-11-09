@@ -161,7 +161,7 @@ callRegisteredA
   -> Api o ( 'Synchronous (f reply))
   -> Eff r (f reply)
 callRegisteredA px method =
-  catchRaisedError px (const (return (empty @f))) (callRegistered px method)
+  handleInterrupts px (const (return (empty @f))) (callRegistered px method)
 
 -- | Like 'cast' but take the 'Server' from the reader provided by
 -- 'registerServer'.

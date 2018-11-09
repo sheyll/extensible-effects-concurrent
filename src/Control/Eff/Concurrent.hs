@@ -57,7 +57,19 @@ import           Control.Eff.Concurrent.Process ( ProcessId(..)
                                                 , selectDynamicMessageLazy
                                                 , selectAnyMessageLazy
                                                 , ProcessState(..)
+                                                , ExitRecovery(..)
+                                                , toExitRecovery
+                                                , isRecoverable
+                                                , ExitSeverity(..)
+                                                , toExitSeverity
                                                 , ProcessExitReason(..)
+                                                , isCrash
+                                                , toCrashReason
+                                                , SomeProcessExitReason
+                                                  ( SomeProcessExitReason
+                                                  )
+                                                , fromSomeProcessExitReason
+                                                , logProcessExit
                                                 , thisSchedulerProxy
                                                 , executeAndCatch
                                                 , executeAndResume
@@ -67,6 +79,10 @@ import           Control.Eff.Concurrent.Process ( ProcessId(..)
                                                 , sendMessageChecked
                                                 , spawn
                                                 , spawn_
+                                                , linkProcess
+                                                , unlinkProcess
+                                                , monitor
+                                                , demonitor
                                                 , receiveAnyMessage
                                                 , receiveMessageAs
                                                 , receiveSelectedMessage
@@ -76,13 +92,16 @@ import           Control.Eff.Concurrent.Process ( ProcessId(..)
                                                 , self
                                                 , sendShutdown
                                                 , sendShutdownChecked
-                                                , makeReference
-                                                , exitWithError
-                                                , exitNormally
+                                                , sendInterrupt
+                                                , sendInterruptChecked
+                                                , interruptProcess
                                                 , raiseError
-                                                , catchRaisedError
-                                                , ignoreProcessError
-                                                , logProcessExit
+                                                , handleInterrupts
+                                                , ignoreInterrupts
+                                                , exitBecause
+                                                , exitNormally
+                                                , exitWithError
+                                                , makeReference
                                                 )
 import           Control.Eff.Concurrent.Api     ( Api
                                                 , Synchronicity(..)

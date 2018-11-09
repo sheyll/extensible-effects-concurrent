@@ -37,7 +37,9 @@ test_singleThreaded :: TestTree
 test_singleThreaded = setTravisTestOptions $ withTestLogC
   (\e logC ->
         -- void (runLift (logToChannel logC (SingleThreaded.schedule (return ()) e)))
-    let runEff :: Eff '[Logs LogMessage, LogWriterReader LogMessage IO, Lift IO] a -> IO a
+    let runEff
+          :: Eff '[Logs LogMessage, LogWriterReader LogMessage IO, Lift IO] a
+          -> IO a
         runEff = flip handleLoggingAndIO logC
     in  void $ SingleThreaded.scheduleM runEff yield e
   )
@@ -108,7 +110,7 @@ returnToSenderServer px = asServer <$> spawn
                         (\m k -> case m of
                           StopReturnToSender -> do
                             k ()
-                            return (StopApiServer Nothing)
+                            return (StopApiServer ExitNormally)
                           ReturnToSender fromP echoMsg -> do
                             ok <- sendMessageChecked px fromP (toDyn echoMsg)
                             yieldProcess px
@@ -136,8 +138,7 @@ selectiveReceiveTests schedulerFactory = setTravisTestOptions
             go :: Int -> Eff (Process r ': r) ()
             go 0 = sendMessageAs SP donePid True
             go n = do
-              void $ receiveSelectedMessage
-                        SP (filterMessage (==n))
+              void $ receiveSelectedMessage SP (filterMessage (== n))
               go (n - 1)
 
           senderLoop receviverPid =
@@ -294,15 +295,19 @@ errorTests schedulerFactory
               error "This should not happen"
           , testCase "catch raiseError 1"
           $ scheduleAndAssert schedulerFactory
-          $ \assertEff -> catchRaisedError
+          $ \assertEff -> handleInterrupts
               px
-              (assertEff "error must be caught" . (== "test error 2"))
+              ( assertEff "error must be caught"
+              . (== ProcessError "test error 2")
+              )
               (void (raiseError px "test error 2"))
           , testCase "catch raiseError from a long sub block"
           $ scheduleAndAssert schedulerFactory
-          $ \assertEff -> catchRaisedError
+          $ \assertEff -> handleInterrupts
               px
-              (assertEff "error must be caught" . (== "test error 3"))
+              ( assertEff "error must be caught"
+              . (== ProcessError "test error 3")
+              )
               (do
                 replicateM_ 100000 (void (self px))
                 void (raiseError px "test error 3")
@@ -318,7 +323,7 @@ errorTests schedulerFactory
           , testCase "cannot catch exitWithError"
           $ applySchedulerFactory schedulerFactory
           $ do
-              void $ ignoreProcessError px $ exitWithError px "test error 4"
+              void $ ignoreInterrupts px $ exitWithError px "test error 4"
               error "This should not happen"
           , testCase "multi process exitWithError"
           $ scheduleAndAssert schedulerFactory
@@ -392,9 +397,9 @@ concurrencyTests schedulerFactory
             True <- sendMessageChecked px child1 (toDyn "test")
             traceM "now receiveMessageAs"
             i <- receiveMessageAs px
-            traceM ("receiveMessageAs returned " ++ show i)
-            True <- sendShutdownChecked px child2 ExitNormally
-            traceM "sendShutdownChecked"
+            traceM ("receiveMessageAs returned " ++ i)
+            True <- sendInterruptChecked px child2 ExitNormally
+            traceM "sendInterruptChecked"
             assertEff "" (i == "test")
         , testCase "most processes send foreverCheap"
         $ scheduleAndAssert schedulerFactory
@@ -428,7 +433,8 @@ concurrencyTests schedulerFactory
             traverse_
               (\(i :: Int) -> spawn $ do
                 when (i `rem` 5 == 0) $ void $ sendMessage px me (toDyn i)
-                foreverCheap $ void (sendShutdown px 999 ExitNormally)
+                foreverCheap
+                  $ void (sendShutdown px 999 (NotRecovered ExitNormally))
               )
               [0 .. n]
             oks <- replicateM (length [0, 5 .. n]) (receiveMessageAs px)
@@ -506,13 +512,17 @@ exitTests schedulerFactory =
           | e <- [ThreadKilled, UserInterrupt, HeapOverflow, StackOverflow]
           , (busyWith, busyEffect) <-
             [ ( "receiving"
-              , void (send (ReceiveSelectedMessage @r (filterMessage (=="test message"))))
+              , void
+                (send
+                  (ReceiveSelectedMessage @r (filterMessage (== "test message"))
+                  )
+                )
               )
             , ( "sending"
               , void (send (SendMessage @r 44444 (toDyn "test message")))
               )
             , ( "sending shutdown"
-              , void (send (SendShutdown @r 44444 ExitNormally))
+              , void (send (SendShutdown @r 44444 (NotRecovered ExitNormally)))
               )
             , ("selfpid-ing", void (send (SelfPid @r)))
             , ( "spawn-ing"
@@ -537,13 +547,17 @@ exitTests schedulerFactory =
                 lift (threadDelay 10000)
           | (busyWith, busyEffect) <-
             [ ( "receiving"
-              , void (send (ReceiveSelectedMessage @r (filterMessage (=="test message"))))
+              , void
+                (send
+                  (ReceiveSelectedMessage @r (filterMessage (== "test message"))
+                  )
+                )
               )
             , ( "sending"
               , void (send (SendMessage @r 44444 (toDyn "test message")))
               )
             , ( "sending shutdown"
-              , void (send (SendShutdown @r 44444 ExitNormally))
+              , void (send (SendShutdown @r 44444 (NotRecovered ExitNormally)))
               )
             , ("selfpid-ing", void (send (SelfPid @r)))
             , ( "spawn-ing"
@@ -574,18 +588,25 @@ exitTests schedulerFactory =
                   lift (threadDelay 1000)
                   doExit
                 lift (threadDelay 100000)
-                wasStillRunningP1 <- sendShutdownChecked px p1 ExitNormally
+                wasStillRunningP1 <- sendShutdownChecked
+                  px
+                  p1
+                  (NotRecovered ExitNormally)
                 assertEff "the other process was still running"
                           wasStillRunningP1
           | (busyWith , busyEffect) <-
             [ ( "receiving"
-              , void (send (ReceiveSelectedMessage @r (filterMessage (=="test message"))))
+              , void
+                (send
+                  (ReceiveSelectedMessage @r (filterMessage (== "test message"))
+                  )
+                )
               )
             , ( "sending"
               , void (send (SendMessage @r 44444 (toDyn "test message")))
               )
             , ( "sending shutdown"
-              , void (send (SendShutdown @r 44444 ExitNormally))
+              , void (send (SendShutdown @r 44444 (NotRecovered ExitNormally)))
               )
             , ("selfpid-ing", void (send (SelfPid @r)))
             , ( "spawn-ing"
@@ -607,7 +628,7 @@ exitTests schedulerFactory =
             , ( "sendShutdown to self"
               , do
                 me <- self px
-                void (sendShutdown px me ExitNormally)
+                void (sendShutdown px me (NotRecovered ExitNormally))
               )
             ]
           ]
@@ -628,20 +649,20 @@ sendShutdownTests schedulerFactory
         "sendShutdown"
         [ testCase "... self" $ applySchedulerFactory schedulerFactory $ do
           me <- self px
-          void $ sendShutdown px me ExitNormally
+          void $ send (SendShutdown @r me (NotRecovered ExitNormally))
           raiseError px "sendShutdown must not return"
-        , testCase "... self low-level"
+        , testCase "sendInterrupt to self"
         $ scheduleAndAssert schedulerFactory
         $ \assertEff -> do
             me <- self px
-            r  <- send (SendShutdown @r me ExitNormally)
+            r  <- send (SendInterrupt @r me (ProcessError "123"))
             traceShowM
               (show me ++ ": returned from SendShutdow to self " ++ show r)
             assertEff
-              "ShutdownRequested must be returned"
+              "Interrupted must be returned"
               (case r of
-                ShutdownRequested ExitNormally -> True
-                _                              -> False
+                Interrupted (ProcessError "123") -> True
+                _ -> False
               )
         , testGroup
           "... other process"
@@ -651,10 +672,10 @@ sendShutdownTests schedulerFactory
               me    <- self px
               other <- spawn
                 (do
-                  untilShutdown (SendMessage @r 666 (toDyn "test"))
+                  untilInterrupted (SendMessage @r 666 (toDyn "test"))
                   void (sendMessage px me (toDyn "OK"))
                 )
-              void (sendShutdown px other ExitNormally)
+              void (sendInterrupt px other ExitNormally)
               a <- receiveMessageAs px
               assertEff "" (a == "OK")
           , testCase "while it is receiving"
@@ -663,11 +684,11 @@ sendShutdownTests schedulerFactory
               me    <- self px
               other <- spawn
                 (do
-                  untilShutdown
+                  untilInterrupted
                     (ReceiveSelectedMessage @r selectAnyMessageLazy)
                   void (sendMessage px me (toDyn "OK"))
                 )
-              void (sendShutdown px other ExitNormally)
+              void (sendInterrupt px other ExitNormally)
               a <- receiveMessageAs px
               assertEff "" (a == "OK")
           , testCase "while it is self'ing"
@@ -676,10 +697,10 @@ sendShutdownTests schedulerFactory
               me    <- self px
               other <- spawn
                 (do
-                  untilShutdown (SelfPid @r)
+                  untilInterrupted (SelfPid @r)
                   void (sendMessage px me (toDyn "OK"))
                 )
-              void (sendShutdown px other (ExitWithErrorSR "testError"))
+              void (sendInterrupt px other (ProcessError "testError"))
               a <- receiveMessageAs px
               assertEff "" (a == "OK")
           , testCase "while it is spawning"
@@ -688,10 +709,10 @@ sendShutdownTests schedulerFactory
               me    <- self px
               other <- spawn
                 (do
-                  untilShutdown (Spawn @r (return ()))
+                  untilInterrupted (Spawn @r (return ()))
                   void (sendMessage px me (toDyn "OK"))
                 )
-              void (sendShutdown px other ExitNormally)
+              void (sendInterrupt px other ExitNormally)
               a <- receiveMessageAs px
               assertEff "" (a == "OK")
           , testCase "while it is sending shutdown messages"
@@ -700,11 +721,24 @@ sendShutdownTests schedulerFactory
               me    <- self px
               other <- spawn
                 (do
-                  untilShutdown (SendShutdown @r 777 ExitNormally)
+                  untilInterrupted
+                    (SendShutdown @r 777 (NotRecovered ExitNormally))
                   void (sendMessage px me (toDyn "OK"))
                 )
-              void (sendShutdown px other ExitNormally)
+              void (sendInterrupt px other ExitNormally)
               a <- receiveMessageAs px
               assertEff "" (a == "OK")
+          , testCase "handleInterrupt handles my own interrupts"
+          $ scheduleAndAssert schedulerFactory
+          $ \assertEff ->
+              do
+                  handleInterrupts
+                    SP
+                    (\e ->
+                      assertEff "" (ProcessError "test" == e) >> return True
+                    )
+                    (interruptProcess SP (ProcessError "test") >> return False
+                    )
+                >>= assertEff "exception handler not invoked"
           ]
         ]

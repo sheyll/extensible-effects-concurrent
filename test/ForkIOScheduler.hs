@@ -40,9 +40,10 @@ test_IOExceptionsIsolated = setTravisTestOptions $ testGroup
                   lift (threadDelay 1000)
                   doExit
                 lift (threadDelay 100000)
-                wasStillRunningP1 <- sendShutdownChecked forkIoScheduler
-                                                         p1
-                                                         ExitNormally
+                wasStillRunningP1 <- sendShutdownChecked
+                  forkIoScheduler
+                  p1
+                  (NotRecovered ExitNormally)
                 lift (atomically (putTMVar aVar wasStillRunningP1))
               )
             )
@@ -57,7 +58,8 @@ test_IOExceptionsIsolated = setTravisTestOptions $ testGroup
       , void (send (SendMessage @SchedulerIO 44444 (toDyn "test message")))
       )
     , ( "sending shutdown"
-      , void (send (SendShutdown @SchedulerIO 44444 ExitNormally))
+      , void
+        (send (SendShutdown @SchedulerIO 44444 (NotRecovered ExitNormally)))
       )
     , ("selfpid-ing", void (send (SelfPid @SchedulerIO)))
     , ( "spawn-ing"

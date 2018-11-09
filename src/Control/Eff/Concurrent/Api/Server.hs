@@ -74,7 +74,7 @@ data ApiHandler api eff where
      --
      -- The default behavior is defined in 'defaultTermination'.
      , _terminateCallback
-         :: Maybe (ProcessExitReason -> Eff eff ())
+         :: Maybe (ProcessExitReason 'Recoverable -> Eff eff ())
      } -> ApiHandler api eff
 
 
@@ -93,7 +93,7 @@ apiHandler
      -> (r -> Eff e ())
      -> Eff e ApiServerCmd
      )
-  -> (ProcessExitReason -> Eff e ())
+  -> (ProcessExitReason 'Recoverable -> Eff e ())
   -> ApiHandler api e
 apiHandler c d e = ApiHandler
   { _castCallback      = Just c
@@ -108,7 +108,7 @@ apiHandler c d e = ApiHandler
 apiHandlerForever
   :: (Api api 'Asynchronous -> Eff e ())
   -> (forall r . Api api ( 'Synchronous r) -> (r -> Eff e ()) -> Eff e ())
-  -> (ProcessExitReason -> Eff e ())
+  -> (ProcessExitReason 'Recoverable -> Eff e ())
   -> ApiHandler api e
 apiHandlerForever c d = apiHandler
   (\someCast -> c someCast >> return HandleNextRequest)
@@ -174,7 +174,7 @@ data ApiServerCmd where
   -- | Tell the server to exit, this will make 'serve' stop handling requests without
   -- exitting the process. '_terminateCallback' will be invoked with the given
   -- optional reason.
-  StopApiServer :: ProcessExitReason -> ApiServerCmd
+  StopApiServer :: ProcessExitReason 'Recoverable -> ApiServerCmd
   --  SendReply :: reply -> ApiServerCmd () -> ApiServerCmd (reply -> Eff eff ())
   deriving (Show, Typeable, Generic)
 
@@ -198,7 +198,7 @@ makeLenses ''ApiHandler
 --
 data ServerCallback eff =
   ServerCallback { _requestHandlerSelector :: MessageSelector (Eff eff ApiServerCmd)
-                 , _terminationHandler :: ProcessExitReason -> Eff eff ()
+                 , _terminationHandler :: ProcessExitReason 'Recoverable -> Eff eff ()
                  }
 
 makeLenses ''ServerCallback
@@ -393,6 +393,6 @@ defaultTermination
   :: forall q r
    . (HasCallStack, SetMember Process (Process q) r)
   => SchedulerProxy q
-  -> ProcessExitReason
+  -> ProcessExitReason 'Recoverable
   -> Eff r ()
-defaultTermination px = maybe (return ()) (exitWithError px)
+defaultTermination px = exitBecause px . NotRecovered

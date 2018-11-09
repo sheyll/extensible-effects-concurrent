@@ -33,7 +33,7 @@ withTestLogC doSchedule k = k
       (multiMessageLogWriter
         (\writeWith ->
           writeWith
-            (\m -> when (view lmSeverity m <= debugSeverity) (printLogMessage m)
+            (\m -> when (view lmSeverity m < debugSeverity) (printLogMessage m)
             )
         )
       )
@@ -41,12 +41,12 @@ withTestLogC doSchedule k = k
     )
   )
 
-untilShutdown :: Member t r => t (ResumeProcess v) -> Eff r ()
-untilShutdown pa = do
+untilInterrupted :: Member t r => t (ResumeProcess v) -> Eff r ()
+untilInterrupted pa = do
   r <- send pa
   case r of
-    ShutdownRequested _ -> return ()
-    _                   -> untilShutdown pa
+    Interrupted _ -> return ()
+    _             -> untilInterrupted pa
 
 scheduleAndAssert
   :: forall r

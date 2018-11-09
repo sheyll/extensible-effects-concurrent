@@ -33,7 +33,8 @@ mainProcessSpawnsAChildAndReturns
   :: (HasCallStack, SetMember Process (Process q) r)
   => SchedulerProxy q
   -> Eff r ()
-mainProcessSpawnsAChildAndReturns px = void (spawn (void (receiveAnyMessage px)))
+mainProcessSpawnsAChildAndReturns px =
+  void (spawn (void (receiveAnyMessage px)))
 
 example
   :: ( HasCallStack
@@ -66,7 +67,7 @@ example px = do
             go
           ('q' : _) -> logInfo "Done."
           _         -> do
-            res <- ignoreProcessError px (callRegistered px (SayHello x))
+            res <- ignoreInterrupts px (callRegistered px (SayHello x))
             logInfo ("Result: " ++ show res)
             go
   registerServer server go
@@ -107,16 +108,16 @@ testServerLoop px = spawnServer px
     me <- self px
     logInfo (show me ++ " stopping me")
     void (reply False)
-    return (StopApiServer Nothing)
+    return (StopApiServer ExitNormally)
   handleCallTest (SayHello "xxx") reply = do
     me <- self px
     logInfo (show me ++ " stopping me with xxx")
     void (reply False)
-    return (StopApiServer (Just "xxx"))
+    return (StopApiServer (ProcessError "xxx"))
   handleCallTest (SayHello "die") reply = do
     me <- self px
     logInfo (show me ++ " throwing and catching ")
-    catchRaisedError
+    handleInterrupts
       px
       (\er -> logInfo ("WOW: " ++ show er ++ " - No. This is wrong!"))
       (raiseError px "No body loves me... :,(")
@@ -140,4 +141,4 @@ testServerLoop px = spawnServer px
   handleTerminateTest msg = do
     me <- self px
     logInfo (show me ++ " is exiting: " ++ show msg)
-    maybe (exitNormally px) (exitWithError px) msg
+    logProcessExit msg

@@ -172,7 +172,7 @@ enqueueObservations px oSvr queueLimit k = withQueue
       logDebug (printf "%s finished" (logPrefix (Proxy @o)))
       forgetObserver SchedulerProxy cbo oSvr
       logDebug (printf "%s unregistered" (logPrefix (Proxy @o)))
-      sendShutdown px (_fromServer cbo) ExitNormally
+      sendShutdown px (_fromServer cbo) (NotRecovered ExitNormally)
       logDebug (printf "%s stopped observer process" (logPrefix (Proxy @o)))
       return res
   )

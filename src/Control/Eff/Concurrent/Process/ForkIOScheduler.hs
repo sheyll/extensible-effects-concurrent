@@ -59,7 +59,7 @@ import           System.Timeout
 -- | A message queue of a process, contains the actual queue and maybe an
 -- exit reason.
 data MessageQ = MessageQ { _incomingMessages :: Seq Dynamic
-                         , _shutdownRequests :: Maybe ProcessExitReason
+                         , _shutdownRequests :: Maybe SomeProcessExitReason
                          }
 
 instance Default MessageQ where def = MessageQ def def
@@ -68,7 +68,8 @@ makeLenses ''MessageQ
 
 -- | Return any '_shutdownRequests' from a 'MessageQ' in a 'TVar' and
 -- reset the '_shutdownRequests' field to 'Nothing' in the 'TVar'.
-tryTakeNextShutdownRequestSTM :: TVar MessageQ -> STM (Maybe ProcessExitReason)
+tryTakeNextShutdownRequestSTM
+  :: TVar MessageQ -> STM (Maybe SomeProcessExitReason)
 tryTakeNextShutdownRequestSTM mqVar = do
   mq <- readTVar mqVar
   when (isJust (mq^.shutdownRequests))
@@ -95,7 +96,9 @@ makeLenses ''ProcessInfo
 data SchedulerState =
                SchedulerState { _nextPid :: TVar ProcessId
                               , _processTable :: TVar (Map ProcessId ProcessInfo)
-                              , _processCancellationTable :: TVar (Map ProcessId (Async ProcessExitReason))
+                              , _processCancellationTable
+                                :: TVar (Map ProcessId
+                                    (Async (ProcessExitReason 'NoRecovery)))
                               }
 
 makeLenses ''SchedulerState
@@ -202,8 +205,8 @@ forkIoScheduler = SchedulerProxy
 handleProcess
   :: (HasLogging IO SchedulerIO, HasCallStack)
   => ProcessInfo
-  -> Eff ProcEff ProcessExitReason
-  -> Eff SchedulerIO ProcessExitReason
+  -> Eff ProcEff (ProcessExitReason 'NoRecovery)
+  -> Eff SchedulerIO (ProcessExitReason 'NoRecovery)
 handleProcess myProcessInfo =
    handle_relay_s
       0
@@ -232,8 +235,8 @@ handleProcess myProcessInfo =
   diskontinueWith
     :: forall a
     .  HasCallStack
-    => Arr SchedulerIO ProcessExitReason a
-    -> Arr SchedulerIO ProcessExitReason a
+    => Arr SchedulerIO (ProcessExitReason 'NoRecovery) a
+    -> Arr SchedulerIO (ProcessExitReason 'NoRecovery) a
   diskontinueWith diskontinue !reason = do
     setMyProcessState ProcessShuttingDown
     diskontinue reason
@@ -244,17 +247,19 @@ handleProcess myProcessInfo =
     => Int
     -> Process SchedulerIO v
     -> (Int -> Arr SchedulerIO v a)
-    -> Arr SchedulerIO ProcessExitReason a
+    -> Arr SchedulerIO (ProcessExitReason 'NoRecovery) a
     -> Eff SchedulerIO a
   stepProcessInterpreter !nextRef !request kontinue diskontinue =
 
       -- handle process shutdown requests:
       --   1. take process exit reason
       --   2. set process state to ProcessShuttingDown
-      --   3. apply kontinue to (Right ShutdownRequested)
+      --   3. apply kontinue to (Right Interrupted)
       --
       tryTakeNextShutdownRequest
-        >>= maybe noShutdownRequested onShutdownRequested
+        >>= maybe noShutdownRequested
+            (either onShutdownRequested onInterruptRequested
+              . fromSomeProcessExitReason)
       where
         tryTakeNextShutdownRequest =
           lift (atomically (tryTakeNextShutdownRequestSTM myMessageQVar))
@@ -263,9 +268,17 @@ handleProcess myProcessInfo =
            logDebug "shutdownRequested"
            setMyProcessState ProcessShuttingDown
            interpretRequestAfterShutdownRequest
-             (kontinueWith kontinue nextRef)
              (diskontinueWith diskontinue)
              shutdownRequest
+             request
+
+        onInterruptRequested interruptRequest = do
+           logDebug "interruptRequested"
+           setMyProcessState ProcessShuttingDown
+           interpretRequestAfterInterruptRequest
+             (kontinueWith kontinue nextRef)
+             (diskontinueWith diskontinue)
+             interruptRequest
              request
 
         noShutdownRequested = do
@@ -283,59 +296,113 @@ handleProcess myProcessInfo =
   interpretRequestAfterShutdownRequest
     :: forall v a
      . HasCallStack
-    => Arr SchedulerIO v a
-    -> Arr SchedulerIO ProcessExitReason a
-    -> ProcessExitReason
+    => Arr SchedulerIO (ProcessExitReason 'NoRecovery) a
+    -> (ProcessExitReason 'NoRecovery)
     -> Process SchedulerIO v
     -> Eff SchedulerIO a
-  interpretRequestAfterShutdownRequest kontinue diskontinue shutdownRequest =
+  interpretRequestAfterShutdownRequest diskontinue shutdownRequest =
     \case
-      SendMessage _ _          -> kontinue (ShutdownRequested shutdownRequest)
+      SendMessage _ _          -> diskontinue shutdownRequest
+      SendInterrupt _ _        -> diskontinue shutdownRequest
       SendShutdown toPid r     ->
         if toPid == myPid
           then diskontinue r
-          else kontinue (ShutdownRequested shutdownRequest)
-      Spawn _                  -> kontinue (ShutdownRequested shutdownRequest)
-      ReceiveSelectedMessage _ -> kontinue (ShutdownRequested shutdownRequest)
-      SelfPid                  -> kontinue (ShutdownRequested shutdownRequest)
-      MakeReference            -> kontinue (ShutdownRequested shutdownRequest)
-      YieldProcess             -> kontinue (ShutdownRequested shutdownRequest)
+          else diskontinue shutdownRequest
+      Spawn _                  -> diskontinue shutdownRequest
+      ReceiveSelectedMessage _ -> diskontinue shutdownRequest
+      SelfPid                  -> diskontinue shutdownRequest
+      MakeReference            -> diskontinue shutdownRequest
+      YieldProcess             -> diskontinue shutdownRequest
       Shutdown r               -> diskontinue r
-      RaiseError e             -> diskontinue (ExitWithError e)
+      Interrupt _              -> diskontinue shutdownRequest
+      Monitor _                -> diskontinue shutdownRequest
+      Demonitor _              -> diskontinue shutdownRequest
+      Link _                   -> diskontinue shutdownRequest
+      Unlink _                 -> diskontinue shutdownRequest
+
+  interpretRequestAfterInterruptRequest
+    :: forall v a
+     . HasCallStack
+    => Arr SchedulerIO v a
+    -> Arr SchedulerIO (ProcessExitReason 'NoRecovery) a
+    -> (ProcessExitReason 'Recoverable)
+    -> Process SchedulerIO v
+    -> Eff SchedulerIO a
+  interpretRequestAfterInterruptRequest kontinue diskontinue interruptRequest =
+    \case
+      SendMessage _ _          -> kontinue (Interrupted interruptRequest)
+      SendInterrupt _ _        -> kontinue (Interrupted interruptRequest)
+      SendShutdown toPid r     ->
+        if toPid == myPid
+          then diskontinue r
+          else kontinue (Interrupted interruptRequest)
+      Spawn _                  -> kontinue (Interrupted interruptRequest)
+      ReceiveSelectedMessage _ -> kontinue (Interrupted interruptRequest)
+      SelfPid                  -> kontinue (Interrupted interruptRequest)
+      MakeReference            -> kontinue (Interrupted interruptRequest)
+      YieldProcess             -> kontinue (Interrupted interruptRequest)
+      Shutdown r               -> diskontinue r
+      Interrupt _e             -> kontinue (Interrupted interruptRequest)
+      Monitor _                -> kontinue (Interrupted interruptRequest)
+      Demonitor _              -> kontinue (Interrupted interruptRequest)
+      Link _                   -> kontinue (Interrupted interruptRequest)
+      Unlink _                 -> kontinue (Interrupted interruptRequest)
 
   interpretRequest
     :: forall v a
      . HasCallStack
     => (Int -> Arr SchedulerIO v a)
-    -> Arr SchedulerIO ProcessExitReason a
+    -> Arr SchedulerIO (ProcessExitReason 'NoRecovery) a
     -> Int
     -> Process SchedulerIO v
     -> Eff SchedulerIO a
   interpretRequest kontinue diskontinue nextRef =
     \case
       SendMessage toPid msg    -> interpretSend toPid msg >>= kontinue nextRef . ResumeWith
+      SendInterrupt toPid msg   ->
+        if toPid == myPid
+          then kontinue nextRef (Interrupted msg)
+          else interpretSendShutdownOrInterrupt toPid (SomeProcessExitReason msg)
+                 >>= kontinue nextRef . ResumeWith
       SendShutdown toPid msg   ->
         if toPid == myPid
-          then kontinue nextRef (ShutdownRequested msg)
-          else interpretSendShutdown toPid msg >>= kontinue nextRef . ResumeWith
+          then diskontinue msg
+          else interpretSendShutdownOrInterrupt toPid (SomeProcessExitReason msg)
+                 >>= kontinue nextRef . ResumeWith
       Spawn child              -> spawnNewProcess child >>= kontinue nextRef . ResumeWith . fst
-      ReceiveSelectedMessage f -> interpretReceive f >>= kontinue nextRef
+      ReceiveSelectedMessage f -> interpretReceive f >>= either diskontinue (kontinue nextRef)
       SelfPid                  -> kontinue nextRef (ResumeWith myPid)
       MakeReference            -> kontinue (nextRef + 1) (ResumeWith nextRef)
       YieldProcess             -> kontinue nextRef (ResumeWith  ())
       Shutdown r               -> diskontinue r
-      RaiseError e             -> diskontinue (ExitWithError e)
+      Interrupt e              -> kontinue nextRef (Interrupted e)
+      Monitor _                -> kontinue nextRef (Interrupted (ProcessError "Not Yet Implemented: Monitor"))
+      Demonitor _              -> kontinue nextRef (Interrupted (ProcessError "Not Yet Implemented: Demonitor"))
+      Link _                   -> kontinue nextRef (Interrupted (ProcessError "Not Yet Implemented: Link"))
+      Unlink _                 -> kontinue nextRef (Interrupted (ProcessError "Not Yet Implemented: Unlink"))
     where
 
       interpretSend !toPid msg =
         setMyProcessState ProcessBusySending *>
-        getSchedulerState >>= lift . atomically . enqueueMessageOtherProcess toPid msg
+        getSchedulerState
+          >>= lift
+          . atomically
+          . enqueueMessageOtherProcess toPid msg
 
-      interpretSendShutdown !toPid !msg =
-        setMyProcessState ProcessBusySendingShutdown *>
-        getSchedulerState >>= lift . atomically . enqueueShutdownRequest toPid msg
+      interpretSendShutdownOrInterrupt !toPid !msg =
+        setMyProcessState
+          (either
+            (const ProcessBusySendingShutdown)
+            (const ProcessBusySendingInterrupt)
+            (fromSomeProcessExitReason msg))
+        *> getSchedulerState
+           >>= lift
+           . atomically
+           . enqueueShutdownRequest toPid msg
 
-      interpretReceive :: MessageSelector b -> Eff SchedulerIO (ResumeProcess b)
+      interpretReceive
+        :: MessageSelector b
+        -> Eff SchedulerIO (Either (ProcessExitReason 'NoRecovery) (ResumeProcess b))
       interpretReceive f = do
         setMyProcessState ProcessBusyReceiving
         lift $ atomically $ do
@@ -346,10 +413,14 @@ handleProcess myProcessInfo =
                 Nothing -> retry
                 Just (selectedMessage, otherMessages) -> do
                   modifyTVar' myMessageQVar (incomingMessages .~ otherMessages)
-                  return (ResumeWith selectedMessage)
+                  return (Right (ResumeWith selectedMessage))
             Just shutdownRequest -> do
               modifyTVar' myMessageQVar (shutdownRequests .~ Nothing)
-              return (ShutdownRequested shutdownRequest)
+              case fromSomeProcessExitReason shutdownRequest of
+                Left sr ->
+                  return (Left sr)
+                Right ir ->
+                  return (Right (Interrupted ir))
 
        where
          partitionMessages Seq.Empty       _acc = Nothing
@@ -383,7 +454,7 @@ schedule procEff =
 spawnNewProcess
   :: (HasLogging IO SchedulerIO, HasCallStack)
   => Eff ProcEff ()
-  -> Eff SchedulerIO (ProcessId, Async ProcessExitReason)
+  -> Eff SchedulerIO (ProcessId, Async (ProcessExitReason 'NoRecovery))
 spawnNewProcess mfa = do
   schedulerState <- getSchedulerState
   procInfo <- allocateProcInfo schedulerState
@@ -420,7 +491,7 @@ spawnNewProcess mfa = do
               (\mExc () ->
                   do let e = case mExc of
                                Nothing ->
-                                 ExitNormally
+                                 NotRecovered ExitNormally
                                Just exc ->
                                  case Safe.fromException exc of
                                    Just Async.AsyncCancelled ->
@@ -449,7 +520,7 @@ spawnNewProcess mfa = do
 
               )
               (const
-                (handleProcess procInfo (mfa >> return ExitNormally))))))
+                (handleProcess procInfo (mfa >> return (NotRecovered ExitNormally)))))))
           atomically (modifyTVar' cancellationsVar (at pid ?~ procAsync))
           return procAsync)
 
@@ -468,7 +539,7 @@ enqueueMessageOtherProcess toPid msg schedulerState =
                 return True)
 
 enqueueShutdownRequest ::
-  HasCallStack => ProcessId -> ProcessExitReason -> SchedulerState -> STM Bool
+  HasCallStack => ProcessId -> SomeProcessExitReason -> SchedulerState -> STM Bool
 enqueueShutdownRequest toPid msg schedulerState =
   view (at toPid) <$> readTVar (schedulerState ^. processTable)
    >>= maybe (return False)
