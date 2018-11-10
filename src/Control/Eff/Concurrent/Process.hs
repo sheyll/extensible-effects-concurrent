@@ -561,6 +561,8 @@ executeAndResume processAction = do
     ResumeWith  !value -> return value
     Interrupted r      -> send (Shutdown @q (NotRecovered r))
 
+-- * Process Effects
+
 -- | Use 'executeAndResume' to execute 'YieldProcess'. Refer to 'YieldProcess'
 -- for more information.
 yieldProcess
