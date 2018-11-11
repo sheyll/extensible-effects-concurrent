@@ -24,11 +24,21 @@ firstExample px = do
   person <- spawn
     (do
       logInfo "I am waiting for someone to ask me..."
-      WhoAreYou replyPid <- receiveMessageAs px
+      WhoAreYou replyPid <- receiveMessage px
       sendMessageAs px replyPid "Alice"
       logInfo (show replyPid ++ " just needed to know it.")
     )
   me <- self px
   sendMessageAs px person (WhoAreYou me)
-  personName <- receiveMessageAs px
+  personName <- receiveMessage px
   logInfo ("I just met " ++ personName)
+
+
+selectInt :: MessageSelector Int
+selectInt = selectMessage
+
+selectString :: MessageSelector String
+selectString = selectMessage
+
+selectIntOrString :: MessageSelector (Either Int String)
+selectIntOrString = Left <$> selectTimeout <|> Right <$> selectString

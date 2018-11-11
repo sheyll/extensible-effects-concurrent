@@ -4,7 +4,6 @@
 module Control.Eff.Concurrent.Api.Client
   ( -- * Calling APIs directly
     cast
-  , castChecked
   , call
   -- * Server Process Registration
   , castRegistered
@@ -16,45 +15,25 @@ module Control.Eff.Concurrent.Api.Client
   )
 where
 
-import           Control.Applicative
 import           Control.Eff
 import           Control.Eff.Reader.Strict
 import           Control.Eff.Concurrent.Api
 import           Control.Eff.Concurrent.Api.Internal
 import           Control.Eff.Concurrent.Process
 import           Data.Dynamic
-import           Data.Typeable                  ( Typeable
-                                                , typeRep
-                                                )
+import           Data.Typeable                  ( Typeable )
 import           Control.DeepSeq
 import           GHC.Stack
 
 -- | Send an 'Api' request that has no return value and return as fast as
 -- possible. The type signature enforces that the corresponding 'Api' clause is
--- 'Asynchronous'. Return @True@ if the message was sent to the process. Note
--- that this is totally not the same as that the request was successfully
--- handled. If that is important, use 'call' instead.
-castChecked
-  :: forall r q o
-   . ( HasCallStack
-     , SetMember Process (Process q) r
-     , Typeable o
-     , Typeable (Api o 'Asynchronous)
-     )
-  => SchedulerProxy q
-  -> Server o
-  -> Api o 'Asynchronous
-  -> Eff r Bool
-castChecked px (Server pid) castMsg =
-  sendMessageChecked px pid (toDyn $! (Cast $! castMsg))
-
--- | Send an 'Api' request that has no return value and return as fast as
--- possible. The type signature enforces that the corresponding 'Api' clause is
--- 'Asynchronous'.
+-- 'Asynchronous'. The operation never fails, if it is important to know if the
+-- message was delivered, use 'call' instead.
 cast
   :: forall r q o
    . ( HasCallStack
      , SetMember Process (Process q) r
+     , Member Interrupts r
      , Typeable o
      , Typeable (Api o 'Asynchronous)
      )
@@ -62,9 +41,7 @@ cast
   -> Server o
   -> Api o 'Asynchronous
   -> Eff r ()
-cast px toServer apiRequest = do
-  _ <- castChecked px toServer apiRequest
-  return ()
+cast px (Server pid) castMsg = sendMessage px pid (toDyn $! (Cast $! castMsg))
 
 -- | Send an 'Api' request and wait for the server to return a result value.
 --
@@ -73,6 +50,7 @@ cast px toServer apiRequest = do
 call
   :: forall result api r q
    . ( SetMember Process (Process q) r
+     , Member Interrupts r
      , Typeable api
      , Typeable (Api api ( 'Synchronous result))
      , Typeable result
@@ -83,30 +61,19 @@ call
   -> Server api
   -> Api api ( 'Synchronous result)
   -> Eff r result
-call px (Server pidInt) req = do
+call px (Server pidInternal) req = do
   fromPid <- self px
   callRef <- makeReference px
   let requestMessage = Call callRef fromPid $! req
-  wasSent <- sendMessageChecked px pidInt (toDyn $! requestMessage)
-  if wasSent
-    then
-      let selectResult :: MessageSelector result
-          selectResult =
-            let extractResult :: Response api result -> Maybe result
-                extractResult (Response _pxResult callRefMsg result) =
-                  if callRefMsg == callRef then Just result else Nothing
-            in  selectMessageWith extractResult
-      in  receiveSelectedMessage px selectResult
-    else raiseError
-      px
-      (  "failed to send a call for: '"
-      ++ show (typeRep requestMessage)
-      ++ "' to: "
-      ++ show pidInt
-      ++ " with call-ref: "
-      ++ show callRef
-      )
-
+  sendMessage px pidInternal (toDyn $! requestMessage)
+  let selectResult :: MessageSelector result
+      selectResult =
+        let extractResult :: Response api result -> Maybe result
+            extractResult (Response _pxResult callRefMsg result) =
+              if callRefMsg == callRef then Just result else Nothing
+        in  selectMessageWith extractResult
+  rres <- receiveWithMonitor px pidInternal selectResult
+  either (interrupt . becauseProcessIsDown) return rres
 
 -- | Instead of passing around a 'Server' value and passing to functions like
 -- 'cast' or 'call', a 'Server' can provided by a 'Reader' effect, if there is
@@ -135,7 +102,12 @@ whereIsServer = ask
 -- | Like 'call' but take the 'Server' from the reader provided by
 -- 'registerServer'.
 callRegistered
-  :: (Typeable reply, ServesApi o r q, HasCallStack, NFData reply)
+  :: ( Typeable reply
+     , ServesApi o r q
+     , HasCallStack
+     , NFData reply
+     , Member Interrupts r
+     )
   => SchedulerProxy q
   -> Api o ( 'Synchronous reply)
   -> Eff r reply
@@ -146,7 +118,7 @@ callRegistered px method = do
 -- | Like 'cast' but take the 'Server' from the reader provided by
 -- 'registerServer'.
 castRegistered
-  :: (Typeable o, ServesApi o r q, HasCallStack)
+  :: (Typeable o, ServesApi o r q, HasCallStack, Member Interrupts r)
   => SchedulerProxy q
   -> Api o 'Asynchronous
   -> Eff r ()

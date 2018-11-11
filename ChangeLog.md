@@ -4,9 +4,9 @@
 
 - Add process `Link`ing and `Monitoring`.
 - Make the distinction between recoverable and non-recoverable exit explicit in
-  the type parameter of `ProcessExitReason`, and introduce `interruptXXXX`
+  the type parameter of `ExitReason`, and introduce `interruptXXXX`
   functions in addition to `shutdownXXXX` functions, to throw recoverable exits.
-- Merge `ShutdownRequest` and `ProcessExitReason`
+- Merge `ShutdownRequest` and `ExitReason`
 - Rename `receiveLoopSuchThat` to `receiveSelectedLoop`
 - Pass the exit reason to the callback passed to `receiveSelectedLoop`
 - Rename `receiveMessage` to `receiveAnyMessage`
@@ -54,7 +54,7 @@
 ## 0.9.0
 
 - Make `ForkIOScheduler` faster and more robust
-- Add `ProcessExitReason`
+- Add `ExitReason`
 - Add `ProcessState`
 - Add `ShutdownRequest` type
 - Rewrite logging to be a `Reader` of a `LogWriter`
@@ -159,7 +159,7 @@
 
 - Add support for running and interacting with a scheduler
   and it's processes from IO, for example from ghci
-- Rename `yieldProcess` to `executeAndResume`
+- Rename `yieldProcess` to `executeAndResumeOrExit`
 - Add an actual `yieldProcess`, that behaves like `yield`
 - Change the return type of function to `()` where applicable
   to avoid all these `_ <- sendMessage...` or `void $ sendMessage`

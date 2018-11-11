@@ -36,69 +36,7 @@ module Control.Eff.Concurrent
   )
 where
 
-import           Control.Eff.Concurrent.Process ( ProcessId(..)
-                                                , fromProcessId
-                                                , Process(..)
-                                                , ConsProcess
-                                                , ResumeProcess(..)
-                                                , SchedulerProxy(..)
-                                                , MessageSelector
-                                                  ( runMessageSelector
-                                                  )
-                                                , selectMessage
-                                                , selectMessageLazy
-                                                , selectMessageProxy
-                                                , selectMessageProxyLazy
-                                                , filterMessage
-                                                , filterMessageLazy
-                                                , selectMessageWith
-                                                , selectMessageWithLazy
-                                                , selectDynamicMessage
-                                                , selectDynamicMessageLazy
-                                                , selectAnyMessageLazy
-                                                , ProcessState(..)
-                                                , ExitRecovery(..)
-                                                , toExitRecovery
-                                                , isRecoverable
-                                                , ExitSeverity(..)
-                                                , toExitSeverity
-                                                , ProcessExitReason(..)
-                                                , isCrash
-                                                , toCrashReason
-                                                , SomeProcessExitReason
-                                                  ( SomeProcessExitReason
-                                                  )
-                                                , fromSomeProcessExitReason
-                                                , logProcessExit
-                                                , thisSchedulerProxy
-                                                , executeAndCatch
-                                                , executeAndResume
-                                                , yieldProcess
-                                                , sendMessage
-                                                , sendMessageAs
-                                                , sendMessageChecked
-                                                , spawn
-                                                , spawn_
-                                                , linkProcess
-                                                , unlinkProcess
-                                                , monitor
-                                                , demonitor
-                                                , receiveAnyMessage
-                                                , receiveMessageAs
-                                                , receiveSelectedMessage
-                                                , receiveAnyLoop
-                                                , receiveLoop
-                                                , receiveSelectedLoop
-                                                , self
-                                                , sendShutdown
-                                                , sendShutdownChecked
-                                                , sendInterrupt
-                                                , sendInterruptChecked
-                                                , exitBecause
-                                                , exitNormally
-                                                , exitWithError
-                                                , makeReference
-                                                )
+import           Control.Eff.Concurrent.Process
 import           Control.Eff.Concurrent.Api     ( Api
                                                 , Synchronicity(..)
                                                 , Server(..)
@@ -108,7 +46,6 @@ import           Control.Eff.Concurrent.Api     ( Api
                                                 )
 import           Control.Eff.Concurrent.Api.Client
                                                 ( cast
-                                                , castChecked
                                                 , call
                                                 , castRegistered
                                                 , callRegistered

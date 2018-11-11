@@ -45,7 +45,7 @@ import           Control.Eff.Concurrent.Process
 import           Control.Monad
 import           Data.Foldable
 import           Data.Typeable                  ( Typeable )
-import Control.DeepSeq
+import           Control.DeepSeq
 import           System.Timeout
 
 -- | Contains the communication channels to interact with a scheduler running in
@@ -53,14 +53,14 @@ import           System.Timeout
 newtype SchedulerSession r = SchedulerSession (TMVar (SchedulerQueue r))
 
 newtype SchedulerQueue r =
-  SchedulerQueue (TChan (Eff (Process r ': r) (Maybe String)))
+  SchedulerQueue (TChan (Eff (Interrupts ': Process r ': r) (Maybe String)))
 
 -- | Fork a scheduler with a process that communicates with it via 'MVar',
 -- which is also the reason for the @Lift IO@ constraint.
 forkInteractiveScheduler
   :: forall r
    . (SetMember Lift (Lift IO) r)
-  => (Eff (Process r ': r) () -> IO ())
+  => (Eff (Interrupts ': Process r ': r) () -> IO ())
   -> IO (SchedulerSession r)
 forkInteractiveScheduler ioScheduler = do
   inQueue  <- newTChanIO
@@ -76,6 +76,8 @@ forkInteractiveScheduler ioScheduler = do
     )
   return (SchedulerSession queueVar)
  where
+  readEvalPrintLoop
+    :: TMVar (SchedulerQueue r) -> Eff (Interrupts ': Process r : r) ()
   readEvalPrintLoop queueVar = do
     nextActionOrExit <- readAction
     case nextActionOrExit of
@@ -108,7 +110,7 @@ submit
   :: forall r a
    . (SetMember Lift (Lift IO) r)
   => SchedulerSession r
-  -> Eff (Process r ': r) a
+  -> Eff (Interrupts ': Process r ': r) a
   -> IO a
 submit (SchedulerSession qVar) theAction = do
   mResVar <- timeout 5000000 $ atomically
@@ -131,7 +133,7 @@ submit (SchedulerSession qVar) theAction = do
 -- | Combination of 'submit' and 'cast'.
 submitCast
   :: forall o r
-   . (SetMember Lift (Lift IO) r, Typeable o)
+   . (SetMember Lift (Lift IO) r, Typeable o, Member Interrupts r)
   => SchedulerSession r
   -> Server o
   -> Api o 'Asynchronous
@@ -141,7 +143,12 @@ submitCast sc svr request = submit sc (cast SchedulerProxy svr request)
 -- | Combination of 'submit' and 'cast'.
 submitCall
   :: forall o q r
-   . (SetMember Lift (Lift IO) r, Typeable o, Typeable q, NFData q)
+   . ( SetMember Lift (Lift IO) r
+     , Typeable o
+     , Typeable q
+     , NFData q
+     , Member Interrupts r
+     )
   => SchedulerSession r
   -> Server o
   -> Api o ( 'Synchronous q)

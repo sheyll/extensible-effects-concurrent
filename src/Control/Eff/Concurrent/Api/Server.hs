@@ -34,6 +34,8 @@ import           Control.Eff
 import           Control.Eff.Concurrent.Api
 import           Control.Eff.Concurrent.Api.Internal
 import           Control.Eff.Concurrent.Process
+import           Control.Eff.Exception
+import           Control.Eff.Log
 import           Control.Lens
 import           Data.Proxy
 import           Data.Typeable                  ( Typeable
@@ -74,7 +76,7 @@ data ApiHandler api eff where
      --
      -- The default behavior is defined in 'defaultTermination'.
      , _terminateCallback
-         :: Maybe (ProcessExitReason 'Recoverable -> Eff eff ())
+         :: Maybe (ExitReason 'Recoverable -> Eff eff ())
      } -> ApiHandler api eff
 
 
@@ -93,7 +95,7 @@ apiHandler
      -> (r -> Eff e ())
      -> Eff e ApiServerCmd
      )
-  -> (ProcessExitReason 'Recoverable -> Eff e ())
+  -> (ExitReason 'Recoverable -> Eff e ())
   -> ApiHandler api e
 apiHandler c d e = ApiHandler
   { _castCallback      = Just c
@@ -108,7 +110,7 @@ apiHandler c d e = ApiHandler
 apiHandlerForever
   :: (Api api 'Asynchronous -> Eff e ())
   -> (forall r . Api api ( 'Synchronous r) -> (r -> Eff e ()) -> Eff e ())
-  -> (ProcessExitReason 'Recoverable -> Eff e ())
+  -> (ExitReason 'Recoverable -> Eff e ())
   -> ApiHandler api e
 apiHandlerForever c d = apiHandler
   (\someCast -> c someCast >> return HandleNextRequest)
@@ -174,7 +176,7 @@ data ApiServerCmd where
   -- | Tell the server to exit, this will make 'serve' stop handling requests without
   -- exitting the process. '_terminateCallback' will be invoked with the given
   -- optional reason.
-  StopApiServer :: ProcessExitReason 'Recoverable -> ApiServerCmd
+  StopApiServer :: ExitReason 'Recoverable -> ApiServerCmd
   --  SendReply :: reply -> ApiServerCmd () -> ApiServerCmd (reply -> Eff eff ())
   deriving (Show, Typeable, Generic)
 
@@ -198,7 +200,7 @@ makeLenses ''ApiHandler
 --
 data ServerCallback eff =
   ServerCallback { _requestHandlerSelector :: MessageSelector (Eff eff ApiServerCmd)
-                 , _terminationHandler :: ProcessExitReason 'Recoverable -> Eff eff ()
+                 , _terminationHandler :: ExitReason 'Recoverable -> Eff eff ()
                  }
 
 makeLenses ''ServerCallback
@@ -209,9 +211,9 @@ instance Semigroup (ServerCallback eff) where
                     runMessageSelector (view requestHandlerSelector l) x <|>
                     runMessageSelector (view requestHandlerSelector r) x)
              & terminationHandler .~
-                  (\errorMessage ->
-                      do (l^.terminationHandler) errorMessage
-                         (r^.terminationHandler) errorMessage)
+                  (\reason ->
+                      do (l^.terminationHandler) reason
+                         (r^.terminationHandler) reason)
 
 instance Monoid (ServerCallback eff) where
   mappend = (<>)
@@ -232,7 +234,8 @@ class Servable a where
   -- in a type safe way.
   toServerPids :: proxy a -> ProcessId -> ServerPids a
   -- | Convert the value to a 'ServerCallback'
-  toServerCallback :: (SetMember Process (Process effScheduler) (ServerEff a))
+  toServerCallback
+    :: (Member Interrupts (ServerEff a), SetMember Process (Process effScheduler) (ServerEff a))
     => SchedulerProxy effScheduler -> a -> ServerCallback (ServerEff a)
 
 instance Servable (ServerCallback eff)  where
@@ -261,6 +264,7 @@ serve
   :: forall a effScheduler
    . ( Servable a
      , SetMember Process (Process effScheduler) (ServerEff a)
+     , Member Interrupts (ServerEff a)
      , HasCallStack
      )
   => SchedulerProxy effScheduler
@@ -284,6 +288,8 @@ spawnServer
    . ( Servable a
      , ServerEff a ~ (Process effScheduler ': effScheduler)
      , SetMember Process (Process effScheduler) eff
+     , Member Interrupts eff
+     , Member Interrupts (ServerEff a)
      , HasCallStack
      )
   => SchedulerProxy effScheduler
@@ -298,6 +304,8 @@ spawnServerWithEffects
    . ( Servable a
      , SetMember Process (Process effScheduler) (ServerEff a)
      , SetMember Process (Process effScheduler) eff
+     , Member Interrupts eff
+     , Member Interrupts (ServerEff a)
      , HasCallStack
      )
   => SchedulerProxy effScheduler
@@ -316,6 +324,7 @@ apiHandlerServerCallback
    . ( HasCallStack
      , Typeable api
      , SetMember Process (Process effScheduler) eff
+     , Member Interrupts eff
      )
   => SchedulerProxy effScheduler
   -> ApiHandler api eff
@@ -333,6 +342,7 @@ selectHandlerMethod
    . ( HasCallStack
      , Typeable api
      , SetMember Process (Process effScheduler) eff
+     , Member (Exc (ExitReason 'Recoverable)) eff
      )
   => SchedulerProxy effScheduler
   -> ApiHandler api eff
@@ -346,6 +356,7 @@ applyHandlerMethod
   :: forall eff effScheduler api
    . ( Typeable api
      , SetMember Process (Process effScheduler) eff
+     , Member (Exc (ExitReason 'Recoverable)) eff
      , HasCallStack
      )
   => SchedulerProxy effScheduler
@@ -368,31 +379,42 @@ applyHandlerMethod px handlers (Call callRef fromPid request) = fromMaybe
 -- 'raiseError' with a nice error message.
 unhandledCallError
   :: forall p x r q
-   . (Typeable p, HasCallStack, SetMember Process (Process q) r)
+   . ( Typeable p
+     , HasCallStack
+     , SetMember Process (Process q) r
+     , Member (Exc (ExitReason 'Recoverable)) r
+     )
   => SchedulerProxy q
   -> Api p ( 'Synchronous x)
   -> (x -> Eff r ())
   -> Eff r ApiServerCmd
-unhandledCallError px _api _ =
-  raiseError px ("unhandled call on api: " ++ show (typeRep (Proxy @p)))
+unhandledCallError _px _api _ = throwError
+  (ProcessError ("unhandled call on api: " ++ show (typeRep (Proxy @p))))
 
 -- | A default handler to use in '_castCallback' in 'ApiHandler'. It will call
 -- 'raiseError' with a nice error message.
 unhandledCastError
   :: forall p r q
-   . (Typeable p, HasCallStack, SetMember Process (Process q) r)
+   . ( Typeable p
+     , HasCallStack
+     , SetMember Process (Process q) r
+     , Member (Exc (ExitReason 'Recoverable)) r
+     )
   => SchedulerProxy q
   -> Api p 'Asynchronous
   -> Eff r ApiServerCmd
-unhandledCastError px _api =
-  raiseError px ("unhandled cast on api: " ++ show (typeRep (Proxy @p)))
+unhandledCastError _px _api = throwError
+  (ProcessError ("unhandled cast on api: " ++ show (typeRep (Proxy @p))))
 
 -- | Either do nothing, if the error message is @Nothing@,
 -- or call 'exitWithError' with the error message.
 defaultTermination
   :: forall q r
-   . (HasCallStack, SetMember Process (Process q) r)
+   . ( HasCallStack
+     , SetMember Process (Process q) r
+     , Member (Logs LogMessage) r
+     )
   => SchedulerProxy q
-  -> ProcessExitReason 'Recoverable
+  -> ExitReason 'Recoverable
   -> Eff r ()
-defaultTermination px = exitBecause px . NotRecovered
+defaultTermination _px r = logNotice ("server process terminating " ++ show r)

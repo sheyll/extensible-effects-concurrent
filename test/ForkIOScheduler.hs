@@ -40,10 +40,9 @@ test_IOExceptionsIsolated = setTravisTestOptions $ testGroup
                   lift (threadDelay 1000)
                   doExit
                 lift (threadDelay 100000)
-                wasStillRunningP1 <- sendShutdownChecked
-                  forkIoScheduler
-                  p1
-                  (NotRecovered ExitNormally)
+                wasStillRunningP1 <- sendShutdown forkIoScheduler
+                                                  p1
+                                                  (NotRecovered ExitNormally)
                 lift (atomically (putTMVar aVar wasStillRunningP1))
               )
             )
@@ -146,8 +145,8 @@ test_mainProcessSpawnsAChildBothReturn = setTravisTestOptions
       def
       (Scheduler.defaultMainWithLogChannel
         (do
-          child <- spawn (void (receiveMessageAs @String forkIoScheduler))
-          True  <- sendMessageChecked forkIoScheduler child (toDyn "test")
+          child <- spawn (void (receiveMessage @String forkIoScheduler))
+          True  <- sendMessage forkIoScheduler child (toDyn "test")
           return ()
         )
       )
@@ -163,13 +162,13 @@ test_mainProcessSpawnsAChildBothExitNormally = setTravisTestOptions
       def
       (Scheduler.defaultMainWithLogChannel
         (do
-          child <- spawn
+          child <- spawn $ void $ provideInterrupts $ exitOnInterrupt
             (do
-              void (receiveMessageAs @String forkIoScheduler)
+              void (receiveMessage @String forkIoScheduler)
               void (exitNormally forkIoScheduler)
               error "This should not happen (child)!!"
             )
-          True <- sendMessageChecked forkIoScheduler child (toDyn "test")
+          True <- sendMessage forkIoScheduler child (toDyn "test")
           void (exitNormally forkIoScheduler)
           error "This should not happen!!"
         )

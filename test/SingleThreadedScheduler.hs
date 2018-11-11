@@ -19,19 +19,19 @@ test_pureScheduler = setTravisTestOptions $ testGroup
       @=? Scheduler.schedulePure
               (do
                   adderChild <- spawn $ do
-                      (from, arg1, arg2) <- receiveMessageAs SP
+                      (from, arg1, arg2) <- receiveMessage SP
                       sendMessageAs SP from ((arg1 + arg2) :: Int)
                       foreverCheap $ void $ receiveAnyMessage SP
 
                   multChild <- spawn $ do
-                      (from, arg1, arg2) <- receiveMessageAs SP
+                      (from, arg1, arg2) <- receiveMessage SP
                       sendMessageAs SP from ((arg1 * arg2) :: Int)
 
                   me <- self SP
                   sendMessageAs SP adderChild (me, 3 :: Int, 4 :: Int)
-                  x <- receiveMessageAs @Int SP
+                  x <- receiveMessage @Int SP
                   sendMessageAs SP multChild (me, x, 6 :: Int)
-                  receiveMessageAs @Int SP
+                  receiveMessage @Int SP
               )
     ]
 
@@ -59,11 +59,11 @@ test_mainProcessSpawnsAChildBothExitNormally = setTravisTestOptions
                 child <- spawn
                     (do
                         void
-                            (receiveMessageAs @String singleThreadedIoScheduler)
+                            (receiveMessage @String singleThreadedIoScheduler)
                         void (exitNormally singleThreadedIoScheduler)
                         error "This should not happen (child)!!"
                     )
-                True <- sendMessageChecked singleThreadedIoScheduler
+                True <- sendMessage singleThreadedIoScheduler
                                            child
                                            (toDyn "test")
                 void (exitNormally singleThreadedIoScheduler)

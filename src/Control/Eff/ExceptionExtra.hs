@@ -36,7 +36,6 @@ liftTry m = (Right <$> m) `catchDynE` (return . Left)
 maybeThrow :: Member (Eff.Exc x) e => x -> Maybe a -> Eff e a
 maybeThrow x = Eff.liftEither . maybe (Left x) Right
 
-
 -- * Orphan 'MonadThrow', 'MonadCatch' and 'MonadMask'   instances
 
 -- ** Lazy Reader
@@ -155,7 +154,7 @@ instance Catch.MonadCatch m => Catch.MonadCatch (Eff '[Lift m]) where
     lift (Catch.catch nestedEffects nestedHandler)
 
 instance Catch.MonadMask m => Catch.MonadMask (Eff '[Lift m]) where
-  mask maskedEffect = do
+  mask maskedEffect =
     lift
       (Catch.mask
         (\nestedUnmask -> runLift
@@ -165,7 +164,7 @@ instance Catch.MonadMask m => Catch.MonadMask (Eff '[Lift m]) where
           )
         )
       )
-  uninterruptibleMask maskedEffect = do
+  uninterruptibleMask maskedEffect =
     lift
       (Catch.uninterruptibleMask
         (\nestedUnmask -> runLift
@@ -176,9 +175,69 @@ instance Catch.MonadMask m => Catch.MonadMask (Eff '[Lift m]) where
           )
         )
       )
-  generalBracket acquire release use = do
+  generalBracket acquire release use =
     lift
       (Catch.generalBracket
         (runLift acquire)
         (((.).(.)) runLift release)
         (runLift . use))
+
+
+instance Catch.MonadThrow (Eff e) => Catch.MonadThrow (Eff (Exc x ': e)) where
+  throwM exception = raise (Catch.throwM exception)
+
+instance Catch.MonadCatch (Eff e) => Catch.MonadCatch (Eff (Exc x ': e)) where
+  catch effect handler = do
+    let nestedEffects =
+          runError effect
+        nestedHandler exception =
+          runError (handler exception)
+    errorOrResult <- raise (Catch.catch nestedEffects nestedHandler)
+    liftEither errorOrResult
+
+instance Catch.MonadMask (Eff e) => Catch.MonadMask (Eff (Exc x ': e)) where
+  mask maskedEffect = do
+    errorOrResult <- raise
+      (Catch.mask
+        (\nestedUnmask -> runError
+          (maskedEffect
+            (\unmasked -> do
+                errorOrResult <- raise (nestedUnmask (runError unmasked))
+                liftEither errorOrResult
+            )
+          )
+        )
+      )
+    liftEither errorOrResult
+  uninterruptibleMask maskedEffect = do
+    errorOrResult <- raise
+      (Catch.uninterruptibleMask
+        (\nestedUnmask -> runError
+          (maskedEffect
+            (\unmasked -> do
+                errorOrResult <- raise (nestedUnmask (runError unmasked))
+                liftEither errorOrResult
+            )
+          )
+        )
+      )
+    liftEither errorOrResult
+  generalBracket acquire release use = do
+    (useResultOrError, releaseResultOrError) <- raise
+       (Catch.generalBracket
+         (runError acquire)
+         (\resourceRight exitCase ->
+            case resourceRight of
+              Left e -> return (Left e)  -- acquire failed
+              Right resource ->
+                case exitCase of
+                  Catch.ExitCaseSuccess (Right b) -> runError (release resource (Catch.ExitCaseSuccess b))
+                  Catch.ExitCaseException e       -> runError (release resource (Catch.ExitCaseException e))
+                  _                               -> runError (release resource Catch.ExitCaseAbort)
+         )
+         (\case
+            Left e -> return (Left e)
+            Right resource -> runError (use resource)))
+    c <- liftEither releaseResultOrError -- if both results are bad, fire the release error
+    b <- liftEither useResultOrError
+    return (b, c)

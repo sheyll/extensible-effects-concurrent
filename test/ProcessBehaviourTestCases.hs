@@ -86,7 +86,7 @@ returnToSender
 returnToSender px toP msg = do
   me      <- self px
   _       <- call px toP (ReturnToSender me msg)
-  msgEcho <- receiveMessageAs @String px
+  msgEcho <- receiveMessage @String px
   return (msgEcho == msg)
 
 stopReturnToSender
@@ -113,7 +113,7 @@ returnToSenderServer px = asServer <$> spawn
                             k ()
                             return (StopApiServer ExitNormally)
                           ReturnToSender fromP echoMsg -> do
-                            ok <- sendMessageChecked px fromP (toDyn echoMsg)
+                            ok <- sendMessage px fromP (toDyn echoMsg)
                             yieldProcess px
                             k ok
                             return HandleNextRequest
@@ -148,7 +148,7 @@ selectiveReceiveTests schedulerFactory = setTravisTestOptions
         me          <- self SP
         receiverPid <- spawn (receiverLoop me)
         spawn_ (senderLoop receiverPid)
-        ok <- receiveMessageAs @Bool SP
+        ok <- receiveMessage @Bool SP
         lift (ok @? "selective receive failed")
     , testCase "receive a message while waiting for a call reply"
     $ applySchedulerFactory schedulerFactory
@@ -211,17 +211,17 @@ pingPongTests schedulerFactory = testGroup
   $ applySchedulerFactory schedulerFactory
   $ do
       let pongProc = foreverCheap $ do
-            Ping pinger <- receiveMessageAs SP
+            Ping pinger <- receiveMessage SP
             sendMessageAs SP pinger Pong
           pingProc ponger parent = do
             me <- self SP
             sendMessageAs SP ponger (Ping me)
-            Pong <- receiveMessageAs SP
+            Pong <- receiveMessage SP
             sendMessageAs SP parent True
       pongPid <- spawn pongProc
       me      <- self SP
       spawn_ (pingProc pongPid me)
-      ok <- receiveMessageAs @Bool SP
+      ok <- receiveMessage @Bool SP
       lift (ok @? "ping pong failed")
   , testCase "ping pong a message between two processes, with massive yielding"
   $ applySchedulerFactory schedulerFactory
@@ -229,7 +229,7 @@ pingPongTests schedulerFactory = testGroup
       yieldProcess SP
       let pongProc = foreverCheap $ do
             yieldProcess SP
-            Ping pinger <- receiveMessageAs SP
+            Ping pinger <- receiveMessage SP
             yieldProcess SP
             sendMessageAs SP pinger Pong
             yieldProcess SP
@@ -239,7 +239,7 @@ pingPongTests schedulerFactory = testGroup
             yieldProcess SP
             sendMessageAs SP ponger (Ping me)
             yieldProcess SP
-            Pong <- receiveMessageAs SP
+            Pong <- receiveMessage SP
             yieldProcess SP
             sendMessageAs SP parent True
             yieldProcess SP
@@ -250,7 +250,7 @@ pingPongTests schedulerFactory = testGroup
       yieldProcess SP
       spawn_ (pingProc pongPid me)
       yieldProcess SP
-      ok <- receiveMessageAs @Bool SP
+      ok <- receiveMessage @Bool SP
       yieldProcess SP
       lift (ok @? "ping pong failed")
       yieldProcess SP
@@ -260,7 +260,7 @@ pingPongTests schedulerFactory = testGroup
   $ do
       pongVar <- lift newEmptyMVar
       let pongProc = foreverCheap $ do
-            Pong <- receiveMessageAs SP
+            Pong <- receiveMessage SP
             lift (putMVar pongVar Pong)
       ponger <- spawn pongProc
       sendMessageAs SP ponger Pong
@@ -317,7 +317,7 @@ errorTests schedulerFactory
                         )
                   )
                   [0, 5 .. n]
-                oks <- replicateM (length [0, 5 .. n]) (receiveMessageAs px)
+                oks <- replicateM (length [0, 5 .. n]) (receiveMessage px)
                 assertEff "" (sort oks == [0, 5 .. n])
             ]
         ]
@@ -369,12 +369,12 @@ concurrencyTests schedulerFactory
               )
             child2 <- spawn
               (foreverCheap (void (sendMessage px 888 (toDyn ""))))
-            True <- sendMessageChecked px child1 (toDyn "test")
-            traceM "now receiveMessageAs"
-            i <- receiveMessageAs px
-            traceM ("receiveMessageAs returned " ++ i)
-            True <- sendInterruptChecked px child2 ExitNormally
-            traceM "sendInterruptChecked"
+            True <- sendMessage px child1 (toDyn "test")
+            traceM "now receiveMessage"
+            i <- receiveMessage px
+            traceM ("receiveMessage returned " ++ i)
+            True <- sendInterrupt px child2 ExitNormally
+            traceM "sendInterrupt"
             assertEff "" (i == "test")
         , testCase "most processes send foreverCheap"
         $ scheduleAndAssert schedulerFactory
@@ -387,7 +387,7 @@ concurrencyTests schedulerFactory
                   $ void (sendMessage px 888 (toDyn "test message to 888"))
               )
               [0 .. n]
-            oks <- replicateM (length [0, 5 .. n]) (receiveMessageAs px)
+            oks <- replicateM (length [0, 5 .. n]) (receiveMessage px)
             assertEff "" (sort oks == [0, 5 .. n])
         , testCase "most processes self foreverCheap"
         $ scheduleAndAssert schedulerFactory
@@ -399,7 +399,7 @@ concurrencyTests schedulerFactory
                 foreverCheap $ void (self px)
               )
               [0 .. n]
-            oks <- replicateM (length [0, 5 .. n]) (receiveMessageAs px)
+            oks <- replicateM (length [0, 5 .. n]) (receiveMessage px)
             assertEff "" (sort oks == [0, 5 .. n])
         , testCase "most processes sendShutdown foreverCheap"
         $ scheduleAndAssert schedulerFactory
@@ -412,7 +412,7 @@ concurrencyTests schedulerFactory
                   $ void (sendShutdown px 999 (NotRecovered ExitNormally))
               )
               [0 .. n]
-            oks <- replicateM (length [0, 5 .. n]) (receiveMessageAs px)
+            oks <- replicateM (length [0, 5 .. n]) (receiveMessage px)
             assertEff "" (sort oks == [0, 5 .. n])
         , testCase "most processes spawn foreverCheap"
         $ scheduleAndAssert schedulerFactory
@@ -432,7 +432,7 @@ concurrencyTests schedulerFactory
                       )
               )
               [0 .. n]
-            oks <- replicateM (length [0, 5 .. n]) (receiveMessageAs px)
+            oks <- replicateM (length [0, 5 .. n]) (receiveMessage px)
             assertEff "" (sort oks == [0, 5 .. n])
         , testCase "most processes receive foreverCheap"
         $ scheduleAndAssert schedulerFactory
@@ -444,7 +444,7 @@ concurrencyTests schedulerFactory
                 foreverCheap $ void (receiveAnyMessage px)
               )
               [0 .. n]
-            oks <- replicateM (length [0, 5 .. n]) (receiveMessageAs px)
+            oks <- replicateM (length [0, 5 .. n]) (receiveMessage px)
             assertEff "" (sort oks == [0, 5 .. n])
         ]
 
@@ -563,7 +563,7 @@ exitTests schedulerFactory =
                   lift (threadDelay 1000)
                   doExit
                 lift (threadDelay 100000)
-                wasStillRunningP1 <- sendShutdownChecked
+                wasStillRunningP1 <- sendShutdown
                   px
                   p1
                   (NotRecovered ExitNormally)
@@ -651,7 +651,7 @@ sendShutdownTests schedulerFactory
                   void (sendMessage px me (toDyn "OK"))
                 )
               void (sendInterrupt px other ExitNormally)
-              a <- receiveMessageAs px
+              a <- receiveMessage px
               assertEff "" (a == "OK")
           , testCase "while it is receiving"
           $ scheduleAndAssert schedulerFactory
@@ -664,7 +664,7 @@ sendShutdownTests schedulerFactory
                   void (sendMessage px me (toDyn "OK"))
                 )
               void (sendInterrupt px other ExitNormally)
-              a <- receiveMessageAs px
+              a <- receiveMessage px
               assertEff "" (a == "OK")
           , testCase "while it is self'ing"
           $ scheduleAndAssert schedulerFactory
@@ -676,7 +676,7 @@ sendShutdownTests schedulerFactory
                   void (sendMessage px me (toDyn "OK"))
                 )
               void (sendInterrupt px other (ProcessError "testError"))
-              a <- receiveMessageAs px
+              a <- receiveMessage px
               assertEff "" (a == "OK")
           , testCase "while it is spawning"
           $ scheduleAndAssert schedulerFactory
@@ -688,7 +688,7 @@ sendShutdownTests schedulerFactory
                   void (sendMessage px me (toDyn "OK"))
                 )
               void (sendInterrupt px other ExitNormally)
-              a <- receiveMessageAs px
+              a <- receiveMessage px
               assertEff "" (a == "OK")
           , testCase "while it is sending shutdown messages"
           $ scheduleAndAssert schedulerFactory
@@ -701,7 +701,7 @@ sendShutdownTests schedulerFactory
                   void (sendMessage px me (toDyn "OK"))
                 )
               void (sendInterrupt px other ExitNormally)
-              a <- receiveMessageAs px
+              a <- receiveMessage px
               assertEff "" (a == "OK")
           , testCase "handleInterrupt handles my own interrupts"
           $ scheduleAndAssert schedulerFactory
@@ -763,7 +763,7 @@ linkingTests schedulerFactory = setTravisTestOptions
         fooPid <- spawn foo
         me     <- self SP
         spawn_ (bar fooPid me)
-        er <- receiveMessageAs @(ProcessExitReason 'Recoverable) SP
+        er <- receiveMessage @(ExitReason 'Recoverable) SP
         lift (er @=? LinkedProcessCrashed fooPid NormalExit NoRecovery)
     , testCase "link process with it self"
     $ applySchedulerFactory schedulerFactory

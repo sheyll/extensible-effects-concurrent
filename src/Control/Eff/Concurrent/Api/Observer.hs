@@ -59,7 +59,12 @@ class (Typeable o, Typeable (Observation o)) => Observable o where
 
 -- | Send an 'Observation' to an 'Observer'
 notifyObserver
-  :: (SetMember Process (Process q) r, Observable o, Observer p o, HasCallStack)
+  :: ( SetMember Process (Process q) r
+     , Observable o
+     , Observer p o
+     , HasCallStack
+     , Member Interrupts r
+     )
   => SchedulerProxy q
   -> Server p
   -> Server o
@@ -70,7 +75,12 @@ notifyObserver px observer observed observation =
 
 -- | Send the 'registerObserverMessage'
 registerObserver
-  :: (SetMember Process (Process q) r, Observable o, Observer p o, HasCallStack)
+  :: ( SetMember Process (Process q) r
+     , Observable o
+     , Observer p o
+     , HasCallStack
+     , Member Interrupts r
+     )
   => SchedulerProxy q
   -> Server p
   -> Server o
@@ -80,7 +90,11 @@ registerObserver px observer observed =
 
 -- | Send the 'forgetObserverMessage'
 forgetObserver
-  :: (SetMember Process (Process q) r, Observable o, Observer p o)
+  :: ( SetMember Process (Process q) r
+     , Observable o
+     , Observer p o
+     , Member Interrupts r
+     )
   => SchedulerProxy q
   -> Server p
   -> Server o
@@ -106,7 +120,11 @@ instance Eq (SomeObserver o) where
 
 -- | Send an 'Observation' to 'SomeObserver'.
 notifySomeObserver
-  :: (SetMember Process (Process q) r, Observable o, HasCallStack)
+  :: ( SetMember Process (Process q) r
+     , Observable o
+     , HasCallStack
+     , Member Interrupts r
+     )
   => SchedulerProxy q
   -> Server o
   -> Observation o
@@ -141,7 +159,11 @@ addObserver = modify . over observers . Set.insert
 
 -- | Delete an 'Observer' from the 'Observers' managed by 'manageObservers'.
 removeObserver
-  :: (SetMember Process (Process q) r, Member (ObserverState o) r, Observable o)
+  :: ( SetMember Process (Process q) r
+     , Member (ObserverState o) r
+     , Observable o
+     , Member Interrupts r
+     )
   => SomeObserver o
   -> Eff r ()
 removeObserver = modify . over observers . Set.delete
@@ -153,6 +175,7 @@ notifyObservers
    . ( Observable o
      , SetMember Process (Process q) r
      , Member (ObserverState o) r
+     , Member Interrupts r
      )
   => SchedulerProxy q
   -> Observation o
@@ -185,6 +208,8 @@ spawnCallbackObserver
      , Show (Observation o)
      , Observable o
      , Member (Logs LogMessage) q
+     , Member Interrupts q
+     , Member Interrupts r
      , HasCallStack
      )
   => SchedulerProxy q
@@ -208,6 +233,8 @@ spawnLoggingObserver
      , Observable o
      , Member (Logs LogMessage) q
      , Member (Logs LogMessage) r
+     , Member Interrupts r
+     , Member Interrupts q
      , HasCallStack
      )
   => SchedulerProxy q

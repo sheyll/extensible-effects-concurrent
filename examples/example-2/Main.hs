@@ -35,6 +35,8 @@ logCounterObservations
   :: ( SetMember Process (Process q) r
      , Member (Logs LogMessage) q
      , Member (Logs LogMessage) r
+     , Member Interrupts q
+     , Member Interrupts r
      )
   => SchedulerProxy q
   -> Eff r (Server (CallbackObserver Counter))
@@ -53,6 +55,8 @@ counterHandler
      , SetMember Process (Process q) r
      , Member (Logs LogMessage) q
      , Member (Logs LogMessage) r
+     , Member Interrupts q
+     , Member Interrupts r
      )
   => SchedulerProxy q
   -> ApiHandler Counter r
@@ -118,6 +122,8 @@ serverLoop
   :: forall r q
    . ( Member (Logs LogMessage) q
      , Member (Logs LogMessage) r
+     , Member Interrupts q
+     , Member Interrupts r
      , SetMember Process (Process q) r
      )
   => SchedulerProxy q
@@ -132,6 +138,8 @@ counterExample
   :: ( SetMember Process (Process q) r
      , Member (Logs LogMessage) q
      , Member (Logs LogMessage) r
+     , Member Interrupts q
+     , Member Interrupts r
      , q <:: r
      )
   => SchedulerProxy q

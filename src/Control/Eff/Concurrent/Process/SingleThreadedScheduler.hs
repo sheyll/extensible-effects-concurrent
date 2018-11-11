@@ -29,7 +29,6 @@ import qualified Data.Map.Strict               as Map
 import           GHC.Stack
 import           Data.Kind                      ( )
 import           Data.Dynamic
-import           Data.Maybe
 
 
 -- | Like 'schedule' but /pure/. The @yield@ effect is just @return ()@.
@@ -38,7 +37,7 @@ import           Data.Maybe
 -- @since 0.3.0.2
 schedulePure
   :: Eff (ConsProcess '[Logs LogMessage]) a
-  -> Either (ProcessExitReason 'NoRecovery) a
+  -> Either (ExitReason 'NoRecovery) a
 schedulePure e = run (scheduleM ignoreLogs (return ()) e)
 
 -- | Invoke 'schedule' with @lift 'Control.Concurrent.yield'@ as yield effect.
@@ -49,7 +48,7 @@ scheduleIO
   :: MonadIO m
   => (forall b . Eff r b -> Eff '[Lift m] b)
   -> Eff (ConsProcess r) a
-  -> m (Either (ProcessExitReason 'NoRecovery) a)
+  -> m (Either (ExitReason 'NoRecovery) a)
 scheduleIO runEff = scheduleM (runLift . runEff) (liftIO yield)
 
 -- | Invoke 'schedule' with @lift 'Control.Concurrent.yield'@ as yield effect.
@@ -59,7 +58,7 @@ scheduleIO runEff = scheduleM (runLift . runEff) (liftIO yield)
 scheduleMonadIOEff
   :: MonadIO (Eff r)
   => Eff (ConsProcess r) a
-  -> Eff r (Either (ProcessExitReason 'NoRecovery) a)
+  -> Eff r (Either (ExitReason 'NoRecovery) a)
 scheduleMonadIOEff = -- schedule (lift yield)
   scheduleM id (liftIO yield)
 
@@ -75,7 +74,7 @@ scheduleIOWithLogging
   :: (NFData l)
   => LogWriter l IO
   -> Eff (ConsProcess '[Logs l, LogWriterReader l IO, Lift IO]) a
-  -> IO (Either (ProcessExitReason 'NoRecovery) a)
+  -> IO (Either (ExitReason 'NoRecovery) a)
 scheduleIOWithLogging h = scheduleIO (writeLogs h)
 
 -- | Handle the 'Process' effect, as well as all lower effects using an effect handler function.
@@ -102,7 +101,7 @@ scheduleM
   --  @r@. E.g. if @Lift IO@ is present, this might be:
   --  @lift 'Control.Concurrent.yield'.
   -> Eff (ConsProcess r) a
-  -> m (Either (ProcessExitReason 'NoRecovery) a)
+  -> m (Either (ExitReason 'NoRecovery) a)
 scheduleM runEff yieldEff e = do
   y <- runAsCoroutinePure runEff e
   handleProcess runEff
@@ -123,19 +122,19 @@ data OnYield r a where
           -> (ResumeProcess ProcessId -> Eff r (OnYield r a))
           -> OnYield r a
   OnDone :: !a -> OnYield r a
-  OnShutdown :: ProcessExitReason 'NoRecovery -> OnYield r a
-  OnInterrupt :: ProcessExitReason 'Recoverable
+  OnShutdown :: ExitReason 'NoRecovery -> OnYield r a
+  OnInterrupt :: ExitReason 'Recoverable
                 -> (ResumeProcess b -> Eff r (OnYield r a))
                 -> OnYield r a
   OnSend :: !ProcessId -> !Dynamic
-         -> (ResumeProcess Bool -> Eff r (OnYield r a))
+         -> (ResumeProcess () -> Eff r (OnYield r a))
          -> OnYield r a
   OnRecv :: MessageSelector b -> (ResumeProcess b -> Eff r (OnYield r a))
          -> OnYield r a
-  OnSendShutdown :: !ProcessId -> ProcessExitReason 'NoRecovery
-                    -> (ResumeProcess Bool -> Eff r (OnYield r a)) -> OnYield r a
-  OnSendInterrupt :: !ProcessId -> ProcessExitReason 'Recoverable
-                    -> (ResumeProcess Bool -> Eff r (OnYield r a)) -> OnYield r a
+  OnSendShutdown :: !ProcessId -> ExitReason 'NoRecovery
+                    -> (ResumeProcess () -> Eff r (OnYield r a)) -> OnYield r a
+  OnSendInterrupt :: !ProcessId -> ExitReason 'Recoverable
+                    -> (ResumeProcess () -> Eff r (OnYield r a)) -> OnYield r a
   OnMakeReference :: (ResumeProcess Int -> Eff r (OnYield r a)) -> OnYield r a
 
 -- | Internal 'Process' handler function.
@@ -147,11 +146,7 @@ handleProcess
   -> Int
   -> Map.Map ProcessId (Seq Dynamic)
   -> Seq (OnYield r finalResult, ProcessId)
-  -> m
-       ( Either
-           (ProcessExitReason 'NoRecovery)
-           finalResult
-       )
+  -> m (Either (ExitReason 'NoRecovery) finalResult)
 handleProcess _runEff _yieldEff _newPid _nextRef _msgQs Empty =
   return $ Left (NotRecovered (ProcessError "no main process"))
 
@@ -182,9 +177,8 @@ handleProcess runEff yieldEff !newPid !nextRef !msgQs allProcs@((!processState, 
         OnSendInterrupt targetPid sr k -> do
           let allButTarget =
                 Seq.filter (\(_, e) -> e /= pid && e /= targetPid) allProcs
-              targets     = Seq.filter (\(_, e) -> e == targetPid) allProcs
-              suicide     = targetPid == pid
-              targetFound = suicide || not (Seq.null targets)
+              targets = Seq.filter (\(_, e) -> e == targetPid) allProcs
+              suicide = targetPid == pid
           if suicide
             then do
               nextK <- runEff $ k (Interrupted sr)
@@ -210,7 +204,7 @@ handleProcess runEff yieldEff !newPid !nextRef !msgQs allProcs@((!processState, 
                       OnMakeReference tk     -> tk (Interrupted sr)
                     return (nextTargetState, tPid)
               nextTargets <- runEff $ traverse deliverTheGoodNews targets
-              nextK       <- runEff $ k (ResumeWith targetFound)
+              nextK       <- runEff $ k (ResumeWith ())
               handleProcess
                 runEff
                 yieldEff
@@ -222,9 +216,8 @@ handleProcess runEff yieldEff !newPid !nextRef !msgQs allProcs@((!processState, 
         OnSendShutdown targetPid sr k -> do
           let allButTarget =
                 Seq.filter (\(_, e) -> e /= pid && e /= targetPid) allProcs
-              targets     = Seq.filter (\(_, e) -> e == targetPid) allProcs
-              suicide     = targetPid == pid
-              targetFound = suicide || not (Seq.null targets)
+              targets = Seq.filter (\(_, e) -> e == targetPid) allProcs
+              suicide = targetPid == pid
           if suicide
             then handleExit (Left sr)
             else do
@@ -243,7 +236,7 @@ handleProcess runEff yieldEff !newPid !nextRef !msgQs allProcs@((!processState, 
                       OnMakeReference _tk     -> return (OnShutdown sr)
                     return (nextTargetState, tPid)
               nextTargets <- runEff $ traverse deliverTheGoodNews targets
-              nextK       <- runEff $ k (ResumeWith targetFound)
+              nextK       <- runEff $ k (ResumeWith ())
               handleProcess
                 runEff
                 yieldEff
@@ -281,7 +274,7 @@ handleProcess runEff yieldEff !newPid !nextRef !msgQs allProcs@((!processState, 
                         (rest :|> (nextK, pid))
 
         OnSend toPid msg k -> do
-          nextK <- runEff $ k (ResumeWith (msgQs ^. at toPid . to isJust))
+          nextK <- runEff $ k (ResumeWith ())
           handleProcess runEff
                         yieldEff
                         newPid

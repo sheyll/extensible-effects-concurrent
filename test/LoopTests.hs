@@ -60,7 +60,7 @@ test_loopTests
                                           )
                                       replicateCheapM_
                                           soMany
-                                          (void (receiveMessageAs @() SP))
+                                          (void (receiveMessage @() SP))
 
                         res @=? Right ()
               ]
@@ -108,7 +108,7 @@ test_loopWithLeaksTests
                                       spawn_ (forever $ sendMessageAs SP me ())
                                       replicateM_
                                           soMany
-                                          (void (receiveMessageAs @() SP))
+                                          (void (receiveMessage @() SP))
 
                         res @=? Right ()
               ]
