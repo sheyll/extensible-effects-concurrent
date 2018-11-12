@@ -1,5 +1,4 @@
-module Interactive
-where
+module Interactive where
 
 import           Control.Concurrent
 import           Control.Eff
@@ -17,17 +16,20 @@ import           Common
 test_interactive :: TestTree
 test_interactive = setTravisTestOptions $ testGroup
   "Interactive"
-  [ testGroup "SingleThreadedScheduler"  $ allTests SingleThreaded.defaultMain
+  [ testGroup "SingleThreadedScheduler" $ allTests SingleThreaded.defaultMain
   , testGroup "ForkIOScheduler" $ allTests ForkIOScheduler.defaultMain
   ]
 
-allTests :: SetMember Lift (Lift IO) r => (Eff (ConsProcess r) () -> IO ()) -> [TestTree]
-allTests scheduler =
-  [ happyCaseTest scheduler
-  ]
+allTests
+  :: SetMember Lift (Lift IO) r
+  => (Eff (InterruptableProcess r) () -> IO ())
+  -> [TestTree]
+allTests scheduler = [happyCaseTest scheduler]
 
 happyCaseTest
-  :: SetMember Lift (Lift IO) r => (Eff (ConsProcess r) () -> IO ()) -> TestTree
+  :: SetMember Lift (Lift IO) r
+  => (Eff (InterruptableProcess r) () -> IO ())
+  -> TestTree
 happyCaseTest scheduler =
   testCase "start, wait and stop interactive scheduler" $ do
     s <- forkInteractiveScheduler scheduler

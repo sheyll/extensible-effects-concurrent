@@ -208,12 +208,14 @@ spawnCallbackObserver
      , Show (Observation o)
      , Observable o
      , Member (Logs LogMessage) q
-     , Member Interrupts q
      , Member Interrupts r
      , HasCallStack
      )
   => SchedulerProxy q
-  -> (Server o -> Observation o -> Eff (Process q ': q) ApiServerCmd)
+  -> (  Server o
+     -> Observation o
+     -> Eff (InterruptableProcess q) ApiServerCmd
+     )
   -> Eff r (Server (CallbackObserver o))
 spawnCallbackObserver px onObserve = spawnServerWithEffects
   px
@@ -234,7 +236,6 @@ spawnLoggingObserver
      , Member (Logs LogMessage) q
      , Member (Logs LogMessage) r
      , Member Interrupts r
-     , Member Interrupts q
      , HasCallStack
      )
   => SchedulerProxy q

@@ -5,6 +5,7 @@ import           Control.Eff.Lift
 import           Control.Eff.Concurrent
 import           Data.Dynamic
 import           Control.Concurrent
+import           Control.Applicative
 import           Control.DeepSeq
 
 main :: IO ()
@@ -19,17 +20,18 @@ main = defaultMain
 
 newtype WhoAreYou = WhoAreYou ProcessId deriving (Typeable, NFData)
 
-firstExample :: (HasLogging IO q) => SchedulerProxy q -> Eff (Process q ': q) ()
+firstExample
+  :: (HasLogging IO q) => SchedulerProxy q -> Eff (InterruptableProcess q) ()
 firstExample px = do
   person <- spawn
     (do
       logInfo "I am waiting for someone to ask me..."
       WhoAreYou replyPid <- receiveMessage px
-      sendMessageAs px replyPid "Alice"
+      sendMessage px replyPid "Alice"
       logInfo (show replyPid ++ " just needed to know it.")
     )
   me <- self px
-  sendMessageAs px person (WhoAreYou me)
+  sendMessage px person (WhoAreYou me)
   personName <- receiveMessage px
   logInfo ("I just met " ++ personName)
 
@@ -41,4 +43,4 @@ selectString :: MessageSelector String
 selectString = selectMessage
 
 selectIntOrString :: MessageSelector (Either Int String)
-selectIntOrString = Left <$> selectTimeout <|> Right <$> selectString
+selectIntOrString = Left <$> selectInt <|> Right <$> selectString

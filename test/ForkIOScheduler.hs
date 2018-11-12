@@ -31,7 +31,7 @@ test_IOExceptionsIsolated = setTravisTestOptions $ testGroup
           aVar <- newEmptyTMVarIO
           withAsyncLogChannel
             1000
-            def
+            (singleMessageLogWriter (putStrLn . renderLogMessage))
             (Scheduler.defaultMainWithLogChannel
               (do
                 p1 <- spawn $ foreverCheap busyEffect
@@ -40,10 +40,24 @@ test_IOExceptionsIsolated = setTravisTestOptions $ testGroup
                   lift (threadDelay 1000)
                   doExit
                 lift (threadDelay 100000)
-                wasStillRunningP1 <- sendShutdown forkIoScheduler
-                                                  p1
-                                                  (NotRecovered ExitNormally)
-                lift (atomically (putTMVar aVar wasStillRunningP1))
+
+                me <- self forkIoScheduler
+                spawn_
+                  (lift (threadDelay 10000) >> sendMessage forkIoScheduler me ()
+                  )
+                eres <- receiveWithMonitor forkIoScheduler
+                                           p1
+                                           (selectMessage @())
+                case eres of
+                  Left  _down -> lift (atomically (putTMVar aVar False))
+                  Right ()    -> do
+                    withMonitor forkIoScheduler p1 $ \ref -> do
+                      sendShutdown forkIoScheduler
+                                   p1
+                                   (NotRecovered (ProcessError "test 123"))
+                      _down <- receiveSelectedMessage forkIoScheduler
+                                                      (selectProcessDown ref)
+                      lift (atomically (putTMVar aVar True))
               )
             )
 
@@ -57,8 +71,7 @@ test_IOExceptionsIsolated = setTravisTestOptions $ testGroup
       , void (send (SendMessage @SchedulerIO 44444 (toDyn "test message")))
       )
     , ( "sending shutdown"
-      , void
-        (send (SendShutdown @SchedulerIO 44444 (NotRecovered ExitNormally)))
+      , void (send (SendShutdown @SchedulerIO 44444 ExitNormally))
       )
     , ("selfpid-ing", void (send (SelfPid @SchedulerIO)))
     , ( "spawn-ing"
@@ -146,7 +159,7 @@ test_mainProcessSpawnsAChildBothReturn = setTravisTestOptions
       (Scheduler.defaultMainWithLogChannel
         (do
           child <- spawn (void (receiveMessage @String forkIoScheduler))
-          True  <- sendMessage forkIoScheduler child (toDyn "test")
+          sendMessage forkIoScheduler child (toDyn "test")
           return ()
         )
       )
@@ -163,12 +176,13 @@ test_mainProcessSpawnsAChildBothExitNormally = setTravisTestOptions
       (Scheduler.defaultMainWithLogChannel
         (do
           child <- spawn $ void $ provideInterrupts $ exitOnInterrupt
+            forkIoScheduler
             (do
               void (receiveMessage @String forkIoScheduler)
               void (exitNormally forkIoScheduler)
               error "This should not happen (child)!!"
             )
-          True <- sendMessage forkIoScheduler child (toDyn "test")
+          sendMessage forkIoScheduler child (toDyn "test")
           void (exitNormally forkIoScheduler)
           error "This should not happen!!"
         )

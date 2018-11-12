@@ -38,12 +38,16 @@ module Control.Eff.Concurrent.Process
   , ExitSeverity(..)
   , toExitSeverity
   , ExitReason(..)
+  , isBecauseDown
   , InterruptReason
   , Interrupts
+  , InterruptableProcess
+  , provideInterruptsShutdown
   , handleInterrupts
   , exitOnInterrupt
   , logInterrupts
   , provideInterrupts
+  , mergeEitherInterruptAndExitReason
   , interrupt
   , isCrash
   , toCrashReason
@@ -59,12 +63,16 @@ module Control.Eff.Concurrent.Process
   , sendAnyMessage
   , spawn
   , spawn_
+  , spawnLink
+  , spawnRaw
+  , spawnRaw_
+  , isProcessAlive
   , linkProcess
   , unlinkProcess
   , monitor
   , demonitor
-  , MonitoredProcessDown(..)
-  , selectMonitoredProcessDown
+  , ProcessDown(..)
+  , selectProcessDown
   , becauseProcessIsDown
   , MonitorReference(..)
   , withMonitor
@@ -104,6 +112,7 @@ import           Data.Kind
 import           GHC.Stack
 import           Data.Function
 import           Control.Applicative
+import           Data.Maybe
 import qualified Control.Exception             as Exc
 
 -- | The process effect is the basis for message passing concurrency. This
@@ -126,7 +135,7 @@ import qualified Control.Exception             as Exc
 -- * spawning a child blocks only a very moment
 --
 -- * a newly spawned process shall be scheduled before the parent process after
--- * the spawn
+-- * the spawnRaw
 --
 -- * when the first process exists, all process should be killed immediately
 data Process (r :: [Type -> Type]) b where
@@ -138,6 +147,10 @@ data Process (r :: [Type -> Type]) b where
   -- | Start a new process, the new process will execute an effect, the function
   -- will return immediately with a 'ProcessId'.
   Spawn :: Eff (Process r ': r) () -> Process r (ResumeProcess ProcessId)
+  -- | Start a new process, and 'Link' to it .
+  SpawnLink :: Eff (Process r ': r) () -> Process r (ResumeProcess ProcessId)
+  -- | Get the process state (or 'Nothing' if the process is dead)
+  GetProcessState :: ProcessId -> Process r (ResumeProcess (Maybe ProcessState))
   -- | Shutdown the process; irregardles of the exit reason, this function never
   -- returns,
   Shutdown :: ExitReason 'NoRecovery   -> Process r a
@@ -160,11 +173,11 @@ data Process (r :: [Type -> Type]) b where
   -- | Generate a unique 'Int' for the current process.
   MakeReference :: Process r (ResumeProcess Int)
   -- | Monitor another process. When the monitored process exits a
-  --  'MonitoredProcessDown' is sent to the calling process.
+  --  'ProcessDown' is sent to the calling process.
   -- The return value is a unique identifier for that monitor.
   -- There can be multiple monitors on the same process,
   -- and a message for each will be sent.
-  -- If the process is already dead, the 'MonitoredProcessDown' message
+  -- If the process is already dead, the 'ProcessDown' message
   -- will be sent immediately, w.thout exit reason
   Monitor :: ProcessId -> Process r (ResumeProcess MonitorReference)
   -- | Remove a monitor.
@@ -181,6 +194,7 @@ instance Show (Process r b) where
     YieldProcess -> showString "yield process"
     SelfPid      -> showString "lookup the current process id"
     Spawn    _   -> showString "spawn a new process"
+    SpawnLink _  -> showString "spawn a new process and link to it"
     Shutdown sr  -> showParen (d >= 10) (showString "shutdown " . showsPrec 10 sr)
     SendShutdown toPid sr -> showParen
       (d >= 10)
@@ -204,6 +218,7 @@ instance Show (Process r b) where
       . showsPrec 10 sr
       )
     ReceiveSelectedMessage _ -> showString "receive a message"
+    GetProcessState pid      -> showString "get the process state of " . shows pid
     MakeReference            -> showString "generate a unique reference"
     Monitor   pid            -> showString "monitor " . shows pid
     Demonitor i              -> showString "demonitor " . shows i
@@ -398,15 +413,15 @@ instance Show ExitRecovery where
 -- | Get the 'ExitRecover'y
 toExitRecovery :: ExitReason r -> ExitRecovery
 toExitRecovery = \case
-  (ProcessNotRunning _       ) -> Recoverable
-  (LinkedProcessCrashed _ _ _) -> Recoverable
-  (ProcessError _            ) -> Recoverable
-  ExitNormally                 -> NoRecovery
-  (NotRecovered _         )    -> NoRecovery
-  (UnexpectedException _ _)    -> NoRecovery
-  Killed                       -> NoRecovery
+  (ProcessNotRunning _  )   -> Recoverable
+  (LinkedProcessCrashed _)  -> Recoverable
+  (ProcessError _       )   -> Recoverable
+  ExitNormally              -> NoRecovery
+  (NotRecovered _         ) -> NoRecovery
+  (UnexpectedException _ _) -> NoRecovery
+  Killed                    -> NoRecovery
 
--- | This value indicates wether a process exitted in way consistent with
+-- | This value indicates wether a process exited in way consistent with
 -- the planned behaviour or not.
 data ExitSeverity = NormalExit | Crash
   deriving (Typeable, Ord, Eq, Generic)
@@ -433,14 +448,14 @@ data ExitReason (t :: ExitRecovery) where
       :: ProcessId -> ExitReason 'Recoverable
     -- ^ A process that should be running was not running.
     LinkedProcessCrashed
-      :: ProcessId -> ExitSeverity -> ExitRecovery -> ExitReason 'Recoverable
+      :: ProcessId -> ExitReason 'Recoverable
     -- ^ A linked process is down
     ProcessError
       :: String -> ExitReason 'Recoverable
     -- ^ An exit reason that has an error message but isn't 'Recoverable'.
     ExitNormally
       :: ExitReason 'NoRecovery
-    -- ^ A process function returned or exitted without any error.
+    -- ^ A process function returned or exited without any error.
     NotRecovered
       :: (ExitReason 'Recoverable) -> ExitReason 'NoRecovery
     -- ^ An unhandled 'Recoverable' allows 'NoRecovery'.
@@ -458,10 +473,8 @@ instance Show (ExitReason x) where
     showParen (d>=10) .
     (\case
         ProcessNotRunning p         -> showString "process not running: " . shows p
-        LinkedProcessCrashed m n o  -> showString "linked process crashed: "
-                                        . shows m . showChar ' '
-                                        . shows n . showChar ' '
-                                        . shows o
+        LinkedProcessCrashed m      -> showString "linked process "
+                                        . shows m . showString " crashed"
         ProcessError reason         -> showString "error: " . showString reason
         ExitNormally                -> showString "exit normally"
         NotRecovered         e      -> showString "not recovered from: " . shows e
@@ -477,7 +490,7 @@ instance Exc.Exception (ExitReason 'NoRecovery )
 
 instance NFData (ExitReason x) where
   rnf (ProcessNotRunning !l) = rnf l
-  rnf (LinkedProcessCrashed !l !m !n) = rnf l `seq` rnf m `seq` rnf n `seq` ()
+  rnf (LinkedProcessCrashed !l) = rnf l
   rnf (ProcessError !l) = rnf l
   rnf ExitNormally = rnf ()
   rnf (NotRecovered !l) = rnf l
@@ -488,9 +501,9 @@ instance Ord (ExitReason x) where
   compare (ProcessNotRunning l) (ProcessNotRunning r) = compare l r
   compare (ProcessNotRunning _) _ = LT
   compare _ (ProcessNotRunning _) = GT
-  compare (LinkedProcessCrashed l m n) (LinkedProcessCrashed r s t) = compare l r <> compare m s <> compare n t
-  compare (LinkedProcessCrashed _ _ _) _ = LT
-  compare _ (LinkedProcessCrashed _ _ _) = GT
+  compare (LinkedProcessCrashed l) (LinkedProcessCrashed r) = compare l r
+  compare (LinkedProcessCrashed _) _ = LT
+  compare _ (LinkedProcessCrashed _) = GT
   compare (ProcessError l) (ProcessError r) = compare l r
   compare ExitNormally ExitNormally = EQ
   compare ExitNormally _ = LT
@@ -507,7 +520,7 @@ instance Ord (ExitReason x) where
 instance Eq (ExitReason x) where
   (==) (ProcessNotRunning l) (ProcessNotRunning r) = (==) l r
   (==) ExitNormally ExitNormally = True
-  (==) (LinkedProcessCrashed l m n) (LinkedProcessCrashed r s t) = l == r && m == s && n == t
+  (==) (LinkedProcessCrashed l) (LinkedProcessCrashed r) = l == r
   (==) (ProcessError l) (ProcessError r) = (==) l r
   (==) (NotRecovered l) (NotRecovered r) = (==) l r
   (==) (UnexpectedException l1 l2) (UnexpectedException r1 r2) =
@@ -515,12 +528,37 @@ instance Eq (ExitReason x) where
   (==) Killed Killed = True
   (==) _ _ = False
 
+-- | A predicate for linked process __crashes__.
+isBecauseDown
+  :: Maybe ProcessId -> ExitReason r -> Bool
+isBecauseDown mp = \case
+  ProcessNotRunning _     -> False
+  LinkedProcessCrashed p  -> maybe True (== p) mp
+  ProcessError _          -> False
+  ExitNormally            -> False
+  NotRecovered e          -> isBecauseDown mp e
+  UnexpectedException _ _ -> False
+  Killed                  -> False
+
 -- | 'ExitReason's which are recoverable are interrupts.
 type InterruptReason = ExitReason 'Recoverable
 
 -- | 'Exc'eptions containing 'InterruptReason's.
 -- See 'handleInterrupts', 'exitOnInterrupt' or 'provideInterrupts'
 type Interrupts = Exc InterruptReason
+
+-- | This adds a layer of the 'Interrupts' effect ontop of 'ConsProcess'
+type InterruptableProcess e = Interrupts ': ConsProcess e
+
+-- | Handle all 'InterruptReason's of an 'InterruptableProcess' by
+-- wrapping them up in 'NotRecovered' and then do a process 'Shutdown'.
+provideInterruptsShutdown
+  :: forall e a . Eff (InterruptableProcess e) a -> Eff (ConsProcess e) a
+provideInterruptsShutdown e = do
+  res <- provideInterrupts e
+  case res of
+    Left  ex -> send (Shutdown @e (NotRecovered ex))
+    Right a  -> return a
 
 -- | Handle 'InterruptReason's arising during process operations, e.g.
 -- when a linked process crashes while we wait in a 'receiveSelectedMessage'
@@ -556,6 +594,13 @@ exitOnInterrupt px = handleInterrupts (exitBecause px . NotRecovered)
 provideInterrupts
   :: HasCallStack => Eff (Interrupts ': r) a -> Eff r (Either InterruptReason a)
 provideInterrupts = runError
+
+
+-- | Wrap all (left) 'InterruptReason's into 'NotRecovered' and
+-- return the (right) 'NoRecovery' 'ExitReason's as is.
+mergeEitherInterruptAndExitReason
+  :: Either InterruptReason (ExitReason 'NoRecovery) -> ExitReason 'NoRecovery
+mergeEitherInterruptAndExitReason = either NotRecovered id
 
 -- | Throw an 'InterruptReason', can be handled by 'recoverFromInterrupt' or
 --   'exitOnInterrupt' or 'provideInterrupts'.
@@ -596,13 +641,13 @@ instance NFData SomeProcessExitReason where
 fromSomeProcessExitReason
   :: SomeProcessExitReason -> Either (ExitReason 'NoRecovery) InterruptReason
 fromSomeProcessExitReason (SomeProcessExitReason e) = case e of
-  recoverable@(ProcessNotRunning _       ) -> Right recoverable
-  recoverable@(LinkedProcessCrashed _ _ _) -> Right recoverable
-  recoverable@(ProcessError _            ) -> Right recoverable
-  noRecovery@ExitNormally                  -> Left noRecovery
-  noRecovery@(NotRecovered _         )     -> Left noRecovery
-  noRecovery@(UnexpectedException _ _)     -> Left noRecovery
-  noRecovery@Killed                        -> Left noRecovery
+  recoverable@(ProcessNotRunning _  )  -> Right recoverable
+  recoverable@(LinkedProcessCrashed _) -> Right recoverable
+  recoverable@(ProcessError _       )  -> Right recoverable
+  noRecovery@ExitNormally              -> Left noRecovery
+  noRecovery@(NotRecovered _         ) -> Left noRecovery
+  noRecovery@(UnexpectedException _ _) -> Left noRecovery
+  noRecovery@Killed                    -> Left noRecovery
 
 -- | Print a 'ExitReason' to 'Just' a formatted 'String' when 'isCrash'
 -- is 'True'.
@@ -731,27 +776,69 @@ sendInterrupt
    . (SetMember Process (Process q) r, HasCallStack, Member Interrupts r)
   => SchedulerProxy q
   -> ProcessId
-  -> ExitReason 'Recoverable
+  -> InterruptReason
   -> Eff r ()
 sendInterrupt _ pid s =
   pid `deepseq` s `deepseq` executeAndResumeOrThrow (SendInterrupt pid s)
 
 -- | Start a new process, the new process will execute an effect, the function
--- will return immediately with a 'ProcessId'.
+-- will return immediately with a 'ProcessId'. If the new process is
+-- interrupted, the process will 'Shutdown' with the 'InterruptReason'
+-- wrapped in 'NotCovered'. For specific use cases it might be better to use
+-- 'spawnRaw'.
 spawn
   :: forall r q
    . (HasCallStack, SetMember Process (Process q) r, Member Interrupts r)
-  => Eff (Process q ': q) ()
+  => Eff (InterruptableProcess q) ()
   -> Eff r ProcessId
-spawn child = executeAndResumeOrThrow (Spawn @q child)
+spawn child =
+  executeAndResumeOrThrow (Spawn @q (provideInterruptsShutdown child))
 
 -- | Like 'spawn' but return @()@.
 spawn_
   :: forall r q
    . (HasCallStack, SetMember Process (Process q) r, Member Interrupts r)
-  => Eff (Process q ': q) ()
+  => Eff (InterruptableProcess q) ()
   -> Eff r ()
-spawn_ = void . spawn
+spawn_ child = void (spawn child)
+
+-- | Start a new process, and immediately link to it.
+spawnLink
+  :: forall r q
+   . (HasCallStack, SetMember Process (Process q) r, Member Interrupts r)
+  => Eff (InterruptableProcess q) ()
+  -> Eff r ProcessId
+spawnLink child =
+  executeAndResumeOrThrow (SpawnLink @q (provideInterruptsShutdown child))
+
+-- | Start a new process, the new process will execute an effect, the function
+-- will return immediately with a 'ProcessId'. The spawned process has only the
+-- /raw/ 'ConsProcess' effects. For non-library code 'spawn' might be better
+-- suited.
+spawnRaw
+  :: forall r q
+   . (HasCallStack, SetMember Process (Process q) r, Member Interrupts r)
+  => Eff (ConsProcess q) ()
+  -> Eff r ProcessId
+spawnRaw child = executeAndResumeOrThrow (Spawn @q child)
+
+-- | Like 'spawnRaw' but return @()@.
+spawnRaw_
+  :: forall r q
+   . (HasCallStack, SetMember Process (Process q) r, Member Interrupts r)
+  => Eff (ConsProcess q) ()
+  -> Eff r ()
+spawnRaw_ = void . spawnRaw
+
+-- | Return 'True' if the process is alive.
+isProcessAlive
+  :: forall r q
+   . (HasCallStack, SetMember Process (Process q) r, Member Interrupts r)
+  => SchedulerProxy q
+  -> ProcessId
+  -> Eff r Bool
+isProcessAlive _px pid =
+  isJust <$> executeAndResumeOrThrow (GetProcessState pid)
 
 -- | Block until a message was received.
 -- See 'ReceiveMessage' for more documentation.
@@ -867,11 +954,11 @@ instance Show MonitorReference where
       . shows (monitoredProcess m))
 
 -- | Monitor another process. When the monitored process exits a
---  'MonitoredProcessDown' is sent to the calling process.
+--  'ProcessDown' is sent to the calling process.
 -- The return value is a unique identifier for that monitor.
 -- There can be multiple monitors on the same process,
 -- and a message for each will be sent.
--- If the process is already dead, the 'MonitoredProcessDown' message
+-- If the process is already dead, the 'ProcessDown' message
 -- will be sent immediately, w.thout exit reason
 monitor
   :: forall r q
@@ -916,54 +1003,52 @@ receiveWithMonitor
   => SchedulerProxy q
   -> ProcessId
   -> MessageSelector a
-  -> Eff r (Either MonitoredProcessDown a)
+  -> Eff r (Either ProcessDown a)
 receiveWithMonitor px pid sel = withMonitor
   px
   pid
   (\ref -> receiveSelectedMessage
     px
     (   Left
-    <$> filterMessage (\(MonitoredProcessDown mref _) -> mref == ref)
+    <$> filterMessage (\(ProcessDown mref _) -> mref == ref)
     <|> Right
     <$> sel
     )
   )
 
-
--- | A monitored process exitted.
+-- | A monitored process exited.
 -- This message is sent to a process by the scheduler, when
 -- a process that was monitored via a 'SchedulerCommand' died.
-data MonitoredProcessDown =
-  MonitoredProcessDown
+data ProcessDown =
+  ProcessDown
     { downReference :: !MonitorReference
     , downReason    :: !SomeProcessExitReason
     }
   deriving (Typeable, Generic, Eq, Ord)
 
--- | Trigger an 'Interrupt' for a 'MonitoredProcessDown' message.
+-- | Trigger an 'Interrupt' for a 'ProcessDown' message.
 -- The reason will be 'ProcessNotRunning'
-becauseProcessIsDown :: MonitoredProcessDown -> InterruptReason
+becauseProcessIsDown :: ProcessDown -> InterruptReason
 becauseProcessIsDown = ProcessNotRunning . monitoredProcess . downReference
 
-instance NFData MonitoredProcessDown
+instance NFData ProcessDown
 
-instance Show MonitoredProcessDown where
+instance Show ProcessDown where
   showsPrec d =
     showParen
       (d>=10)
     . (\case
-          MonitoredProcessDown ref reason ->
+          ProcessDown ref reason ->
             showString "monitored process down "
              . showsPrec 11 ref . showChar ' '
              . showsPrec 11 reason
       )
 
--- | A 'MesssageSelector' for the 'MonitoredProcessDown' message of a specific
+-- | A 'MesssageSelector' for the 'ProcessDown' message of a specific
 -- process.
-selectMonitoredProcessDown
-  :: MonitorReference -> MessageSelector MonitoredProcessDown
-selectMonitoredProcessDown ref0 =
-  filterMessageLazy (\(MonitoredProcessDown ref _reason) -> ref0 == ref)
+selectProcessDown :: MonitorReference -> MessageSelector ProcessDown
+selectProcessDown ref0 =
+  filterMessageLazy (\(ProcessDown ref _reason) -> ref0 == ref)
 
 -- | Connect the calling process to another process, such that
 -- if one of the processes crashes (i.e. 'isCrash' returns 'True'), the other

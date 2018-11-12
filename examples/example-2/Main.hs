@@ -35,7 +35,6 @@ logCounterObservations
   :: ( SetMember Process (Process q) r
      , Member (Logs LogMessage) q
      , Member (Logs LogMessage) r
-     , Member Interrupts q
      , Member Interrupts r
      )
   => SchedulerProxy q
@@ -55,7 +54,6 @@ counterHandler
      , SetMember Process (Process q) r
      , Member (Logs LogMessage) q
      , Member (Logs LogMessage) r
-     , Member Interrupts q
      , Member Interrupts r
      )
   => SchedulerProxy q
@@ -122,7 +120,6 @@ serverLoop
   :: forall r q
    . ( Member (Logs LogMessage) q
      , Member (Logs LogMessage) r
-     , Member Interrupts q
      , Member Interrupts r
      , SetMember Process (Process q) r
      )
@@ -138,7 +135,6 @@ counterExample
   :: ( SetMember Process (Process q) r
      , Member (Logs LogMessage) q
      , Member (Logs LogMessage) r
-     , Member Interrupts q
      , Member Interrupts r
      , q <:: r
      )

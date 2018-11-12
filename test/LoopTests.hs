@@ -56,7 +56,7 @@ test_loopTests
                                 $ do
                                       me <- self SP
                                       spawn_
-                                          (foreverCheap $ sendMessageAs SP me ()
+                                          (foreverCheap $ sendMessage SP me ()
                                           )
                                       replicateCheapM_
                                           soMany
@@ -105,7 +105,7 @@ test_loopWithLeaksTests
                                     )
                                 $ do
                                       me <- self SP
-                                      spawn_ (forever $ sendMessageAs SP me ())
+                                      spawn_ (forever $ sendMessage SP me ())
                                       replicateM_
                                           soMany
                                           (void (receiveMessage @() SP))

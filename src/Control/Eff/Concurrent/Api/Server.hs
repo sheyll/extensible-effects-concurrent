@@ -286,10 +286,9 @@ serve px a =
 spawnServer
   :: forall a effScheduler eff
    . ( Servable a
-     , ServerEff a ~ (Process effScheduler ': effScheduler)
+     , ServerEff a ~ (InterruptableProcess effScheduler)
      , SetMember Process (Process effScheduler) eff
      , Member Interrupts eff
-     , Member Interrupts (ServerEff a)
      , HasCallStack
      )
   => SchedulerProxy effScheduler
@@ -311,7 +310,7 @@ spawnServerWithEffects
   => SchedulerProxy effScheduler
   -> a
   -> (  Eff (ServerEff a) ()
-     -> Eff (Process effScheduler ': effScheduler) ()
+     -> Eff (InterruptableProcess effScheduler) ()
      )
   -> Eff eff (ServerPids a)
 spawnServerWithEffects px a handleEff = do

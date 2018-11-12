@@ -36,7 +36,7 @@ import           Data.Dynamic
 --
 -- @since 0.3.0.2
 schedulePure
-  :: Eff (ConsProcess '[Logs LogMessage]) a
+  :: Eff (InterruptableProcess '[Logs LogMessage]) a
   -> Either (ExitReason 'NoRecovery) a
 schedulePure e = run (scheduleM ignoreLogs (return ()) e)
 
@@ -47,7 +47,7 @@ schedulePure e = run (scheduleM ignoreLogs (return ()) e)
 scheduleIO
   :: MonadIO m
   => (forall b . Eff r b -> Eff '[Lift m] b)
-  -> Eff (ConsProcess r) a
+  -> Eff (InterruptableProcess r) a
   -> m (Either (ExitReason 'NoRecovery) a)
 scheduleIO runEff = scheduleM (runLift . runEff) (liftIO yield)
 
@@ -57,7 +57,7 @@ scheduleIO runEff = scheduleM (runLift . runEff) (liftIO yield)
 -- @since 0.3.0.2
 scheduleMonadIOEff
   :: MonadIO (Eff r)
-  => Eff (ConsProcess r) a
+  => Eff (InterruptableProcess r) a
   -> Eff r (Either (ExitReason 'NoRecovery) a)
 scheduleMonadIOEff = -- schedule (lift yield)
   scheduleM id (liftIO yield)
@@ -73,7 +73,7 @@ scheduleMonadIOEff = -- schedule (lift yield)
 scheduleIOWithLogging
   :: (NFData l)
   => LogWriter l IO
-  -> Eff (ConsProcess '[Logs l, LogWriterReader l IO, Lift IO]) a
+  -> Eff (InterruptableProcess '[Logs l, LogWriterReader l IO, Lift IO]) a
   -> IO (Either (ExitReason 'NoRecovery) a)
 scheduleIOWithLogging h = scheduleIO (writeLogs h)
 
@@ -100,10 +100,10 @@ scheduleM
   -> m () -- ^ An that performs a __yield__ w.r.t. the underlying effect
   --  @r@. E.g. if @Lift IO@ is present, this might be:
   --  @lift 'Control.Concurrent.yield'.
-  -> Eff (ConsProcess r) a
+  -> Eff (InterruptableProcess r) a
   -> m (Either (ExitReason 'NoRecovery) a)
 scheduleM runEff yieldEff e = do
-  y <- runAsCoroutinePure runEff e
+  y <- runAsCoroutinePure runEff (provideInterruptsShutdown e)
   handleProcess runEff
                 yieldEff
                 1
@@ -118,7 +118,8 @@ data OnYield r a where
          -> OnYield r a
   OnSelf :: (ResumeProcess ProcessId -> Eff r (OnYield r a))
          -> OnYield r a
-  OnSpawn :: Eff (Process r ': r) ()
+  OnSpawn :: Bool
+          -> Eff (Process r ': r) ()
           -> (ResumeProcess ProcessId -> Eff r (OnYield r a))
           -> OnYield r a
   OnDone :: !a -> OnYield r a
@@ -130,6 +131,10 @@ data OnYield r a where
          -> (ResumeProcess () -> Eff r (OnYield r a))
          -> OnYield r a
   OnRecv :: MessageSelector b -> (ResumeProcess b -> Eff r (OnYield r a))
+         -> OnYield r a
+  OnGetProcessState
+         :: ProcessId
+         -> (ResumeProcess (Maybe ProcessState) -> Eff r (OnYield r a))
          -> OnYield r a
   OnSendShutdown :: !ProcessId -> ExitReason 'NoRecovery
                     -> (ResumeProcess () -> Eff r (OnYield r a)) -> OnYield r a
@@ -151,14 +156,20 @@ handleProcess _runEff _yieldEff _newPid _nextRef _msgQs Empty =
   return $ Left (NotRecovered (ProcessError "no main process"))
 
 handleProcess runEff yieldEff !newPid !nextRef !msgQs allProcs@((!processState, !pid) :<| rest)
-  = let handleExit res = if pid == 0
-          then return res
-          else handleProcess runEff
-                             yieldEff
-                             newPid
-                             nextRef
-                             (msgQs & at pid .~ Nothing)
-                             rest
+  = let
+      handleExit res = if pid == 0
+        then return res
+        else handleProcess runEff
+                           yieldEff
+                           newPid
+                           nextRef
+                           (msgQs & at pid .~ Nothing)
+                           rest
+
+      getProcessState toPid = toPS <$> Map.lookup toPid msgQs
+       where
+        toPS Empty     = ProcessIdle
+        toPS (_ :<| _) = ProcessBusy -- TODO get more detailed state
     in
       case processState of
         OnDone     r    -> handleExit (Right r)
@@ -196,9 +207,10 @@ handleProcess runEff yieldEff !newPid !nextRef !msgQs allProcs@((!processState, 
                       OnYield tk             -> tk (Interrupted sr)
                       OnSelf  tk             -> tk (Interrupted sr)
                       OnSend _ _ tk          -> tk (Interrupted sr)
-                      OnRecv  _ tk           -> tk (Interrupted sr)
-                      OnSpawn _ tk           -> tk (Interrupted sr)
-                      OnDone     x           -> return (OnDone x)
+                      OnRecv _ tk            -> tk (Interrupted sr)
+                      OnSpawn _ _ tk         -> tk (Interrupted sr)
+                      OnDone x               -> return (OnDone x)
+                      OnGetProcessState _ tk -> tk (Interrupted sr)
                       OnShutdown sr'         -> return (OnShutdown sr')
                       OnInterrupt er tk      -> tk (Interrupted er)
                       OnMakeReference tk     -> tk (Interrupted sr)
@@ -228,9 +240,10 @@ handleProcess runEff yieldEff !newPid !nextRef !msgQs allProcs@((!processState, 
                       OnYield _tk             -> return (OnShutdown sr)
                       OnSelf  _tk             -> return (OnShutdown sr)
                       OnSend _ _ _tk          -> return (OnShutdown sr)
-                      OnRecv  _ _tk           -> return (OnShutdown sr)
-                      OnSpawn _ _tk           -> return (OnShutdown sr)
-                      OnDone     x            -> return (OnDone x)
+                      OnRecv _ _tk            -> return (OnShutdown sr)
+                      OnSpawn _ _ _tk         -> return (OnShutdown sr)
+                      OnDone x                -> return (OnDone x)
+                      OnGetProcessState _ _tk -> return (OnShutdown sr)
                       OnShutdown sr'          -> return (OnShutdown sr')
                       OnInterrupt _er _tk     -> return (OnShutdown sr)
                       OnMakeReference _tk     -> return (OnShutdown sr)
@@ -282,7 +295,16 @@ handleProcess runEff yieldEff !newPid !nextRef !msgQs allProcs@((!processState, 
                         (msgQs & at toPid . _Just %~ (:|> msg))
                         (rest :|> (nextK, pid))
 
-        OnSpawn f k -> do
+        OnGetProcessState toPid k -> do
+          nextK <- runEff $ k (ResumeWith (getProcessState toPid))
+          handleProcess runEff
+                        yieldEff
+                        newPid
+                        nextRef
+                        msgQs
+                        (rest :|> (nextK, pid))
+
+        OnSpawn _link f k -> do
           nextK <- runEff $ k (ResumeWith newPid)
           fk    <- runAsCoroutinePure runEff (f >> exitNormally SP)
           handleProcess runEff
@@ -358,15 +380,17 @@ runAsCoroutinePure
 runAsCoroutinePure runEff = runEff . handle_relay (return . OnDone) cont
  where
   cont :: Process r x -> (x -> Eff r (OnYield r v)) -> Eff r (OnYield r v)
-  cont YieldProcess               k  = return (OnYield k)
-  cont SelfPid                    k  = return (OnSelf k)
-  cont (Spawn    e              ) k  = return (OnSpawn e k)
-  cont (Shutdown !sr            ) _k = return (OnShutdown sr)
-  cont (SendMessage !tp !msg    ) k  = return (OnSend tp msg k)
-  cont (ReceiveSelectedMessage f) k  = return (OnRecv f k)
-  cont (SendInterrupt !tp  !er  ) k  = return (OnSendInterrupt tp er k)
-  cont (SendShutdown  !pid !sr  ) k  = return (OnSendShutdown pid sr k)
-  cont MakeReference              k  = return (OnMakeReference k)
+  cont YieldProcess                 k  = return (OnYield k)
+  cont SelfPid                      k  = return (OnSelf k)
+  cont (Spawn     e               ) k  = return (OnSpawn False e k)
+  cont (SpawnLink e               ) k  = return (OnSpawn True e k)
+  cont (Shutdown  !sr             ) _k = return (OnShutdown sr)
+  cont (SendMessage !tp !msg      ) k  = return (OnSend tp msg k)
+  cont (ReceiveSelectedMessage f  ) k  = return (OnRecv f k)
+  cont (GetProcessState        !tp) k  = return (OnGetProcessState tp k)
+  cont (SendInterrupt !tp  !er    ) k  = return (OnSendInterrupt tp er k)
+  cont (SendShutdown  !pid !sr    ) k  = return (OnSendShutdown pid sr k)
+  cont MakeReference                k  = return (OnMakeReference k)
   cont (Monitor _) k =
     return (OnInterrupt (ProcessError "Not Yet Implemented: Monitor") k)
   cont (Demonitor _) k =
@@ -393,7 +417,7 @@ singleThreadedIoScheduler = SchedulerProxy
 defaultMain
   :: HasCallStack
   => Eff
-       ( ConsProcess
+       ( InterruptableProcess
            '[Logs LogMessage, LogWriterReader LogMessage IO, Lift IO]
        )
        ()

@@ -1,18 +1,17 @@
 module Common where
 
+import           Control.Concurrent
 import           Control.Concurrent.STM
 import           Control.Eff.Concurrent.Process
 import           Control.Eff
 import           Control.Eff.Extend
 import           Control.Eff.Log
 import           Control.Eff.Lift
-import           Control.Monad                  ( void
-                                                )
+import           Control.Monad                  ( void )
 import           Test.Tasty
 import           Test.Tasty.HUnit
 import           Test.Tasty.Runners
 import           GHC.Stack
-import           Control.Lens
 
 setTravisTestOptions :: TestTree -> TestTree
 setTravisTestOptions =
@@ -46,9 +45,9 @@ untilInterrupted pa = do
 scheduleAndAssert
   :: forall r
    . (SetMember Lift (Lift IO) r, Member (Logs LogMessage) r)
-  => IO (Eff (Process r ': r) () -> IO ())
-  -> (  (String -> Bool -> Eff (Process r ': r) ())
-     -> Eff (Process r ': r) ()
+  => IO (Eff (InterruptableProcess r) () -> IO ())
+  -> (  (String -> Bool -> Eff (InterruptableProcess r) ())
+     -> Eff (InterruptableProcess r) ()
      )
   -> IO ()
 scheduleAndAssert schedulerFactory testCaseAction = withFrozenCallStack $ do
@@ -66,9 +65,9 @@ scheduleAndAssert schedulerFactory testCaseAction = withFrozenCallStack $ do
 applySchedulerFactory
   :: forall r
    . (Member (Logs LogMessage) r, SetMember Lift (Lift IO) r)
-  => IO (Eff (Process r ': r) () -> IO ())
-  -> Eff (Process r ': r) ()
+  => IO (Eff (InterruptableProcess r) () -> IO ())
+  -> Eff (InterruptableProcess r) ()
   -> IO ()
 applySchedulerFactory factory procAction = do
   scheduler <- factory
-  scheduler procAction
+  scheduler (procAction >> lift (threadDelay 20000))

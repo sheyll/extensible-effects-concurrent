@@ -1,5 +1,4 @@
-module SingleThreadedScheduler
-where
+module SingleThreadedScheduler where
 
 import           Control.Eff.Loop
 import           Control.Eff.Concurrent.Process
@@ -20,17 +19,17 @@ test_pureScheduler = setTravisTestOptions $ testGroup
               (do
                   adderChild <- spawn $ do
                       (from, arg1, arg2) <- receiveMessage SP
-                      sendMessageAs SP from ((arg1 + arg2) :: Int)
+                      sendMessage SP from ((arg1 + arg2) :: Int)
                       foreverCheap $ void $ receiveAnyMessage SP
 
                   multChild <- spawn $ do
                       (from, arg1, arg2) <- receiveMessage SP
-                      sendMessageAs SP from ((arg1 * arg2) :: Int)
+                      sendMessage SP from ((arg1 * arg2) :: Int)
 
                   me <- self SP
-                  sendMessageAs SP adderChild (me, 3 :: Int, 4 :: Int)
+                  sendMessage SP adderChild (me, 3 :: Int, 4 :: Int)
                   x <- receiveMessage @Int SP
-                  sendMessageAs SP multChild (me, x, 6 :: Int)
+                  sendMessage SP multChild (me, x, 6 :: Int)
                   receiveMessage @Int SP
               )
     ]
@@ -42,7 +41,8 @@ test_mainProcessSpawnsAChildAndExitsNormally = setTravisTestOptions
         "spawn a child and exit normally"
         (Scheduler.defaultMain
             (do
-                void (spawn (void (receiveAnyMessage singleThreadedIoScheduler)))
+                void
+                    (spawn (void (receiveAnyMessage singleThreadedIoScheduler)))
                 void (exitNormally singleThreadedIoScheduler)
                 fail "This should not happen!!"
             )
@@ -58,14 +58,11 @@ test_mainProcessSpawnsAChildBothExitNormally = setTravisTestOptions
             (do
                 child <- spawn
                     (do
-                        void
-                            (receiveMessage @String singleThreadedIoScheduler)
+                        void (receiveMessage @String singleThreadedIoScheduler)
                         void (exitNormally singleThreadedIoScheduler)
                         error "This should not happen (child)!!"
                     )
-                True <- sendMessage singleThreadedIoScheduler
-                                           child
-                                           (toDyn "test")
+                sendMessage singleThreadedIoScheduler child (toDyn "test")
                 void (exitNormally singleThreadedIoScheduler)
                 error "This should not happen!!"
             )

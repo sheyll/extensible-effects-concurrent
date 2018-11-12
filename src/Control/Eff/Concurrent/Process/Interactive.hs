@@ -53,14 +53,14 @@ import           System.Timeout
 newtype SchedulerSession r = SchedulerSession (TMVar (SchedulerQueue r))
 
 newtype SchedulerQueue r =
-  SchedulerQueue (TChan (Eff (Interrupts ': Process r ': r) (Maybe String)))
+  SchedulerQueue (TChan (Eff (InterruptableProcess r) (Maybe String)))
 
 -- | Fork a scheduler with a process that communicates with it via 'MVar',
 -- which is also the reason for the @Lift IO@ constraint.
 forkInteractiveScheduler
   :: forall r
    . (SetMember Lift (Lift IO) r)
-  => (Eff (Interrupts ': Process r ': r) () -> IO ())
+  => (Eff (InterruptableProcess r) () -> IO ())
   -> IO (SchedulerSession r)
 forkInteractiveScheduler ioScheduler = do
   inQueue  <- newTChanIO
@@ -77,7 +77,7 @@ forkInteractiveScheduler ioScheduler = do
   return (SchedulerSession queueVar)
  where
   readEvalPrintLoop
-    :: TMVar (SchedulerQueue r) -> Eff (Interrupts ': Process r : r) ()
+    :: TMVar (SchedulerQueue r) -> Eff (InterruptableProcess r) ()
   readEvalPrintLoop queueVar = do
     nextActionOrExit <- readAction
     case nextActionOrExit of
@@ -110,7 +110,7 @@ submit
   :: forall r a
    . (SetMember Lift (Lift IO) r)
   => SchedulerSession r
-  -> Eff (Interrupts ': Process r ': r) a
+  -> Eff (InterruptableProcess r) a
   -> IO a
 submit (SchedulerSession qVar) theAction = do
   mResVar <- timeout 5000000 $ atomically

@@ -30,7 +30,7 @@ main :: IO ()
 main = defaultMain (example forkIoScheduler)
 
 mainProcessSpawnsAChildAndReturns
-  :: (HasCallStack, SetMember Process (Process q) r)
+  :: (HasCallStack, SetMember Process (Process q) r, Member Interrupts r)
   => SchedulerProxy q
   -> Eff r ()
 mainProcessSpawnsAChildAndReturns px =
@@ -39,6 +39,7 @@ mainProcessSpawnsAChildAndReturns px =
 example
   :: ( HasCallStack
      , SetMember Process (Process q) r
+     , Member Interrupts r
      , HasLogging IO r
      , HasLogging IO q
      )
@@ -67,33 +68,37 @@ example px = do
             go
           ('q' : _) -> logInfo "Done."
           _         -> do
-            res <- ignoreInterrupts px (callRegistered px (SayHello x))
+            res <- callRegistered px (SayHello x)
             logInfo ("Result: " ++ show res)
             go
   registerServer server go
 
 testServerLoop
   :: forall r q
-   . (HasCallStack, SetMember Process (Process q) r, HasLogging IO q)
+   . ( HasCallStack
+     , SetMember Process (Process q) r
+     , HasLogging IO q
+     , Member Interrupts r
+     )
   => SchedulerProxy q
   -> Eff r (Server TestApi)
 testServerLoop px = spawnServer px
   $ apiHandler handleCastTest handleCallTest handleTerminateTest
  where
   handleCastTest
-    :: Api TestApi 'Asynchronous -> Eff (Process q ': q) ApiServerCmd
+    :: Api TestApi 'Asynchronous -> Eff (InterruptableProcess q) ApiServerCmd
   handleCastTest (Shout x) = do
     me <- self px
     logInfo (show me ++ " Shouting: " ++ x)
     return HandleNextRequest
   handleCallTest
     :: Api TestApi ( 'Synchronous x)
-    -> (x -> Eff (Process q ': q) ())
-    -> Eff (Process q ': q) ApiServerCmd
+    -> (x -> Eff (InterruptableProcess q) ())
+    -> Eff (InterruptableProcess q) ApiServerCmd
   handleCallTest (SayHello "e1") _reply = do
     me <- self px
     logInfo (show me ++ " raising an error")
-    raiseError px "No body loves me... :,("
+    interrupt (ProcessError "No body loves me... :,(")
   handleCallTest (SayHello "e2") _reply = do
     me <- self px
     logInfo (show me ++ " throwing a MyException ")
@@ -108,12 +113,7 @@ testServerLoop px = spawnServer px
     me <- self px
     logInfo (show me ++ " stopping me")
     void (reply False)
-    return (StopApiServer ExitNormally)
-  handleCallTest (SayHello "xxx") reply = do
-    me <- self px
-    logInfo (show me ++ " stopping me with xxx")
-    void (reply False)
-    return (StopApiServer (ProcessError "xxx"))
+    return (StopApiServer (ProcessError "test error"))
   handleCallTest (SayHello x) reply = do
     me <- self px
     logInfo (show me ++ " Got Hello: " ++ x)
