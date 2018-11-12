@@ -136,9 +136,7 @@ test_mainProcessSpawnsAChildInABusySendLoopAndExitsNormally =
           (do
             void
               (spawn
-                (foreverCheap
-                  (void (sendMessage forkIoScheduler 1000 (toDyn "test")))
-                )
+                (foreverCheap (void (sendMessage forkIoScheduler 1000 "test")))
               )
             void (exitNormally forkIoScheduler)
             fail "This should not happen!!"
@@ -158,7 +156,7 @@ test_mainProcessSpawnsAChildBothReturn = setTravisTestOptions
       (Scheduler.defaultMainWithLogChannel
         (do
           child <- spawn (void (receiveMessage @String forkIoScheduler))
-          sendMessage forkIoScheduler child (toDyn "test")
+          sendMessage forkIoScheduler child "test"
           return ()
         )
       )
@@ -181,7 +179,7 @@ test_mainProcessSpawnsAChildBothExitNormally = setTravisTestOptions
               void (exitNormally forkIoScheduler)
               error "This should not happen (child)!!"
             )
-          sendMessage forkIoScheduler child (toDyn "test")
+          sendMessage forkIoScheduler child "test"
           void (exitNormally forkIoScheduler)
           error "This should not happen!!"
         )

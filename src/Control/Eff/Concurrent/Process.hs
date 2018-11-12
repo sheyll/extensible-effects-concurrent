@@ -444,28 +444,28 @@ toExitSeverity = \case
 -- | A sum-type with reasons for why a process exists the scheduling loop,
 -- this includes errors, that can occur when scheduleing messages.
 data ExitReason (t :: ExitRecovery) where
+    -- | A process that should be running was not running.
     ProcessNotRunning
       :: ProcessId -> ExitReason 'Recoverable
-    -- ^ A process that should be running was not running.
+    -- | A linked process is down
     LinkedProcessCrashed
       :: ProcessId -> ExitReason 'Recoverable
-    -- ^ A linked process is down
+    -- | An exit reason that has an error message but isn't 'Recoverable'.
     ProcessError
       :: String -> ExitReason 'Recoverable
-    -- ^ An exit reason that has an error message but isn't 'Recoverable'.
+    -- | A process function returned or exited without any error.
     ExitNormally
       :: ExitReason 'NoRecovery
-    -- ^ A process function returned or exited without any error.
+    -- | An unhandled 'Recoverable' allows 'NoRecovery'.
     NotRecovered
       :: (ExitReason 'Recoverable) -> ExitReason 'NoRecovery
-    -- ^ An unhandled 'Recoverable' allows 'NoRecovery'.
+    -- | An unexpected runtime exception was thrown, i.e. an exception
+    --    derived from 'Control.Exception.Safe.SomeException'
     UnexpectedException
       :: String -> String -> ExitReason 'NoRecovery
-    -- ^ An unexpected runtime exception was thrown, i.e. an exception
-    -- derived from 'Control.Exception.Safe.SomeException'
+    -- | A process was cancelled (e.g. killed, in 'Async.cancel')
     Killed
       :: ExitReason 'NoRecovery
-    -- ^ A process was cancelled (e.g. killed, in 'Async.cancel')
   deriving Typeable
 
 instance Show (ExitReason x) where
@@ -1008,11 +1008,7 @@ receiveWithMonitor px pid sel = withMonitor
   pid
   (\ref -> receiveSelectedMessage
     px
-    (   Left
-    <$> selectProcessDown ref
-    <|> Right
-    <$> sel
-    )
+    (Left <$> selectProcessDown ref <|> Right <$> sel)
   )
 
 -- | A monitored process exited.

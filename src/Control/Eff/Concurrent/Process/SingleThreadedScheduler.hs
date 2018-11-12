@@ -7,7 +7,6 @@ module Control.Eff.Concurrent.Process.SingleThreadedScheduler
   , scheduleIOWithLogging
   , defaultMain
   , singleThreadedIoScheduler
-  , LoggingAndIo
   )
 where
 

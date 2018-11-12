@@ -26,6 +26,7 @@ import           Control.Monad
 import           Test.Tasty
 import           Test.Tasty.HUnit
 import           Common
+import           Control.Applicative
 import           Data.Void
 
 testInterruptReason :: InterruptReason
@@ -620,12 +621,10 @@ sendShutdownTests
    . (Member (Logs LogMessage) r, SetMember Lift (Lift IO) r)
   => IO (Eff (InterruptableProcess r) () -> IO ())
   -> TestTree
-sendShutdownTests schedulerFactory
-  = let
-      px :: SchedulerProxy r
+sendShutdownTests schedulerFactory =
+  let px :: SchedulerProxy r
       px = SchedulerProxy
-    in
-      testGroup
+  in  testGroup
         "sendShutdown"
         [ testCase "... self" $ applySchedulerFactory schedulerFactory $ do
           me <- self px
@@ -893,15 +892,19 @@ monitoringTests schedulerFactory = setTravisTestOptions
         pd <- receiveSelectedMessage SP (selectProcessDown ref)
         lift (downReason pd @?= SomeExitReason Killed)
         lift (threadDelay 10000)
-    -- , testCase "demonitored process killed"
-    -- $ applySchedulerFactory schedulerFactory
-    -- $ do
-    --     target <- spawn (receiveMessage SP >>= exitBecause SP)
-    --     ref    <- monitor SP target
-    --     demonitor SP ref
-    --     sendMessage SP target Killed
-    --     pd <- receiveSelectedMessage SP (selectProcessDown ref)
-    --     lift (downReason pd @?= SomeExitReason Killed)
-    --     lift (threadDelay 10000)
+    , testCase "demonitored process killed"
+    $ applySchedulerFactory schedulerFactory
+    $ do
+        target <- spawn (receiveMessage SP >>= exitBecause SP)
+        ref    <- monitor SP target
+        demonitor SP ref
+        sendMessage SP target Killed
+        me <- self SP
+        spawn_ (lift (threadDelay 10000) >> sendMessage SP me ())
+        pd <- receiveSelectedMessage
+          SP
+          (Right <$> selectProcessDown ref <|> Left <$> selectMessage @())
+        lift (pd @?= Left ())
+        lift (threadDelay 10000)
     ]
   )

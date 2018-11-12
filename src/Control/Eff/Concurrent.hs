@@ -36,7 +36,87 @@ module Control.Eff.Concurrent
   )
 where
 
-import           Control.Eff.Concurrent.Process
+import           Control.Eff.Concurrent.Process ( ProcessId(..)
+                                                , fromProcessId
+                                                , Process(..)
+                                                , ConsProcess
+                                                , ResumeProcess(..)
+                                                , SchedulerProxy(..)
+                                                , MessageSelector
+                                                  ( runMessageSelector
+                                                  )
+                                                , selectMessage
+                                                , selectMessageLazy
+                                                , selectMessageProxy
+                                                , selectMessageProxyLazy
+                                                , filterMessage
+                                                , filterMessageLazy
+                                                , selectMessageWith
+                                                , selectMessageWithLazy
+                                                , selectDynamicMessage
+                                                , selectDynamicMessageLazy
+                                                , selectAnyMessageLazy
+                                                , ProcessState(..)
+                                                , ExitRecovery(..)
+                                                , toExitRecovery
+                                                , isRecoverable
+                                                , ExitSeverity(..)
+                                                , toExitSeverity
+                                                , ExitReason(..)
+                                                , isBecauseDown
+                                                , InterruptReason
+                                                , Interrupts
+                                                , InterruptableProcess
+                                                , provideInterruptsShutdown
+                                                , handleInterrupts
+                                                , exitOnInterrupt
+                                                , logInterrupts
+                                                , provideInterrupts
+                                                , mergeEitherInterruptAndExitReason
+                                                , interrupt
+                                                , isCrash
+                                                , toCrashReason
+                                                , SomeExitReason(SomeExitReason)
+                                                , fromSomeExitReason
+                                                , logProcessExit
+                                                , thisSchedulerProxy
+                                                , executeAndResume
+                                                , executeAndResumeOrExit
+                                                , executeAndResumeOrThrow
+                                                , yieldProcess
+                                                , sendMessage
+                                                , sendAnyMessage
+                                                , spawn
+                                                , spawn_
+                                                , spawnLink
+                                                , spawnRaw
+                                                , spawnRaw_
+                                                , isProcessAlive
+                                                , linkProcess
+                                                , unlinkProcess
+                                                , monitor
+                                                , demonitor
+                                                , ProcessDown(..)
+                                                , selectProcessDown
+                                                , becauseProcessIsDown
+                                                , MonitorReference(..)
+                                                , withMonitor
+                                                , receiveWithMonitor
+                                                , receiveAnyMessage
+                                                , receiveMessage
+                                                , receiveSelectedMessage
+                                                , receiveAnyLoop
+                                                , receiveLoop
+                                                , receiveSelectedLoop
+                                                , self
+                                                , sendShutdown
+                                                , sendInterrupt
+                                                , exitBecause
+                                                , exitNormally
+                                                , exitWithError
+                                                , makeReference
+                                                )
+
 import           Control.Eff.Concurrent.Api     ( Api
                                                 , Synchronicity(..)
                                                 , Server(..)
@@ -111,12 +191,20 @@ import           Control.Eff.Concurrent.Process.ForkIOScheduler
                                                 , defaultMain
                                                 , defaultMainWithLogChannel
                                                 , ProcEff
+                                                , InterruptableProcEff
                                                 , SchedulerIO
                                                 , HasSchedulerIO
                                                 , forkIoScheduler
                                                 )
 
 import           Control.Eff.Concurrent.Process.SingleThreadedScheduler
-                                                ( schedulePure )
+                                                ( scheduleM
+                                                , schedulePure
+                                                , scheduleIO
+                                                , scheduleMonadIOEff
+                                                , scheduleIOWithLogging
+                                                , defaultMain
+                                                , singleThreadedIoScheduler
+                                                )
 import           Control.Eff.Log
 import           Control.Eff.Loop
