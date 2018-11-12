@@ -372,7 +372,7 @@ applyHandlerMethod px handlers (Call callRef fromPid request) = fromMaybe
  where
   sendReply :: Typeable reply => reply -> Eff eff ()
   sendReply reply =
-    sendMessage px fromPid (toDyn $! (Response (Proxy @api) callRef $! reply))
+    sendMessage px fromPid (Response (Proxy @api) callRef $! reply)
 
 -- | A default handler to use in '_callCallback' in 'ApiHandler'. It will call
 -- 'raiseError' with a nice error message.

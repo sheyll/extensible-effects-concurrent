@@ -48,6 +48,7 @@ import           Data.Dynamic
 import           Data.Foldable
 import           Data.Kind                      ( )
 import           Data.Map                       ( Map )
+import qualified Data.Map                       as Map
 import           Data.Set                       ( Set )
 import qualified Data.Set                       as Set
 import           Data.Maybe
@@ -62,7 +63,7 @@ import           System.Timeout
 -- | A message queue of a process, contains the actual queue and maybe an
 -- exit reason.
 data MessageQ = MessageQ { _incomingMessages :: Seq Dynamic
-                         , _shutdownRequests :: Maybe SomeProcessExitReason
+                         , _shutdownRequests :: Maybe SomeExitReason
                          }
 
 instance Default MessageQ where def = MessageQ def def
@@ -72,7 +73,7 @@ makeLenses ''MessageQ
 -- | Return any '_shutdownRequests' from a 'MessageQ' in a 'TVar' and
 -- reset the '_shutdownRequests' field to 'Nothing' in the 'TVar'.
 tryTakeNextShutdownRequestSTM
-  :: TVar MessageQ -> STM (Maybe SomeProcessExitReason)
+  :: TVar MessageQ -> STM (Maybe SomeExitReason)
 tryTakeNextShutdownRequestSTM mqVar = do
   mq <- readTVar mqVar
   when (isJust (mq^.shutdownRequests))
@@ -103,9 +104,44 @@ data SchedulerState =
                               , _processCancellationTable
                                 :: TVar (Map ProcessId
                                     (Async (ExitReason 'NoRecovery)))
+                              , _processMonitors :: TVar (Set (MonitorReference, ProcessId))
+                              , _nextMonitorIndex :: TVar Int
+                              -- Set of monitors and monitor owners
                               }
 
 makeLenses ''SchedulerState
+
+-- | Add monitor: If the process is dead, enqueue a ProcessDown message into the
+-- owners message queue
+addMonitoring :: ProcessId -> ProcessId -> SchedulerState -> STM MonitorReference
+addMonitoring target owner schedulerState = do
+  mi <- readTVar (schedulerState ^. nextMonitorIndex)
+  modifyTVar' (schedulerState ^. nextMonitorIndex) (+1)
+  let mref = MonitorReference mi target
+  when (target /= owner) $ do
+    pt <- readTVar (schedulerState ^. processTable)
+    if Map.member target pt then
+      modifyTVar' (schedulerState ^. processMonitors) (Set.insert (mref, owner))
+    else
+      let pdown = (ProcessDown mref (SomeExitReason (ProcessNotRunning target)))
+      in enqueueMessageOtherProcess owner (toDyn pdown) schedulerState
+  return mref
+
+removeMonitoring :: MonitorReference -> SchedulerState -> STM ()
+removeMonitoring mref schedulerState =
+  modifyTVar' (schedulerState ^. processMonitors)
+    (Set.filter (\(ref,_) -> ref /= mref))
+
+triggerAndRemoveMonitor :: ProcessId -> SomeExitReason -> SchedulerState -> STM ()
+triggerAndRemoveMonitor downPid reason schedulerState = do
+  monRefs <- readTVar (schedulerState ^. processMonitors)
+  traverse_ go monRefs
+  where
+    go (mr, owner) =
+        when (monitoredProcess mr == downPid) (do
+          let pdown = ProcessDown mr reason
+          enqueueMessageOtherProcess owner (toDyn pdown) schedulerState
+          removeMonitoring mr schedulerState)
 
 -- * Process Implementation
 
@@ -115,13 +151,22 @@ instance Show ProcessInfo where
 -- | Create a new 'ProcessInfo'
 newProcessInfo :: HasCallStack => ProcessId -> STM ProcessInfo
 newProcessInfo a =
-  ProcessInfo a <$> newTVar ProcessBooting <*> newTVar def <*> newTVar def
+  ProcessInfo a
+    <$> newTVar ProcessBooting
+    <*> newTVar def
+    <*> newTVar def
 
 -- * Scheduler Implementation
 
 -- | Create a new 'SchedulerState'
 newSchedulerState :: HasCallStack => STM SchedulerState
-newSchedulerState = SchedulerState <$> newTVar 1 <*> newTVar def <*> newTVar def
+newSchedulerState =
+  SchedulerState
+    <$> newTVar 1
+    <*> newTVar def
+    <*> newTVar def
+    <*> newTVar def
+    <*> newTVar def
 
 -- | Create a new 'SchedulerState' run an IO action, catching all exceptions,
 -- and when the actions returns, clean up and kill all processes.
@@ -224,9 +269,11 @@ handleProcess myProcessInfo =
  where
   myPid = myProcessInfo ^. processId
   myProcessStateVar = myProcessInfo ^. processState
-  setMyProcessState st = do
-   oldSt <- lift (atomically (readTVar myProcessStateVar <* setMyProcessStateSTM st))
-   logDebug ("state change: "++ show oldSt ++ " -> " ++ show st)
+  setMyProcessState = lift . atomically . setMyProcessStateSTM
+  -- DEBUG variant:
+  -- setMyProcessState st = do
+  --  oldSt <- lift (atomically (readTVar myProcessStateVar <* setMyProcessStateSTM st))
+  --  logDebug ("state change: "++ show oldSt ++ " -> " ++ show st)
 
   setMyProcessStateSTM = writeTVar myProcessStateVar
   myMessageQVar = myProcessInfo ^. messageQ
@@ -269,7 +316,7 @@ handleProcess myProcessInfo =
       tryTakeNextShutdownRequest
         >>= maybe noShutdownRequested
             (either onShutdownRequested onInterruptRequested
-              . fromSomeProcessExitReason)
+              . fromSomeExitReason)
       where
         tryTakeNextShutdownRequest =
           lift (atomically (tryTakeNextShutdownRequestSTM myMessageQVar))
@@ -370,16 +417,16 @@ handleProcess myProcessInfo =
     -> Eff SchedulerIO a
   interpretRequest kontinue diskontinue nextRef =
     \case
-      SendMessage toPid msg    -> interpretSend toPid msg >>= kontinue nextRef . ResumeWith
+      SendMessage toPid msg     -> interpretSend toPid msg >>= kontinue nextRef . ResumeWith
       SendInterrupt toPid msg   ->
         if toPid == myPid
           then kontinue nextRef (Interrupted msg)
-          else interpretSendShutdownOrInterrupt toPid (SomeProcessExitReason msg)
+          else interpretSendShutdownOrInterrupt toPid (SomeExitReason msg)
                  >>= kontinue nextRef . ResumeWith
       SendShutdown toPid msg   ->
         if toPid == myPid
           then diskontinue msg
-          else interpretSendShutdownOrInterrupt toPid (SomeProcessExitReason msg)
+          else interpretSendShutdownOrInterrupt toPid (SomeExitReason msg)
                  >>= kontinue nextRef . ResumeWith
       Spawn child              -> spawnNewProcess Nothing child
                                     >>= kontinue nextRef . ResumeWith . fst
@@ -391,12 +438,21 @@ handleProcess myProcessInfo =
       YieldProcess             -> kontinue nextRef (ResumeWith  ())
       Shutdown r               -> diskontinue r
       GetProcessState toPid    -> interpretGetProcessState toPid >>= kontinue nextRef . ResumeWith
-      Monitor _                -> kontinue nextRef (Interrupted (ProcessError "Not Yet Implemented: Monitor"))
-      Demonitor _              -> kontinue nextRef (Interrupted (ProcessError "Not Yet Implemented: Demonitor"))
+      Monitor target           -> interpretMonitor target >>= kontinue nextRef . ResumeWith
+      Demonitor ref            -> interpretDemonitor ref >>= kontinue nextRef . ResumeWith
       Link toPid               -> interpretLink toPid
                                     >>= kontinue nextRef . either Interrupted ResumeWith
       Unlink toPid             -> interpretUnlink toPid >>= kontinue nextRef . ResumeWith
     where
+      interpretMonitor !target = do
+        setMyProcessState ProcessBusyMonitoring
+        schedulerState <- getSchedulerState
+        lift (atomically (addMonitoring target myPid schedulerState))
+
+      interpretDemonitor !ref = do
+        setMyProcessState ProcessBusyMonitoring
+        schedulerState <- getSchedulerState
+        lift (atomically (removeMonitoring ref schedulerState))
 
       interpretUnlink !toPid = do
         setMyProcessState ProcessBusyUnlinking
@@ -445,7 +501,7 @@ handleProcess myProcessInfo =
           (either
             (const ProcessBusySendingShutdown)
             (const ProcessBusySendingInterrupt)
-            (fromSomeProcessExitReason msg))
+            (fromSomeExitReason msg))
         *> getSchedulerState
            >>= lift
            . atomically
@@ -467,7 +523,7 @@ handleProcess myProcessInfo =
                   return (Right (ResumeWith selectedMessage))
             Just shutdownRequest -> do
               modifyTVar' myMessageQVar (shutdownRequests .~ Nothing)
-              case fromSomeProcessExitReason shutdownRequest of
+              case fromSomeExitReason shutdownRequest of
                 Left sr ->
                   return (Left sr)
                 Right ir ->
@@ -539,10 +595,13 @@ spawnNewProcess mlinkedParent mfa = do
          (traverse setLogMessageThreadId
           >=> traverse (return . addProcessId))
 
-    triggerProcessLinks !pid !exitSeverity !linkSetVar = do
+    triggerProcessLinksAndMonitors !pid !reason !linkSetVar = do
       schedulerState <- getSchedulerState
-      let sendIt !linkedPid = do
-            let msg = SomeProcessExitReason (LinkedProcessCrashed pid)
+      lift $ atomically $
+        triggerAndRemoveMonitor pid (SomeExitReason reason) schedulerState
+      let exitSeverity = toExitSeverity reason
+          sendIt !linkedPid = do
+            let msg = SomeExitReason (LinkedProcessCrashed pid)
             lift $ atomically $ do
               procInfos <- readTVar (schedulerState ^. processTable)
               let mLinkedProcInfo = procInfos ^? at linkedPid . _Just
@@ -581,46 +640,38 @@ spawnNewProcess mlinkedParent mfa = do
           procAsync <- Async.async (
             inScheduler (logAppendProcInfo pid
             (Safe.bracketWithError
-              (logDebug "enter process")
-              (\mExc () ->
-                  do let e = case mExc of
-                               Nothing ->
-                                 ExitNormally
-
-                               Just exc ->
-                                 case Safe.fromException exc of
-                                   Just Async.AsyncCancelled ->
-                                     Killed
-
-                                   Nothing ->
-                                     UnexpectedException
-                                         (prettyCallStack callStack)
-                                         (Safe.displayException exc)
-                     lift (atomically
-                       (do modifyTVar' processInfosVar (at pid .~ Nothing)
-                           modifyTVar' cancellationsVar (at pid .~ Nothing)))
-                     -- handle links and monitors
-                     --    links are stored as pids in a set in the process info
-                     triggerProcessLinks pid (toExitSeverity e) (procInfo ^. processLinks)
-                     -- log the exit reason and die
-                     case e of
-                      Killed ->
-                        logProcessExit e
-
-                      _ -> do
-                        logProcessExit e
-                        lastProcessState <- lift (readTVarIO (procInfo ^. processState))
-                        when (  lastProcessState /= ProcessShuttingDown
-                             && lastProcessState /= ProcessIdle )
-                          (logNotice
-                            ( "process was not in shutting down state: "
-                            ++ show lastProcessState))
-              )
-              (const
-                 (handleProcess procInfo (mfa >> return ExitNormally))
-                ))))
+                  (logDebug "enter process")
+                  (\mExc () -> do
+                         lift (atomically
+                           (do modifyTVar' processInfosVar (at pid .~ Nothing)
+                               modifyTVar' cancellationsVar (at pid .~ Nothing)))
+                         traverse_
+                           (\exc -> logExitAndTriggerLinksAndMonitors
+                                      (exitReasonFromException exc)
+                                      pid)
+                           mExc
+                  )
+                  (const
+                    (do res <- handleProcess procInfo (mfa >> return ExitNormally)
+                        logExitAndTriggerLinksAndMonitors res pid))
+                )))
           atomically (modifyTVar' cancellationsVar (at pid ?~ procAsync))
           return procAsync)
+      where
+        exitReasonFromException exc =
+            case Safe.fromException exc of
+              Just Async.AsyncCancelled ->
+                Killed
+
+              Nothing ->
+                UnexpectedException
+                    (prettyCallStack callStack)
+                    (Safe.displayException exc)
+
+        logExitAndTriggerLinksAndMonitors reason pid =
+          do triggerProcessLinksAndMonitors pid reason (procInfo ^. processLinks)
+             logProcessExit reason
+             return reason
 
 -- * Scheduler Accessor
 
@@ -637,7 +688,7 @@ enqueueMessageOtherProcess toPid msg schedulerState =
                 return ())
 
 enqueueShutdownRequest ::
-  HasCallStack => ProcessId -> SomeProcessExitReason -> SchedulerState -> STM ()
+  HasCallStack => ProcessId -> SomeExitReason -> SchedulerState -> STM ()
 enqueueShutdownRequest toPid msg schedulerState =
   view (at toPid) <$> readTVar (schedulerState ^. processTable)
    >>= maybe (return ())

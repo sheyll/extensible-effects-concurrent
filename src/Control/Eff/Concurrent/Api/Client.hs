@@ -20,7 +20,6 @@ import           Control.Eff.Reader.Strict
 import           Control.Eff.Concurrent.Api
 import           Control.Eff.Concurrent.Api.Internal
 import           Control.Eff.Concurrent.Process
-import           Data.Dynamic
 import           Data.Typeable                  ( Typeable )
 import           Control.DeepSeq
 import           GHC.Stack
@@ -41,7 +40,7 @@ cast
   -> Server o
   -> Api o 'Asynchronous
   -> Eff r ()
-cast px (Server pid) castMsg = sendMessage px pid (toDyn $! (Cast $! castMsg))
+cast px (Server pid) castMsg = sendMessage px pid (Cast $! castMsg)
 
 -- | Send an 'Api' request and wait for the server to return a result value.
 --
@@ -65,7 +64,7 @@ call px (Server pidInternal) req = do
   fromPid <- self px
   callRef <- makeReference px
   let requestMessage = Call callRef fromPid $! req
-  sendMessage px pidInternal (toDyn $! requestMessage)
+  sendMessage px pidInternal requestMessage
   let selectResult :: MessageSelector result
       selectResult =
         let extractResult :: Response api result -> Maybe result

@@ -51,8 +51,8 @@ module Control.Eff.Concurrent.Process
   , interrupt
   , isCrash
   , toCrashReason
-  , SomeProcessExitReason(SomeProcessExitReason)
-  , fromSomeProcessExitReason
+  , SomeExitReason(SomeExitReason)
+  , fromSomeExitReason
   , logProcessExit
   , thisSchedulerProxy
   , executeAndResume
@@ -413,9 +413,9 @@ instance Show ExitRecovery where
 -- | Get the 'ExitRecover'y
 toExitRecovery :: ExitReason r -> ExitRecovery
 toExitRecovery = \case
-  (ProcessNotRunning _  )   -> Recoverable
+  (ProcessNotRunning    _)  -> Recoverable
   (LinkedProcessCrashed _)  -> Recoverable
-  (ProcessError _       )   -> Recoverable
+  (ProcessError         _)  -> Recoverable
   ExitNormally              -> NoRecovery
   (NotRecovered _         ) -> NoRecovery
   (UnexpectedException _ _) -> NoRecovery
@@ -529,12 +529,11 @@ instance Eq (ExitReason x) where
   (==) _ _ = False
 
 -- | A predicate for linked process __crashes__.
-isBecauseDown
-  :: Maybe ProcessId -> ExitReason r -> Bool
+isBecauseDown :: Maybe ProcessId -> ExitReason r -> Bool
 isBecauseDown mp = \case
-  ProcessNotRunning _     -> False
+  ProcessNotRunning    _  -> False
   LinkedProcessCrashed p  -> maybe True (== p) mp
-  ProcessError _          -> False
+  ProcessError         _  -> False
   ExitNormally            -> False
   NotRecovered e          -> isBecauseDown mp e
   UnexpectedException _ _ -> False
@@ -621,29 +620,29 @@ isRecoverable (toExitRecovery -> Recoverable) = True
 isRecoverable _                               = False
 
 -- | An existential wrapper around 'ExitReason'
-data SomeProcessExitReason where
-  SomeProcessExitReason :: ExitReason x -> SomeProcessExitReason
+data SomeExitReason where
+  SomeExitReason :: ExitReason x -> SomeExitReason
 
-instance Ord SomeProcessExitReason where
-  compare = compare `on` fromSomeProcessExitReason
+instance Ord SomeExitReason where
+  compare = compare `on` fromSomeExitReason
 
-instance Eq SomeProcessExitReason where
-  (==) = (==) `on` fromSomeProcessExitReason
+instance Eq SomeExitReason where
+  (==) = (==) `on` fromSomeExitReason
 
-instance Show SomeProcessExitReason where
-  show = show . fromSomeProcessExitReason
+instance Show SomeExitReason where
+  show = show . fromSomeExitReason
 
-instance NFData SomeProcessExitReason where
-  rnf = rnf . fromSomeProcessExitReason
+instance NFData SomeExitReason where
+  rnf = rnf . fromSomeExitReason
 
--- | Partition a 'SomeProcessExitReason' back into either a 'NoRecovery'
+-- | Partition a 'SomeExitReason' back into either a 'NoRecovery'
 -- or a 'Recoverable' 'ExitReason'
-fromSomeProcessExitReason
-  :: SomeProcessExitReason -> Either (ExitReason 'NoRecovery) InterruptReason
-fromSomeProcessExitReason (SomeProcessExitReason e) = case e of
-  recoverable@(ProcessNotRunning _  )  -> Right recoverable
+fromSomeExitReason
+  :: SomeExitReason -> Either (ExitReason 'NoRecovery) InterruptReason
+fromSomeExitReason (SomeExitReason e) = case e of
+  recoverable@(ProcessNotRunning    _) -> Right recoverable
   recoverable@(LinkedProcessCrashed _) -> Right recoverable
-  recoverable@(ProcessError _       )  -> Right recoverable
+  recoverable@(ProcessError         _) -> Right recoverable
   noRecovery@ExitNormally              -> Left noRecovery
   noRecovery@(NotRecovered _         ) -> Left noRecovery
   noRecovery@(UnexpectedException _ _) -> Left noRecovery
@@ -669,7 +668,7 @@ toCrashReason e | isCrash e = Just (show e)
 logProcessExit
   :: (HasCallStack, Member (Logs LogMessage) e) => ExitReason x -> Eff e ()
 logProcessExit (toCrashReason -> Just ex) = withFrozenCallStack (logError ex)
-logProcessExit ex = withFrozenCallStack (logInfo (show ex))
+logProcessExit ex = withFrozenCallStack (logDebug (show ex))
 
 
 -- | Execute a and action and return the result;
@@ -741,7 +740,7 @@ sendMessage
   -> o
   -> Eff r ()
 sendMessage _ pid message =
-  executeAndResumeOrThrow (SendMessage pid $! toDyn message)
+  executeAndResumeOrThrow (SendMessage pid $! toDyn $! message)
 
 -- | Send a 'Dynamic' value to a process addressed by the 'ProcessId'.
 -- See 'SendMessage'.
@@ -938,7 +937,7 @@ makeReference _px = executeAndResumeOrThrow MakeReference
 -- | A value that contains a unique reference of a process
 -- monitoring.
 data MonitorReference =
-  MonitorReference { fromMonitorReference :: Int
+  MonitorReference { monitorIndex :: Int
                    , monitoredProcess :: ProcessId
                    }
   deriving (Read, Eq, Ord, Generic, Typeable)
@@ -949,7 +948,7 @@ instance Show MonitorReference where
   showsPrec d m =
     showParen (d>=10)
       ( showString "monitor: "
-      . shows (fromMonitorReference m)
+      . shows (monitorIndex m)
       . showChar ' '
       . shows (monitoredProcess m))
 
@@ -1010,7 +1009,7 @@ receiveWithMonitor px pid sel = withMonitor
   (\ref -> receiveSelectedMessage
     px
     (   Left
-    <$> filterMessage (\(ProcessDown mref _) -> mref == ref)
+    <$> selectProcessDown ref
     <|> Right
     <$> sel
     )
@@ -1022,7 +1021,7 @@ receiveWithMonitor px pid sel = withMonitor
 data ProcessDown =
   ProcessDown
     { downReference :: !MonitorReference
-    , downReason    :: !SomeProcessExitReason
+    , downReason    :: !SomeExitReason
     }
   deriving (Typeable, Generic, Eq, Ord)
 

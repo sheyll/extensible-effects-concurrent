@@ -2,7 +2,8 @@ module ProcessBehaviourTestCases where
 
 import           Data.List                      ( sort )
 import           Data.Foldable                  ( traverse_ )
-import           Data.Dynamic                   ( toDyn )
+import qualified Data.Dynamic                  as Dynamic
+                                                ( toDyn )
 import           Data.Typeable
 import           Data.Default
 import           Control.Exception
@@ -26,7 +27,6 @@ import           Test.Tasty
 import           Test.Tasty.HUnit
 import           Common
 import           Data.Void
-import           Debug.Trace
 
 testInterruptReason :: InterruptReason
 testInterruptReason = ProcessError "test interrupt"
@@ -66,6 +66,7 @@ allTests schedulerFactory = localOption
     , yieldLoopTests schedulerFactory
     , selectiveReceiveTests schedulerFactory
     , linkingTests schedulerFactory
+    , monitoringTests schedulerFactory
     ]
   )
 
@@ -118,7 +119,7 @@ returnToSenderServer px = asServer <$> spawn
                             k ()
                             return (StopApiServer testInterruptReason)
                           ReturnToSender fromP echoMsg -> do
-                            sendMessage px fromP (toDyn echoMsg)
+                            sendMessage px fromP echoMsg
                             yieldProcess px
                             k True
                             return HandleNextRequest
@@ -310,20 +311,23 @@ errorTests schedulerFactory
                 me <- self px
                 let n = 15
                 traverse_
-                  (\(i :: Int) -> spawn $ if i `rem` 5 == 0
-                    then do
-                      void $ sendMessage px me (toDyn i)
-                      void (exitWithError px (show i ++ " died"))
-                      error "this should not be reached"
-                    else
-                      foreverCheap
-                        (void
-                          (sendMessage px 888 (toDyn "test message to 888"))
-                        )
+                  (\(i :: Int) -> spawn $ foreverCheap
+                    (void
+                      (  sendMessage px (888888 + fromIntegral i) "test message"
+                      >> yieldProcess px
+                      )
+                    )
                   )
-                  [0, 5 .. n]
-                oks <- replicateM (length [0, 5 .. n]) (receiveMessage px)
-                assertEff "" (sort oks == [0, 5 .. n])
+                  [0 .. n]
+                traverse_
+                  (\(i :: Int) -> spawn $ do
+                    void $ sendMessage px me i
+                    void (exitWithError px (show i ++ " died"))
+                    error "this should not be reached"
+                  )
+                  [0 .. n]
+                oks <- replicateM (length [0 .. n]) (receiveMessage px)
+                assertEff "" (sort oks == [0 .. n])
             ]
         ]
 
@@ -370,16 +374,12 @@ concurrencyTests schedulerFactory
             child1 <- spawn
               (do
                 m <- receiveAnyMessage px
-                void (sendMessage px me m)
+                void (sendAnyMessage px me m)
               )
-            child2 <- spawn
-              (foreverCheap (void (sendMessage px 888 (toDyn ""))))
-            sendMessage px child1 (toDyn "test")
-            traceM "now receiveMessage"
+            child2 <- spawn (foreverCheap (void (sendMessage px 888888 "")))
+            sendMessage px child1 "test"
             i <- receiveMessage px
-            traceM ("receiveMessage returned " ++ i)
             sendInterrupt px child2 testInterruptReason
-            traceM "sendInterrupt"
             assertEff "" (i == "test")
         , testCase "most processes send foreverCheap"
         $ scheduleAndAssert schedulerFactory
@@ -387,9 +387,8 @@ concurrencyTests schedulerFactory
             me <- self px
             traverse_
               (\(i :: Int) -> spawn $ do
-                when (i `rem` 5 == 0) $ void $ sendMessage px me (toDyn i)
-                foreverCheap
-                  $ void (sendMessage px 888 (toDyn "test message to 888"))
+                when (i `rem` 5 == 0) $ void $ sendMessage px me i
+                foreverCheap $ void (sendMessage px 888 "test message to 888")
               )
               [0 .. n]
             oks <- replicateM (length [0, 5 .. n]) (receiveMessage px)
@@ -400,7 +399,7 @@ concurrencyTests schedulerFactory
             me <- self px
             traverse_
               (\(i :: Int) -> spawn $ do
-                when (i `rem` 5 == 0) $ void $ sendMessage px me (toDyn i)
+                when (i `rem` 5 == 0) $ void $ sendMessage px me i
                 foreverCheap $ void (self px)
               )
               [0 .. n]
@@ -412,7 +411,7 @@ concurrencyTests schedulerFactory
             me <- self px
             traverse_
               (\(i :: Int) -> spawn $ do
-                when (i `rem` 5 == 0) $ void $ sendMessage px me (toDyn i)
+                when (i `rem` 5 == 0) $ void $ sendMessage px me i
                 foreverCheap $ void (sendShutdown px 999 ExitNormally)
               )
               [0 .. n]
@@ -424,15 +423,12 @@ concurrencyTests schedulerFactory
             me <- self px
             traverse_
               (\(i :: Int) -> spawn $ do
-                when (i `rem` 5 == 0) $ void $ sendMessage px me (toDyn i)
+                when (i `rem` 5 == 0) $ void $ sendMessage px me i
                 parent <- self px
                 foreverCheap
                   $ void
                       (spawn
-                        (void
-                          (sendMessage px parent (toDyn "test msg from child")
-                          )
-                        )
+                        (void (sendMessage px parent "test msg from child"))
                       )
               )
               [0 .. n]
@@ -444,7 +440,7 @@ concurrencyTests schedulerFactory
             me <- self px
             traverse_
               (\(i :: Int) -> spawn $ do
-                when (i `rem` 5 == 0) $ void $ sendMessage px me (toDyn i)
+                when (i `rem` 5 == 0) $ void $ sendMessage px me i
                 foreverCheap $ void (receiveAnyMessage px)
               )
               [0 .. n]
@@ -498,7 +494,8 @@ exitTests schedulerFactory =
                 )
               )
             , ( "sending"
-              , void (send (SendMessage @r 44444 (toDyn "test message")))
+              , void
+                (send (SendMessage @r 44444 (Dynamic.toDyn "test message")))
               )
             , ( "sending shutdown"
               , void (send (SendShutdown @r 44444 ExitNormally))
@@ -533,7 +530,8 @@ exitTests schedulerFactory =
                 )
               )
             , ( "sending"
-              , void (send (SendMessage @r 44444 (toDyn "test message")))
+              , void
+                (send (SendMessage @r 44444 (Dynamic.toDyn "test message")))
               )
             , ( "sending shutdown"
               , void (send (SendShutdown @r 44444 ExitNormally))
@@ -568,15 +566,9 @@ exitTests schedulerFactory =
                   doExit
                 lift (threadDelay 100000)
                 wasRunningP1 <- isProcessAlive SP p1
-                traceM
-                  ("XXXXXXXXXXXXXXXXXXXXXX wasRunningP1: " ++ show wasRunningP1)
                 sendShutdown px p1 ExitNormally
                 lift (threadDelay 100000)
                 stillRunningP1 <- isProcessAlive SP p1
-                traceM
-                  (  "XXXXXXXXXXXXXXXXXXXXXX wasStillRunningP1: "
-                  ++ show stillRunningP1
-                  )
                 assertEff "the other process did not die still running"
                           (not stillRunningP1 && wasRunningP1)
           | (busyWith , busyEffect) <-
@@ -588,7 +580,8 @@ exitTests schedulerFactory =
                 )
               )
             , ( "sending"
-              , void (send (SendMessage @r 44444 (toDyn "test message")))
+              , void
+                (send (SendMessage @r 44444 (Dynamic.toDyn "test message")))
               )
             , ( "sending shutdown"
               , void (send (SendShutdown @r 44444 ExitNormally))
@@ -643,8 +636,6 @@ sendShutdownTests schedulerFactory
         $ \assertEff -> do
             me <- self px
             r  <- send (SendInterrupt @r me (ProcessError "123"))
-            traceShowM
-              (show me ++ ": returned from SendShutdow to self " ++ show r)
             assertEff
               "Interrupted must be returned"
               (case r of
@@ -659,8 +650,9 @@ sendShutdownTests schedulerFactory
               me    <- self px
               other <- spawn
                 (do
-                  untilInterrupted (SendMessage @r 666 (toDyn "test"))
-                  void (sendMessage px me (toDyn "OK"))
+                  untilInterrupted
+                    (SendMessage @r 666666 (Dynamic.toDyn "test"))
+                  void (sendMessage px me "OK")
                 )
               void (sendInterrupt px other testInterruptReason)
               a <- receiveMessage px
@@ -673,7 +665,7 @@ sendShutdownTests schedulerFactory
                 (do
                   untilInterrupted
                     (ReceiveSelectedMessage @r selectAnyMessageLazy)
-                  void (sendMessage px me (toDyn "OK"))
+                  void (sendMessage px me "OK")
                 )
               void (sendInterrupt px other testInterruptReason)
               a <- receiveMessage px
@@ -685,7 +677,7 @@ sendShutdownTests schedulerFactory
               other <- spawn
                 (do
                   untilInterrupted (SelfPid @r)
-                  void (sendMessage px me (toDyn "OK"))
+                  void (sendMessage px me "OK")
                 )
               void (sendInterrupt px other (ProcessError "testError"))
               a <- receiveMessage px
@@ -697,7 +689,7 @@ sendShutdownTests schedulerFactory
               other <- spawn
                 (do
                   untilInterrupted (Spawn @r (return ()))
-                  void (sendMessage px me (toDyn "OK"))
+                  void (sendMessage px me "OK")
                 )
               void (sendInterrupt px other testInterruptReason)
               a <- receiveMessage px
@@ -709,7 +701,7 @@ sendShutdownTests schedulerFactory
               other <- spawn
                 (do
                   untilInterrupted (SendShutdown @r 777 ExitNormally)
-                  void (sendMessage px me (toDyn "OK"))
+                  void (sendMessage px me "OK")
                 )
               void (sendInterrupt px other testInterruptReason)
               a <- receiveMessage px
@@ -718,9 +710,7 @@ sendShutdownTests schedulerFactory
           $ scheduleAndAssert schedulerFactory
           $ \assertEff ->
               handleInterrupts
-                  (\e ->
-                    assertEff "" (ProcessError "test" == e) >> return True
-                  )
+                  (\e -> return (ProcessError "test" == e))
                   (interrupt (ProcessError "test") >> return False)
                 >>= assertEff "exception handler not invoked"
           ]
@@ -740,14 +730,16 @@ linkingTests schedulerFactory = setTravisTestOptions
         me <- self SP
         handleInterrupts
           (\er -> lift (False @? ("unexpected interrupt: " ++ show er)))
-          (do linkProcess SP me
-              lift (threadDelay 10000))
+          (do
+            linkProcess SP me
+            lift (threadDelay 10000)
+          )
     , testCase "link with not running process"
     $ applySchedulerFactory schedulerFactory
     $ do
         let testPid = 234234234
         handleInterrupts
-          (lift . (@=? LinkedProcessCrashed testPid))
+          (lift . (@?= LinkedProcessCrashed testPid))
           (do
             linkProcess SP testPid
             void (receiveMessage @Void SP)
@@ -768,7 +760,7 @@ linkingTests schedulerFactory = setTravisTestOptions
     $ do
         foo <- spawn (void (receiveMessage @Void SP))
         handleInterrupts
-          (lift . (@=? LinkedProcessCrashed foo))
+          (lift . (@?= LinkedProcessCrashed foo))
           (do
             linkProcess SP foo
             sendShutdown SP foo Killed
@@ -794,22 +786,21 @@ linkingTests schedulerFactory = setTravisTestOptions
         logNotice "mainProc"
         do
           x <- spawnLink (logNotice "x 1" >> void (receiveMessage @Void SP))
-          handleInterrupts (lift . (LinkedProcessCrashed x @=?)) $ do
-            sendMessage SP linker x
-            void $ receiveSelectedMessage SP (filterMessage id)
-            sendShutdown SP x Killed
-            void (receiveMessage @Void SP)
-        do
-          x <- spawn (logNotice "x 2" >> void (receiveMessage @Void SP))
-          handleInterrupts (lift . (LinkedProcessCrashed x @=?)) $ do
+          withMonitor SP x $ \xRef -> do
             sendMessage SP linker x
             void $ receiveSelectedMessage SP (filterMessage id)
             sendShutdown SP x ExitNormally
-            void (receiveMessage @Void SP)
+            void (receiveSelectedMessage SP (selectProcessDown xRef))
         do
-          handleInterrupts (lift . (LinkedProcessCrashed linker @=?)) $ do
-            sendShutdown SP linker Killed
-            void (receiveMessage @Void SP)
+          x <- spawnLink (logNotice "x 2" >> void (receiveMessage @Void SP))
+          withMonitor SP x $ \xRef -> do
+            sendMessage SP linker x
+            void $ receiveSelectedMessage SP (filterMessage id)
+            sendShutdown SP x ExitNormally
+            void (receiveSelectedMessage SP (selectProcessDown xRef))
+        handleInterrupts (lift . (LinkedProcessCrashed linker @=?)) $ do
+          sendShutdown SP linker Killed
+          void (receiveMessage @Void SP)
     , testCase "unlink" $ applySchedulerFactory schedulerFactory $ do
       let
         foo1 = void (receiveAnyMessage SP)
@@ -860,9 +851,57 @@ linkingTests schedulerFactory = setTravisTestOptions
           lift (LinkedProcessCrashed barPid @?= er)
         )
         (do
+
           res <- receiveMessage @Bool SP
           lift (threadDelay 100000)
           lift (res @?= True)
         )
+    ]
+  )
+
+monitoringTests
+  :: forall r
+   . (Member (Logs LogMessage) r, SetMember Lift (Lift IO) r)
+  => IO (Eff (InterruptableProcess r) () -> IO ())
+  -> TestTree
+monitoringTests schedulerFactory = setTravisTestOptions
+  (testGroup
+    "process monitoring tests"
+    [ testCase "monitored process not running"
+    $ applySchedulerFactory schedulerFactory
+    $ do
+        let badPid = 132123
+        ref <- monitor SP badPid
+        pd  <- receiveSelectedMessage SP (selectProcessDown ref)
+        lift (downReason pd @?= SomeExitReason (ProcessNotRunning badPid))
+        lift (threadDelay 10000)
+    , testCase "monitored process exit normally"
+    $ applySchedulerFactory schedulerFactory
+    $ do
+        target <- spawn (receiveMessage SP >>= exitBecause SP)
+        ref    <- monitor SP target
+        sendMessage SP target ExitNormally
+        pd <- receiveSelectedMessage SP (selectProcessDown ref)
+        lift (downReason pd @?= SomeExitReason ExitNormally)
+        lift (threadDelay 10000)
+    , testCase "monitored process killed"
+    $ applySchedulerFactory schedulerFactory
+    $ do
+        target <- spawn (receiveMessage SP >>= exitBecause SP)
+        ref    <- monitor SP target
+        sendMessage SP target Killed
+        pd <- receiveSelectedMessage SP (selectProcessDown ref)
+        lift (downReason pd @?= SomeExitReason Killed)
+        lift (threadDelay 10000)
+    -- , testCase "demonitored process killed"
+    -- $ applySchedulerFactory schedulerFactory
+    -- $ do
+    --     target <- spawn (receiveMessage SP >>= exitBecause SP)
+    --     ref    <- monitor SP target
+    --     demonitor SP ref
+    --     sendMessage SP target Killed
+    --     pd <- receiveSelectedMessage SP (selectProcessDown ref)
+    --     lift (downReason pd @?= SomeExitReason Killed)
+    --     lift (threadDelay 10000)
     ]
   )

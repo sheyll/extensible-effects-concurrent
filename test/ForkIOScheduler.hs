@@ -31,7 +31,7 @@ test_IOExceptionsIsolated = setTravisTestOptions $ testGroup
           aVar <- newEmptyTMVarIO
           withAsyncLogChannel
             1000
-            (singleMessageLogWriter (putStrLn . renderLogMessage))
+            def -- (singleMessageLogWriter (putStrLn . renderLogMessage))
             (Scheduler.defaultMainWithLogChannel
               (do
                 p1 <- spawn $ foreverCheap busyEffect
@@ -50,14 +50,13 @@ test_IOExceptionsIsolated = setTravisTestOptions $ testGroup
                                            (selectMessage @())
                 case eres of
                   Left  _down -> lift (atomically (putTMVar aVar False))
-                  Right ()    -> do
-                    withMonitor forkIoScheduler p1 $ \ref -> do
-                      sendShutdown forkIoScheduler
-                                   p1
-                                   (NotRecovered (ProcessError "test 123"))
-                      _down <- receiveSelectedMessage forkIoScheduler
-                                                      (selectProcessDown ref)
-                      lift (atomically (putTMVar aVar True))
+                  Right ()    -> withMonitor forkIoScheduler p1 $ \ref -> do
+                    sendShutdown forkIoScheduler
+                                 p1
+                                 (NotRecovered (ProcessError "test 123"))
+                    _down <- receiveSelectedMessage forkIoScheduler
+                                                    (selectProcessDown ref)
+                    lift (atomically (putTMVar aVar True))
               )
             )
 

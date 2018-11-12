@@ -53,7 +53,6 @@ readObservationQueue
   => Eff r (Observation o)
 readObservationQueue = do
   ObservationQueue q <- ask @(ObservationQueue o)
-  logDebug ((logPrefix (Proxy @o)) ++ " reading")
   liftIO (atomically (readTBQueue q))
 
 -- | Read queued observations captured by observing a 'Server' that implements
@@ -70,7 +69,6 @@ tryReadObservationQueue
      )
   => Eff r (Maybe (Observation o))
 tryReadObservationQueue = do
-  logDebug ((logPrefix (Proxy @o)) ++ " try reading")
   ObservationQueue q <- ask @(ObservationQueue o)
   liftIO (atomically (tryReadTBQueue q))
 
@@ -87,7 +85,6 @@ flushObservationQueue
      )
   => Eff r [Observation o]
 flushObservationQueue = do
-  logDebug ((logPrefix (Proxy @o)) ++ " flush")
   ObservationQueue q <- ask @(ObservationQueue o)
   liftIO (atomically (flushTBQueue q))
 
@@ -153,13 +150,7 @@ enqueueObservations px oSvr queueLimit k = withQueue
         )
       cbo <- spawnCallbackObserver
         px
-        (\from observation -> do
-          logDebug
-            (printf "%s enqueue observation %s from %s"
-                    (logPrefix (Proxy @o))
-                    (show observation)
-                    (show from)
-            )
+        (\_from observation -> do
           liftIO (atomically (writeTBQueue q observation))
           return HandleNextRequest
         )
@@ -169,13 +160,8 @@ enqueueObservations px oSvr queueLimit k = withQueue
                 (show cbo)
         )
       registerObserver SchedulerProxy cbo oSvr
-      logDebug
-        (printf "%s registered at: %s" (logPrefix (Proxy @o)) (show oSvr))
-      logDebug (printf "%s running" (logPrefix (Proxy @o)))
       res <- k
-      logDebug (printf "%s finished" (logPrefix (Proxy @o)))
       forgetObserver SchedulerProxy cbo oSvr
-      logDebug (printf "%s unregistered" (logPrefix (Proxy @o)))
       sendShutdown px (_fromServer cbo) ExitNormally
       logDebug (printf "%s stopped observer process" (logPrefix (Proxy @o)))
       return res

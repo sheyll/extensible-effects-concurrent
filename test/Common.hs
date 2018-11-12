@@ -31,8 +31,11 @@ withTestLogC doSchedule k = k
   (return
     (\e -> withAsyncLogChannel
       1000
-      (multiMessageLogWriter (\writeWith -> writeWith (\m ->  -- when (view lmSeverity m < debugSeverity) $
-                                                             printLogMessage m))
+      (multiMessageLogWriter
+        (\writeWith ->
+          writeWith
+            (\m -> when (view lmSeverity m < debugSeverity) $ printLogMessage m)
+        )
       )
       (doSchedule e)
     )
