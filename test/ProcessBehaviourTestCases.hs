@@ -757,7 +757,7 @@ linkingTests schedulerFactory = setTravisTestOptions
     $ do
         foo <- spawn (void (receiveMessage @Void SP))
         handleInterrupts
-          (lift . (@/=? LinkedProcessCrashed foo))
+          (lift . (\e -> e /= LinkedProcessCrashed foo @? show e))
           (do
             linkProcess SP foo
             sendShutdown SP foo ExitNormally
@@ -776,7 +776,7 @@ linkingTests schedulerFactory = setTravisTestOptions
           )
     , testCase "spawnLink" $ applySchedulerFactory schedulerFactory $ do
       let foo = void (receiveMessage @Void SP)
-      handleInterrupts (\er -> lift (isBecauseDown Nothing @? show er)) $ do
+      handleInterrupts (\er -> lift (isBecauseDown Nothing er @? show er)) $ do
         x <- spawnLink foo
         sendShutdown SP x Killed
         void (receiveMessage @Void SP)
@@ -784,9 +784,7 @@ linkingTests schedulerFactory = setTravisTestOptions
     $ applySchedulerFactory schedulerFactory
     $ do
         mainProc <- self SP
-        let
-          linkingServer =
-            void $ exitOnInterrupt SP $ do
+        let linkingServer = void $ exitOnInterrupt SP $ do
               logNotice "linker"
               foreverCheap $ do
                 x <- receiveMessage SP
@@ -796,24 +794,22 @@ linkingTests schedulerFactory = setTravisTestOptions
         logNotice "mainProc"
         do
           x <- spawnLink (logNotice "x 1" >> void (receiveMessage @Void SP))
-          handleInterrupts (lift . (LinkedProcessCrashed x NormalExit @=?)) $ do
+          handleInterrupts (lift . (LinkedProcessCrashed x @=?)) $ do
             sendMessage SP linker x
             void $ receiveSelectedMessage SP (filterMessage id)
-            sendShutdown SP x ExitNormally
+            sendShutdown SP x Killed
             void (receiveMessage @Void SP)
         do
           x <- spawn (logNotice "x 2" >> void (receiveMessage @Void SP))
-          handleInterrupts (lift . (LinkedProcessCrashed x NormalExit @=?)) $ do
+          handleInterrupts (lift . (LinkedProcessCrashed x @=?)) $ do
             sendMessage SP linker x
             void $ receiveSelectedMessage SP (filterMessage id)
             sendShutdown SP x ExitNormally
             void (receiveMessage @Void SP)
-
         do
-          handleInterrupts (lift . (LinkedProcessCrashed linker NormalExit @=?))
-            $ do
-                sendShutdown SP linker ExitNormally
-                void (receiveMessage @Void SP)
+          handleInterrupts (lift . (LinkedProcessCrashed linker @=?)) $ do
+            sendShutdown SP linker Killed
+            void (receiveMessage @Void SP)
     , testCase "unlink" $ applySchedulerFactory schedulerFactory $ do
       let
         foo1 = void (receiveAnyMessage SP)
@@ -826,6 +822,7 @@ linkingTests schedulerFactory = setTravisTestOptions
           sendMessage SP barPid ("unlinked foo1", foo1Pid)
           "the end" <- receiveMessage SP
           logCritical "foo2 done"
+          exitWithError SP "foo two"
         bar foo2Pid parentPid = do
           logCritical "link bar <-> foo2"
           linkProcess SP foo2Pid
@@ -846,15 +843,13 @@ linkingTests schedulerFactory = setTravisTestOptions
                 >> void
                      (sendMessage SP
                                   parentPid
-                                  (LinkedProcessCrashed foo2Pid NormalExit == er)
+                                  (LinkedProcessCrashed foo2Pid == er)
                      )
             )
             (do
               sendMessage SP foo2Pid "the end"
               void (receiveAnyMessage SP)
             )
-
-
       foo1Pid <- spawn foo1
       foo2Pid <- spawn (foo2 foo1Pid)
       me      <- self SP
@@ -862,7 +857,7 @@ linkingTests schedulerFactory = setTravisTestOptions
       handleInterrupts
         (\er -> do
           logCritical ("Got ER: " ++ show er)
-          lift (LinkedProcessCrashed barPid NormalExit @?= er)
+          lift (LinkedProcessCrashed barPid @?= er)
         )
         (do
           res <- receiveMessage @Bool SP

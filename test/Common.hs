@@ -7,7 +7,10 @@ import           Control.Eff
 import           Control.Eff.Extend
 import           Control.Eff.Log
 import           Control.Eff.Lift
-import           Control.Monad                  ( void )
+import           Control.Lens
+import           Control.Monad                  ( void
+                                                , when
+                                                )
 import           Test.Tasty
 import           Test.Tasty.HUnit
 import           Test.Tasty.Runners
@@ -15,7 +18,7 @@ import           GHC.Stack
 
 setTravisTestOptions :: TestTree -> TestTree
 setTravisTestOptions =
-  localOption (timeoutSeconds 300) . localOption (NumThreads 1)
+  localOption (timeoutSeconds 30) . localOption (NumThreads 1)
 
 timeoutSeconds :: Integer -> Timeout
 timeoutSeconds seconds = Timeout (seconds * 1000000) (show seconds ++ "s")
