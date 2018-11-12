@@ -765,6 +765,42 @@ linkingTests schedulerFactory = setTravisTestOptions
             sendShutdown SP foo Killed
             void (receiveMessage @Void SP)
           )
+    , testCase "link multiple times"
+    $ applySchedulerFactory schedulerFactory
+    $ do
+        foo <- spawn (void (receiveMessage @Void SP))
+        handleInterrupts
+          (lift . (@?= LinkedProcessCrashed foo))
+          (do
+            linkProcess SP foo
+            linkProcess SP foo
+            linkProcess SP foo
+            linkProcess SP foo
+            linkProcess SP foo
+            linkProcess SP foo
+            linkProcess SP foo
+            sendShutdown SP foo Killed
+            void (receiveMessage @Void SP)
+          )
+    , testCase "unlink multiple times"
+    $ applySchedulerFactory schedulerFactory
+    $ do
+        foo <- spawn (void (receiveMessage @Void SP))
+        handleInterrupts
+          (lift . (False @?) . show)
+          (do
+            spawn_ (void (receiveAnyMessage SP))
+            linkProcess SP foo
+            linkProcess SP foo
+            linkProcess SP foo
+            unlinkProcess SP foo
+            unlinkProcess SP foo
+            unlinkProcess SP foo
+            unlinkProcess SP foo
+            withMonitor SP foo $ \ref -> do
+              sendShutdown SP foo Killed
+              void (receiveSelectedMessage SP (selectProcessDown ref))
+          )
     , testCase "spawnLink" $ applySchedulerFactory schedulerFactory $ do
       let foo = void (receiveMessage @Void SP)
       handleInterrupts (\er -> lift (isBecauseDown Nothing er @? show er)) $ do
@@ -804,37 +840,28 @@ linkingTests schedulerFactory = setTravisTestOptions
       let
         foo1 = void (receiveAnyMessage SP)
         foo2 foo1Pid = do
-          logCritical "link foo1 <-> foo2"
           linkProcess SP foo1Pid
           ("unlink foo1", barPid) <- receiveMessage SP
-          logCritical "unlink foo1 <-> foo2"
           unlinkProcess SP foo1Pid
           sendMessage SP barPid ("unlinked foo1", foo1Pid)
           "the end" <- receiveMessage SP
-          logCritical "foo2 done"
           exitWithError SP "foo two"
         bar foo2Pid parentPid = do
-          logCritical "link bar <-> foo2"
           linkProcess SP foo2Pid
           me <- self SP
           sendMessage SP foo2Pid ("unlink foo1", me)
           ("unlinked foo1", foo1Pid) <- receiveMessage SP
           handleInterrupts
-            (\er -> logCritical ("foo1 down: " ++ show er))
+            (const (return ()))
             (do
               linkProcess SP foo1Pid
-              logCritical "kill foo1"
               sendShutdown SP foo1Pid Killed
               void (receiveMessage @Void SP)
             )
           handleInterrupts
             (\er ->
-              logCritical ("foo2 down " ++ show er)
-                >> void
-                     (sendMessage SP
-                                  parentPid
-                                  (LinkedProcessCrashed foo2Pid == er)
-                     )
+              void
+                (sendMessage SP parentPid (LinkedProcessCrashed foo2Pid == er))
             )
             (do
               sendMessage SP foo2Pid "the end"
@@ -845,12 +872,8 @@ linkingTests schedulerFactory = setTravisTestOptions
       me      <- self SP
       barPid  <- spawn (bar foo2Pid me)
       handleInterrupts
-        (\er -> do
-          logCritical ("Got ER: " ++ show er)
-          lift (LinkedProcessCrashed barPid @?= er)
-        )
+        (\er -> lift (LinkedProcessCrashed barPid @?= er))
         (do
-
           res <- receiveMessage @Bool SP
           lift (threadDelay 100000)
           lift (res @?= True)
@@ -882,6 +905,25 @@ monitoringTests schedulerFactory = setTravisTestOptions
         sendMessage SP target ExitNormally
         pd <- receiveSelectedMessage SP (selectProcessDown ref)
         lift (downReason pd @?= SomeExitReason ExitNormally)
+        lift (threadDelay 10000)
+    , testCase "multiple monitors some demonitored"
+    $ applySchedulerFactory schedulerFactory
+    $ do
+        target <- spawn (receiveMessage SP >>= exitBecause SP)
+        ref1   <- monitor SP target
+        ref2   <- monitor SP target
+        ref3   <- monitor SP target
+        ref4   <- monitor SP target
+        ref5   <- monitor SP target
+        demonitor SP ref3
+        demonitor SP ref5
+        sendMessage SP target ExitNormally
+        pd1 <- receiveSelectedMessage SP (selectProcessDown ref1)
+        lift (downReason pd1 @?= SomeExitReason ExitNormally)
+        pd2 <- receiveSelectedMessage SP (selectProcessDown ref2)
+        lift (downReason pd2 @?= SomeExitReason ExitNormally)
+        pd4 <- receiveSelectedMessage SP (selectProcessDown ref4)
+        lift (downReason pd4 @?= SomeExitReason ExitNormally)
         lift (threadDelay 10000)
     , testCase "monitored process killed"
     $ applySchedulerFactory schedulerFactory

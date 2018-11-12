@@ -198,12 +198,8 @@ import           Control.Eff.Concurrent.Process.ForkIOScheduler
                                                 )
 
 import           Control.Eff.Concurrent.Process.SingleThreadedScheduler
-                                                ( scheduleM
-                                                , schedulePure
-                                                , scheduleIO
-                                                , scheduleMonadIOEff
-                                                , scheduleIOWithLogging
-                                                , defaultMain
+                                                ( schedulePure
+                                                , defaultMainSingleThreaded
                                                 , singleThreadedIoScheduler
                                                 )
 import           Control.Eff.Log

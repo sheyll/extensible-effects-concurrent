@@ -16,7 +16,7 @@ import           Common
 test_interactive :: TestTree
 test_interactive = setTravisTestOptions $ testGroup
   "Interactive"
-  [ testGroup "SingleThreadedScheduler" $ allTests SingleThreaded.defaultMain
+  [ testGroup "SingleThreadedScheduler" $ allTests SingleThreaded.defaultMainSingleThreaded
   , testGroup "ForkIOScheduler" $ allTests ForkIOScheduler.defaultMain
   ]
 
