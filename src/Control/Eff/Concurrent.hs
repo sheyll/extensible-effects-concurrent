@@ -5,6 +5,9 @@ module Control.Eff.Concurrent
     -- * Concurrent Processes with Message Passing Concurrency
     module Control.Eff.Concurrent.Process
   ,
+    -- * Timers and Timeouts
+    module Control.Eff.Concurrent.Process.Timer
+  ,
     -- * Data Types and Functions for APIs (aka Protocols)
     module Control.Eff.Concurrent.Api
   ,
@@ -116,6 +119,16 @@ import           Control.Eff.Concurrent.Process ( ProcessId(..)
                                                 , exitWithError
                                                 , makeReference
                                                 )
+import           Control.Eff.Concurrent.Process.Timer
+                                                ( Timeout(fromTimeoutMicros)
+                                                , TimerReference()
+                                                , TimerElapsed(fromTimerElapsed)
+                                                , sendAfter
+                                                , startTimer
+                                                , selectTimerElapsed
+                                                , receiveAfter
+                                                , receiveSelectedAfter
+                                                )
 
 import           Control.Eff.Concurrent.Api     ( Api
                                                 , Synchronicity(..)
@@ -158,6 +171,7 @@ import           Control.Eff.Concurrent.Api.Server
                                                 , ServerCallback(..)
                                                 , requestHandlerSelector
                                                 , terminationHandler
+                                                , Showable(..)
                                                 )
 import           Control.Eff.Concurrent.Api.Observer
                                                 ( Observer(..)

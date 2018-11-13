@@ -18,7 +18,7 @@ main = defaultMain
     -- The SchedulerProxy paremeter contains the effects of a specific scheduler
     -- implementation.
 
-newtype WhoAreYou = WhoAreYou ProcessId deriving (Typeable, NFData)
+newtype WhoAreYou = WhoAreYou ProcessId deriving (Typeable, NFData, Show)
 
 firstExample
   :: (HasLogging IO q) => SchedulerProxy q -> Eff (InterruptableProcess q) ()

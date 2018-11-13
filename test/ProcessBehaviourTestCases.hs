@@ -3,13 +3,13 @@ module ProcessBehaviourTestCases where
 import           Data.List                      ( sort )
 import           Data.Foldable                  ( traverse_ )
 import qualified Data.Dynamic                  as Dynamic
-                                                ( toDyn )
 import           Data.Typeable
 import           Data.Default
 import           Control.Exception
 import           Control.Concurrent
 import           Control.Concurrent.STM
 import           Control.Eff.Concurrent.Process
+import           Control.Eff.Concurrent.Process.Timer
 import           Control.Eff.Concurrent.Api
 import           Control.Eff.Concurrent.Api.Client
 import           Control.Eff.Concurrent.Api.Server
@@ -68,6 +68,7 @@ allTests schedulerFactory = localOption
     , selectiveReceiveTests schedulerFactory
     , linkingTests schedulerFactory
     , monitoringTests schedulerFactory
+    , timerTests schedulerFactory
     ]
   )
 
@@ -204,6 +205,8 @@ yieldLoopTests schedulerFactory
 
 
 data Ping = Ping ProcessId
+  deriving (Eq, Show)
+
 data Pong = Pong
   deriving (Eq, Show)
 
@@ -948,5 +951,88 @@ monitoringTests schedulerFactory = setTravisTestOptions
           (Right <$> selectProcessDown ref <|> Left <$> selectMessage @())
         lift (pd @?= Left ())
         lift (threadDelay 10000)
+    ]
+  )
+
+timerTests
+  :: forall r
+   . (Member (Logs LogMessage) r, SetMember Lift (Lift IO) r)
+  => IO (Eff (InterruptableProcess r) () -> IO ())
+  -> TestTree
+timerTests schedulerFactory = setTravisTestOptions
+  (testGroup
+    "process timer tests"
+    [ testCase "receiveAfter into timeout"
+    $ applySchedulerFactory schedulerFactory
+    $ do
+        pd <- receiveAfter @Void SP 1000
+        lift (pd @?= Nothing)
+        lift (threadDelay 10000)
+    , testCase "receiveAfter no timeout"
+    $ applySchedulerFactory schedulerFactory
+    $ do
+        me    <- self SP
+        other <- spawn
+          (do
+            () <- receiveMessage @() SP
+            sendMessage SP me (123 :: Int)
+          )
+        pd1 <- receiveAfter @() SP 10000
+        lift (pd1 @?= Nothing)
+        sendMessage SP other ()
+        pd2 <- receiveAfter @Int SP 10000
+        lift (pd2 @?= Just 123)
+        lift (threadDelay 10000)
+    , testCase "many receiveAfters"
+    $ applySchedulerFactory schedulerFactory
+    $ do
+        let n = 5
+            testMsg :: Float
+            testMsg = 123
+        me    <- self SP
+        other <- spawn
+          (do
+            replicateM_ n $ sendMessage SP me "bad message"
+            () <- receiveMessage @() SP
+            replicateM_ n $ sendMessage SP me testMsg
+          )
+        receiveAfter @Float SP 100 >>= lift . (@?= Nothing)
+        sendMessage SP other ()
+        replicateM_
+          n
+          (do
+            res <- receiveAfter @Float SP 10000
+            lift (res @?= Just testMsg)
+          )
+
+        lift (threadDelay 100)
+    , testCase "flush" $ applySchedulerFactory schedulerFactory $ do
+         let
+           n = 100
+           testMsg :: Float
+           testMsg = 123
+           flushMsgs px = do
+             res <- receiveSelectedAfter @Dynamic.Dynamic px selectAnyMessageLazy 0
+             case res of
+               Left  _to -> return ()
+               Right _   -> flushMsgs px
+         me    <- self SP
+         other <- spawn
+           (do
+             replicateM_ n $ sendMessage SP me "bad message"
+             () <- receiveMessage @() SP
+             replicateM_ n $ sendMessage SP me testMsg
+           )
+         receiveAfter @Float SP 10000 >>= lift . (@?= Nothing)
+         flushMsgs SP
+         sendMessage SP other ()
+         replicateM_
+           n
+           (do
+             res <- receiveAfter @Float SP 10000
+             lift (res @?= Just testMsg)
+           )
+
+         lift (threadDelay 100)
     ]
   )

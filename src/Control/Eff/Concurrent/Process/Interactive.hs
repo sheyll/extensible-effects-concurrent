@@ -147,6 +147,7 @@ submitCall
      , Typeable o
      , Typeable q
      , NFData q
+     , Show q
      , Member Interrupts r
      )
   => SchedulerSession r

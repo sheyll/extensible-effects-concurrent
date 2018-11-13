@@ -32,6 +32,8 @@ import           GHC.Stack
 import           Data.Kind                      ( )
 import           Data.Dynamic
 import           Data.Foldable
+import           Data.Monoid
+import           Debug.Trace
 import qualified Control.Monad.State.Strict    as State
 
 -- -----------------------------------------------------------------------------
@@ -52,6 +54,22 @@ initStsMainProcess :: (forall a . Eff r a -> m a) -> m () -> STS r m
 initStsMainProcess = STS 1 0 (Map.singleton 0 Seq.empty) Set.empty Set.empty
 
 makeLenses ''STS
+
+instance Show (STS r m) where
+  showsPrec d sts = showParen
+    (d >= 10)
+    ( showString "STS "
+    . showString "nextRef: "
+    . shows (_nextRef sts)
+    . showString " msgQs: "
+    . appEndo
+        (foldMap
+          (\(pid, msgs) -> Endo (showString "  " . shows pid . showString ": ")
+            <> foldMap (\m -> Endo (shows (dynTypeRep m))) (toList msgs)
+          )
+          (sts ^.. msgQs . itraversed . withIndex  )
+        )
+    )
 
 dropMsgQ :: ProcessId -> STS r m -> STS r m
 dropMsgQ pid = msgQs . at pid .~ Nothing
@@ -248,7 +266,7 @@ data OnYield r a where
   OnSend :: !ProcessId -> !Dynamic
          -> (ResumeProcess () -> Eff r (OnYield r a))
          -> OnYield r a
-  OnRecv :: MessageSelector b -> (ResumeProcess b -> Eff r (OnYield r a))
+  OnRecv :: Show b => MessageSelector b -> (ResumeProcess b -> Eff r (OnYield r a))
          -> OnYield r a
   OnGetProcessState
          :: ProcessId
@@ -448,6 +466,7 @@ handleProcess sts allProcs@((!processState, !pid) :<| rest)
                 handleProcess sts (rest :|> (nextK, pid))
               else handleProcess sts (rest :|> (recv, pid))
             Just (Just (result, newSts)) -> do
+              traceM ("received: " ++ show (result, newSts) ++ " " ++ show sts)
               nextK <- kontinue newSts k result
               handleProcess newSts (rest :|> (nextK, pid))
 

@@ -169,7 +169,7 @@ data Process (r :: [Type -> Type]) b where
   -- This should block until an a message was received. The message is returned
   -- as a 'ProcessMessage' value. The function should also return if an exception
   -- was caught or a shutdown was requested.
-  ReceiveSelectedMessage :: forall r a . MessageSelector a -> Process r (ResumeProcess a)
+  ReceiveSelectedMessage :: forall r a . Show a => MessageSelector a -> Process r (ResumeProcess a)
   -- | Generate a unique 'Int' for the current process.
   MakeReference :: Process r (ResumeProcess Int)
   -- | Monitor another process. When the monitored process exits a
@@ -855,7 +855,7 @@ receiveAnyMessage _ =
 receiveSelectedMessage
   :: forall r q a
    . ( HasCallStack
-     , Typeable a
+     , Show a
      , SetMember Process (Process q) r
      , Member Interrupts r
      )
@@ -871,6 +871,7 @@ receiveMessage
   :: forall a r q
    . ( HasCallStack
      , Typeable a
+     , Show a
      , SetMember Process (Process q) r
      , Member Interrupts r
      )
@@ -888,7 +889,7 @@ receiveMessage px = receiveSelectedMessage px (MessageSelector fromDynamic)
 -- See also 'ReceiveSelectedMessage' for more documentation.
 receiveSelectedLoop
   :: forall r q a endOfLoopResult
-   . (SetMember Process (Process q) r, HasCallStack)
+   . (SetMember Process (Process q) r, HasCallStack, Show a)
   => SchedulerProxy q
   -> MessageSelector a
   -> (Either InterruptReason a -> Eff r (Maybe endOfLoopResult))
@@ -914,7 +915,7 @@ receiveAnyLoop px = receiveSelectedLoop px selectAnyMessageLazy
 -- using 'selectMessageLazy'.
 receiveLoop
   :: forall r q a endOfLoopResult
-   . (SetMember Process (Process q) r, HasCallStack, Typeable a)
+   . (SetMember Process (Process q) r, HasCallStack, Typeable a, Show a)
   => SchedulerProxy q
   -> (Either InterruptReason a -> Eff r (Maybe endOfLoopResult))
   -> Eff r endOfLoopResult
@@ -998,6 +999,7 @@ receiveWithMonitor
      , SetMember Process (Process q) r
      , Member Interrupts r
      , Typeable a
+     , Show a
      )
   => SchedulerProxy q
   -> ProcessId

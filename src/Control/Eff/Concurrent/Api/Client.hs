@@ -20,6 +20,7 @@ import           Control.Eff.Reader.Strict
 import           Control.Eff.Concurrent.Api
 import           Control.Eff.Concurrent.Api.Internal
 import           Control.Eff.Concurrent.Process
+import           Control.Eff.Concurrent.Process.Timer
 import           Data.Typeable                  ( Typeable )
 import           Control.DeepSeq
 import           GHC.Stack
@@ -55,6 +56,7 @@ call
      , Typeable result
      , HasCallStack
      , NFData result
+     , Show result
      )
   => SchedulerProxy q
   -> Server api
@@ -105,6 +107,7 @@ callRegistered
      , ServesApi o r q
      , HasCallStack
      , NFData reply
+     , Show reply
      , Member Interrupts r
      )
   => SchedulerProxy q

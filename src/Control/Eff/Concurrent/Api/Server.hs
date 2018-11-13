@@ -6,6 +6,7 @@ module Control.Eff.Concurrent.Api.Server
   , spawnServer
   , spawnServerWithEffects
   -- * Api Callbacks
+
   , ApiHandler(..)
   , castCallback
   , callCallback
@@ -27,6 +28,8 @@ module Control.Eff.Concurrent.Api.Server
   , ServerCallback(..)
   , requestHandlerSelector
   , terminationHandler
+  -- * Utilities
+  , Showable(..)
   )
 where
 
@@ -49,6 +52,12 @@ import           Data.Maybe
 import           GHC.Generics
 import           Control.DeepSeq
 import           Data.Default
+
+-- | An interal utility for things that cannot be shown.
+newtype Showable a = Showable { unShowable :: a }
+
+instance Show (Showable a) where
+  showsPrec _ _ = showString "(unshowable)"
 
 -- | A record of callbacks, handling requests sent to a /server/ 'Process', all
 -- belonging to a specific 'Api' family instance.
@@ -199,7 +208,7 @@ makeLenses ''ApiHandler
 -- @@@
 --
 data ServerCallback eff =
-  ServerCallback { _requestHandlerSelector :: MessageSelector (Eff eff ApiServerCmd)
+  ServerCallback { _requestHandlerSelector :: MessageSelector (Showable (Eff eff ApiServerCmd))
                  , _terminationHandler :: ExitReason 'Recoverable -> Eff eff ()
                  }
 
@@ -276,8 +285,8 @@ serve px a =
         (serverCb ^. terminationHandler) reason
         return (Just ())
   in  receiveSelectedLoop px (serverCb ^. requestHandlerSelector) $ \case
-        Left  reason   -> stopServer reason
-        Right handleIt -> handleIt >>= \case
+        Left  reason              -> stopServer reason
+        Right (Showable handleIt) -> handleIt >>= \case
           HandleNextRequest    -> return Nothing
           StopApiServer reason -> stopServer reason
 
@@ -345,9 +354,9 @@ selectHandlerMethod
      )
   => SchedulerProxy effScheduler
   -> ApiHandler api eff
-  -> MessageSelector (Eff eff ApiServerCmd)
-selectHandlerMethod px handlers =
-  selectDynamicMessageLazy (fmap (applyHandlerMethod px handlers) . fromDynamic)
+  -> MessageSelector (Showable (Eff eff ApiServerCmd))
+selectHandlerMethod px handlers = selectDynamicMessageLazy
+  (fmap (Showable . applyHandlerMethod px handlers . unShowable) . fromDynamic)
 
 -- | Apply either the '_callCallback', '_castCallback' or the '_terminateCallback'
 -- callback to an incoming request.

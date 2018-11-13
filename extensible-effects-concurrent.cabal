@@ -65,6 +65,7 @@ library
                   Control.Eff.Concurrent.Api.Client,
                   Control.Eff.Concurrent.Api.Server,
                   Control.Eff.Concurrent.Process,
+                  Control.Eff.Concurrent.Process.Timer,
                   Control.Eff.Concurrent.Process.ForkIOScheduler,
                   Control.Eff.Concurrent.Process.Interactive,
                   Control.Eff.Concurrent.Process.SingleThreadedScheduler,

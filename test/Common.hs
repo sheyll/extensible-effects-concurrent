@@ -18,7 +18,7 @@ import           GHC.Stack
 
 setTravisTestOptions :: TestTree -> TestTree
 setTravisTestOptions =
-  localOption (timeoutSeconds 30) . localOption (NumThreads 1)
+  localOption (timeoutSeconds 60) . localOption (NumThreads 1)
 
 timeoutSeconds :: Integer -> Timeout
 timeoutSeconds seconds = Timeout (seconds * 1000000) (show seconds ++ "s")
@@ -34,7 +34,7 @@ withTestLogC doSchedule k = k
       (multiMessageLogWriter
         (\writeWith ->
           writeWith
-            (\m -> when (view lmSeverity m < debugSeverity) $ printLogMessage m)
+            (\m -> when (view lmSeverity m < errorSeverity) $ printLogMessage m)
         )
       )
       (doSchedule e)

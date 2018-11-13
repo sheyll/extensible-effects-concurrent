@@ -2,6 +2,7 @@
 
 ## 0.12.0
 
+- Add receiving with timeout
 - Add process `Link`ing and `Monitoring`.
 - Make the distinction between recoverable and non-recoverable exit explicit in
   the type parameter of `ExitReason`, and introduce `interruptXXXX`
