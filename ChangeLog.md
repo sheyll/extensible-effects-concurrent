@@ -1,5 +1,9 @@
 # Changelog for extensible-effects-concurrent
 
+## 0.13.0
+
+- Fix bad constraints in `Queue` observer
+
 ## 0.12.2
 
 - Fix some compiler warnings

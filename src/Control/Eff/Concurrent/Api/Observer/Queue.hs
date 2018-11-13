@@ -99,7 +99,6 @@ enqueueObservationsRegistered
      , Observable o
      , HasLogging IO q
      , HasLogging IO r
-     , Member Interrupts q
      , Member Interrupts r
      , Lifted IO r
      , HasCallStack
@@ -128,7 +127,6 @@ enqueueObservations
      , HasLogging IO r
      , HasLogging IO q
      , Member Interrupts r
-     , Member Interrupts q
      , Lifted IO q
      , HasCallStack
      , MonadCatch (Eff r)
