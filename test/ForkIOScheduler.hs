@@ -9,9 +9,10 @@ import           Control.Eff.Lift
 import           Control.Eff.Log
 import           Control.Eff.Loop
 import           Control.Eff.Concurrent.Process
+import           Control.Eff.Concurrent.Process.Timer
 import           Control.Eff.Concurrent.Process.ForkIOScheduler
                                                as Scheduler
-import           Control.Monad                  ( void )
+import           Control.Monad                  ( void, replicateM_ )
 import           Test.Tasty
 import           Test.Tasty.HUnit
 import           Data.Dynamic
@@ -186,3 +187,35 @@ test_mainProcessSpawnsAChildBothExitNormally = setTravisTestOptions
       )
     )
   )
+
+test_timer :: TestTree
+test_timer =
+  setTravisTestOptions
+    $ testCase "flush via timer"
+    $ withAsyncLogChannel 1000 def
+    $ Scheduler.defaultMainWithLogChannel
+    $ do
+        let n = 100
+            testMsg :: Float
+            testMsg = 123
+            flushMsgs px = do
+              res <- receiveSelectedAfter px (selectDynamicMessageLazy Just) 0
+              case res of
+                Left  _to -> return ()
+                Right _   -> flushMsgs px
+        me <- self SP
+        spawn_
+          (do
+            replicateM_ n $ sendMessage SP me "bad message"
+            replicateM_ n $ sendMessage SP me (3123 :: Integer)
+            sendMessage SP me testMsg
+          )
+        do
+          res <- receiveAfter @Float SP 1000000
+          lift (res @?= Just testMsg)
+        flushMsgs SP
+        res <- receiveSelectedAfter SP (selectDynamicMessageLazy Just) 10000
+        case res of
+          Left  _ -> return ()
+          Right x -> lift (False @? "unexpected message in queue " ++ show x)
+        lift (threadDelay 100)

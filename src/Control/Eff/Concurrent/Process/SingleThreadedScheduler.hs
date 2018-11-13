@@ -33,7 +33,6 @@ import           Data.Kind                      ( )
 import           Data.Dynamic
 import           Data.Foldable
 import           Data.Monoid
-import           Debug.Trace
 import qualified Control.Monad.State.Strict    as State
 
 -- -----------------------------------------------------------------------------
@@ -97,6 +96,11 @@ newProcessQ parentLink sts =
             let (Nothing, stsQL) = addLink pid (sts ^. nextPid) stsQ in stsQL
   )
 
+flushMsgs :: ProcessId -> STS m r -> ([Dynamic], STS m r)
+flushMsgs pid = State.runState $ do
+  msgs <- msgQs . at pid . _Just <<.= Empty
+  return (toList msgs)
+
 receiveMsg
   :: ProcessId -> MessageSelector a -> STS m r -> Maybe (Maybe (a, STS m r))
 receiveMsg pid messageSelector sts = case sts ^. msgQs . at pid of
@@ -116,7 +120,7 @@ receiveMsg pid messageSelector sts = case sts ^. msgQs . at pid of
 -- owners message queue
 addMonitoring
   :: ProcessId -> ProcessId -> STS m r -> (MonitorReference, STS m r)
-addMonitoring owner target sts = flip State.runState sts $ do
+addMonitoring owner target = State.runState $ do
   mi <- State.state incRef
   let mref = MonitorReference mi target
   when (target /= owner) $ do
@@ -133,7 +137,7 @@ removeMonitoring :: MonitorReference -> STS m r -> STS m r
 removeMonitoring mref = monitors %~ Set.filter (\(ref, _) -> ref /= mref)
 
 triggerAndRemoveMonitor :: ProcessId -> SomeExitReason -> STS m r -> STS m r
-triggerAndRemoveMonitor downPid reason sts = flip State.execState sts $ do
+triggerAndRemoveMonitor downPid reason = State.execState $ do
   monRefs <- use monitors
   traverse_ go monRefs
  where
@@ -144,7 +148,7 @@ triggerAndRemoveMonitor downPid reason sts = flip State.execState sts $ do
     )
 
 addLink :: ProcessId -> ProcessId -> STS m r -> (Maybe InterruptReason, STS m r)
-addLink fromPid toPid sts = flip State.runState sts $ do
+addLink fromPid toPid = State.runState $ do
   hasToPid <- use (msgQs . to (Map.member toPid))
   if hasToPid
     then do
@@ -250,6 +254,8 @@ scheduleM r y e = do
 -- | Internal data structure that is part of the coroutine based scheduler
 -- implementation.
 data OnYield r a where
+  OnFlushMessages :: (ResumeProcess [Dynamic] -> Eff r (OnYield r a))
+                  -> OnYield r a
   OnYield :: (ResumeProcess () -> Eff r (OnYield r a))
          -> OnYield r a
   OnSelf :: (ResumeProcess ProcessId -> Eff r (OnYield r a))
@@ -297,6 +303,7 @@ data OnYield r a where
 instance Show (OnYield r a) where
   show =
     \case
+      OnFlushMessages _ -> "OnFlushMessages"
       OnYield _ -> "OnYield"
       OnSelf _ -> "OnSelf"
       OnSpawn False _ _ -> "OnSpawn"
@@ -324,6 +331,7 @@ runAsCoroutinePure
 runAsCoroutinePure r = r . handle_relay (return . OnDone) cont
  where
   cont :: Process r x -> (x -> Eff r (OnYield r v)) -> Eff r (OnYield r v)
+  cont FlushMessages                k  = return (OnFlushMessages k)
   cont YieldProcess                 k  = return (OnYield k)
   cont SelfPid                      k  = return (OnSelf k)
   cont (Spawn     e               ) k  = return (OnSpawn False e k)
@@ -398,6 +406,7 @@ handleProcess sts allProcs@((!processState, !pid) :<| rest)
                     nextTargetState <- case targetState of
                       OnSendInterrupt _ _ _tk -> return (OnShutdown sr)
                       OnSendShutdown  _ _ _tk -> return (OnShutdown sr)
+                      OnFlushMessages _tk     -> return (OnShutdown sr)
                       OnYield _tk             -> return (OnShutdown sr)
                       OnSelf  _tk             -> return (OnShutdown sr)
                       OnSend _ _ _tk          -> return (OnShutdown sr)
@@ -448,6 +457,11 @@ handleProcess sts allProcs@((!processState, !pid) :<| rest)
           nextK <- kontinue newSts k newPid
           handleProcess newSts (rest :|> (fk, newPid) :|> (nextK, pid))
 
+        OnFlushMessages k -> do
+          let (msgs, newSts) = flushMsgs pid sts
+          nextK <- kontinue newSts k msgs
+          handleProcess newSts (rest :|> (nextK, pid))
+
         recv@(OnRecv messageSelector k) ->
           case receiveMsg pid messageSelector sts of
             Nothing -> do
@@ -466,7 +480,6 @@ handleProcess sts allProcs@((!processState, !pid) :<| rest)
                 handleProcess sts (rest :|> (nextK, pid))
               else handleProcess sts (rest :|> (recv, pid))
             Just (Just (result, newSts)) -> do
-              traceM ("received: " ++ show (result, newSts) ++ " " ++ show sts)
               nextK <- kontinue newSts k result
               handleProcess newSts (rest :|> (nextK, pid))
 
@@ -510,6 +523,7 @@ handleProcess sts allProcs@((!processState, !pid) :<| rest)
           nextTargetState <- case targetState of
             OnSendInterrupt _ _ tk -> tk (Interrupted sr)
             OnSendShutdown  _ _ tk -> tk (Interrupted sr)
+            OnFlushMessages tk     -> tk (Interrupted sr)
             OnYield tk             -> tk (Interrupted sr)
             OnSelf  tk             -> tk (Interrupted sr)
             OnSend _ _ tk          -> tk (Interrupted sr)

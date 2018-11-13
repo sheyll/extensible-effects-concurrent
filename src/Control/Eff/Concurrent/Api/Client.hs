@@ -20,7 +20,6 @@ import           Control.Eff.Reader.Strict
 import           Control.Eff.Concurrent.Api
 import           Control.Eff.Concurrent.Api.Internal
 import           Control.Eff.Concurrent.Process
-import           Control.Eff.Concurrent.Process.Timer
 import           Data.Typeable                  ( Typeable )
 import           Control.DeepSeq
 import           GHC.Stack

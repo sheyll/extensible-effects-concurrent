@@ -1,5 +1,8 @@
 -- | Functions for timeouts when receiving messages.
 --
+-- NOTE: If you use a single threaded scheduler, these functions will not work
+-- as expected. (This is an open TODO)
+--
 -- @since 0.12.0
 module Control.Eff.Concurrent.Process.Timer
   ( Timeout(fromTimeoutMicros)
@@ -71,7 +74,6 @@ receiveSelectedAfter px sel t = do
     (Left <$> selectTimerElapsed timerRef <|> Right <$> sel)
   cancelTimer px timerRef
   return res
-
 
 -- | A 'MessageSelector' matching 'TimerElapsed' messages created by
 -- 'startTimer'.

@@ -39,12 +39,40 @@ module Control.Eff.Concurrent
   )
 where
 
-import           Control.Eff.Concurrent.Process ( ProcessId(..)
+import           Control.Eff.Concurrent.Process ( -- * Process Effect
+                                                  -- ** Effect Type Handling
+                                                  Process(..)
+                                                  -- ** ProcessId Type
+                                                , ProcessId(..)
                                                 , fromProcessId
-                                                , Process(..)
                                                 , ConsProcess
                                                 , ResumeProcess(..)
+                                                -- ** Scheduler Effect Identification
                                                 , SchedulerProxy(..)
+                                                , HasScheduler
+                                                , getSchedulerProxy
+                                                , withSchedulerProxy
+                                                , thisSchedulerProxy
+                                                -- ** Process State
+                                                , ProcessState(..)
+                                                -- ** Yielding
+                                                , yieldProcess
+                                                -- ** Sending Messages
+                                                , sendMessage
+                                                , sendAnyMessage
+                                                , sendShutdown
+                                                , sendInterrupt
+                                                -- ** Utilities
+                                                , makeReference
+                                                -- ** Receiving Messages
+                                                , receiveAnyMessage
+                                                , receiveMessage
+                                                , receiveSelectedMessage
+                                                , flushMessages
+                                                , receiveAnyLoop
+                                                , receiveLoop
+                                                , receiveSelectedLoop
+                                                -- *** Selecting Messages to Receive
                                                 , MessageSelector
                                                   ( runMessageSelector
                                                   )
@@ -59,44 +87,23 @@ import           Control.Eff.Concurrent.Process ( ProcessId(..)
                                                 , selectDynamicMessage
                                                 , selectDynamicMessageLazy
                                                 , selectAnyMessageLazy
-                                                , ProcessState(..)
-                                                , ExitRecovery(..)
-                                                , toExitRecovery
-                                                , isRecoverable
-                                                , ExitSeverity(..)
-                                                , toExitSeverity
-                                                , ExitReason(..)
-                                                , isBecauseDown
-                                                , InterruptReason
-                                                , Interrupts
-                                                , InterruptableProcess
-                                                , provideInterruptsShutdown
-                                                , handleInterrupts
-                                                , exitOnInterrupt
-                                                , logInterrupts
-                                                , provideInterrupts
-                                                , mergeEitherInterruptAndExitReason
-                                                , interrupt
-                                                , isCrash
-                                                , toCrashReason
-                                                , SomeExitReason(SomeExitReason)
-                                                , fromSomeExitReason
-                                                , logProcessExit
-                                                , thisSchedulerProxy
-                                                , executeAndResume
-                                                , executeAndResumeOrExit
-                                                , executeAndResumeOrThrow
-                                                , yieldProcess
-                                                , sendMessage
-                                                , sendAnyMessage
+                                                -- ** Process Life Cycle Management
+                                                , self
+                                                , isProcessAlive
+                                                -- *** Spawning
                                                 , spawn
                                                 , spawn_
                                                 , spawnLink
                                                 , spawnRaw
                                                 , spawnRaw_
-                                                , isProcessAlive
+                                                -- *** Process Exit or Interrupt
+                                                , exitBecause
+                                                , exitNormally
+                                                , exitWithError
+                                                -- *** Links
                                                 , linkProcess
                                                 , unlinkProcess
+                                                -- *** Monitors
                                                 , monitor
                                                 , demonitor
                                                 , ProcessDown(..)
@@ -105,19 +112,34 @@ import           Control.Eff.Concurrent.Process ( ProcessId(..)
                                                 , MonitorReference(..)
                                                 , withMonitor
                                                 , receiveWithMonitor
-                                                , receiveAnyMessage
-                                                , receiveMessage
-                                                , receiveSelectedMessage
-                                                , receiveAnyLoop
-                                                , receiveLoop
-                                                , receiveSelectedLoop
-                                                , self
-                                                , sendShutdown
-                                                , sendInterrupt
-                                                , exitBecause
-                                                , exitNormally
-                                                , exitWithError
-                                                , makeReference
+                                                -- *** Process Interrupt Handling
+                                                , provideInterruptsShutdown
+                                                , handleInterrupts
+                                                , exitOnInterrupt
+                                                , logInterrupts
+                                                , provideInterrupts
+                                                , mergeEitherInterruptAndExitReason
+                                                , interrupt
+                                                -- *** Process Operation Execution
+                                                , executeAndResume
+                                                , executeAndResumeOrExit
+                                                , executeAndResumeOrThrow
+                                                -- *** Exit Or Interrupt Reasons
+                                                , ExitReason(..)
+                                                , ExitRecovery(..)
+                                                , InterruptReason
+                                                , Interrupts
+                                                , InterruptableProcess
+                                                , ExitSeverity(..)
+                                                , SomeExitReason(SomeExitReason)
+                                                , toExitRecovery
+                                                , isRecoverable
+                                                , toExitSeverity
+                                                , isBecauseDown
+                                                , isCrash
+                                                , toCrashReason
+                                                , fromSomeExitReason
+                                                , logProcessExit
                                                 )
 import           Control.Eff.Concurrent.Process.Timer
                                                 ( Timeout(fromTimeoutMicros)

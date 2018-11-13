@@ -368,6 +368,7 @@ handleProcess myProcessInfo =
       Spawn _                  -> diskontinue shutdownRequest
       SpawnLink _              -> diskontinue shutdownRequest
       ReceiveSelectedMessage _ -> diskontinue shutdownRequest
+      FlushMessages            -> diskontinue shutdownRequest
       SelfPid                  -> diskontinue shutdownRequest
       MakeReference            -> diskontinue shutdownRequest
       YieldProcess             -> diskontinue shutdownRequest
@@ -397,6 +398,7 @@ handleProcess myProcessInfo =
       Spawn _                  -> kontinue (Interrupted interruptRequest)
       SpawnLink _              -> kontinue (Interrupted interruptRequest)
       ReceiveSelectedMessage _ -> kontinue (Interrupted interruptRequest)
+      FlushMessages            -> kontinue (Interrupted interruptRequest)
       SelfPid                  -> kontinue (Interrupted interruptRequest)
       MakeReference            -> kontinue (Interrupted interruptRequest)
       YieldProcess             -> kontinue (Interrupted interruptRequest)
@@ -433,6 +435,7 @@ handleProcess myProcessInfo =
       SpawnLink child          -> spawnNewProcess (Just myProcessInfo) child
                                     >>= kontinue nextRef . ResumeWith . fst
       ReceiveSelectedMessage f -> interpretReceive f >>= either diskontinue (kontinue nextRef)
+      FlushMessages            -> interpretFlush >>= kontinue nextRef
       SelfPid                  -> kontinue nextRef (ResumeWith myPid)
       MakeReference            -> kontinue (nextRef + 1) (ResumeWith nextRef)
       YieldProcess             -> kontinue nextRef (ResumeWith  ())
@@ -506,6 +509,14 @@ handleProcess myProcessInfo =
            >>= lift
            . atomically
            . enqueueShutdownRequest toPid msg
+
+      interpretFlush :: Eff SchedulerIO (ResumeProcess [Dynamic])
+      interpretFlush = do
+        setMyProcessState ProcessBusyReceiving
+        lift $ atomically $ do
+          myMessageQ <- readTVar myMessageQVar
+          modifyTVar' myMessageQVar (incomingMessages .~ Seq.Empty)
+          return (ResumeWith (toList (myMessageQ ^. incomingMessages)))
 
       interpretReceive
         :: MessageSelector b

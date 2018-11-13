@@ -165,6 +165,25 @@ selectiveReceiveTests schedulerFactory = setTravisTestOptions
         ok  <- returnToSender SP srv "test"
         ()  <- stopReturnToSender SP srv
         lift (ok @? "selective receive failed")
+    , testCase "flush messages"
+    $ applySchedulerFactory schedulerFactory
+    $ withSchedulerProxy SP
+    $ do
+        let px = SP
+        me <- self px
+        spawn_
+          $ replicateM_ 10 (sendMessage px me True) >> sendMessage px me ()
+        spawn_ $ replicateM_
+          10
+          (sendMessage px me (123.23411 :: Float)) >> sendMessage px me ()
+        spawn_
+          $ replicateM_ 10 (sendMessage px me "123") >> sendMessage px me ()
+        ()   <- receiveMessage px
+        ()   <- receiveMessage px
+        ()   <- receiveMessage px
+        -- replicateCheapM_ 40 (yieldProcess px)
+        msgs <- flushMessages
+        lift (length msgs @?= 30)
     ]
   )
 
@@ -1006,33 +1025,5 @@ timerTests schedulerFactory = setTravisTestOptions
           )
 
         lift (threadDelay 100)
-    , testCase "flush" $ applySchedulerFactory schedulerFactory $ do
-         let
-           n = 100
-           testMsg :: Float
-           testMsg = 123
-           flushMsgs px = do
-             res <- receiveSelectedAfter @Dynamic.Dynamic px selectAnyMessageLazy 0
-             case res of
-               Left  _to -> return ()
-               Right _   -> flushMsgs px
-         me    <- self SP
-         other <- spawn
-           (do
-             replicateM_ n $ sendMessage SP me "bad message"
-             () <- receiveMessage @() SP
-             replicateM_ n $ sendMessage SP me testMsg
-           )
-         receiveAfter @Float SP 10000 >>= lift . (@?= Nothing)
-         flushMsgs SP
-         sendMessage SP other ()
-         replicateM_
-           n
-           (do
-             res <- receiveAfter @Float SP 10000
-             lift (res @?= Just testMsg)
-           )
-
-         lift (threadDelay 100)
     ]
   )

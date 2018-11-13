@@ -1,3 +1,4 @@
+{-# LANGUAGE ImplicitParams #-}
 -- | The message passing effect.
 --
 -- This module describes an abstract message passing effect, and a process
@@ -11,14 +12,40 @@
 --  * And a /pure/(rer) coroutine based scheduler in:
 --    "Control.Eff.Concurrent.Process.SingleThreadedScheduler"
 module Control.Eff.Concurrent.Process
-  ( -- * ProcessId Type
-    ProcessId(..)
+  ( -- * Process Effect
+    -- ** Effect Type Handling
+    Process(..)
+    -- ** ProcessId Type
+  , ProcessId(..)
   , fromProcessId
-   -- * Process Effects
-  , Process(..)
   , ConsProcess
   , ResumeProcess(..)
+  -- ** Scheduler Effect Identification
   , SchedulerProxy(..)
+  , HasScheduler
+  , getSchedulerProxy
+  , withSchedulerProxy
+  , thisSchedulerProxy
+  -- ** Process State
+  , ProcessState(..)
+  -- ** Yielding
+  , yieldProcess
+  -- ** Sending Messages
+  , sendMessage
+  , sendAnyMessage
+  , sendShutdown
+  , sendInterrupt
+  -- ** Utilities
+  , makeReference
+  -- ** Receiving Messages
+  , receiveAnyMessage
+  , receiveMessage
+  , receiveSelectedMessage
+  , flushMessages
+  , receiveAnyLoop
+  , receiveLoop
+  , receiveSelectedLoop
+  -- *** Selecting Messages to Receive
   , MessageSelector(runMessageSelector)
   , selectMessage
   , selectMessageLazy
@@ -31,44 +58,23 @@ module Control.Eff.Concurrent.Process
   , selectDynamicMessage
   , selectDynamicMessageLazy
   , selectAnyMessageLazy
-  , ProcessState(..)
-  , ExitRecovery(..)
-  , toExitRecovery
-  , isRecoverable
-  , ExitSeverity(..)
-  , toExitSeverity
-  , ExitReason(..)
-  , isBecauseDown
-  , InterruptReason
-  , Interrupts
-  , InterruptableProcess
-  , provideInterruptsShutdown
-  , handleInterrupts
-  , exitOnInterrupt
-  , logInterrupts
-  , provideInterrupts
-  , mergeEitherInterruptAndExitReason
-  , interrupt
-  , isCrash
-  , toCrashReason
-  , SomeExitReason(SomeExitReason)
-  , fromSomeExitReason
-  , logProcessExit
-  , thisSchedulerProxy
-  , executeAndResume
-  , executeAndResumeOrExit
-  , executeAndResumeOrThrow
-  , yieldProcess
-  , sendMessage
-  , sendAnyMessage
+  -- ** Process Life Cycle Management
+  , self
+  , isProcessAlive
+  -- *** Spawning
   , spawn
   , spawn_
   , spawnLink
   , spawnRaw
   , spawnRaw_
-  , isProcessAlive
+  -- *** Process Exit or Interrupt
+  , exitBecause
+  , exitNormally
+  , exitWithError
+  -- *** Links
   , linkProcess
   , unlinkProcess
+  -- *** Monitors
   , monitor
   , demonitor
   , ProcessDown(..)
@@ -77,19 +83,34 @@ module Control.Eff.Concurrent.Process
   , MonitorReference(..)
   , withMonitor
   , receiveWithMonitor
-  , receiveAnyMessage
-  , receiveMessage
-  , receiveSelectedMessage
-  , receiveAnyLoop
-  , receiveLoop
-  , receiveSelectedLoop
-  , self
-  , sendShutdown
-  , sendInterrupt
-  , exitBecause
-  , exitNormally
-  , exitWithError
-  , makeReference
+  -- *** Process Interrupt Handling
+  , provideInterruptsShutdown
+  , handleInterrupts
+  , exitOnInterrupt
+  , logInterrupts
+  , provideInterrupts
+  , mergeEitherInterruptAndExitReason
+  , interrupt
+  -- *** Process Operation Execution
+  , executeAndResume
+  , executeAndResumeOrExit
+  , executeAndResumeOrThrow
+  -- *** Exit Or Interrupt Reasons
+  , ExitReason(..)
+  , ExitRecovery(..)
+  , InterruptReason
+  , Interrupts
+  , InterruptableProcess
+  , ExitSeverity(..)
+  , SomeExitReason(SomeExitReason)
+  , toExitRecovery
+  , isRecoverable
+  , toExitSeverity
+  , isBecauseDown
+  , isCrash
+  , toCrashReason
+  , fromSomeExitReason
+  , logProcessExit
   )
 where
 
@@ -139,6 +160,8 @@ import qualified Control.Exception             as Exc
 --
 -- * when the first process exists, all process should be killed immediately
 data Process (r :: [Type -> Type]) b where
+  -- | Remove all messages from the process' message queue
+  FlushMessages :: Process r (ResumeProcess [Dynamic])
   -- | In cooperative schedulers, this will give processing time to the
   -- scheduler. Every other operation implicitly serves the same purpose.
   YieldProcess :: Process r (ResumeProcess ())
@@ -191,11 +214,12 @@ data Process (r :: [Type -> Type]) b where
 
 instance Show (Process r b) where
   showsPrec d = \case
-    YieldProcess -> showString "yield process"
-    SelfPid      -> showString "lookup the current process id"
-    Spawn    _   -> showString "spawn a new process"
-    SpawnLink _  -> showString "spawn a new process and link to it"
-    Shutdown sr  -> showParen (d >= 10) (showString "shutdown " . showsPrec 10 sr)
+    FlushMessages -> showString "flush messages"
+    YieldProcess  -> showString "yield process"
+    SelfPid       -> showString "lookup the current process id"
+    Spawn    _    -> showString "spawn a new process"
+    SpawnLink _   -> showString "spawn a new process and link to it"
+    Shutdown sr   -> showParen (d >= 10) (showString "shutdown " . showsPrec 10 sr)
     SendShutdown toPid sr -> showParen
       (d >= 10)
       ( showString "shutting down "
@@ -366,6 +390,25 @@ data SchedulerProxy :: [Type -> Type] -> Type where
   SP :: SchedulerProxy q
   -- | Like 'SP' but different
   Scheduler :: SchedulerProxy q
+
+-- | A constraint for the implicit 'SchedulerProxy' parameter.
+-- Use 'getSchedulerProxy' to query it.
+--
+-- @since 0.12.0
+type HasScheduler q = (?_schedulerProxy :: SchedulerProxy q)
+
+-- | Get access to the 'SchedulerProxy' for the current scheduler effects.
+--
+-- @since 0.12.0
+getSchedulerProxy :: HasScheduler q => SchedulerProxy q
+getSchedulerProxy = ?_schedulerProxy
+
+-- | Set the 'SchedulerProxy' to use, this satisfies 'HasScheduler' .
+--
+-- @since 0.12.0
+withSchedulerProxy :: SchedulerProxy q -> (HasScheduler q => a) -> a
+withSchedulerProxy px x = let ?_schedulerProxy = px in x
+
 
 -- | /Cons/ 'Process' onto a list of effects.
 type ConsProcess r = Process r ': r
@@ -704,7 +747,7 @@ executeAndResumeOrExit processAction = do
 -- the process when an 'Interrupts' was raised. Use 'executeAndResume' to catch
 -- interrupts.
 executeAndResumeOrThrow
-  :: forall r q v
+  :: forall q r v
    . (SetMember Process (Process q) r, HasCallStack, Member Interrupts r)
   => Process q (ResumeProcess v)
   -> Eff r v
@@ -878,6 +921,21 @@ receiveMessage
   => SchedulerProxy q
   -> Eff r a
 receiveMessage px = receiveSelectedMessage px (MessageSelector fromDynamic)
+
+-- | Remove and return all messages currently enqueued in the process message
+-- queue.
+--
+-- @since 0.12.0
+flushMessages
+  :: forall  r q
+   . ( HasCallStack
+     , SetMember Process (Process q) r
+     , Member Interrupts r
+     , HasScheduler q
+     )
+  => Eff r [Dynamic]
+flushMessages =
+  executeAndResumeOrThrow @q FlushMessages
 
 -- | Enter a loop to receive messages and pass them to a callback, until the
 -- function returns 'Just' a result.
