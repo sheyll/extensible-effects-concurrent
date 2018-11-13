@@ -237,7 +237,7 @@ type LoggingAndIO =
 -- top of 'SchedulerIO' effect. All logging is sent to standard output.
 defaultMain :: HasCallStack => Eff InterruptableProcEff () -> IO ()
 defaultMain c =
-  withAsyncLogChannel 1024
+  withAsyncLogChannel (1024 :: Int)
     (multiMessageLogWriter ($ printLogMessage))
     (handleLoggingAndIO_ (schedule c))
 

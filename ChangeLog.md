@@ -1,5 +1,9 @@
 # Changelog for extensible-effects-concurrent
 
+## 0.12.2
+
+- Fix some compiler warnings
+
 ## 0.12.1
 
 - Fix build errors with GHC-8.6

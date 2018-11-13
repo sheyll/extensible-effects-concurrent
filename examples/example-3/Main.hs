@@ -10,7 +10,7 @@ import           System.IO
 
 main :: IO ()
 main = withAsyncLogChannel
-  1000
+  (1000 :: Int)
   (ioLogMessageWriter
     (fileAppender "extensible-effects-concurrent-example-3.log")
   )
