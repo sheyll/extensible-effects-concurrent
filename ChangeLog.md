@@ -1,5 +1,10 @@
 # Changelog for extensible-effects-concurrent
 
+## 0.13.1
+
+- Remove misguided `MonadCatch` constraints in the `ObservationQueueReader`
+    functions, and use `Interrupts` instead
+
 ## 0.13.0
 
 - Fix bad constraints in `Queue` observer

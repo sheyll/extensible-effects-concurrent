@@ -102,7 +102,6 @@ enqueueObservationsRegistered
      , Member Interrupts r
      , Lifted IO r
      , HasCallStack
-     , MonadCatch (Eff r)
      )
   => SchedulerProxy q
   -> Int
@@ -129,7 +128,6 @@ enqueueObservations
      , Member Interrupts r
      , Lifted IO q
      , HasCallStack
-     , MonadCatch (Eff r)
      )
   => SchedulerProxy q
   -> Server o
@@ -171,15 +169,16 @@ withQueue
      , Typeable a
      , Show (Observation a)
      , HasLogging IO e
-     , MonadCatch (Eff e)
      , Integral len
+     , Member Interrupts e
      )
   => len
   -> Eff (ObservationQueueReader a ': e) b
   -> Eff e b
 withQueue queueLimit e = do
-  q    <- liftIO (newTBQueueIO (fromIntegral queueLimit))
-  res  <- Safe.tryAny (runReader (ObservationQueue q) e)
+  q   <- liftIO (newTBQueueIO (fromIntegral queueLimit))
+  res <- handleInterrupts (return . Left)
+                          (Right <$> runReader (ObservationQueue q) e)
   rest <- liftIO (atomically (flushTBQueue q))
   unless
     (null rest)
