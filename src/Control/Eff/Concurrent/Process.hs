@@ -404,18 +404,20 @@ data SchedulerProxy :: [Type -> Type] -> Type where
   Scheduler :: SchedulerProxy q
 
 -- | A constraint for the implicit 'SchedulerProxy' parameter.
--- Use 'getSchedulerProxy' to query it.
+-- Use 'getSchedulerProxy' to query it. _EXPERIMENTAL_
 --
 -- @since 0.12.0
 type HasScheduler q = (?_schedulerProxy :: SchedulerProxy q)
 
 -- | Get access to the 'SchedulerProxy' for the current scheduler effects.
+--  _EXPERIMENTAL_
 --
 -- @since 0.12.0
 getSchedulerProxy :: HasScheduler q => SchedulerProxy q
 getSchedulerProxy = ?_schedulerProxy
 
 -- | Set the 'SchedulerProxy' to use, this satisfies 'HasScheduler' .
+--  _EXPERIMENTAL_
 --
 -- @since 0.12.0
 withSchedulerProxy :: SchedulerProxy q -> (HasScheduler q => a) -> a
