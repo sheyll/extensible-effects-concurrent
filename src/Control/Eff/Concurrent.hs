@@ -97,7 +97,6 @@ import           Control.Eff.Concurrent.Process ( Process(..)
                                                 , MonitorReference(..)
                                                 , withMonitor
                                                 , receiveWithMonitor
-                                                -- *** Process Interrupt Handling
                                                 , provideInterruptsShutdown
                                                 , handleInterrupts
                                                 , exitOnInterrupt

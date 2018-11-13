@@ -38,13 +38,13 @@ module Control.Eff.Concurrent.Process
   -- ** Utilities
   , makeReference
   -- ** Receiving Messages
-  , receiveAnyMessage
   , receiveMessage
   , receiveSelectedMessage
   , flushMessages
-  , receiveAnyLoop
+  , receiveAnyMessage
   , receiveLoop
   , receiveSelectedLoop
+  , receiveAnyLoop
   -- ** Selecting Messages to Receive
   , MessageSelector(runMessageSelector)
   , selectMessage
@@ -164,6 +164,8 @@ data Process (r :: [Type -> Type]) b where
   FlushMessages :: Process r (ResumeProcess [Dynamic])
   -- | In cooperative schedulers, this will give processing time to the
   -- scheduler. Every other operation implicitly serves the same purpose.
+  --
+  -- @since 0.12.0
   YieldProcess :: Process r (ResumeProcess ())
   -- | Return the current 'ProcessId'
   SelfPid :: Process r (ResumeProcess ProcessId)
@@ -171,6 +173,8 @@ data Process (r :: [Type -> Type]) b where
   -- will return immediately with a 'ProcessId'.
   Spawn :: Eff (Process r ': r) () -> Process r (ResumeProcess ProcessId)
   -- | Start a new process, and 'Link' to it .
+  --
+  -- @since 0.12.0
   SpawnLink :: Eff (Process r ': r) () -> Process r (ResumeProcess ProcessId)
   -- | Get the process state (or 'Nothing' if the process is dead)
   GetProcessState :: ProcessId -> Process r (ResumeProcess (Maybe ProcessState))
@@ -202,14 +206,22 @@ data Process (r :: [Type -> Type]) b where
   -- and a message for each will be sent.
   -- If the process is already dead, the 'ProcessDown' message
   -- will be sent immediately, w.thout exit reason
+  --
+  -- @since 0.12.0
   Monitor :: ProcessId -> Process r (ResumeProcess MonitorReference)
   -- | Remove a monitor.
+  --
+  -- @since 0.12.0
   Demonitor :: MonitorReference -> Process r (ResumeProcess ())
   -- | Connect the calling process to another process, such that
   -- if one of the processes crashes (i.e. 'isCrash' returns 'True'), the other
   -- is shutdown with the 'ProcessExitReaon' 'LinkedProcessCrashed'.
+  --
+  -- @since 0.12.0
   Link :: ProcessId -> Process r (ResumeProcess ())
   -- | Unlink the calling proccess from the other process.
+  --
+  -- @since 0.12.0
   Unlink :: ProcessId -> Process r (ResumeProcess ())
 
 instance Show (Process r b) where
@@ -845,6 +857,8 @@ spawn_
 spawn_ child = void (spawn child)
 
 -- | Start a new process, and immediately link to it.
+--
+-- @since 0.12.0
 spawnLink
   :: forall r q
    . (HasCallStack, SetMember Process (Process q) r, Member Interrupts r)
@@ -873,6 +887,8 @@ spawnRaw_
 spawnRaw_ = void . spawnRaw
 
 -- | Return 'True' if the process is alive.
+--
+-- @since 0.12.0
 isProcessAlive
   :: forall r q
    . (HasCallStack, SetMember Process (Process q) r, Member Interrupts r)
@@ -883,7 +899,7 @@ isProcessAlive _px pid =
   isJust <$> executeAndResumeOrThrow (GetProcessState pid)
 
 -- | Block until a message was received.
--- See 'ReceiveMessage' for more documentation.
+-- See 'ReceiveSelectedMessage' for more documentation.
 receiveAnyMessage
   :: forall r q
    . (HasCallStack, SetMember Process (Process q) r, Member Interrupts r)
@@ -995,6 +1011,8 @@ makeReference _px = executeAndResumeOrThrow MakeReference
 
 -- | A value that contains a unique reference of a process
 -- monitoring.
+--
+-- @since 0.12.0
 data MonitorReference =
   MonitorReference { monitorIndex :: Int
                    , monitoredProcess :: ProcessId
@@ -1018,6 +1036,8 @@ instance Show MonitorReference where
 -- and a message for each will be sent.
 -- If the process is already dead, the 'ProcessDown' message
 -- will be sent immediately, w.thout exit reason
+--
+-- @since 0.12.0
 monitor
   :: forall r q
    . (HasCallStack, SetMember Process (Process q) r, Member Interrupts r)
@@ -1027,6 +1047,8 @@ monitor
 monitor _px = executeAndResumeOrThrow . Monitor . force
 
 -- | Remove a monitor created with 'monitor'.
+--
+-- @since 0.12.0
 demonitor
   :: forall r q
    . (HasCallStack, SetMember Process (Process q) r, Member Interrupts r)
@@ -1037,6 +1059,8 @@ demonitor _px = executeAndResumeOrThrow . Demonitor . force
 
 -- | 'monitor' another process before while performing an action
 -- and 'demonitor' afterwards.
+--
+-- @since 0.12.0
 withMonitor
   :: ( HasCallStack
      , Member Interrupts r
@@ -1051,6 +1075,8 @@ withMonitor px pid eff = monitor px pid >>= \ref -> eff ref <* demonitor px ref
 
 -- | A 'MessageSelector' for receiving either a monitor of the
 -- given process or another message.
+--
+-- @since 0.12.0
 receiveWithMonitor
   :: ( HasCallStack
      , Member Interrupts r
@@ -1074,6 +1100,8 @@ receiveWithMonitor px pid sel = withMonitor
 -- | A monitored process exited.
 -- This message is sent to a process by the scheduler, when
 -- a process that was monitored via a 'SchedulerCommand' died.
+--
+-- @since 0.12.0
 data ProcessDown =
   ProcessDown
     { downReference :: !MonitorReference
@@ -1083,6 +1111,8 @@ data ProcessDown =
 
 -- | Trigger an 'Interrupt' for a 'ProcessDown' message.
 -- The reason will be 'ProcessNotRunning'
+--
+-- @since 0.12.0
 becauseProcessIsDown :: ProcessDown -> InterruptReason
 becauseProcessIsDown = ProcessNotRunning . monitoredProcess . downReference
 
@@ -1101,6 +1131,8 @@ instance Show ProcessDown where
 
 -- | A 'MesssageSelector' for the 'ProcessDown' message of a specific
 -- process.
+--
+-- @since 0.12.0
 selectProcessDown :: MonitorReference -> MessageSelector ProcessDown
 selectProcessDown ref0 =
   filterMessageLazy (\(ProcessDown ref _reason) -> ref0 == ref)
@@ -1108,6 +1140,8 @@ selectProcessDown ref0 =
 -- | Connect the calling process to another process, such that
 -- if one of the processes crashes (i.e. 'isCrash' returns 'True'), the other
 -- is shutdown with the 'ProcessExitReaon' 'LinkedProcessCrashed'.
+--
+-- @since 0.12.0
 linkProcess
   :: forall r q
    . (HasCallStack, SetMember Process (Process q) r, Member Interrupts r)
@@ -1117,6 +1151,8 @@ linkProcess
 linkProcess _px = executeAndResumeOrThrow . Link . force
 
 -- | Unlink the calling proccess from the other process.
+--
+-- @since 0.12.0
 unlinkProcess
   :: forall r q
    . (HasCallStack, SetMember Process (Process q) r, Member Interrupts r)
