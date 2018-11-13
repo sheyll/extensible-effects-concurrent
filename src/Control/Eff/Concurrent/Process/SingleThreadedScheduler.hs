@@ -272,7 +272,7 @@ data OnYield r a where
   OnSend :: !ProcessId -> !Dynamic
          -> (ResumeProcess () -> Eff r (OnYield r a))
          -> OnYield r a
-  OnRecv :: Show b => MessageSelector b -> (ResumeProcess b -> Eff r (OnYield r a))
+  OnRecv :: MessageSelector b -> (ResumeProcess b -> Eff r (OnYield r a))
          -> OnYield r a
   OnGetProcessState
          :: ProcessId

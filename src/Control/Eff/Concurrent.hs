@@ -193,7 +193,6 @@ import           Control.Eff.Concurrent.Api.Server
                                                 , ServerCallback(..)
                                                 , requestHandlerSelector
                                                 , terminationHandler
-                                                , Showable(..)
                                                 )
 import           Control.Eff.Concurrent.Api.Observer
                                                 ( Observer(..)
