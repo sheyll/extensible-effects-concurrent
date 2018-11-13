@@ -341,13 +341,13 @@ selectHandlerMethod
    . ( HasCallStack
      , Typeable api
      , SetMember Process (Process effScheduler) eff
-     , Member (Exc (ExitReason 'Recoverable)) eff
+     , Member Interrupts eff
      )
   => SchedulerProxy effScheduler
   -> ApiHandler api eff
   -> MessageSelector (Eff eff ApiServerCmd)
-selectHandlerMethod px handlers = selectDynamicMessageLazy
-  (fmap (applyHandlerMethod px handlers) . fromDynamic)
+selectHandlerMethod px handlers =
+  selectDynamicMessageLazy (fmap (applyHandlerMethod px handlers) . fromDynamic)
 
 -- | Apply either the '_callCallback', '_castCallback' or the '_terminateCallback'
 -- callback to an incoming request.
@@ -355,7 +355,7 @@ applyHandlerMethod
   :: forall eff effScheduler api
    . ( Typeable api
      , SetMember Process (Process effScheduler) eff
-     , Member (Exc (ExitReason 'Recoverable)) eff
+     , Member Interrupts eff
      , HasCallStack
      )
   => SchedulerProxy effScheduler
@@ -381,7 +381,7 @@ unhandledCallError
    . ( Typeable p
      , HasCallStack
      , SetMember Process (Process q) r
-     , Member (Exc (ExitReason 'Recoverable)) r
+     , Member Interrupts r
      )
   => SchedulerProxy q
   -> Api p ( 'Synchronous x)
@@ -397,7 +397,7 @@ unhandledCastError
    . ( Typeable p
      , HasCallStack
      , SetMember Process (Process q) r
-     , Member (Exc (ExitReason 'Recoverable)) r
+     , Member Interrupts r
      )
   => SchedulerProxy q
   -> Api p 'Asynchronous
