@@ -1,5 +1,5 @@
 name:           extensible-effects-concurrent
-version:        0.12.0
+version:        0.12.1
 description:    Please see the README on GitHub at <https://github.com/sheyll/extensible-effects-concurrent#readme>
 synopsis:       Message passing concurrency as extensible-effect
 homepage:       https://github.com/sheyll/extensible-effects-concurrent#readme
@@ -7,7 +7,7 @@ bug-reports:    https://github.com/sheyll/extensible-effects-concurrent/issues
 author:         Sven Heyll
 maintainer:     sven.heyll@gmail.com
 category:       Concurrency, Control, Effect
-tested-with:    GHC==8.4.3, GHC==8.4.4
+tested-with:    GHC==8.2.2, GHC==8.4.3, GHC==8.4.4, GHC==8.6.1
 copyright:      Copyright Sven Heyll
 license:        BSD3
 license-file:   LICENSE

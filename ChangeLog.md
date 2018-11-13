@@ -1,5 +1,9 @@
 # Changelog for extensible-effects-concurrent
 
+## 0.12.1
+
+- Fix build errors with GHC-8.6
+
 ## 0.12.0
 
 - Add implicit SchedulerProxy

@@ -168,18 +168,19 @@ enqueueObservations px oSvr queueLimit k = withQueue
   )
 
 withQueue
-  :: forall a b e
+  :: forall a b e len
    . ( HasCallStack
      , Typeable a
      , Show (Observation a)
      , HasLogging IO e
      , MonadCatch (Eff e)
+     , Integral len
      )
-  => Int
+  => len
   -> Eff (ObservationQueueReader a ': e) b
   -> Eff e b
 withQueue queueLimit e = do
-  q    <- liftIO (newTBQueueIO queueLimit)
+  q    <- liftIO (newTBQueueIO (fromIntegral queueLimit))
   res  <- Safe.tryAny (runReader (ObservationQueue q) e)
   rest <- liftIO (atomically (flushTBQueue q))
   unless

@@ -43,15 +43,15 @@ import           GHC.Stack
 -- >
 --
 withAsyncLogChannel
-  :: forall message a
-   . (NFData message)
-  => Int -- ^ Size of the log message input queue. If the queue is full, message
-        -- are dropped silently.
+  :: forall message a len
+   . (NFData message, Integral len)
+  => len -- ^ Size of the log message input queue. If the queue is full, message
+         -- are dropped silently.
   -> LogWriter message IO -- ^ An IO action to write the log messages
   -> (LogChannel message -> IO a)
   -> IO a
 withAsyncLogChannel queueLen ioWriter action = do
-  msgQ <- newTBQueueIO (fromIntegral @Int queueLen)
+  msgQ <- newTBQueueIO (fromIntegral queueLen)
   withAsync (logLoop msgQ) (action . ConcurrentLogChannel msgQ)
  where
   logLoop tq = do
