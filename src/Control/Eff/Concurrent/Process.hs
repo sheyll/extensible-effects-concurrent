@@ -45,7 +45,7 @@ module Control.Eff.Concurrent.Process
   , receiveAnyLoop
   , receiveLoop
   , receiveSelectedLoop
-  -- *** Selecting Messages to Receive
+  -- ** Selecting Messages to Receive
   , MessageSelector(runMessageSelector)
   , selectMessage
   , selectMessageLazy
@@ -61,20 +61,20 @@ module Control.Eff.Concurrent.Process
   -- ** Process Life Cycle Management
   , self
   , isProcessAlive
-  -- *** Spawning
+  -- ** Spawning
   , spawn
   , spawn_
   , spawnLink
   , spawnRaw
   , spawnRaw_
-  -- *** Process Exit or Interrupt
+  -- ** Process Exit or Interrupt
   , exitBecause
   , exitNormally
   , exitWithError
-  -- *** Links
+  -- ** Links
   , linkProcess
   , unlinkProcess
-  -- *** Monitors
+  -- ** Monitors
   , monitor
   , demonitor
   , ProcessDown(..)
@@ -83,7 +83,7 @@ module Control.Eff.Concurrent.Process
   , MonitorReference(..)
   , withMonitor
   , receiveWithMonitor
-  -- *** Process Interrupt Handling
+  -- ** Process Interrupt Handling
   , provideInterruptsShutdown
   , handleInterrupts
   , exitOnInterrupt
@@ -91,11 +91,11 @@ module Control.Eff.Concurrent.Process
   , provideInterrupts
   , mergeEitherInterruptAndExitReason
   , interrupt
-  -- *** Process Operation Execution
+  -- ** Process Operation Execution
   , executeAndResume
   , executeAndResumeOrExit
   , executeAndResumeOrThrow
-  -- *** Exit Or Interrupt Reasons
+  -- ** Exit Or Interrupt Reasons
   , ExitReason(..)
   , ExitRecovery(..)
   , InterruptReason
