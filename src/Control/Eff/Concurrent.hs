@@ -39,32 +39,23 @@ module Control.Eff.Concurrent
   )
 where
 
-import           Control.Eff.Concurrent.Process ( -- * Process Effect
-                                                  -- ** Effect Type Handling
-                                                  Process(..)
-                                                  -- ** ProcessId Type
+import           Control.Eff.Concurrent.Process ( Process(..)
                                                 , ProcessId(..)
                                                 , fromProcessId
                                                 , ConsProcess
                                                 , ResumeProcess(..)
-                                                -- ** Scheduler Effect Identification
                                                 , SchedulerProxy(..)
                                                 , HasScheduler
                                                 , getSchedulerProxy
                                                 , withSchedulerProxy
                                                 , thisSchedulerProxy
-                                                -- ** Process State
                                                 , ProcessState(..)
-                                                -- ** Yielding
                                                 , yieldProcess
-                                                -- ** Sending Messages
                                                 , sendMessage
                                                 , sendAnyMessage
                                                 , sendShutdown
                                                 , sendInterrupt
-                                                -- ** Utilities
                                                 , makeReference
-                                                -- ** Receiving Messages
                                                 , receiveAnyMessage
                                                 , receiveMessage
                                                 , receiveSelectedMessage
@@ -72,7 +63,6 @@ import           Control.Eff.Concurrent.Process ( -- * Process Effect
                                                 , receiveAnyLoop
                                                 , receiveLoop
                                                 , receiveSelectedLoop
-                                                -- *** Selecting Messages to Receive
                                                 , MessageSelector
                                                   ( runMessageSelector
                                                   )
@@ -87,23 +77,18 @@ import           Control.Eff.Concurrent.Process ( -- * Process Effect
                                                 , selectDynamicMessage
                                                 , selectDynamicMessageLazy
                                                 , selectAnyMessageLazy
-                                                -- ** Process Life Cycle Management
                                                 , self
                                                 , isProcessAlive
-                                                -- *** Spawning
                                                 , spawn
                                                 , spawn_
                                                 , spawnLink
                                                 , spawnRaw
                                                 , spawnRaw_
-                                                -- *** Process Exit or Interrupt
                                                 , exitBecause
                                                 , exitNormally
                                                 , exitWithError
-                                                -- *** Links
                                                 , linkProcess
                                                 , unlinkProcess
-                                                -- *** Monitors
                                                 , monitor
                                                 , demonitor
                                                 , ProcessDown(..)
@@ -120,11 +105,9 @@ import           Control.Eff.Concurrent.Process ( -- * Process Effect
                                                 , provideInterrupts
                                                 , mergeEitherInterruptAndExitReason
                                                 , interrupt
-                                                -- *** Process Operation Execution
                                                 , executeAndResume
                                                 , executeAndResumeOrExit
                                                 , executeAndResumeOrThrow
-                                                -- *** Exit Or Interrupt Reasons
                                                 , ExitReason(..)
                                                 , ExitRecovery(..)
                                                 , InterruptReason
