@@ -86,6 +86,7 @@ module Control.Eff.Concurrent.Process
   -- ** Process Interrupt Handling
   , provideInterruptsShutdown
   , handleInterrupts
+  , tryUninterrupted
   , exitOnInterrupt
   , logInterrupts
   , provideInterrupts
@@ -470,6 +471,7 @@ instance Show ExitRecovery where
 -- | Get the 'ExitRecover'y
 toExitRecovery :: ExitReason r -> ExitRecovery
 toExitRecovery = \case
+  ProcessFinished           -> Recoverable
   (ProcessNotRunning    _)  -> Recoverable
   (LinkedProcessCrashed _)  -> Recoverable
   (ProcessError         _)  -> Recoverable
@@ -495,12 +497,21 @@ instance NFData ExitSeverity
 -- | Get the 'ExitSeverity' of a 'ExitReason'.
 toExitSeverity :: ExitReason e -> ExitSeverity
 toExitSeverity = \case
-  ExitNormally -> NormalExit
-  _            -> Crash
+  ExitNormally    -> NormalExit
+  ProcessFinished -> NormalExit
+  _               -> Crash
 
 -- | A sum-type with reasons for why a process exists the scheduling loop,
 -- this includes errors, that can occur when scheduleing messages.
 data ExitReason (t :: ExitRecovery) where
+    -- | A process has finished a unit of work and might exit or work on
+    --   something else. This is primarily used for interupting infinite
+    --   server loops, allowing for additional cleanup work before
+    --   exitting (e.g. with 'ExitNormally')
+    --
+    -- @since 0.13.2
+    ProcessFinished
+      :: ExitReason 'Recoverable
     -- | A process that should be running was not running.
     ProcessNotRunning
       :: ProcessId -> ExitReason 'Recoverable
@@ -529,6 +540,7 @@ instance Show (ExitReason x) where
   showsPrec d =
     showParen (d>=10) .
     (\case
+        ProcessFinished             -> showString "process finished"
         ProcessNotRunning p         -> showString "process not running: " . shows p
         LinkedProcessCrashed m      -> showString "linked process "
                                         . shows m . showString " crashed"
@@ -546,6 +558,7 @@ instance Exc.Exception (ExitReason 'Recoverable)
 instance Exc.Exception (ExitReason 'NoRecovery )
 
 instance NFData (ExitReason x) where
+  rnf ProcessFinished = rnf ()
   rnf (ProcessNotRunning !l) = rnf l
   rnf (LinkedProcessCrashed !l) = rnf l
   rnf (ProcessError !l) = rnf l
@@ -555,6 +568,9 @@ instance NFData (ExitReason x) where
   rnf Killed = rnf ()
 
 instance Ord (ExitReason x) where
+  compare ProcessFinished ProcessFinished = EQ
+  compare ProcessFinished _ = LT
+  compare _ ProcessFinished = GT
   compare (ProcessNotRunning l) (ProcessNotRunning r) = compare l r
   compare (ProcessNotRunning _) _ = LT
   compare _ (ProcessNotRunning _) = GT
@@ -575,6 +591,7 @@ instance Ord (ExitReason x) where
   compare Killed Killed = EQ
 
 instance Eq (ExitReason x) where
+  (==) ProcessFinished ProcessFinished = True
   (==) (ProcessNotRunning l) (ProcessNotRunning r) = (==) l r
   (==) ExitNormally ExitNormally = True
   (==) (LinkedProcessCrashed l) (LinkedProcessCrashed r) = l == r
@@ -588,6 +605,7 @@ instance Eq (ExitReason x) where
 -- | A predicate for linked process __crashes__.
 isBecauseDown :: Maybe ProcessId -> ExitReason r -> Bool
 isBecauseDown mp = \case
+  ProcessFinished         -> False
   ProcessNotRunning    _  -> False
   LinkedProcessCrashed p  -> maybe True (== p) mp
   ProcessError         _  -> False
@@ -625,6 +643,16 @@ handleInterrupts
   -> Eff r a
   -> Eff r a
 handleInterrupts = flip catchError
+
+-- | Like 'handleInterrupts', but instead of passing the 'InterruptReason'
+-- to a handler function, 'Either' is returned.
+--
+-- @since 0.13.2
+tryUninterrupted
+  :: (HasCallStack, Member Interrupts r)
+  => Eff r a
+  -> Eff r (Either InterruptReason a)
+tryUninterrupted = handleInterrupts (pure . Left) . fmap Right
 
 -- | Handle interrupts by logging them with `logProcessExit` and otherwise
 -- ignoring them.
@@ -697,6 +725,7 @@ instance NFData SomeExitReason where
 fromSomeExitReason
   :: SomeExitReason -> Either (ExitReason 'NoRecovery) InterruptReason
 fromSomeExitReason (SomeExitReason e) = case e of
+  recoverable@ProcessFinished          -> Right recoverable
   recoverable@(ProcessNotRunning    _) -> Right recoverable
   recoverable@(LinkedProcessCrashed _) -> Right recoverable
   recoverable@(ProcessError         _) -> Right recoverable
