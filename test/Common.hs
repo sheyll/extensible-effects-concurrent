@@ -30,7 +30,7 @@ withTestLogC
 withTestLogC doSchedule k = k
   (return
     (\e -> withAsyncLogChannel
-      1000
+      (1000 :: Integer)
       (multiMessageLogWriter
         (\writeWith ->
           writeWith
