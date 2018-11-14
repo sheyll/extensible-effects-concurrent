@@ -5,7 +5,6 @@ import           Control.Eff.Lift
 import           Control.Eff.Concurrent
 import           Data.Dynamic
 import           Control.Concurrent
-import           Control.Applicative
 import           Control.DeepSeq
 
 main :: IO ()
@@ -34,13 +33,3 @@ firstExample px = do
   sendMessage px person (WhoAreYou me)
   personName <- receiveMessage px
   logInfo ("I just met " ++ personName)
-
-
-selectInt :: MessageSelector Int
-selectInt = selectMessage
-
-selectString :: MessageSelector String
-selectString = selectMessage
-
-selectIntOrString :: MessageSelector (Either Int String)
-selectIntOrString = Left <$> selectInt <|> Right <$> selectString
