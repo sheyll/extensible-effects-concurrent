@@ -1,5 +1,9 @@
 # Changelog for extensible-effects-concurrent
 
+## 0.14.0
+
+- Fix/Improve Server2
+
 ## 0.13.2
 
 - Add `ProcessFinished`

@@ -38,15 +38,16 @@ import           Control.Eff.Extend
 import           Control.Eff.Log
 import           Control.Eff.State.Lazy
 import           Control.Eff.Concurrent.Api
+import           Control.Eff.Concurrent.Api.Internal
 import           Control.Eff.Concurrent.Process
 import           Control.Monad                  ( (>=>) )
 import           Data.Proxy
 import           Data.Dynamic
 import           Control.Applicative
 import           GHC.Stack
-import           GHC.Generics
 import           Control.DeepSeq
 import           Data.Kind
+import           Data.Foldable
 import           Data.Default
 
 -- | /Server/ an 'Api' in a newly spawned process.
@@ -71,9 +72,9 @@ spawnApiServer (MessageCallback sel cb) (InterruptCallback intCb) =
   handleCallbackResult
     :: Either CallbackResult (Either InterruptReason CallbackResult)
     -> Eff (ConsProcess eff) (Maybe ())
-  handleCallbackResult (Left HandleNext) = return Nothing
+  handleCallbackResult (Left AwaitNext) = return Nothing
   handleCallbackResult (Left (StopServer r)) = exitBecause SP (NotRecovered r)
-  handleCallbackResult (Right (Right HandleNext)) = return Nothing
+  handleCallbackResult (Right (Right AwaitNext)) = return Nothing
   handleCallbackResult (Right (Right (StopServer r))) =
     intCb r >>= handleCallbackResult . Left
   handleCallbackResult (Right (Left r)) =
@@ -85,13 +86,13 @@ spawnApiServer (MessageCallback sel cb) (InterruptCallback intCb) =
 -- @since 0.13.2
 spawnApiServerStateful
   :: forall api eff state
-   . (HasCallStack)
+   . (HasCallStack, ToServerPids api)
   => Eff (InterruptableProcess eff) state
   -> MessageCallback api (State state ': InterruptableProcess eff)
   -> InterruptCallback (State state ': ConsProcess eff)
-  -> Eff (InterruptableProcess eff) (Server api)
+  -> Eff (InterruptableProcess eff) (ServerPids api)
 spawnApiServerStateful initEffect (MessageCallback sel cb) (InterruptCallback intCb)
-  = fmap asServer $ spawnRaw $ do
+  = fmap (toServerPids (Proxy @api)) $ spawnRaw $ do
     state <- provideInterruptsShutdown initEffect
     evalState state $ receiveSelectedLoop (SP @eff) sel $ \msg -> case msg of
       Left  m -> invokeIntCb m
@@ -101,12 +102,12 @@ spawnApiServerStateful initEffect (MessageCallback sel cb) (InterruptCallback in
         case r of
           Left  i              -> invokeIntCb i
           Right (StopServer i) -> invokeIntCb i
-          Right HandleNext     -> return Nothing
+          Right AwaitNext      -> return Nothing
  where
   invokeIntCb j = do
     l <- intCb j
     case l of
-      HandleNext                 -> return Nothing
+      AwaitNext                  -> return Nothing
       StopServer ProcessFinished -> return (Just ())
       StopServer k               -> exitBecause SP (NotRecovered k)
 
@@ -117,15 +118,16 @@ spawnApiServerStateful initEffect (MessageCallback sel cb) (InterruptCallback in
 spawnApiServerEffectful
   :: forall api eff serverEff
    . ( HasCallStack
+     , ToServerPids api
      , Member Interrupts serverEff
      , SetMember Process (Process eff) serverEff
      )
   => (forall b . Eff serverEff b -> Eff (InterruptableProcess eff) b)
   -> MessageCallback api serverEff
   -> InterruptCallback serverEff
-  -> Eff (InterruptableProcess eff) (Server api)
+  -> Eff (InterruptableProcess eff) (ServerPids api)
 spawnApiServerEffectful handleServerInteralEffects scb (InterruptCallback intCb)
-  = asServer <$> (spawn (handleServerInteralEffects (go scb)))
+  = toServerPids (Proxy @api) <$> spawn (handleServerInteralEffects (go scb))
  where
   go (MessageCallback sel cb) = receiveSelectedLoop
     (SP @eff)
@@ -137,10 +139,10 @@ spawnApiServerEffectful handleServerInteralEffects scb (InterruptCallback intCb)
     handleCallbackResult
       :: Either CallbackResult (Either InterruptReason CallbackResult)
       -> Eff serverEff (Maybe ())
-    handleCallbackResult (Left HandleNext) = return Nothing
+    handleCallbackResult (Left AwaitNext) = return Nothing
     handleCallbackResult (Left (StopServer r)) =
       exitBecause SP (NotRecovered r)
-    handleCallbackResult (Right (Right HandleNext)) = return Nothing
+    handleCallbackResult (Right (Right AwaitNext)) = return Nothing
     handleCallbackResult (Right (Right (StopServer r))) =
       intCb r >>= handleCallbackResult . Left
     handleCallbackResult (Right (Left r)) =
@@ -153,15 +155,14 @@ spawnApiServerEffectful handleServerInteralEffects scb (InterruptCallback intCb)
 -- @since 0.13.2
 data CallbackResult where
   -- | Tell the server to keep the server loop running
-  HandleNext :: CallbackResult
+  AwaitNext :: CallbackResult
   -- | Tell the server to exit, this will make 'serve' stop handling requests without
   -- exitting the process. '_terminateCallback' will be invoked with the given
   -- optional reason.
   StopServer :: InterruptReason -> CallbackResult
   --  SendReply :: reply -> CallbackResult () -> CallbackResult (reply -> Eff eff ())
-  deriving (Show, Typeable, Generic)
+  deriving ( Typeable )
 
-instance NFData CallbackResult
 
 -- | An existential wrapper around  a 'MessageSelector' and a function that
 -- handles the selected message. The @api@ type parameter is a phantom type.
@@ -178,7 +179,7 @@ instance Semigroup (MessageCallback api eff) where
 
 instance Monoid (MessageCallback api eff) where
   mappend = (<>)
-  mempty = MessageCallback selectAnyMessageLazy (const (pure HandleNext))
+  mempty = MessageCallback selectAnyMessageLazy (const (pure AwaitNext))
 
 instance Default (MessageCallback api eff) where
   def = mempty
@@ -219,42 +220,89 @@ handleAnyMessages = MessageCallback selectAnyMessageLazy
 -- @since 0.13.2
 handleCasts
   :: forall api eff
-   . ( HasCallStack
-     , NFData (Api api 'Asynchronous)
-     , Typeable (Api api 'Asynchronous)
-     )
+   . (HasCallStack, Typeable api, Typeable (Api api 'Asynchronous))
   => (Api api 'Asynchronous -> Eff eff CallbackResult)
   -> MessageCallback api eff
-handleCasts = MessageCallback selectMessage
+handleCasts h = MessageCallback
+  (selectMessageWithLazy
+    (\case
+      cr@(Cast _ :: Request api) -> Just cr
+      _callReq                   -> Nothing
+    )
+  )
+  (\(Cast req :: Request api) -> h req)
 
 -- | A smart constructor for 'MessageCallback's
 --
+-- > handleCalls SP
+-- >   (\ (RentBook bookId customerId) runCall ->
+-- >      runCall $ do
+-- >          rentalIdE <- rentBook bookId customerId
+-- >          case rentalIdE of
+-- >            -- on fail we just don't send a reply, let the caller run into
+-- >            -- timeout
+-- >            Left err -> return (Nothing, AwaitNext)
+-- >            Right rentalId -> return (Just rentalId, AwaitNext))
+--
 -- @since 0.13.2
 handleCalls
-  :: forall api eff reply
+  :: forall api eff effScheduler
    . ( HasCallStack
-     , NFData (Api api ( 'Synchronous reply))
-     , Typeable (Api api ( 'Synchronous reply))
+     , Typeable api
+     , SetMember Process (Process effScheduler) eff
+     , Member Interrupts eff
      )
-  => (Api api ( 'Synchronous reply) -> Eff eff CallbackResult)
+  => SchedulerProxy effScheduler
+  -> (  forall secret reply
+      . (Typeable reply, Typeable (Api api ( 'Synchronous reply)))
+     => Api api ( 'Synchronous reply)
+     -> (Eff eff (Maybe reply, CallbackResult) -> secret)
+     -> secret
+     )
   -> MessageCallback api eff
-handleCalls = MessageCallback selectMessage
+handleCalls px h = MessageCallback
+  (selectMessageWithLazy
+    (\case
+      (Cast _ :: Request api) -> Nothing
+      callReq                 -> Just callReq
+    )
+  )
+  (\(Call callRef fromPid req :: Request api) -> h
+    req
+    (\resAction -> do
+      (mReply, cbResult) <- resAction
+      traverse_ (sendReply fromPid callRef) mReply
+      return cbResult
+    )
+  )
+ where
+  sendReply :: (Typeable reply) => ProcessId -> Int -> reply -> Eff eff ()
+  sendReply fromPid callRef reply =
+    sendMessage px fromPid (Response (Proxy @api) callRef $! reply)
+
 
 -- | A smart constructor for 'MessageCallback's
 --
 -- @since 0.13.2
 handleCastsAndCalls
-  :: forall api eff reply
+  :: forall api eff effScheduler
    . ( HasCallStack
-     , NFData (Api api ( 'Synchronous reply))
-     , Typeable (Api api ( 'Synchronous reply))
-     , NFData (Api api 'Asynchronous)
+     , Typeable api
      , Typeable (Api api 'Asynchronous)
+     , SetMember Process (Process effScheduler) eff
+     , Member Interrupts eff
      )
-  => (Api api 'Asynchronous -> Eff eff CallbackResult)
-  -> (Api api ( 'Synchronous reply) -> Eff eff CallbackResult)
+  => SchedulerProxy effScheduler
+  -> (Api api 'Asynchronous -> Eff eff CallbackResult)
+  -> (  forall secret reply
+      . (Typeable reply, Typeable (Api api ( 'Synchronous reply)))
+     => Api api ( 'Synchronous reply)
+     -> (Eff eff (Maybe reply, CallbackResult) -> secret)
+     -> secret
+     )
   -> MessageCallback api eff
-handleCastsAndCalls onCast onCall = handleCalls onCall <> handleCasts onCast
+handleCastsAndCalls px onCast onCall =
+  handleCalls px onCall <> handleCasts onCast
 
 -- | A smart constructor for 'MessageCallback's
 --
@@ -298,7 +346,7 @@ fallbackHandler (MessageCallback s r) = MessageCallback s r
 -- @since 0.13.2
 dropUnhandledMessages :: forall eff . HasCallStack => MessageCallback '[] eff
 dropUnhandledMessages =
-  MessageCallback selectAnyMessageLazy (const (return HandleNext))
+  MessageCallback selectAnyMessageLazy (const (return AwaitNext))
 
 -- | A 'fallbackHandler' that terminates if there are unhandled messages.
 --
@@ -316,7 +364,7 @@ logUnhandledMessages
   => MessageCallback '[] eff
 logUnhandledMessages = MessageCallback selectAnyMessageLazy $ \msg -> do
   logWarning ("ignoring unhandled message " ++ show msg)
-  return HandleNext
+  return AwaitNext
 
 -- | Helper type class for the return values of 'spawnApiServer' et al.
 --

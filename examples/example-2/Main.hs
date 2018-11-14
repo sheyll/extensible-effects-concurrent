@@ -3,12 +3,16 @@ module Main where
 
 import           Data.Dynamic
 import           Control.Eff
+import           Control.Eff.Lift
 import           Control.Eff.Concurrent
 import           Control.Eff.State.Strict
 import           Control.Monad
+import           Control.Concurrent
 
 main :: IO ()
 main = do
+  defaultMain (void (altCounterExample SchedulerProxy))
+
   defaultMain (void (counterExample SchedulerProxy))
   print (schedulePure (counterExample SchedulerProxy))
 
@@ -21,6 +25,72 @@ data instance Api Counter x where
   Cnt :: Api Counter ('Synchronous Integer)
   ObserveCounter :: SomeObserver Counter -> Api Counter 'Asynchronous
   UnobserveCounter :: SomeObserver Counter -> Api Counter 'Asynchronous
+  deriving Typeable
+
+altCounterExample
+  :: (Member (Logs LogMessage) q, Lifted IO q)
+  => SchedulerProxy q
+  -> Eff (InterruptableProcess q) ()
+altCounterExample px = do
+  (c, cp) <- altCounter
+  lift (threadDelay 500000)
+  o <- logCounterObservations px
+  lift (threadDelay 500000)
+  registerObserver px o c
+  lift (threadDelay 500000)
+  cast px c Inc
+  lift (threadDelay 500000)
+  sendMessage px cp "test 123"
+  cast px c Inc
+  lift (threadDelay 500000)
+  cast px c Inc
+  sendMessage px cp (12312312 :: Int)
+  lift (threadDelay 500000)
+  cast px c Inc
+  lift (threadDelay 500000)
+  cast px c Inc
+  lift (threadDelay 500000)
+  cast px c Inc
+  lift (threadDelay 500000)
+  r <- call px c Cnt
+  lift (threadDelay 500000)
+  lift (putStrLn ("r: " ++ show r))
+  lift (threadDelay 500000)
+  lift (threadDelay 500000)
+
+
+altCounter
+  :: (Member (Logs LogMessage) q)
+  => Eff (InterruptableProcess q) (Server Counter, ProcessId)
+altCounter = spawnApiServerEffectful
+  (manageObservers @Counter . evalState (0 :: Integer))
+  (  handleCalls
+      SP
+      (\case
+        Cnt ->
+          ($ do
+            val <- get
+            return (Just val, AwaitNext)
+          )
+      )
+  <> handleCasts
+       (\case
+         Inc -> do
+           val <- get @Integer
+           let val' = val + 1
+           notifyObservers SP (CountChanged val')
+           put val'
+           return AwaitNext
+         ObserveCounter s -> do
+           addObserver s
+           return AwaitNext
+         UnobserveCounter s -> do
+           removeObserver s
+           return AwaitNext
+       )
+  ^: logUnhandledMessages
+  )
+  stopServerOnInterrupt
 
 deriving instance Show (Api Counter x)
 
@@ -46,6 +116,7 @@ logCounterObservations px = spawnCallbackObserver
     logInfo (show me ++ " observed on: " ++ show fromSvr ++ ": " ++ show msg)
     return HandleNextRequest
   )
+
 
 counterHandler
   :: forall r q
