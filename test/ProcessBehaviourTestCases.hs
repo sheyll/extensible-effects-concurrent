@@ -172,12 +172,14 @@ selectiveReceiveTests schedulerFactory = setTravisTestOptions
         let px = SP
         me <- self px
         spawn_
-          $ replicateM_ 10 (sendMessage px me True) >> sendMessage px me ()
-        spawn_ $ replicateM_
-          10
-          (sendMessage px me (123.23411 :: Float)) >> sendMessage px me ()
+          $  replicateM_ 10 (sendMessage px me True)
+          >> sendMessage px me ()
         spawn_
-          $ replicateM_ 10 (sendMessage px me "123") >> sendMessage px me ()
+          $  replicateM_ 10 (sendMessage px me (123.23411 :: Float))
+          >> sendMessage px me ()
+        spawn_
+          $  replicateM_ 10 (sendMessage px me "123")
+          >> sendMessage px me ()
         ()   <- receiveMessage px
         ()   <- receiveMessage px
         ()   <- receiveMessage px
@@ -863,16 +865,18 @@ linkingTests schedulerFactory = setTravisTestOptions
         foo1 = void (receiveAnyMessage SP)
         foo2 foo1Pid = do
           linkProcess SP foo1Pid
-          ("unlink foo1", barPid) <- receiveMessage SP
+          (r1, barPid) <- receiveMessage SP
+          lift ("unlink foo1" @=? r1)
           unlinkProcess SP foo1Pid
           sendMessage SP barPid ("unlinked foo1", foo1Pid)
-          "the end" <- receiveMessage SP
+          receiveMessage SP >>= lift . (@?= "the end")
           exitWithError SP "foo two"
         bar foo2Pid parentPid = do
           linkProcess SP foo2Pid
           me <- self SP
           sendMessage SP foo2Pid ("unlink foo1", me)
-          ("unlinked foo1", foo1Pid) <- receiveMessage SP
+          (r1, foo1Pid) <- receiveMessage SP
+          lift ("unlinked foo1" @=? r1)
           handleInterrupts
             (const (return ()))
             (do
@@ -993,7 +997,8 @@ timerTests schedulerFactory = setTravisTestOptions
         me    <- self SP
         other <- spawn
           (do
-            () <- receiveMessage @() SP
+            r <- receiveMessage @() SP
+            lift (r @?= ())
             sendMessage SP me (123 :: Int)
           )
         pd1 <- receiveAfter @() SP 10000
@@ -1012,7 +1017,8 @@ timerTests schedulerFactory = setTravisTestOptions
         other <- spawn
           (do
             replicateM_ n $ sendMessage SP me "bad message"
-            () <- receiveMessage @() SP
+            r <- receiveMessage @() SP
+            lift (r @?= ())
             replicateM_ n $ sendMessage SP me testMsg
           )
         receiveAfter @Float SP 100 >>= lift . (@?= Nothing)

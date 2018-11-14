@@ -12,11 +12,14 @@ import           Control.Eff.Concurrent.Process
 import           Control.Eff.Concurrent.Process.Timer
 import           Control.Eff.Concurrent.Process.ForkIOScheduler
                                                as Scheduler
-import           Control.Monad                  ( void, replicateM_ )
+import           Control.Monad                  ( void
+                                                , replicateM_
+                                                )
 import           Test.Tasty
 import           Test.Tasty.HUnit
 import           Data.Dynamic
 import           Common
+import           Numeric.Natural
 import           Data.Default
 
 test_IOExceptionsIsolated :: TestTree
@@ -31,7 +34,7 @@ test_IOExceptionsIsolated = setTravisTestOptions $ testGroup
       $ do
           aVar <- newEmptyTMVarIO
           withAsyncLogChannel
-            1000
+            (1000 :: Natural)
             def -- (singleMessageLogWriter (putStrLn . renderLogMessage))
             (Scheduler.defaultMainWithLogChannel
               (do
@@ -99,7 +102,7 @@ test_mainProcessSpawnsAChildAndReturns = setTravisTestOptions
   (testCase
     "spawn a child and return"
     (withAsyncLogChannel
-      1000
+      (1000 :: Natural)
       def
       (Scheduler.defaultMainWithLogChannel
         (void (spawn (void (receiveAnyMessage forkIoScheduler))))
@@ -112,7 +115,7 @@ test_mainProcessSpawnsAChildAndExitsNormally = setTravisTestOptions
   (testCase
     "spawn a child and exit normally"
     (withAsyncLogChannel
-      1000
+      (1000 :: Natural)
       def
       (Scheduler.defaultMainWithLogChannel
         (do
@@ -131,7 +134,7 @@ test_mainProcessSpawnsAChildInABusySendLoopAndExitsNormally =
     (testCase
       "spawn a child with a busy send loop and exit normally"
       (withAsyncLogChannel
-        1000
+        (1000 :: Natural)
         def
         (Scheduler.defaultMainWithLogChannel
           (do
@@ -152,7 +155,7 @@ test_mainProcessSpawnsAChildBothReturn = setTravisTestOptions
   (testCase
     "spawn a child and let it return and return"
     (withAsyncLogChannel
-      1000
+      (1000 :: Natural)
       def
       (Scheduler.defaultMainWithLogChannel
         (do
@@ -169,7 +172,7 @@ test_mainProcessSpawnsAChildBothExitNormally = setTravisTestOptions
   (testCase
     "spawn a child and let it exit and exit"
     (withAsyncLogChannel
-      1000
+      (1000 :: Natural)
       def
       (Scheduler.defaultMainWithLogChannel
         (do
@@ -192,7 +195,7 @@ test_timer :: TestTree
 test_timer =
   setTravisTestOptions
     $ testCase "flush via timer"
-    $ withAsyncLogChannel 1000 def
+    $ withAsyncLogChannel (1000 :: Natural) def
     $ Scheduler.defaultMainWithLogChannel
     $ do
         let n = 100
