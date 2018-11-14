@@ -1,5 +1,11 @@
 # Changelog for extensible-effects-concurrent
 
+## 0.13.2
+
+- Add `ProcessFinished`
+- Add `tryUninterrupted`
+- Add simpler `Server2`
+
 ## 0.13.1
 
 - Remove misguided `MonadCatch` constraints in the `ObservationQueueReader`

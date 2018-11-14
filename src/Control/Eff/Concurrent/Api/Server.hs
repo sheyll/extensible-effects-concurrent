@@ -50,6 +50,7 @@ import           GHC.Generics
 import           Control.DeepSeq
 import           Data.Default
 
+
 -- | A record of callbacks, handling requests sent to a /server/ 'Process', all
 -- belonging to a specific 'Api' family instance.
 -- The values of this type can be 'serve'ed or combined via 'Servable' or
@@ -70,7 +71,7 @@ data ApiHandler api eff where
      --  * the process exits
      --  * '_callCallback' or '_castCallback' return 'StopApiServer'
      --
-     -- If the process exist peacefully the parameter is 'Nothing',
+     -- If the process exist peacefully the parameter is 'NotServerCallbacking',
      -- otherwise @Just "error message..."@ if the process exits with an
      -- error.
      --

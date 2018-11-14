@@ -17,6 +17,9 @@ module Control.Eff.Concurrent
     -- ** /Server/ Functions for Providing APIs
     module Control.Eff.Concurrent.Api.Server
   ,
+    -- ** /Server/ Functions for Providing APIs (new experimental)
+    module Control.Eff.Concurrent.Api.Server2
+  ,
     -- ** /Observer/ Functions for Events and Event Listener
     module Control.Eff.Concurrent.Api.Observer
   ,
@@ -99,6 +102,7 @@ import           Control.Eff.Concurrent.Process ( Process(..)
                                                 , receiveWithMonitor
                                                 , provideInterruptsShutdown
                                                 , handleInterrupts
+                                                , tryUninterrupted
                                                 , exitOnInterrupt
                                                 , logInterrupts
                                                 , provideInterrupts
@@ -151,6 +155,29 @@ import           Control.Eff.Concurrent.Api.Client
                                                 , whereIsServer
                                                 , ServerReader
                                                 )
+import           Control.Eff.Concurrent.Api.Server2
+                                                ( spawnApiServer
+                                                , spawnApiServerStateful
+                                                , spawnApiServerEffectful
+                                                , CallbackResult(..)
+                                                , MessageCallback(..)
+                                                , handleCasts
+                                                , handleCalls
+                                                , handleCastsAndCalls
+                                                , handleMessages
+                                                , handleSelectedMessages
+                                                , handleAnyMessages
+                                                , handleProcessDowns
+                                                , dropUnhandledMessages
+                                                , exitOnUnhandled
+                                                , logUnhandledMessages
+                                                , (^:)
+                                                , fallbackHandler
+                                                , ToServerPids(..)
+                                                , InterruptCallback(..)
+                                                , stopServerOnInterrupt
+                                                )
+
 import           Control.Eff.Concurrent.Api.Server
                                                 ( serve
                                                 , spawnServer
@@ -171,7 +198,7 @@ import           Control.Eff.Concurrent.Api.Server
                                                 , unhandledCallError
                                                 , unhandledCastError
                                                 , defaultTermination
-                                                , Servable(..)
+                                                -- , Servable(..)
                                                 , ServerCallback(..)
                                                 , requestHandlerSelector
                                                 , terminationHandler
