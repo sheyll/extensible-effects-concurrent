@@ -34,21 +34,25 @@ main = defaultMain
     -- The SchedulerProxy paremeter contains the effects of a specific scheduler
     -- implementation.
 
-newtype WhoAreYou = WhoAreYou ProcessId deriving (Typeable, NFData)
 
-firstExample :: (HasLoggingIO q) => SchedulerProxy q -> Eff (Process q ': q) ()
+newtype WhoAreYou = WhoAreYou ProcessId deriving (Typeable, NFData, Show)
+
+firstExample
+  :: (HasLogging IO q) => SchedulerProxy q -> Eff (InterruptableProcess q) ()
 firstExample px = do
   person <- spawn
     (do
       logInfo "I am waiting for someone to ask me..."
       WhoAreYou replyPid <- receiveMessage px
-      sendMessageAs px replyPid "Alice"
+      sendMessage px replyPid "Alice"
       logInfo (show replyPid ++ " just needed to know it.")
     )
   me <- self px
-  sendMessageAs px person (WhoAreYou me)
+  sendMessage px person (WhoAreYou me)
   personName <- receiveMessage px
   logInfo ("I just met " ++ personName)
+
+
 ```
 
 **Running** this example causes this output:
