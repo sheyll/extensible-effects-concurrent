@@ -30,6 +30,9 @@ module Control.Eff.Concurrent.Api.Server2
   -- ** Interrupt handler
   , InterruptCallback(..)
   , stopServerOnInterrupt
+  -- * Observers
+  , handleObservations
+  , Observing()
   )
 where
 
@@ -38,6 +41,7 @@ import           Control.Eff.Extend
 import           Control.Eff.Log
 import           Control.Eff.State.Lazy
 import           Control.Eff.Concurrent.Api
+import           Control.Eff.Concurrent.Api.Observer
 import           Control.Eff.Concurrent.Api.Internal
 import           Control.Eff.Concurrent.Process
 import           Control.Monad                  ( (>=>) )
@@ -409,3 +413,27 @@ instance Default (InterruptCallback eff) where
 -- @since 0.13.2
 stopServerOnInterrupt :: forall eff . HasCallStack => InterruptCallback eff
 stopServerOnInterrupt = InterruptCallback (pure . StopServer)
+
+-- | Apply a given callback function to incoming 'Observeration's.
+--
+-- @since 0.14.1
+handleObservations
+  :: Typeable o
+  => (Server o -> Observation o -> Eff e CallbackResult)
+  -> MessageCallback (Observing o) e
+handleObservations cb = handleCasts $ \(Observered s o) -> cb s o
+
+-- | An 'Api' type for generic 'Observer's, see 'handleObservations'.
+--
+-- @since 0.14.1
+data Observing o
+  deriving Typeable
+
+-- | An 'Api' instance for generic 'Observer's, see 'handleObservations'.
+--
+-- @since 0.14.1
+data instance Api (Observing o) 'Asynchronous where
+  Observered :: Server o -> Observation o -> Api (Observing o) 'Asynchronous
+
+instance (Typeable o, Observable o) => Observer (Observing o) o where
+  observationMessage = Observered

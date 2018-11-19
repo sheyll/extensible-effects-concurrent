@@ -1,5 +1,9 @@
 # Changelog for extensible-effects-concurrent
 
+## 0.14.1
+
+- Add Server2 based observation handling with `handleObservations`
+
 ## 0.14.0
 
 - Fix/Improve Server2

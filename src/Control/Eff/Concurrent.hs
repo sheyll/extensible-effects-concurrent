@@ -176,6 +176,8 @@ import           Control.Eff.Concurrent.Api.Server2
                                                 , ToServerPids(..)
                                                 , InterruptCallback(..)
                                                 , stopServerOnInterrupt
+                                                , handleObservations
+                                                , Observing()
                                                 )
 
 import           Control.Eff.Concurrent.Api.Server
