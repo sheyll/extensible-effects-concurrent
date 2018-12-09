@@ -1,5 +1,9 @@
 # Changelog for extensible-effects-concurrent
 
+## 0.14.2
+
+- Add Server2 functions to spawn and _link_
+
 ## 0.14.1
 
 - Add Server2 based observation handling with `handleObservations`

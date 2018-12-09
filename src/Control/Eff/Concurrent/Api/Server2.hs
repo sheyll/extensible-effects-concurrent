@@ -4,8 +4,11 @@
 module Control.Eff.Concurrent.Api.Server2
   ( -- * Starting Api Servers
     spawnApiServer
+  , spawnLinkApiServer
   , spawnApiServerStateful
   , spawnApiServerEffectful
+  , spawnLinkApiServerEffectful
+  , apiServerLoop
   -- ** Api Server Callbacks
   , CallbackResult(..)
   , MessageCallback(..)
@@ -14,6 +17,7 @@ module Control.Eff.Concurrent.Api.Server2
   , handleCasts
   , handleCalls
   , handleCastsAndCalls
+  , handleCallsDeferred
   -- *** Generic Message Handler
   , handleMessages
   , handleSelectedMessages
@@ -54,7 +58,7 @@ import           Data.Kind
 import           Data.Foldable
 import           Data.Default
 
--- | /Server/ an 'Api' in a newly spawned process.
+-- | /Serve/ an 'Api' in a newly spawned process.
 --
 -- @since 0.13.2
 spawnApiServer
@@ -63,26 +67,20 @@ spawnApiServer
   => MessageCallback api (InterruptableProcess eff)
   -> InterruptCallback (ConsProcess eff)
   -> Eff (InterruptableProcess eff) (ServerPids api)
-spawnApiServer (MessageCallback sel cb) (InterruptCallback intCb) =
-  toServerPids (Proxy @api)
-    <$> (spawnRaw $ receiveSelectedLoop
-          (SP @eff)
-          sel
-          (   either (fmap Left . intCb) (fmap Right . provideInterrupts . cb)
-          >=> handleCallbackResult
-          )
-        )
- where
-  handleCallbackResult
-    :: Either CallbackResult (Either InterruptReason CallbackResult)
-    -> Eff (ConsProcess eff) (Maybe ())
-  handleCallbackResult (Left AwaitNext) = return Nothing
-  handleCallbackResult (Left (StopServer r)) = exitBecause SP (NotRecovered r)
-  handleCallbackResult (Right (Right AwaitNext)) = return Nothing
-  handleCallbackResult (Right (Right (StopServer r))) =
-    intCb r >>= handleCallbackResult . Left
-  handleCallbackResult (Right (Left r)) =
-    intCb r >>= handleCallbackResult . Left
+spawnApiServer scb (InterruptCallback icb) = toServerPids (Proxy @api)
+  <$> spawn (apiServerLoop scb (InterruptCallback (raise . icb)))
+
+-- | /Serve/ an 'Api' in a newly spawned -and linked - process.
+--
+-- @since 0.14.2
+spawnLinkApiServer
+  :: forall api eff
+   . (ToServerPids api, HasCallStack)
+  => MessageCallback api (InterruptableProcess eff)
+  -> InterruptCallback (ConsProcess eff)
+  -> Eff (InterruptableProcess eff) (ServerPids api)
+spawnLinkApiServer scb (InterruptCallback icb) = toServerPids (Proxy @api)
+  <$> spawnLink (apiServerLoop scb (InterruptCallback (raise . icb)))
 
 -- | /Server/ an 'Api' in a newly spawned process; the callbacks have access
 -- to some state initialed by the function in the first parameter.
@@ -130,27 +128,64 @@ spawnApiServerEffectful
   -> MessageCallback api serverEff
   -> InterruptCallback serverEff
   -> Eff (InterruptableProcess eff) (ServerPids api)
-spawnApiServerEffectful handleServerInteralEffects scb (InterruptCallback intCb)
-  = toServerPids (Proxy @api) <$> spawn (handleServerInteralEffects (go scb))
- where
-  go (MessageCallback sel cb) = receiveSelectedLoop
+spawnApiServerEffectful handleServerInteralEffects scb icb =
+  toServerPids (Proxy @api)
+    <$> spawn (handleServerInteralEffects (apiServerLoop scb icb))
+
+
+-- | /Server/ an 'Api' in a newly spawned process; The caller provides an
+-- effect handler for arbitrary effects used by the server callbacks.
+-- Links to the calling process like 'linkProcess' would.
+--
+-- @since 0.14.2
+spawnLinkApiServerEffectful
+  :: forall api eff serverEff
+   . ( HasCallStack
+     , ToServerPids api
+     , Member Interrupts serverEff
+     , SetMember Process (Process eff) serverEff
+     )
+  => (forall b . Eff serverEff b -> Eff (InterruptableProcess eff) b)
+  -> MessageCallback api serverEff
+  -> InterruptCallback serverEff
+  -> Eff (InterruptableProcess eff) (ServerPids api)
+spawnLinkApiServerEffectful handleServerInteralEffects scb icb =
+  toServerPids (Proxy @api)
+    <$> spawnLink (handleServerInteralEffects (apiServerLoop scb icb))
+
+-- | Receive loop for 'Api' 'call's. This starts a receive loop for
+-- a 'MessageCallback'. It is used behind the scenes by 'spawnLinkApiServerEffectful'
+-- and 'spawnApiServerEffectful'.
+--
+-- @since 0.14.2
+apiServerLoop
+  :: forall api eff serverEff
+   . ( HasCallStack
+     , ToServerPids api
+     , Member Interrupts serverEff
+     , SetMember Process (Process eff) serverEff
+     )
+  => MessageCallback api serverEff
+  -> InterruptCallback serverEff
+  -> Eff serverEff ()
+apiServerLoop (MessageCallback sel cb) (InterruptCallback intCb) =
+  receiveSelectedLoop
     (SP @eff)
     sel
     (   either (fmap Left . intCb) (fmap Right . tryUninterrupted . cb)
     >=> handleCallbackResult
     )
-   where
-    handleCallbackResult
-      :: Either CallbackResult (Either InterruptReason CallbackResult)
-      -> Eff serverEff (Maybe ())
-    handleCallbackResult (Left AwaitNext) = return Nothing
-    handleCallbackResult (Left (StopServer r)) =
-      exitBecause SP (NotRecovered r)
-    handleCallbackResult (Right (Right AwaitNext)) = return Nothing
-    handleCallbackResult (Right (Right (StopServer r))) =
-      intCb r >>= handleCallbackResult . Left
-    handleCallbackResult (Right (Left r)) =
-      intCb r >>= handleCallbackResult . Left
+ where
+  handleCallbackResult
+    :: Either CallbackResult (Either InterruptReason CallbackResult)
+    -> Eff serverEff (Maybe ())
+  handleCallbackResult (Left AwaitNext) = return Nothing
+  handleCallbackResult (Left (StopServer r)) = exitBecause SP (NotRecovered r)
+  handleCallbackResult (Right (Right AwaitNext)) = return Nothing
+  handleCallbackResult (Right (Right (StopServer r))) =
+    intCb r >>= handleCallbackResult . Left
+  handleCallbackResult (Right (Left r)) =
+    intCb r >>= handleCallbackResult . Left
 
 -- | A command to the server loop started e.g. by 'server' or 'spawnServerWithEffects'.
 -- Typically returned by an 'ApiHandler' member to indicate if the server
@@ -307,6 +342,40 @@ handleCastsAndCalls
   -> MessageCallback api eff
 handleCastsAndCalls px onCast onCall =
   handleCalls px onCall <> handleCasts onCast
+
+
+-- | A variation of 'handleCalls' that allows to defer a reply to a call.
+--
+-- @since 0.14.2
+handleCallsDeferred
+  :: forall api eff effScheduler
+   . ( HasCallStack
+     , Typeable api
+     , SetMember Process (Process effScheduler) eff
+     , Member Interrupts eff
+     )
+  => SchedulerProxy effScheduler
+  -> (  forall reply
+      . (Typeable reply, Typeable (Api api ( 'Synchronous reply)))
+     => Api api ( 'Synchronous reply)
+     -> (reply -> Eff eff ())
+     -> Eff eff CallbackResult
+     )
+  -> MessageCallback api eff
+handleCallsDeferred px h = MessageCallback
+  (selectMessageWithLazy
+    (\case
+      (Cast _ :: Request api) -> Nothing
+      callReq                 -> Just callReq
+    )
+  )
+  (\(Call callRef fromPid req :: Request api) ->
+    h req (sendReply fromPid callRef)
+  )
+ where
+  sendReply :: (Typeable reply) => ProcessId -> Int -> reply -> Eff eff ()
+  sendReply fromPid callRef reply =
+    sendMessage px fromPid (Response (Proxy @api) callRef $! reply)
 
 -- | A smart constructor for 'MessageCallback's
 --
