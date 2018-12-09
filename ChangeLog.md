@@ -1,8 +1,14 @@
 # Changelog for extensible-effects-concurrent
 
+## 0.14.3
+
+- Export the functions introduced in 0.14.2 in `Control.Eff.Concurrent`.
+
 ## 0.14.2
 
-- Add Server2 functions to spawn and _link_
+- Add `Server2` functions to spawn and _link_
+- Add a `Server2` function to defer the reply to a `Call`s called:
+  `handleCallsDeferred`
 
 ## 0.14.1
 

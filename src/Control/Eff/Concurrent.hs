@@ -157,13 +157,16 @@ import           Control.Eff.Concurrent.Api.Client
                                                 )
 import           Control.Eff.Concurrent.Api.Server2
                                                 ( spawnApiServer
+                                                , spawnLinkApiServer
                                                 , spawnApiServerStateful
                                                 , spawnApiServerEffectful
+                                                , spawnLinkApiServerEffectful
                                                 , CallbackResult(..)
                                                 , MessageCallback(..)
                                                 , handleCasts
                                                 , handleCalls
                                                 , handleCastsAndCalls
+                                                , handleCallsDeferred
                                                 , handleMessages
                                                 , handleSelectedMessages
                                                 , handleAnyMessages
