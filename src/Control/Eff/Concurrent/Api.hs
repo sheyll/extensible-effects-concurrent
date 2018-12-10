@@ -21,15 +21,21 @@ module Control.Eff.Concurrent.Api
   , fromServer
   , proxyAsServer
   , asServer
+  , mkRequestOrigin
+  , RequestOrigin(..)
+  , sendReply
   )
 where
 
-import           Data.Kind
+import           Control.DeepSeq
+import           Control.Eff
+import           Control.Eff.Concurrent.Process
 import           Control.Lens
+import           Data.Kind
 import           Data.Typeable                  ( Typeable
                                                 , typeRep
                                                 )
-import           Control.Eff.Concurrent.Process
+import           GHC.Generics
 
 -- | This data family defines an API, a communication interface description
 -- between at least two processes. The processes act as __servers__ or
@@ -89,3 +95,14 @@ proxyAsServer = const Server
 -- handling that API
 asServer :: forall api . ProcessId -> Server api
 asServer = Server
+
+-- | TODO doc
+mkRequestOrigin :: request -> ProcessId -> Int -> RequestOrigin request
+mkRequestOrigin _ = RequestOrigin
+
+-- | TODO doc
+data RequestOrigin request =
+  RequestOrigin { _requestOriginPid :: !ProcessId, _requestOriginCallRef :: !Int}
+  deriving (Eq, Ord, Typeable, Show, Generic)
+
+instance NFData (RequestOrigin request) where

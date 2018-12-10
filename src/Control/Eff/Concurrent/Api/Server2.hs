@@ -310,14 +310,10 @@ handleCalls px h = MessageCallback
     req
     (\resAction -> do
       (mReply, cbResult) <- resAction
-      traverse_ (sendReply fromPid callRef) mReply
+      traverse_ (sendReply (mkRequestOrigin req fromPid callRef)) mReply
       return cbResult
     )
   )
- where
-  sendReply :: (Typeable reply) => ProcessId -> Int -> reply -> Eff eff ()
-  sendReply fromPid callRef reply =
-    sendMessage px fromPid (Response (Proxy @api) callRef $! reply)
 
 
 -- | A smart constructor for 'MessageCallback's
@@ -357,8 +353,8 @@ handleCallsDeferred
   => SchedulerProxy effScheduler
   -> (  forall reply
       . (Typeable reply, Typeable (Api api ( 'Synchronous reply)))
-     => Api api ( 'Synchronous reply)
-     -> (reply -> Eff eff ())
+     => RequestOrigin (Api api ( 'Synchronous reply))
+     -> Api api ( 'Synchronous reply)
      -> Eff eff CallbackResult
      )
   -> MessageCallback api eff
@@ -370,12 +366,12 @@ handleCallsDeferred px h = MessageCallback
     )
   )
   (\(Call callRef fromPid req :: Request api) ->
-    h req (sendReply fromPid callRef)
+    h (RequestOrigin fromPid callRef) req
   )
- where
-  sendReply :: (Typeable reply) => ProcessId -> Int -> reply -> Eff eff ()
-  sendReply fromPid callRef reply =
-    sendMessage px fromPid (Response (Proxy @api) callRef $! reply)
+
+type family ResponseType request where
+  ResponseType (Api a ('Synchronous r)) = r
+
 
 -- | A smart constructor for 'MessageCallback's
 --

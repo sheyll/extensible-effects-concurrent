@@ -369,11 +369,7 @@ applyHandlerMethod px handlers (Call callRef fromPid request) = fromMaybe
   (unhandledCallError px)
   (_callCallback handlers)
   request
-  sendReply
- where
-  sendReply :: Typeable reply => reply -> Eff eff ()
-  sendReply reply =
-    sendMessage px fromPid (Response (Proxy @api) callRef $! reply)
+  (sendReply (mkRequestOrigin request fromPid callRef))
 
 -- | A default handler to use in '_callCallback' in 'ApiHandler'. It will call
 -- 'raiseError' with a nice error message.

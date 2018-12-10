@@ -68,8 +68,9 @@ call px (Server pidInternal) req = do
   sendMessage px pidInternal requestMessage
   let selectResult :: MessageSelector result
       selectResult =
-        let extractResult :: Response api result -> Maybe result
-            extractResult (Response _pxResult callRefMsg result) =
+        let extractResult
+              :: Reply (Api api ( 'Synchronous result)) -> Maybe result
+            extractResult (Reply _pxResult callRefMsg result) =
               if callRefMsg == callRef then Just result else Nothing
         in  selectMessageWith extractResult
   rres <- receiveWithMonitor px pidInternal selectResult

@@ -58,12 +58,19 @@ altCounterExample px = do
   lift (threadDelay 500000)
   lift (threadDelay 500000)
 
+data SupiDupi deriving Typeable
+
+data instance Api SupiDupi r where
+  Whoopediedoo :: Bool -> Api SupiDupi ('Synchronous (Maybe ()))
+  deriving Typeable
 
 altCounter
   :: (Member (Logs LogMessage) q)
   => Eff (InterruptableProcess q) (Server Counter, ProcessId)
 altCounter = spawnApiServerEffectful
-  (manageObservers @Counter . evalState (0 :: Integer))
+  (manageObservers @Counter . evalState (0 :: Integer) . evalState
+    (Nothing :: Maybe (RequestOrigin (Api SupiDupi ( 'Synchronous (Maybe ())))))
+  )
   (  handleCalls
       SP
       (\case
@@ -80,6 +87,13 @@ altCounter = spawnApiServerEffectful
            let val' = val + 1
            notifyObservers SP (CountChanged val')
            put val'
+           when (val' > 5) $ do
+             get >>= traverse_ (flip sendReply (Just ()))
+             put
+               (Nothing :: Maybe
+                   (RequestOrigin (Api SupiDupi ( 'Synchronous (Maybe ()))))
+               )
+
            return AwaitNext
          ObserveCounter s -> do
            addObserver s
@@ -87,6 +101,18 @@ altCounter = spawnApiServerEffectful
          UnobserveCounter s -> do
            removeObserver s
            return AwaitNext
+       )
+  ^: handleCallsDeferred
+       SP
+       origin
+       (\case
+         Whoopediedoo c -> if c
+           then put (Just origin)
+           else
+             put
+               (Nothing :: Maybe
+                   (RequestOrigin (Api SupiDupi ( 'Synchronous (Maybe ()))))
+               )
        )
   ^: logUnhandledMessages
   )
