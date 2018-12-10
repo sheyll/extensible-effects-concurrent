@@ -502,3 +502,12 @@ data instance Api (Observing o) 'Asynchronous where
 
 instance (Typeable o, Observable o) => Observer (Observing o) o where
   observationMessage = Observered
+
+
+
+-- | TODO doc
+data RequestOrigin request =
+  RequestOrigin { _requestOriginPid :: !ProcessId, _requestOriginCallRef :: !Int}
+  deriving (Eq, Ord, Typeable, Show, Generic)
+
+instance NFData (RequestOrigin request) where
