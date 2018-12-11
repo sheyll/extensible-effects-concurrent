@@ -1,5 +1,10 @@
 # Changelog for extensible-effects-concurrent
 
+## 0.15.0
+
+- Add `Api` `Request` and `Reply` types
+- Add `RequestOrigin` which can be used in `Server2` based Api servers to queue and defer replies to `Call`s
+
 ## 0.14.3
 
 - Export the functions introduced in 0.14.2 in `Control.Eff.Concurrent`.
@@ -27,7 +32,7 @@
 ## 0.13.1
 
 - Remove misguided `MonadCatch` constraints in the `ObservationQueueReader`
-    functions, and use `Interrupts` instead
+  functions, and use `Interrupts` instead
 
 ## 0.13.0
 

@@ -46,7 +46,7 @@ import           Control.Eff.Log
 import           Control.Eff.State.Lazy
 import           Control.Eff.Concurrent.Api
 import           Control.Eff.Concurrent.Api.Observer
-import           Control.Eff.Concurrent.Api.Internal
+import           Control.Eff.Concurrent.Api.Request
 import           Control.Eff.Concurrent.Process
 import           Control.Monad                  ( (>=>) )
 import           Data.Proxy
@@ -502,12 +502,3 @@ data instance Api (Observing o) 'Asynchronous where
 
 instance (Typeable o, Observable o) => Observer (Observing o) o where
   observationMessage = Observered
-
-
-
--- | TODO doc
-data RequestOrigin request =
-  RequestOrigin { _requestOriginPid :: !ProcessId, _requestOriginCallRef :: !Int}
-  deriving (Eq, Ord, Typeable, Show, Generic)
-
-instance NFData (RequestOrigin request) where

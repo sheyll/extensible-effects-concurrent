@@ -7,6 +7,7 @@ import           Control.Eff.Lift
 import           Control.Eff.Concurrent
 import           Control.Eff.State.Strict
 import           Control.Monad
+import           Data.Foldable
 import           Control.Concurrent
 
 main :: IO ()
@@ -32,7 +33,7 @@ altCounterExample
   => SchedulerProxy q
   -> Eff (InterruptableProcess q) ()
 altCounterExample px = do
-  (c, cp) <- altCounter
+  (c, (_sdp, cp)) <- altCounter
   lift (threadDelay 500000)
   o <- logCounterObservations px
   lift (threadDelay 500000)
@@ -66,7 +67,9 @@ data instance Api SupiDupi r where
 
 altCounter
   :: (Member (Logs LogMessage) q)
-  => Eff (InterruptableProcess q) (Server Counter, ProcessId)
+  => Eff
+       (InterruptableProcess q)
+       (Server Counter, (Server SupiDupi, ProcessId))
 altCounter = spawnApiServerEffectful
   (manageObservers @Counter . evalState (0 :: Integer) . evalState
     (Nothing :: Maybe (RequestOrigin (Api SupiDupi ( 'Synchronous (Maybe ())))))
@@ -88,7 +91,11 @@ altCounter = spawnApiServerEffectful
            notifyObservers SP (CountChanged val')
            put val'
            when (val' > 5) $ do
-             get >>= traverse_ (flip sendReply (Just ()))
+             get
+               @( Maybe
+                   (RequestOrigin (Api SupiDupi ( 'Synchronous (Maybe ()))))
+               )
+               >>= traverse_ (flip sendReply (Just ()))
              put
                (Nothing :: Maybe
                    (RequestOrigin (Api SupiDupi ( 'Synchronous (Maybe ()))))
@@ -104,15 +111,20 @@ altCounter = spawnApiServerEffectful
        )
   ^: handleCallsDeferred
        SP
-       origin
-       (\case
-         Whoopediedoo c -> if c
-           then put (Just origin)
-           else
-             put
-               (Nothing :: Maybe
-                   (RequestOrigin (Api SupiDupi ( 'Synchronous (Maybe ()))))
-               )
+       (\origin ->
+         (\case
+           Whoopediedoo c -> do
+             if c
+               then put (Just origin)
+               else
+                 put
+                   (Nothing :: Maybe
+                       ( RequestOrigin
+                           (Api SupiDupi ( 'Synchronous (Maybe ())))
+                       )
+                   )
+             pure AwaitNext
+         )
        )
   ^: logUnhandledMessages
   )

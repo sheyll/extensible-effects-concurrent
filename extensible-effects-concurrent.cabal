@@ -1,5 +1,5 @@
 name:           extensible-effects-concurrent
-version:        0.14.3
+version:        0.15.0
 description:    Please see the README on GitHub at <https://github.com/sheyll/extensible-effects-concurrent#readme>
 synopsis:       Message passing concurrency as extensible-effect
 homepage:       https://github.com/sheyll/extensible-effects-concurrent#readme
@@ -73,7 +73,7 @@ library
                   Control.Eff.Concurrent.Api.Observer
                   Control.Eff.Concurrent.Api.Observer.Queue
   other-modules:
-                Control.Eff.Concurrent.Api.Internal,
+                Control.Eff.Concurrent.Api.Request,
                 Paths_extensible_effects_concurrent
   default-extensions:
                      BangPatterns,

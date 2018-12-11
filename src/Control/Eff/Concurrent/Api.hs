@@ -21,9 +21,6 @@ module Control.Eff.Concurrent.Api
   , fromServer
   , proxyAsServer
   , asServer
-  , mkRequestOrigin
-  , RequestOrigin(..)
-  , sendReply
   )
 where
 
@@ -95,14 +92,3 @@ proxyAsServer = const Server
 -- handling that API
 asServer :: forall api . ProcessId -> Server api
 asServer = Server
-
--- | TODO doc
-mkRequestOrigin :: request -> ProcessId -> Int -> RequestOrigin request
-mkRequestOrigin _ = RequestOrigin
-
--- | TODO doc
-data RequestOrigin request =
-  RequestOrigin { _requestOriginPid :: !ProcessId, _requestOriginCallRef :: !Int}
-  deriving (Eq, Ord, Typeable, Show, Generic)
-
-instance NFData (RequestOrigin request) where

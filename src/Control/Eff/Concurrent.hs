@@ -20,6 +20,9 @@ module Control.Eff.Concurrent
     -- ** /Server/ Functions for Providing APIs (new experimental)
     module Control.Eff.Concurrent.Api.Server2
   ,
+    -- ** Encapsulate 'Api's 'Cast's as well as 'Call's and their 'Reply's
+    module Control.Eff.Concurrent.Api.Request
+  ,
     -- ** /Observer/ Functions for Events and Event Listener
     module Control.Eff.Concurrent.Api.Observer
   ,
@@ -154,6 +157,13 @@ import           Control.Eff.Concurrent.Api.Client
                                                 , registerServer
                                                 , whereIsServer
                                                 , ServerReader
+                                                )
+import           Control.Eff.Concurrent.Api.Request
+                                                ( Request(..)
+                                                , Reply(..)
+                                                , mkRequestOrigin
+                                                , RequestOrigin(..)
+                                                , sendReply
                                                 )
 import           Control.Eff.Concurrent.Api.Server2
                                                 ( spawnApiServer

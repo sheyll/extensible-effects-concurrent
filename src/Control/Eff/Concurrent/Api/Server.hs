@@ -32,7 +32,7 @@ where
 
 import           Control.Eff
 import           Control.Eff.Concurrent.Api
-import           Control.Eff.Concurrent.Api.Internal
+import           Control.Eff.Concurrent.Api.Request
 import           Control.Eff.Concurrent.Process
 import           Control.Eff.Exception
 import           Control.Eff.Log
