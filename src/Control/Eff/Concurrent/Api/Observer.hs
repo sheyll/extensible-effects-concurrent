@@ -39,23 +39,18 @@ import           Control.Eff.Log
 import           Control.Eff.State.Strict
 import           Control.Lens
 
--- | An 'Api' index that support observation of the
--- another 'Api' that is 'Observable'.
-class (Typeable p, Observable o) => Observer p o where
-  -- | Wrap the 'Observation' and the 'ProcessId' (i.e. the 'Server')
-  -- that caused the observation into an 'Api' value that the
-  -- 'Observable' understands.
-  observationMessage :: Server o -> Observation o -> Api p 'Asynchronous
+-- | Type of observations for a specific observable
+data family Observation o
 
--- | An 'Api' index that supports registration and de-registration of
+-- | An 'Api' for managing 'Observer's, encompassing  registration and de-registration of
 -- 'Observer's.
-class (Typeable o, Typeable (Observation o)) => Observable o where
-  -- | Type of observations visible on this observable
-  data Observation o
-  -- | Return the 'Api' value for the 'cast_' that registeres an observer
-  registerObserverMessage :: SomeObserver o -> Api o 'Asynchronous
+data Observed o
+
+-- | An 'Api' index that supports
+data instance Api (Observed o) r where
+  RegisterObserver :: SomeObserver o -> Api o 'Asynchronous
   -- | Return the 'Api' value for the 'cast_' that de-registeres an observer
-  forgetObserverMessage :: SomeObserver o -> Api o 'Asynchronous
+  ForgetObserver :: SomeObserver o -> Api o 'Asynchronous
 
 -- | Send an 'Observation' to an 'Observer'
 notifyObserver
@@ -102,11 +97,13 @@ forgetObserver
 forgetObserver px observer observed =
   cast px observed (forgetObserverMessage (SomeObserver observer))
 
--- | An existential wrapper around a 'Server' of an 'Observer'.
--- Needed to support different types of observers to observe the
--- same 'Observable' in a general fashion.
+-- | Describes a process that observes another via Asynchronous messages.
+-- An observer consists of a filter and a process id. The filter converts an observation to
+-- a message understood by the observer process, and the process id is used to send the message.
 data SomeObserver o where
-  SomeObserver :: (Show (Server p), Typeable p, Observer p o) => Server p -> SomeObserver o
+  SomeObserver
+    :: (Show (Server p), Typeable p)
+    => (o -> Maybe (Api p 'Asynchronous)) -> Server p -> SomeObserver o
 
 deriving instance Show (SomeObserver o)
 
