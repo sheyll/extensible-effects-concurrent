@@ -1,29 +1,11 @@
 -- | Observer Effects
 --
--- This module supports the implementation of observers and observables. One use
--- case is event propagation. The tools in this module are tailored towards
--- 'Api' servers/clients.
+-- This module supports the implementation of observers and observables. Expected use
+-- case is event propagation.
+--
+-- @since 0.16.0
 module Control.Eff.Concurrent.Api.Observer
-  ( -- * Observation API
-    Observer(..)
-  , Observable(..)
-  , notifyObserver
-  , registerObserver
-  , forgetObserver
-  -- ** Generalized observation
-  , SomeObserver(..)
-  , notifySomeObserver
-  , Observers()
-  , ObserverState
-  , manageObservers
-  , addObserver
-  , removeObserver
-  , notifyObservers
-  -- * Callback 'Observer'
-  , CallbackObserver
-  , spawnCallbackObserver
-  , spawnLoggingObserver
-  )
+  ()
 where
 
 import           GHC.Stack
@@ -34,211 +16,133 @@ import           Control.Eff
 import           Control.Eff.Concurrent.Process
 import           Control.Eff.Concurrent.Api
 import           Control.Eff.Concurrent.Api.Client
-import           Control.Eff.Concurrent.Api.Server
+import           Control.Eff.Concurrent.Api.Server2
 import           Control.Eff.Log
 import           Control.Eff.State.Strict
+import           Data.Foldable
 import           Control.Lens
 
--- | Type of observations for a specific observable
-data family Observation o
+-- | Describes a process that observes another via 'Asynchronous' 'Api' messages.
+-- An observer consists of a filter and a process id. The filter converts an observation to
+-- a message understood by the observer process, and the 'ProcessId' is used to send the message.
+--
+-- @since 0.16.0
+data Observer o where
+  Observer
+    :: (Show (Server p), Typeable p, Typeable o)
+    => (o -> Maybe (Api p 'Asynchronous)) -> Server p -> Observer o
+
+instance Show (Observer o) where
+  showsPrec d (Observer _ p) =
+    showParens (d >= 10) (shows (typerep) . showString "")
+
+instance Ord (Observer o) where
+  compare (Observer _ s1) (Observer _ s2) =
+    compare (s1 ^. fromServer) (s2 ^. fromServer)
+
+instance Eq (Observer o) where
+  (==) (Observer _ s1) (Observer _ s2) =
+    (==) (s1 ^. fromServer) (s2 ^. fromServer)
+
+-- * External Observer management API
+
+-- | And an 'Observer' to the set of reciepients for all observations reported by 'observed'.
+--   Note that the observers are keyed by the observing process, i.e. a previous entry for the process
+--   contained in the 'Observer' is overwritten. If you want multiple entries for a single process, just
+--   combine several filter functions.
+--
+-- @since 0.16.0
+registerObserver
+  :: (SetMember Process (Process q) r, HasCallStack, Member Interrupts r)
+  => SchedulerProxy q
+  -> Observer o
+  -> Server (ObserverRegistry o)
+  -> Eff r ()
+registerObserver px observer observed =
+  cast px observed (RegisterObserver observer)
+
+-- | Send the 'forgetObserverMessage'
+--
+-- @since 0.16.0
+forgetObserver
+  :: (SetMember Process (Process q) r, HasCallStack, Member Interrupts r)
+  => SchedulerProxy q
+  -> Observer o
+  -> Server (ObserverRegistry o)
+  -> Eff r ()
+forgetObserver px observer observed =
+  cast px observed (ForgetObserver observer)
 
 -- | An 'Api' for managing 'Observer's, encompassing  registration and de-registration of
 -- 'Observer's.
-data Observed o
+--
+-- @since 0.16.0
+data ObserverRegistry o
 
--- | An 'Api' index that supports
-data instance Api (Observed o) r where
-  RegisterObserver :: SomeObserver o -> Api o 'Asynchronous
-  -- | Return the 'Api' value for the 'cast_' that de-registeres an observer
-  ForgetObserver :: SomeObserver o -> Api o 'Asynchronous
+-- | Api for managing observers. This can be added to any server for any number of different observation types.
+-- The functions 'manageObservers' and 'handleObserverApi' are used to include observer handling;
+--
+-- @since 0.16.0
+data instance Api (ObserverRegistry o) r where
+  RegisterObserver :: Observer o -> Api (ObserverRegistry o) 'Asynchronous
+  ForgetObserver :: Observer o -> Api (ObserverRegistry o) 'Asynchronous
 
--- | Send an 'Observation' to an 'Observer'
-notifyObserver
-  :: ( SetMember Process (Process q) r
-     , Observable o
-     , Observer p o
-     , HasCallStack
-     , Member Interrupts r
+
+-- ** Api for integrating 'ObserverRegistry' into processes.
+
+-- | Provide the implementation for the 'Observerd' Api, this handled 'RegisterObserver' and 'ForgetObserver'
+-- messages. It also adds the 'ObserverState' constraint to the effect list.
+--
+-- @since 0.16.0
+handleObserverRegistration
+  :: forall o q r
+   . ( HasCallStack
+     , SetMember Process (Process q) r
+     , Member (ObserverState o) r
      )
-  => SchedulerProxy q
-  -> Server p
-  -> Server o
-  -> Observation o
-  -> Eff r ()
-notifyObserver px observer observed observation =
-  cast px observer (observationMessage observed observation)
+  => MessageCallback (ObserverRegistry o) r
+handleObserverRegistration = handleCasts
+  (\case
+    RegisterObserver ob ->
+      get @(Observers o) >>= put . over observers (mappend ob)
+    ForgetObserver ob ->
+      get @(Observers o) >>= put . over observers (Set.delete ob)
+  )
 
--- | Send the 'registerObserverMessage'
-registerObserver
-  :: ( SetMember Process (Process q) r
-     , Observable o
-     , Observer p o
-     , HasCallStack
-     , Member Interrupts r
-     )
-  => SchedulerProxy q
-  -> Server p
-  -> Server o
-  -> Eff r ()
-registerObserver px observer observed =
-  cast px observed (registerObserverMessage (SomeObserver observer))
 
--- | Send the 'forgetObserverMessage'
-forgetObserver
-  :: ( SetMember Process (Process q) r
-     , Observable o
-     , Observer p o
-     , Member Interrupts r
-     )
-  => SchedulerProxy q
-  -> Server p
-  -> Server o
-  -> Eff r ()
-forgetObserver px observer observed =
-  cast px observed (forgetObserverMessage (SomeObserver observer))
-
--- | Describes a process that observes another via Asynchronous messages.
--- An observer consists of a filter and a process id. The filter converts an observation to
--- a message understood by the observer process, and the process id is used to send the message.
-data SomeObserver o where
-  SomeObserver
-    :: (Show (Server p), Typeable p)
-    => (o -> Maybe (Api p 'Asynchronous)) -> Server p -> SomeObserver o
-
-deriving instance Show (SomeObserver o)
-
-instance Ord (SomeObserver o) where
-  compare (SomeObserver (Server o1)) (SomeObserver (Server o2)) =
-    compare o1 o2
-
-instance Eq (SomeObserver o) where
-  (==) (SomeObserver (Server o1)) (SomeObserver (Server o2)) =
-    o1 == o2
-
--- | Send an 'Observation' to 'SomeObserver'.
-notifySomeObserver
-  :: ( SetMember Process (Process q) r
-     , Observable o
-     , HasCallStack
-     , Member Interrupts r
-     )
-  => SchedulerProxy q
-  -> Server o
-  -> Observation o
-  -> SomeObserver o
-  -> Eff r ()
-notifySomeObserver px observed observation (SomeObserver observer) =
-  notifyObserver px observer observed observation
-
--- ** Manage 'Observers's
+-- | Keep track of registered 'Observer's Observers can be added and removed,
+-- and an 'Observation' can be sent to all registerd observers at once.
+--
+-- @since 0.16.0
+manageObservers :: Eff (ObserverState o ': r) a -> Eff r a
+manageObservers = evalState (Observers Set.empty)
 
 -- | Internal state for 'manageObservers'
 data Observers o =
-  Observers { _observers :: Set (SomeObserver o) }
+  Observers { _observers :: Set (Observer o) }
 
 -- | Alias for the effect that contains the observers managed by 'manageObservers'
 type ObserverState o = State (Observers o)
 
-observers :: Iso' (Observers o) (Set (SomeObserver o))
+observers :: Iso' (Observers o) (Set (Observer o))
 observers = iso _observers Observers
 
--- | Keep track of registered 'Observer's Observers can be added and removed,
--- and an 'Observation' can be sent to all registerd observers at once.
-manageObservers :: Eff (ObserverState o ': r) a -> Eff r a
-manageObservers = evalState (Observers Set.empty)
-
--- | Add an 'Observer' to the 'Observers' managed by 'manageObservers'.
-addObserver
-  :: (SetMember Process (Process q) r, Member (ObserverState o) r, Observable o)
-  => SomeObserver o
-  -> Eff r ()
-addObserver = modify . over observers . Set.insert
-
--- | Delete an 'Observer' from the 'Observers' managed by 'manageObservers'.
-removeObserver
-  :: ( SetMember Process (Process q) r
-     , Member (ObserverState o) r
-     , Observable o
-     , Member Interrupts r
-     )
-  => SomeObserver o
-  -> Eff r ()
-removeObserver = modify . over observers . Set.delete
-
-
--- | Send an 'Observation' to all 'SomeObserver's in the 'Observers' state.
-notifyObservers
-  :: forall o r q
-   . ( Observable o
-     , SetMember Process (Process q) r
-     , Member (ObserverState o) r
-     , Member Interrupts r
-     )
-  => SchedulerProxy q
-  -> Observation o
-  -> Eff r ()
-notifyObservers px observation = do
-  me <- asServer @o <$> self px
-  os <- view observers <$> get
-  mapM_ (notifySomeObserver px me observation) os
-
--- | An 'Observer' that schedules the observations to an effectful callback.
-data CallbackObserver o
-  deriving Typeable
-
-data instance Api (CallbackObserver o) r where
-  CbObserved :: (Typeable o, Typeable (Observation o)) =>
-             Server o -> Observation o -> Api (CallbackObserver o) 'Asynchronous
-  deriving Typeable
-
-deriving instance Show (Observation o) => Show (Api (CallbackObserver o) r)
-
-instance (Observable o) => Observer (CallbackObserver o) o where
-  observationMessage = CbObserved
-
--- | Start a new process for an 'Observer' that schedules
--- all observations to an effectful callback.
-spawnCallbackObserver
-  :: forall o r q
-   . ( SetMember Process (Process q) r
-     , Typeable o
-     , Show (Observation o)
-     , Observable o
-     , Member (Logs LogMessage) q
-     , Member Interrupts r
-     , HasCallStack
-     )
-  => SchedulerProxy q
-  -> (  Server o
-     -> Observation o
-     -> Eff (InterruptableProcess q) ApiServerCmd
-     )
-  -> Eff r (Server (CallbackObserver o))
-spawnCallbackObserver px onObserve = spawnServerWithEffects
-  px
-  (castHandler handleCastCbo)
-  id
-  where handleCastCbo (CbObserved fromSvr v) = onObserve fromSvr v
-
--- | Start a new process for an 'Observer' that schedules
--- all observations to an effectful callback.
+-- | Report an observation to all observers.
+-- The process needs to 'manageObservers' and to 'handleObserverRegistration'.
 --
--- @since 0.3.0.0
-spawnLoggingObserver
+-- @since 0.16.0
+observed
   :: forall o r q
    . ( SetMember Process (Process q) r
-     , Typeable o
-     , Show (Observation o)
-     , Observable o
-     , Member (Logs LogMessage) q
-     , Member (Logs LogMessage) r
+     , Member (ObserverState o) r
      , Member Interrupts r
-     , HasCallStack
      )
-  => SchedulerProxy q
-  -> Eff r (Server (CallbackObserver o))
-spawnLoggingObserver px = spawnCallbackObserver
-  px
-  (\s o ->
-    logDebug (show s ++ " OBSERVED: " ++ show o) >> return HandleNextRequest
-  )
+  => o
+  -> Eff r ()
+observed observation = do
+  me <- asServer @o <$> self SP
+  os <- view observers <$> get
+  mapM_ (notifySomeObserver me) os
+ where
+  notifySomeObserver me (Observer messageFilter receiver) =
+    traverse_ (cast SP receiver) (messageFilter observation)
