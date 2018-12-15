@@ -8,10 +8,6 @@ module Control.Eff.Concurrent.Api.Observer
   ()
 where
 
-import           GHC.Stack
-import           Data.Dynamic
-import           Data.Set                       ( Set )
-import qualified Data.Set                      as Set
 import           Control.Eff
 import           Control.Eff.Concurrent.Process
 import           Control.Eff.Concurrent.Api
@@ -19,8 +15,14 @@ import           Control.Eff.Concurrent.Api.Client
 import           Control.Eff.Concurrent.Api.Server2
 import           Control.Eff.Log
 import           Control.Eff.State.Strict
-import           Data.Foldable
 import           Control.Lens
+import           Data.Dynamic
+import           Data.Foldable
+import           Data.Proxy
+import           Data.Set                       ( Set )
+import qualified Data.Set                      as Set
+import           Data.Typeable                  ( typeRep )
+import           GHC.Stack
 
 -- | Describes a process that observes another via 'Asynchronous' 'Api' messages.
 -- An observer consists of a filter and a process id. The filter converts an observation to
@@ -33,8 +35,9 @@ data Observer o where
     => (o -> Maybe (Api p 'Asynchronous)) -> Server p -> Observer o
 
 instance Show (Observer o) where
-  showsPrec d (Observer _ p) =
-    showParens (d >= 10) (shows (typerep) . showString "")
+  showsPrec d (Observer _ p) = showParen
+    (d >= 10)
+    (shows (typeRep (Proxy :: Proxy o)) . showString " observer: " . shows p)
 
 instance Ord (Observer o) where
   compare (Observer _ s1) (Observer _ s2) =
@@ -53,7 +56,11 @@ instance Eq (Observer o) where
 --
 -- @since 0.16.0
 registerObserver
-  :: (SetMember Process (Process q) r, HasCallStack, Member Interrupts r)
+  :: ( SetMember Process (Process q) r
+     , HasCallStack
+     , Member Interrupts r
+     , Typeable o
+     )
   => SchedulerProxy q
   -> Observer o
   -> Server (ObserverRegistry o)
@@ -65,7 +72,11 @@ registerObserver px observer observed =
 --
 -- @since 0.16.0
 forgetObserver
-  :: (SetMember Process (Process q) r, HasCallStack, Member Interrupts r)
+  :: ( SetMember Process (Process q) r
+     , HasCallStack
+     , Member Interrupts r
+     , Typeable o
+     )
   => SchedulerProxy q
   -> Observer o
   -> Server (ObserverRegistry o)

@@ -1,5 +1,5 @@
 { q ? import <nixpkgs> {  }
-, compiler ? "ghc843" }:
+, compiler ? "ghc844" }:
 let
   cleanSrc = q.pkgs.lib.cleanSourceWith {
     filter = (path: type:
