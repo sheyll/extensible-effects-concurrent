@@ -93,7 +93,9 @@ That is resolved by an omnipresent scheduler proxy parameter.
 
 I will resolve this issue in one of these ways, but haven't decided:
 
-- By using backpack - best option, apart from missing stack support
+- By using `AllowAmbiguousTypes` in combination with `TypeApplications`
+
+- By using backpack - second best option, apart from missing stack support
 
 - By duplicating the code for each scheduler implementation
 

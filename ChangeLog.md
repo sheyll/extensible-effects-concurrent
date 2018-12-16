@@ -1,5 +1,13 @@
 # Changelog for extensible-effects-concurrent
 
+## 0.16.0
+
+- Rewrite `Observer` and related modules like `Observer.Queue`
+  - Remove all type classes
+  - Rely on `Server2`
+  - Remove `CallBackObserver`
+  - Remove the observer support code in `Server2`
+
 ## 0.15.0
 
 - Add `Api` `Request` and `Reply` types
