@@ -17,9 +17,6 @@ module Control.Eff.Concurrent
     -- ** /Server/ Functions for Providing APIs
     module Control.Eff.Concurrent.Api.Server
   ,
-    -- ** /Server/ Functions for Providing APIs (new experimental)
-    module Control.Eff.Concurrent.Api.Server
-  ,
     -- ** Encapsulate 'Api's 'Cast's as well as 'Call's and their 'Reply's
     module Control.Eff.Concurrent.Api.Request
   ,
