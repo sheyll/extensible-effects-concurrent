@@ -41,9 +41,6 @@ main = defaultMain
     firstExample
     lift (threadDelay 100000) -- ... async logging
   )
-    -- The SchedulerProxy paremeter contains the effects of a specific scheduler
-    -- implementation.
-
 
 newtype WhoAreYou = WhoAreYou ProcessId deriving (Typeable, NFData, Show)
 
