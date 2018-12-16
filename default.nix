@@ -1,14 +1,13 @@
-{ q ? import <nixpkgs> {  }
-, compiler ? "ghc844" }:
+{ pkgs, ... }:
 let
-  cleanSrc = q.pkgs.lib.cleanSourceWith {
+  cleanSrc = pkgs.pkgs.lib.cleanSourceWith {
     filter = (path: type:
       let base = baseNameOf (toString path);
-      in !(q.pkgs.lib.hasPrefix ".ghc.environment." base) &&
-         !(q.pkgs.lib.hasSuffix ".nix" base)
+      in !(pkgs.pkgs.lib.hasPrefix ".ghc.environment." base) &&
+         !(pkgs.pkgs.lib.hasSuffix ".nix" base)
     );
-    src = q.pkgs.lib.cleanSource ./.;
+    src = pkgs.pkgs.lib.cleanSource ./.;
   };
 
-  in q.pkgs.haskell.packages.${compiler}.callCabal2nix
+  in pkgs.haskellPackages.callCabal2nix
        "extensible-effects-concurrent" cleanSrc {}
