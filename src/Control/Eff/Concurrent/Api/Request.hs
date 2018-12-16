@@ -82,6 +82,5 @@ sendReply
   -> reply
   -> Eff eff ()
 sendReply origin reply = sendMessage
-  SP
   (_requestOriginPid origin)
   (Reply (Proxy @request) (_requestOriginCallRef origin) $! reply)

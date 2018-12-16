@@ -86,7 +86,7 @@ forkInteractiveScheduler ioScheduler = do
       Right nextAction -> do
         res <- nextAction
         traverse_ (lift . putStrLn . (">>> " ++)) res
-        yieldProcess SP
+        yieldProcess
         readEvalPrintLoop queueVar
    where
     readAction = lift $ atomically $ do
@@ -138,7 +138,7 @@ submitCast
   -> Server o
   -> Api o 'Asynchronous
   -> IO ()
-submitCast sc svr request = submit sc (cast SchedulerProxy svr request)
+submitCast sc svr request = submit sc (cast svr request)
 
 -- | Combination of 'submit' and 'cast'.
 submitCall
@@ -154,4 +154,4 @@ submitCall
   -> Server o
   -> Api o ( 'Synchronous q)
   -> IO q
-submitCall sc svr request = submit sc (call SchedulerProxy svr request)
+submitCall sc svr request = submit sc (call svr request)

@@ -44,11 +44,10 @@ receiveAfter
      , NFData a
      , Show a
      )
-  => SchedulerProxy q
-  -> Timeout
+  => Timeout
   -> Eff r (Maybe a)
-receiveAfter px t =
-  either (const Nothing) Just <$> receiveSelectedAfter px (selectMessage @a) t
+receiveAfter t =
+  either (const Nothing) Just <$> receiveSelectedAfter (selectMessage @a) t
 
 -- | Wait for a message of the given type for the given time. When no message
 -- arrives in time, return 'Left' 'TimerElapsed'. This is based on
@@ -63,16 +62,14 @@ receiveSelectedAfter
      , Member Interrupts r
      , Show a
      )
-  => SchedulerProxy q
-  -> MessageSelector a
+  => MessageSelector a
   -> Timeout
   -> Eff r (Either TimerElapsed a)
-receiveSelectedAfter px sel t = do
-  timerRef <- startTimer px t
+receiveSelectedAfter sel t = do
+  timerRef <- startTimer t
   res      <- receiveSelectedMessage
-    px
     (Left <$> selectTimerElapsed timerRef <|> Right <$> sel)
-  cancelTimer px timerRef
+  cancelTimer timerRef
   return res
 
 -- | A 'MessageSelector' matching 'TimerElapsed' messages created by
@@ -92,7 +89,7 @@ newtype Timeout = TimeoutMicros {fromTimeoutMicros :: Int}
 
 instance Show Timeout where
   showsPrec d (TimeoutMicros t) =
-    showParen (d>=10) (showString "timeout: " . shows t . showString " µs")
+    showParen (d >= 10) (showString "timeout: " . shows t . showString " µs")
 
 -- | The reference to a timer started by 'startTimer', required to stop
 -- a timer via 'cancelTimer'.
@@ -103,7 +100,7 @@ newtype TimerReference = TimerReference ProcessId
 
 instance Show TimerReference where
   showsPrec d (TimerReference t) =
-    showParen (d>=10) (showString "timer: " . shows t)
+    showParen (d >= 10) (showString "timer: " . shows t)
 
 -- | A value to be sent when timer started with 'startTimer' has elapsed.
 --
@@ -113,7 +110,7 @@ newtype TimerElapsed = TimerElapsed {fromTimerElapsed :: TimerReference}
 
 instance Show TimerElapsed where
   showsPrec d (TimerElapsed t) =
-    showParen (d>=10) (shows t . showString " elapsed")--
+    showParen (d >= 10) (shows t . showString " elapsed")--
 -- @since 0.12.0
 
 
@@ -131,20 +128,16 @@ sendAfter
      , Typeable message
      , NFData message
      )
-  => SchedulerProxy q
-  -> ProcessId
+  => ProcessId
   -> Timeout
   -> (TimerReference -> message)
   -> Eff r TimerReference
-sendAfter px pid (TimeoutMicros 0) mkMsg = TimerReference <$> spawn
-  (   yieldProcess px
-  >>  self px
-  >>= (sendMessage SP pid . force . mkMsg . TimerReference)
-  )
-sendAfter px pid (TimeoutMicros t) mkMsg = TimerReference <$> spawn
+sendAfter pid (TimeoutMicros 0) mkMsg = TimerReference <$> spawn
+  (yieldProcess >> self >>= (sendMessage pid . force . mkMsg . TimerReference))
+sendAfter pid (TimeoutMicros t) mkMsg = TimerReference <$> spawn
   (   liftIO (threadDelay t)
-  >>  self px
-  >>= (sendMessage SP pid . force . mkMsg . TimerReference)
+  >>  self
+  >>= (sendMessage pid . force . mkMsg . TimerReference)
   )
 
 -- | Start a new timer, after the time has elapsed, 'TimerElapsed' is sent to
@@ -161,12 +154,11 @@ startTimer
      , SetMember Process (Process q) r
      , Member Interrupts r
      )
-  => SchedulerProxy q
-  -> Timeout
+  => Timeout
   -> Eff r TimerReference
-startTimer px t = do
-  p <- self px
-  sendAfter px p t TimerElapsed
+startTimer t = do
+  p <- self
+  sendAfter p t TimerElapsed
 
 -- | Cancel a timer started with 'startTimer'.
 --
@@ -178,7 +170,6 @@ cancelTimer
      , SetMember Process (Process q) r
      , Member Interrupts r
      )
-  => SchedulerProxy q
-  -> TimerReference
+  => TimerReference
   -> Eff r ()
-cancelTimer px (TimerReference tr) = sendShutdown px tr ExitNormally
+cancelTimer (TimerReference tr) = sendShutdown tr ExitNormally

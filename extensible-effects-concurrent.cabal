@@ -76,6 +76,7 @@ library
                 Control.Eff.Concurrent.Api.Request,
                 Paths_extensible_effects_concurrent
   default-extensions:
+                     AllowAmbiguousTypes,
                      BangPatterns,
                      ConstraintKinds,
                      DeriveFoldable,
@@ -115,7 +116,8 @@ executable extensible-effects-concurrent-example-1
               , lens
   ghc-options: -Wall -threaded -fno-full-laziness -rtsopts -with-rtsopts=-N
   default-language: Haskell2010
-  default-extensions:   BangPatterns
+  default-extensions:   AllowAmbiguousTypes
+                      , BangPatterns
                       , DataKinds
                       , FlexibleContexts
                       , FlexibleInstances
@@ -142,7 +144,8 @@ executable extensible-effects-concurrent-example-2
               , lens
   ghc-options: -Wall -threaded -fno-full-laziness -rtsopts -with-rtsopts=-N
   default-language: Haskell2010
-  default-extensions:   BangPatterns
+  default-extensions:   AllowAmbiguousTypes
+                      , BangPatterns
                       , DataKinds
                       , FlexibleContexts
                       , FlexibleInstances
@@ -171,7 +174,8 @@ executable extensible-effects-concurrent-example-3
               , lens
   ghc-options: -Wall -threaded -fno-full-laziness -rtsopts -with-rtsopts=-N
   default-language: Haskell2010
-  default-extensions:   BangPatterns
+  default-extensions:   AllowAmbiguousTypes
+                      , BangPatterns
                       , DataKinds
                       , FlexibleContexts
                       , FlexibleInstances
@@ -197,7 +201,8 @@ executable extensible-effects-concurrent-example-4
               , deepseq
   ghc-options: -Wall -threaded -fno-full-laziness -rtsopts -with-rtsopts=-N
   default-language: Haskell2010
-  default-extensions:   BangPatterns
+  default-extensions:   AllowAmbiguousTypes
+                      , BangPatterns
                       , DataKinds
                       , FlexibleContexts
                       , FlexibleInstances
@@ -243,7 +248,8 @@ test-suite extensible-effects-concurrent-test
               , HUnit
               , stm
   default-language: Haskell2010
-  default-extensions:   BangPatterns
+  default-extensions:   AllowAmbiguousTypes
+                      , BangPatterns
                       , DataKinds
                       , FlexibleContexts
                       , FlexibleInstances

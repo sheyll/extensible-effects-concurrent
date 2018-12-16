@@ -51,9 +51,6 @@ import           Control.Eff.Concurrent.Process ( Process(..)
                                                 , ConsProcess
                                                 , ResumeProcess(..)
                                                 , SchedulerProxy(..)
-                                                , HasScheduler
-                                                , getSchedulerProxy
-                                                , withSchedulerProxy
                                                 , thisSchedulerProxy
                                                 , ProcessState(..)
                                                 , yieldProcess

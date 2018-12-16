@@ -76,7 +76,7 @@ registerObserver
   -> Server (ObserverRegistry o)
   -> Eff r ()
 registerObserver observer observerRegistry =
-  cast SP observerRegistry (RegisterObserver observer)
+  cast observerRegistry (RegisterObserver observer)
 
 -- | Send the 'forgetObserverMessage'
 --
@@ -91,7 +91,7 @@ forgetObserver
   -> Server (ObserverRegistry o)
   -> Eff r ()
 forgetObserver observer observerRegistry =
-  cast SP observerRegistry (ForgetObserver observer)
+  cast observerRegistry (ForgetObserver observer)
 
 -- ** Observer Support Functions
 
@@ -215,4 +215,4 @@ observed observation = do
   mapM_ notifySomeObserver os
  where
   notifySomeObserver (Observer messageFilter receiver) =
-    traverse_ (cast SP receiver) (messageFilter observation)
+    traverse_ (cast receiver) (messageFilter observation)

@@ -128,7 +128,7 @@ spawnLinkObserverationQueue oSvr queueLimit k = withQueue
       registerObserver thisObserver oSvr
       res <- k
       forgetObserver thisObserver oSvr
-      call SP cbo StopObservationQueue
+      call cbo StopObservationQueue
       logDebug (printf "%s stopped observer process" (logPrefix (Proxy @o)))
       return res
   )

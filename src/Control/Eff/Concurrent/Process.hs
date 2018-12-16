@@ -22,9 +22,6 @@ module Control.Eff.Concurrent.Process
   , ResumeProcess(..)
   -- ** Scheduler Effect Identification
   , SchedulerProxy(..)
-  , HasScheduler
-  , getSchedulerProxy
-  , withSchedulerProxy
   , thisSchedulerProxy
   -- ** Process State
   , ProcessState(..)
@@ -404,27 +401,6 @@ data SchedulerProxy :: [Type -> Type] -> Type where
   -- | Like 'SP' but different
   Scheduler :: SchedulerProxy q
 
--- | A constraint for the implicit 'SchedulerProxy' parameter.
--- Use 'getSchedulerProxy' to query it. _EXPERIMENTAL_
---
--- @since 0.12.0
-type HasScheduler q = (?_schedulerProxy :: SchedulerProxy q)
-
--- | Get access to the 'SchedulerProxy' for the current scheduler effects.
---  _EXPERIMENTAL_
---
--- @since 0.12.0
-getSchedulerProxy :: HasScheduler q => SchedulerProxy q
-getSchedulerProxy = ?_schedulerProxy
-
--- | Set the 'SchedulerProxy' to use, this satisfies 'HasScheduler' .
---  _EXPERIMENTAL_
---
--- @since 0.12.0
-withSchedulerProxy :: SchedulerProxy q -> (HasScheduler q => a) -> a
-withSchedulerProxy px x = let ?_schedulerProxy = px in x
-
-
 -- | /Cons/ 'Process' onto a list of effects.
 type ConsProcess r = Process r ': r
 
@@ -667,10 +643,9 @@ logInterrupts = handleInterrupts logProcessExit
 -- via a call to 'interrupt'.
 exitOnInterrupt
   :: (HasCallStack, Member Interrupts r, SetMember Process (Process q) r)
-  => SchedulerProxy q
+  => Eff r a
   -> Eff r a
-  -> Eff r a
-exitOnInterrupt px = handleInterrupts (exitBecause px . NotRecovered)
+exitOnInterrupt = handleInterrupts (exitBecause . NotRecovered)
 
 -- | Handle 'InterruptReason's arising during process operations, e.g.
 -- when a linked process crashes while we wait in a 'receiveSelectedMessage'
@@ -807,9 +782,8 @@ executeAndResumeOrThrow processAction = do
 yieldProcess
   :: forall r q
    . (SetMember Process (Process q) r, HasCallStack, Member Interrupts r)
-  => SchedulerProxy q
-  -> Eff r ()
-yieldProcess _ = executeAndResumeOrThrow YieldProcess
+  => Eff r ()
+yieldProcess = executeAndResumeOrThrow YieldProcess
 
 -- | Send a message to a process addressed by the 'ProcessId'.
 -- See 'SendMessage'.
@@ -821,11 +795,10 @@ sendMessage
      , Member Interrupts r
      , Typeable o
      )
-  => SchedulerProxy q
-  -> ProcessId
+  => ProcessId
   -> o
   -> Eff r ()
-sendMessage _ pid message =
+sendMessage pid message =
   executeAndResumeOrThrow (SendMessage pid $! toDyn $! message)
 
 -- | Send a 'Dynamic' value to a process addressed by the 'ProcessId'.
@@ -833,11 +806,10 @@ sendMessage _ pid message =
 sendAnyMessage
   :: forall r q
    . (SetMember Process (Process q) r, HasCallStack, Member Interrupts r)
-  => SchedulerProxy q
-  -> ProcessId
+  => ProcessId
   -> Dynamic
   -> Eff r ()
-sendAnyMessage _ pid message =
+sendAnyMessage pid message =
   rnf pid `seq` executeAndResumeOrThrow (SendMessage pid $! message)
 
 -- | Exit a process addressed by the 'ProcessId'. The process will exit,
@@ -846,11 +818,10 @@ sendAnyMessage _ pid message =
 sendShutdown
   :: forall r q
    . (SetMember Process (Process q) r, HasCallStack, Member Interrupts r)
-  => SchedulerProxy q
-  -> ProcessId
+  => ProcessId
   -> ExitReason 'NoRecovery
   -> Eff r ()
-sendShutdown _ pid s =
+sendShutdown pid s =
   pid `deepseq` s `deepseq` executeAndResumeOrThrow (SendShutdown pid s)
 
 -- | Interrupts a process addressed by the 'ProcessId'. The process might exit,
@@ -859,11 +830,10 @@ sendShutdown _ pid s =
 sendInterrupt
   :: forall r q
    . (SetMember Process (Process q) r, HasCallStack, Member Interrupts r)
-  => SchedulerProxy q
-  -> ProcessId
+  => ProcessId
   -> InterruptReason
   -> Eff r ()
-sendInterrupt _ pid s =
+sendInterrupt pid s =
   pid `deepseq` s `deepseq` executeAndResumeOrThrow (SendInterrupt pid s)
 
 -- | Start a new process, the new process will execute an effect, the function
@@ -923,10 +893,9 @@ spawnRaw_ = void . spawnRaw
 isProcessAlive
   :: forall r q
    . (HasCallStack, SetMember Process (Process q) r, Member Interrupts r)
-  => SchedulerProxy q
-  -> ProcessId
+  => ProcessId
   -> Eff r Bool
-isProcessAlive _px pid =
+isProcessAlive  pid =
   isJust <$> executeAndResumeOrThrow (GetProcessState pid)
 
 -- | Block until a message was received.
@@ -934,9 +903,8 @@ isProcessAlive _px pid =
 receiveAnyMessage
   :: forall r q
    . (HasCallStack, SetMember Process (Process q) r, Member Interrupts r)
-  => SchedulerProxy q
-  -> Eff r Dynamic
-receiveAnyMessage _ =
+  => Eff r Dynamic
+receiveAnyMessage =
   executeAndResumeOrThrow (ReceiveSelectedMessage selectAnyMessageLazy)
 
 -- | Block until a message was received, that is not 'Nothing' after applying
@@ -949,10 +917,9 @@ receiveSelectedMessage
      , SetMember Process (Process q) r
      , Member Interrupts r
      )
-  => SchedulerProxy q
-  -> MessageSelector a
+  => MessageSelector a
   -> Eff r a
-receiveSelectedMessage _ f = executeAndResumeOrThrow (ReceiveSelectedMessage f)
+receiveSelectedMessage f = executeAndResumeOrThrow (ReceiveSelectedMessage f)
 
 -- | Receive and cast the message to some 'Typeable' instance.
 -- See 'ReceiveSelectedMessage' for more documentation.
@@ -965,9 +932,8 @@ receiveMessage
      , SetMember Process (Process q) r
      , Member Interrupts r
      )
-  => SchedulerProxy q
-  -> Eff r a
-receiveMessage px = receiveSelectedMessage px (MessageSelector fromDynamic)
+  => Eff r a
+receiveMessage = receiveSelectedMessage (MessageSelector fromDynamic)
 
 -- | Remove and return all messages currently enqueued in the process message
 -- queue.
@@ -978,7 +944,6 @@ flushMessages
    . ( HasCallStack
      , SetMember Process (Process q) r
      , Member Interrupts r
-     , HasScheduler q
      )
   => Eff r [Dynamic]
 flushMessages =
@@ -995,50 +960,45 @@ flushMessages =
 receiveSelectedLoop
   :: forall r q a endOfLoopResult
    . (SetMember Process (Process q) r, HasCallStack)
-  => SchedulerProxy q
-  -> MessageSelector a
+  => MessageSelector a
   -> (Either InterruptReason a -> Eff r (Maybe endOfLoopResult))
   -> Eff r endOfLoopResult
-receiveSelectedLoop px selectMesage handlers = do
+receiveSelectedLoop selectMesage handlers = do
   mReq <- send (ReceiveSelectedMessage @q @a selectMesage)
   mRes <- case mReq of
     Interrupted reason  -> handlers (Left reason)
     ResumeWith  message -> handlers (Right message)
-  maybe (receiveSelectedLoop px selectMesage handlers) return mRes
+  maybe (receiveSelectedLoop selectMesage handlers) return mRes
 
 -- | Like 'receiveSelectedLoop' but /not selective/.
 -- See also 'selectAnyMessageLazy', 'receiveSelectedLoop'.
 receiveAnyLoop
   :: forall r q endOfLoopResult
    . (SetMember Process (Process q) r, HasCallStack)
-  => SchedulerProxy q
-  -> (Either InterruptReason Dynamic -> Eff r (Maybe endOfLoopResult))
+  => (Either InterruptReason Dynamic -> Eff r (Maybe endOfLoopResult))
   -> Eff r endOfLoopResult
-receiveAnyLoop px = receiveSelectedLoop px selectAnyMessageLazy
+receiveAnyLoop = receiveSelectedLoop selectAnyMessageLazy
 
 -- | Like 'receiveSelectedLoop' but refined to casting to a specific 'Typeable'
 -- using 'selectMessageLazy'.
 receiveLoop
   :: forall r q a endOfLoopResult
    . (SetMember Process (Process q) r, HasCallStack, Typeable a)
-  => SchedulerProxy q
-  -> (Either InterruptReason a -> Eff r (Maybe endOfLoopResult))
+  => (Either InterruptReason a -> Eff r (Maybe endOfLoopResult))
   -> Eff r endOfLoopResult
-receiveLoop px = receiveSelectedLoop px selectMessageLazy
+receiveLoop = receiveSelectedLoop selectMessageLazy
 
 -- | Returns the 'ProcessId' of the current process.
 self
   :: (HasCallStack, SetMember Process (Process q) r)
-  => SchedulerProxy q
-  -> Eff r ProcessId
-self _px = executeAndResumeOrExit SelfPid
+  => Eff r ProcessId
+self = executeAndResumeOrExit SelfPid
 
 -- | Generate a unique 'Int' for the current process.
 makeReference
   :: (HasCallStack, SetMember Process (Process q) r, Member Interrupts r)
-  => SchedulerProxy q
-  -> Eff r Int
-makeReference _px = executeAndResumeOrThrow MakeReference
+  => Eff r Int
+makeReference = executeAndResumeOrThrow MakeReference
 
 -- | A value that contains a unique reference of a process
 -- monitoring.
@@ -1072,10 +1032,9 @@ instance Show MonitorReference where
 monitor
   :: forall r q
    . (HasCallStack, SetMember Process (Process q) r, Member Interrupts r)
-  => SchedulerProxy q
-  -> ProcessId
+  => ProcessId
   -> Eff r MonitorReference
-monitor _px = executeAndResumeOrThrow . Monitor . force
+monitor = executeAndResumeOrThrow . Monitor . force
 
 -- | Remove a monitor created with 'monitor'.
 --
@@ -1083,10 +1042,9 @@ monitor _px = executeAndResumeOrThrow . Monitor . force
 demonitor
   :: forall r q
    . (HasCallStack, SetMember Process (Process q) r, Member Interrupts r)
-  => SchedulerProxy q
-  -> MonitorReference
+  => MonitorReference
   -> Eff r ()
-demonitor _px = executeAndResumeOrThrow . Demonitor . force
+demonitor = executeAndResumeOrThrow . Demonitor . force
 
 -- | 'monitor' another process before while performing an action
 -- and 'demonitor' afterwards.
@@ -1098,11 +1056,10 @@ withMonitor
      , SetMember Process (Process q) r
      , Member Interrupts r
      )
-  => SchedulerProxy q
-  -> ProcessId
+  => ProcessId
   -> (MonitorReference -> Eff r a)
   -> Eff r a
-withMonitor px pid eff = monitor px pid >>= \ref -> eff ref <* demonitor px ref
+withMonitor pid eff = monitor pid >>= \ref -> eff ref <* demonitor ref
 
 -- | A 'MessageSelector' for receiving either a monitor of the
 -- given process or another message.
@@ -1116,15 +1073,12 @@ receiveWithMonitor
      , Typeable a
      , Show a
      )
-  => SchedulerProxy q
-  -> ProcessId
+  => ProcessId
   -> MessageSelector a
   -> Eff r (Either ProcessDown a)
-receiveWithMonitor px pid sel = withMonitor
-  px
+receiveWithMonitor pid sel = withMonitor
   pid
   (\ref -> receiveSelectedMessage
-    px
     (Left <$> selectProcessDown ref <|> Right <$> sel)
   )
 
@@ -1176,10 +1130,9 @@ selectProcessDown ref0 =
 linkProcess
   :: forall r q
    . (HasCallStack, SetMember Process (Process q) r, Member Interrupts r)
-  => SchedulerProxy q
-  -> ProcessId
+  => ProcessId
   -> Eff r ()
-linkProcess _px = executeAndResumeOrThrow . Link . force
+linkProcess = executeAndResumeOrThrow . Link . force
 
 -- | Unlink the calling proccess from the other process.
 --
@@ -1187,36 +1140,32 @@ linkProcess _px = executeAndResumeOrThrow . Link . force
 unlinkProcess
   :: forall r q
    . (HasCallStack, SetMember Process (Process q) r, Member Interrupts r)
-  => SchedulerProxy q
-  -> ProcessId
+  => ProcessId
   -> Eff r ()
-unlinkProcess _px = executeAndResumeOrThrow . Unlink . force
+unlinkProcess = executeAndResumeOrThrow . Unlink . force
 
 -- | Exit the process with a 'ProcessExitReaon'.
 exitBecause
   :: forall r q a
    . (HasCallStack, SetMember Process (Process q) r)
-  => SchedulerProxy q
-  -> ExitReason 'NoRecovery
+  => ExitReason 'NoRecovery
   -> Eff r a
-exitBecause _ = send . Shutdown @q . force
+exitBecause = send . Shutdown @q . force
 
 -- | Exit the process.
 exitNormally
   :: forall r q a
    . (HasCallStack, SetMember Process (Process q) r)
-  => SchedulerProxy q
-  -> Eff r a
-exitNormally px = exitBecause px ExitNormally
+  => Eff r a
+exitNormally = exitBecause  ExitNormally
 
 -- | Exit the process with an error.
 exitWithError
   :: forall r q a
    . (HasCallStack, SetMember Process (Process q) r)
-  => SchedulerProxy q
-  -> String
+  => String
   -> Eff r a
-exitWithError px = exitBecause px . NotRecovered . ProcessError
+exitWithError = exitBecause . NotRecovered . ProcessError
 
 -- | Each process is identified by a single process id, that stays constant
 -- throughout the life cycle of a process. Also, message sending relies on these

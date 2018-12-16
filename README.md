@@ -12,6 +12,16 @@ Also included:
 
 - Memory Leak Free `forever`
 
+## GHC Extensions
+
+In order to use the library you might need to activate some extension
+in order to fight some ambiguous types, stemming from the flexibility to
+choose different Scheduler implementations.
+
+- AllowAmbiguousTypes
+- TypeApplications
+
+
 ## Example
 
 ```haskell
@@ -28,7 +38,7 @@ main :: IO ()
 main = defaultMain
   (do
     lift (threadDelay 100000) -- because of async logging
-    firstExample forkIoScheduler
+    firstExample
     lift (threadDelay 100000) -- ... async logging
   )
     -- The SchedulerProxy paremeter contains the effects of a specific scheduler
@@ -38,18 +48,18 @@ main = defaultMain
 newtype WhoAreYou = WhoAreYou ProcessId deriving (Typeable, NFData, Show)
 
 firstExample
-  :: (HasLogging IO q) => SchedulerProxy q -> Eff (InterruptableProcess q) ()
-firstExample px = do
+  :: (HasLogging IO q) => Eff (InterruptableProcess q) ()
+firstExample = do
   person <- spawn
     (do
       logInfo "I am waiting for someone to ask me..."
       WhoAreYou replyPid <- receiveMessage px
-      sendMessage px replyPid "Alice"
+      sendMessage replyPid "Alice"
       logInfo (show replyPid ++ " just needed to know it.")
     )
-  me <- self px
-  sendMessage px person (WhoAreYou me)
-  personName <- receiveMessage px
+  me <- self
+  sendMessage person (WhoAreYou me)
+  personName <- receiveMessage
   logInfo ("I just met " ++ personName)
 
 
@@ -83,25 +93,6 @@ Still todo...
 
 [![extensible-effects-concurrent LTS](http://stackage.org/package/extensible-effects-concurrent/badge/lts)](http://stackage.org/lts/package/extensible-effects-concurrent)
 
-### Scheduler Variation
-
-The ambiguity-flexibility trade-off introduced by using extensible effects
-kicks in because the `Process` type has a `Spawn` clause, which needs to
-know the `Eff`ects.
-
-That is resolved by an omnipresent scheduler proxy parameter.
-
-I will resolve this issue in one of these ways, but haven't decided:
-
-- By using `AllowAmbiguousTypes` in combination with `TypeApplications`
-
-- By using backpack - second best option, apart from missing stack support
-
-- By duplicating the code for each scheduler implementation
-
-- By using implicit parameters (experimental use of that technique is in
-  the logging part) - problem is that implicit parameter sometimes act weired
-  and also might break compiler inlineing.
 
 ### Other
 

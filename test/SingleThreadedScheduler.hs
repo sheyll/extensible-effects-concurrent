@@ -18,19 +18,19 @@ test_pureScheduler = setTravisTestOptions $ testGroup
       @=? Scheduler.schedulePure
               (do
                   adderChild <- spawn $ do
-                      (from, arg1, arg2) <- receiveMessage SP
-                      sendMessage SP from ((arg1 + arg2) :: Int)
-                      foreverCheap $ void $ receiveAnyMessage SP
+                      (from, arg1, arg2) <- receiveMessage
+                      sendMessage from ((arg1 + arg2) :: Int)
+                      foreverCheap $ void $ receiveAnyMessage
 
                   multChild <- spawn $ do
-                      (from, arg1, arg2) <- receiveMessage SP
-                      sendMessage SP from ((arg1 * arg2) :: Int)
+                      (from, arg1, arg2) <- receiveMessage
+                      sendMessage from ((arg1 * arg2) :: Int)
 
-                  me <- self SP
-                  sendMessage SP adderChild (me, 3 :: Int, 4 :: Int)
-                  x <- receiveMessage @Int SP
-                  sendMessage SP multChild (me, x, 6 :: Int)
-                  receiveMessage @Int SP
+                  me <- self
+                  sendMessage adderChild (me, 3 :: Int, 4 :: Int)
+                  x <- receiveMessage @Int
+                  sendMessage multChild (me, x, 6 :: Int)
+                  receiveMessage @Int
               )
     ]
 
@@ -41,9 +41,8 @@ test_mainProcessSpawnsAChildAndExitsNormally = setTravisTestOptions
         "spawn a child and exit normally"
         (Scheduler.defaultMainSingleThreaded
             (do
-                void
-                    (spawn (void (receiveAnyMessage singleThreadedIoScheduler)))
-                void (exitNormally singleThreadedIoScheduler)
+                void (spawn (void receiveAnyMessage))
+                void exitNormally
                 fail "This should not happen!!"
             )
         )
@@ -58,12 +57,12 @@ test_mainProcessSpawnsAChildBothExitNormally = setTravisTestOptions
             (do
                 child <- spawn
                     (do
-                        void (receiveMessage @String singleThreadedIoScheduler)
-                        void (exitNormally singleThreadedIoScheduler)
+                        void (receiveMessage @String)
+                        void exitNormally
                         error "This should not happen (child)!!"
                     )
-                sendMessage singleThreadedIoScheduler child (toDyn "test")
-                void (exitNormally singleThreadedIoScheduler)
+                sendMessage child (toDyn "test")
+                void exitNormally
                 error "This should not happen!!"
             )
         )

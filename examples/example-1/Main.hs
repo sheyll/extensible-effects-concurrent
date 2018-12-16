@@ -27,14 +27,12 @@ instance Exc.Exception MyException
 deriving instance Show (Api TestApi x)
 
 main :: IO ()
-main = defaultMain (example forkIoScheduler)
+main = defaultMain example
 
 mainProcessSpawnsAChildAndReturns
   :: (HasCallStack, SetMember Process (Process q) r, Member Interrupts r)
-  => SchedulerProxy q
-  -> Eff r ()
-mainProcessSpawnsAChildAndReturns px =
-  void (spawn (void (receiveAnyMessage px)))
+  => Eff r ()
+mainProcessSpawnsAChildAndReturns = void (spawn (void receiveAnyMessage))
 
 example
   :: ( HasCallStack
@@ -43,32 +41,31 @@ example
      , HasLogging IO r
      , HasLogging IO q
      )
-  => SchedulerProxy q
-  -> Eff r ()
-example px = do
-  me <- self px
+  => Eff r ()
+example = do
+  me <- self
   logInfo ("I am " ++ show me)
-  server <- testServerLoop px
+  server <- testServerLoop
   logInfo ("Started server " ++ show server)
   let go = do
         lift (putStr "Enter something: ")
         x <- lift getLine
         case x of
           ('K' : rest) -> do
-            callRegistered px (TerminateError rest)
+            callRegistered (TerminateError rest)
             go
           ('S' : _) -> do
-            callRegistered px Terminate
+            callRegistered Terminate
             go
           ('C' : _) -> do
-            castRegistered px (Shout x)
+            castRegistered (Shout x)
             go
           ('R' : rest) -> do
-            replicateM_ (read rest) (castRegistered px (Shout x))
+            replicateM_ (read rest) (castRegistered (Shout x))
             go
           ('q' : _) -> logInfo "Done."
           _         -> do
-            res <- callRegistered px (SayHello x)
+            res <- callRegistered (SayHello x)
             logInfo ("Result: " ++ show res)
             go
   registerServer server go
@@ -80,15 +77,14 @@ testServerLoop
      , HasLogging IO q
      , Member Interrupts r
      )
-  => SchedulerProxy q
-  -> Eff r (Server TestApi)
-testServerLoop px = spawnServer px
+  => Eff r (Server TestApi)
+testServerLoop = spawnServer
   $ apiHandler handleCastTest handleCallTest handleTerminateTest
  where
   handleCastTest
     :: Api TestApi 'Asynchronous -> Eff (InterruptableProcess q) ApiServerCmd
   handleCastTest (Shout x) = do
-    me <- self px
+    me <- self
     logInfo (show me ++ " Shouting: " ++ x)
     return HandleNextRequest
   handleCallTest
@@ -96,40 +92,40 @@ testServerLoop px = spawnServer px
     -> (x -> Eff (InterruptableProcess q) ())
     -> Eff (InterruptableProcess q) ApiServerCmd
   handleCallTest (SayHello "e1") _reply = do
-    me <- self px
+    me <- self
     logInfo (show me ++ " raising an error")
     interrupt (ProcessError "No body loves me... :,(")
   handleCallTest (SayHello "e2") _reply = do
-    me <- self px
+    me <- self
     logInfo (show me ++ " throwing a MyException ")
     lift (Exc.throw MyException)
   handleCallTest (SayHello "self") reply = do
-    me <- self px
+    me <- self
     logInfo (show me ++ " casting to self")
-    cast px (asServer @TestApi me) (Shout "from me")
+    cast (asServer @TestApi me) (Shout "from me")
     void (reply False)
     return HandleNextRequest
   handleCallTest (SayHello "stop") reply = do
-    me <- self px
+    me <- self
     logInfo (show me ++ " stopping me")
     void (reply False)
     return (StopApiServer (ProcessError "test error"))
   handleCallTest (SayHello x) reply = do
-    me <- self px
+    me <- self
     logInfo (show me ++ " Got Hello: " ++ x)
     void (reply (length x > 3))
     return HandleNextRequest
   handleCallTest Terminate reply = do
-    me <- self px
+    me <- self
     logInfo (show me ++ " exiting")
     void (reply ())
-    exitNormally px
+    exitNormally
   handleCallTest (TerminateError msg) reply = do
-    me <- self px
+    me <- self
     logInfo (show me ++ " exiting with error: " ++ msg)
     void (reply ())
-    exitWithError px msg
+    exitWithError msg
   handleTerminateTest msg = do
-    me <- self px
+    me <- self
     logInfo (show me ++ " is exiting: " ++ show msg)
     logProcessExit msg

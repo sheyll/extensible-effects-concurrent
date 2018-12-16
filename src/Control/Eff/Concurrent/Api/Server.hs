@@ -82,8 +82,8 @@ data ApiHandler api eff where
 
 
 instance Default (ApiHandler api eff) where
-  def = ApiHandler { _castCallback = def
-                   , _callCallback = def
+  def = ApiHandler { _castCallback      = def
+                   , _callCallback      = def
                    , _terminateCallback = def
                    }
 
@@ -98,11 +98,10 @@ apiHandler
      )
   -> (ExitReason 'Recoverable -> Eff e ())
   -> ApiHandler api e
-apiHandler c d e = ApiHandler
-  { _castCallback      = Just c
-  , _callCallback      = Just d
-  , _terminateCallback = Just e
-  }
+apiHandler c d e = ApiHandler { _castCallback      = Just c
+                              , _callCallback      = Just d
+                              , _terminateCallback = Just e
+                              }
 
 -- | Like 'apiHandler' but the server will loop until an error is raised or
 -- the process exits.
@@ -207,21 +206,26 @@ data ServerCallback eff =
 makeLenses ''ServerCallback
 
 instance Semigroup (ServerCallback eff) where
-  l <> r = l & requestHandlerSelector .~
-                  selectDynamicMessageLazy (\x ->
-                    runMessageSelector (view requestHandlerSelector l) x <|>
-                    runMessageSelector (view requestHandlerSelector r) x)
-             & terminationHandler .~
-                  (\reason ->
-                      do (l^.terminationHandler) reason
-                         (r^.terminationHandler) reason)
+  l <> r =
+    l
+      &  requestHandlerSelector
+      .~ selectDynamicMessageLazy
+           (\x ->
+             runMessageSelector (view requestHandlerSelector l) x
+               <|> runMessageSelector (view requestHandlerSelector r) x
+           )
+      &  terminationHandler
+      .~ (\reason -> do
+           (l ^. terminationHandler) reason
+           (r ^. terminationHandler) reason
+         )
 
 instance Monoid (ServerCallback eff) where
   mappend = (<>)
-  mempty = ServerCallback
-              { _requestHandlerSelector = selectDynamicMessageLazy (const Nothing)
-              , _terminationHandler = const (return ())
-              }
+  mempty  = ServerCallback
+    { _requestHandlerSelector = selectDynamicMessageLazy (const Nothing)
+    , _terminationHandler     = const (return ())
+    }
 
 -- | Helper type class to allow composition of 'ApiHandler'.
 class Servable a where
@@ -237,28 +241,26 @@ class Servable a where
   -- | Convert the value to a 'ServerCallback'
   toServerCallback
     :: (Member Interrupts (ServerEff a), SetMember Process (Process effScheduler) (ServerEff a))
-    => SchedulerProxy effScheduler -> a -> ServerCallback (ServerEff a)
+    => a -> ServerCallback (ServerEff a)
 
 instance Servable (ServerCallback eff)  where
   type ServerEff (ServerCallback eff) = eff
   type ServerPids (ServerCallback eff) = ProcessId
-  toServerCallback  = const id
-  toServerPids = const id
+  toServerCallback = id
+  toServerPids     = const id
 
 instance Typeable a => Servable (ApiHandler a eff)  where
   type ServerEff (ApiHandler a eff) = eff
   type ServerPids (ApiHandler a eff) = Server a
-  toServerCallback  = apiHandlerServerCallback
+  toServerCallback = apiHandlerServerCallback
   toServerPids _ = asServer
 
 instance (ServerEff a ~ ServerEff b, Servable a, Servable b) => Servable (a, b) where
   type ServerPids (a, b) = (ServerPids a, ServerPids b)
   type ServerEff (a, b) = ServerEff a
-  toServerCallback px (a, b) = toServerCallback px a <> toServerCallback px b
+  toServerCallback (a, b) = toServerCallback a <> toServerCallback b
   toServerPids _ pid =
-    ( toServerPids (Proxy :: Proxy a) pid
-    , toServerPids (Proxy :: Proxy b) pid
-    )
+    (toServerPids (Proxy :: Proxy a) pid, toServerPids (Proxy :: Proxy b) pid)
 
 -- | Receive and process incoming requests until the process exits.
 serve
@@ -268,15 +270,14 @@ serve
      , Member Interrupts (ServerEff a)
      , HasCallStack
      )
-  => SchedulerProxy effScheduler
-  -> a
+  => a
   -> Eff (ServerEff a) ()
-serve px a =
-  let serverCb = toServerCallback px a
+serve a =
+  let serverCb = toServerCallback a
       stopServer reason = do
         (serverCb ^. terminationHandler) reason
         return (Just ())
-  in  receiveSelectedLoop px (serverCb ^. requestHandlerSelector) $ \case
+  in  receiveSelectedLoop (serverCb ^. requestHandlerSelector) $ \case
         Left  reason   -> stopServer reason
         Right handleIt -> handleIt >>= \case
           HandleNextRequest    -> return Nothing
@@ -292,10 +293,9 @@ spawnServer
      , Member Interrupts eff
      , HasCallStack
      )
-  => SchedulerProxy effScheduler
-  -> a
+  => a
   -> Eff eff (ServerPids a)
-spawnServer px a = spawnServerWithEffects px a id
+spawnServer a = spawnServerWithEffects a id
 
 -- | Spawn a new process, that will receive and process incoming requests
 -- until the process exits. Also handle all internal effects.
@@ -308,14 +308,11 @@ spawnServerWithEffects
      , Member Interrupts (ServerEff a)
      , HasCallStack
      )
-  => SchedulerProxy effScheduler
-  -> a
-  -> (  Eff (ServerEff a) ()
-     -> Eff (InterruptableProcess effScheduler) ()
-     )
+  => a
+  -> (Eff (ServerEff a) () -> Eff (InterruptableProcess effScheduler) ())
   -> Eff eff (ServerPids a)
-spawnServerWithEffects px a handleEff = do
-  pid <- spawn (handleEff (serve px a))
+spawnServerWithEffects a handleEff = do
+  pid <- spawn (handleEff (serve a))
   return (toServerPids (Proxy @a) pid)
 
 -- | Wrap an 'ApiHandler' into a composable 'ServerCallback' value.
@@ -326,11 +323,10 @@ apiHandlerServerCallback
      , SetMember Process (Process effScheduler) eff
      , Member Interrupts eff
      )
-  => SchedulerProxy effScheduler
-  -> ApiHandler api eff
+  => ApiHandler api eff
   -> ServerCallback eff
-apiHandlerServerCallback px handlers = mempty
-  { _requestHandlerSelector = selectHandlerMethod px handlers
+apiHandlerServerCallback handlers = mempty
+  { _requestHandlerSelector = selectHandlerMethod handlers
   , _terminationHandler     = fromMaybe (const (return ()))
                                         (_terminateCallback handlers)
   }
@@ -344,11 +340,10 @@ selectHandlerMethod
      , SetMember Process (Process effScheduler) eff
      , Member Interrupts eff
      )
-  => SchedulerProxy effScheduler
-  -> ApiHandler api eff
+  => ApiHandler api eff
   -> MessageSelector (Eff eff ApiServerCmd)
-selectHandlerMethod px handlers =
-  selectDynamicMessageLazy (fmap (applyHandlerMethod px handlers) . fromDynamic)
+selectHandlerMethod handlers =
+  selectDynamicMessageLazy (fmap (applyHandlerMethod handlers) . fromDynamic)
 
 -- | Apply either the '_callCallback', '_castCallback' or the '_terminateCallback'
 -- callback to an incoming request.
@@ -359,14 +354,13 @@ applyHandlerMethod
      , Member Interrupts eff
      , HasCallStack
      )
-  => SchedulerProxy effScheduler
-  -> ApiHandler api eff
+  => ApiHandler api eff
   -> Request api
   -> Eff eff ApiServerCmd
-applyHandlerMethod px handlers (Cast request) =
-  fromMaybe (unhandledCastError px) (_castCallback handlers) request
-applyHandlerMethod px handlers (Call callRef fromPid request) = fromMaybe
-  (unhandledCallError px)
+applyHandlerMethod handlers (Cast request) =
+  fromMaybe unhandledCastError (_castCallback handlers) request
+applyHandlerMethod handlers (Call callRef fromPid request) = fromMaybe
+  unhandledCallError
   (_callCallback handlers)
   request
   (sendReply (mkRequestOrigin request fromPid callRef))
@@ -380,11 +374,10 @@ unhandledCallError
      , SetMember Process (Process q) r
      , Member Interrupts r
      )
-  => SchedulerProxy q
-  -> Api p ( 'Synchronous x)
+  => Api p ( 'Synchronous x)
   -> (x -> Eff r ())
   -> Eff r ApiServerCmd
-unhandledCallError _px _api _ = throwError
+unhandledCallError _api _ = throwError
   (ProcessError ("unhandled call on api: " ++ show (typeRep (Proxy @p))))
 
 -- | A default handler to use in '_castCallback' in 'ApiHandler'. It will call
@@ -396,10 +389,9 @@ unhandledCastError
      , SetMember Process (Process q) r
      , Member Interrupts r
      )
-  => SchedulerProxy q
-  -> Api p 'Asynchronous
+  => Api p 'Asynchronous
   -> Eff r ApiServerCmd
-unhandledCastError _px _api = throwError
+unhandledCastError _api = throwError
   (ProcessError ("unhandled cast on api: " ++ show (typeRep (Proxy @p))))
 
 -- | Either do nothing, if the error message is @Nothing@,
@@ -410,7 +402,6 @@ defaultTermination
      , SetMember Process (Process q) r
      , Member (Logs LogMessage) r
      )
-  => SchedulerProxy q
-  -> ExitReason 'Recoverable
+  => ExitReason 'Recoverable
   -> Eff r ()
-defaultTermination _px r = logNotice ("server process terminating " ++ show r)
+defaultTermination r = logNotice ("server process terminating " ++ show r)

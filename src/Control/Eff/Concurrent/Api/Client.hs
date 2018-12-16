@@ -36,11 +36,10 @@ cast
      , Typeable o
      , Typeable (Api o 'Asynchronous)
      )
-  => SchedulerProxy q
-  -> Server o
+  => Server o
   -> Api o 'Asynchronous
   -> Eff r ()
-cast px (Server pid) castMsg = sendMessage px pid (Cast $! castMsg)
+cast (Server pid) castMsg = sendMessage pid (Cast $! castMsg)
 
 -- | Send an 'Api' request and wait for the server to return a result value.
 --
@@ -57,15 +56,14 @@ call
      , NFData result
      , Show result
      )
-  => SchedulerProxy q
-  -> Server api
+  => Server api
   -> Api api ( 'Synchronous result)
   -> Eff r result
-call px (Server pidInternal) req = do
-  fromPid <- self px
-  callRef <- makeReference px
+call (Server pidInternal) req = do
+  fromPid <- self
+  callRef <- makeReference
   let requestMessage = Call callRef fromPid $! req
-  sendMessage px pidInternal requestMessage
+  sendMessage pidInternal requestMessage
   let selectResult :: MessageSelector result
       selectResult =
         let extractResult
@@ -73,7 +71,7 @@ call px (Server pidInternal) req = do
             extractResult (Reply _pxResult callRefMsg result) =
               if callRefMsg == callRef then Just result else Nothing
         in  selectMessageWith extractResult
-  rres <- receiveWithMonitor px pidInternal selectResult
+  rres <- receiveWithMonitor pidInternal selectResult
   either (interrupt . becauseProcessIsDown) return rres
 
 -- | Instead of passing around a 'Server' value and passing to functions like
@@ -110,20 +108,18 @@ callRegistered
      , Show reply
      , Member Interrupts r
      )
-  => SchedulerProxy q
-  -> Api o ( 'Synchronous reply)
+  => Api o ( 'Synchronous reply)
   -> Eff r reply
-callRegistered px method = do
+callRegistered method = do
   serverPid <- whereIsServer
-  call px serverPid method
+  call serverPid method
 
 -- | Like 'cast' but take the 'Server' from the reader provided by
 -- 'registerServer'.
 castRegistered
   :: (Typeable o, ServesApi o r q, HasCallStack, Member Interrupts r)
-  => SchedulerProxy q
-  -> Api o 'Asynchronous
+  => Api o 'Asynchronous
   -> Eff r ()
-castRegistered px method = do
+castRegistered method = do
   serverPid <- whereIsServer
-  cast px serverPid method
+  cast serverPid method

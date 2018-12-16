@@ -45,21 +45,14 @@ test_IOExceptionsIsolated = setTravisTestOptions $ testGroup
                   doExit
                 lift (threadDelay 100000)
 
-                me <- self forkIoScheduler
-                spawn_
-                  (lift (threadDelay 10000) >> sendMessage forkIoScheduler me ()
-                  )
-                eres <- receiveWithMonitor forkIoScheduler
-                                           p1
-                                           (selectMessage @())
+                me <- self
+                spawn_ (lift (threadDelay 10000) >> sendMessage me ())
+                eres <- receiveWithMonitor p1 (selectMessage @())
                 case eres of
                   Left  _down -> lift (atomically (putTMVar aVar False))
-                  Right ()    -> withMonitor forkIoScheduler p1 $ \ref -> do
-                    sendShutdown forkIoScheduler
-                                 p1
-                                 (NotRecovered (ProcessError "test 123"))
-                    _down <- receiveSelectedMessage forkIoScheduler
-                                                    (selectProcessDown ref)
+                  Right ()    -> withMonitor p1 $ \ref -> do
+                    sendShutdown p1 (NotRecovered (ProcessError "test 123"))
+                    _down <- receiveSelectedMessage (selectProcessDown ref)
                     lift (atomically (putTMVar aVar True))
               )
             )
@@ -105,7 +98,7 @@ test_mainProcessSpawnsAChildAndReturns = setTravisTestOptions
       (1000 :: Natural)
       def
       (Scheduler.defaultMainWithLogChannel
-        (void (spawn (void (receiveAnyMessage forkIoScheduler))))
+        (void (spawn (void receiveAnyMessage)))
       )
     )
   )
@@ -119,8 +112,8 @@ test_mainProcessSpawnsAChildAndExitsNormally = setTravisTestOptions
       def
       (Scheduler.defaultMainWithLogChannel
         (do
-          void (spawn (void (receiveAnyMessage forkIoScheduler)))
-          void (exitNormally forkIoScheduler)
+          void (spawn (void receiveAnyMessage))
+          void exitNormally
           fail "This should not happen!!"
         )
       )
@@ -138,11 +131,8 @@ test_mainProcessSpawnsAChildInABusySendLoopAndExitsNormally =
         def
         (Scheduler.defaultMainWithLogChannel
           (do
-            void
-              (spawn
-                (foreverCheap (void (sendMessage forkIoScheduler 1000 "test")))
-              )
-            void (exitNormally forkIoScheduler)
+            void (spawn (foreverCheap (void (sendMessage 1000 "test"))))
+            void exitNormally
             fail "This should not happen!!"
           )
         )
@@ -159,8 +149,8 @@ test_mainProcessSpawnsAChildBothReturn = setTravisTestOptions
       def
       (Scheduler.defaultMainWithLogChannel
         (do
-          child <- spawn (void (receiveMessage @String forkIoScheduler))
-          sendMessage forkIoScheduler child "test"
+          child <- spawn (void (receiveMessage @String))
+          sendMessage child "test"
           return ()
         )
       )
@@ -177,14 +167,13 @@ test_mainProcessSpawnsAChildBothExitNormally = setTravisTestOptions
       (Scheduler.defaultMainWithLogChannel
         (do
           child <- spawn $ void $ provideInterrupts $ exitOnInterrupt
-            forkIoScheduler
             (do
-              void (receiveMessage @String forkIoScheduler)
-              void (exitNormally forkIoScheduler)
+              void (receiveMessage @String)
+              void exitNormally
               error "This should not happen (child)!!"
             )
-          sendMessage forkIoScheduler child "test"
-          void (exitNormally forkIoScheduler)
+          sendMessage child "test"
+          void exitNormally
           error "This should not happen!!"
         )
       )
@@ -200,24 +189,24 @@ test_timer =
     $ do
         let n = 100
             testMsg :: Float
-            testMsg = 123
-            flushMsgs px = do
-              res <- receiveSelectedAfter px (selectDynamicMessageLazy Just) 0
+            testMsg   = 123
+            flushMsgs = do
+              res <- receiveSelectedAfter (selectDynamicMessageLazy Just) 0
               case res of
                 Left  _to -> return ()
-                Right _   -> flushMsgs px
-        me <- self SP
+                Right _   -> flushMsgs
+        me <- self
         spawn_
           (do
-            replicateM_ n $ sendMessage SP me "bad message"
-            replicateM_ n $ sendMessage SP me (3123 :: Integer)
-            sendMessage SP me testMsg
+            replicateM_ n $ sendMessage me "bad message"
+            replicateM_ n $ sendMessage me (3123 :: Integer)
+            sendMessage me testMsg
           )
         do
-          res <- receiveAfter @Float SP 1000000
+          res <- receiveAfter @Float 1000000
           lift (res @?= Just testMsg)
-        flushMsgs SP
-        res <- receiveSelectedAfter SP (selectDynamicMessageLazy Just) 10000
+        flushMsgs
+        res <- receiveSelectedAfter (selectDynamicMessageLazy Just) 10000
         case res of
           Left  _ -> return ()
           Right x -> lift (False @? "unexpected message in queue " ++ show x)

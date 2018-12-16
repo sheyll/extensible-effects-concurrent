@@ -92,7 +92,7 @@ spawnApiServerStateful
 spawnApiServerStateful initEffect (MessageCallback sel cb) (InterruptCallback intCb)
   = fmap (toServerPids (Proxy @api)) $ spawnRaw $ do
     state <- provideInterruptsShutdown initEffect
-    evalState state $ receiveSelectedLoop (SP @eff) sel $ \msg -> case msg of
+    evalState state $ receiveSelectedLoop sel $ \msg -> case msg of
       Left  m -> invokeIntCb m
       Right m -> do
         s <- get
@@ -107,7 +107,7 @@ spawnApiServerStateful initEffect (MessageCallback sel cb) (InterruptCallback in
     case l of
       AwaitNext                  -> return Nothing
       StopServer ProcessFinished -> return (Just ())
-      StopServer k               -> exitBecause SP (NotRecovered k)
+      StopServer k               -> exitBecause (NotRecovered k)
 
 -- | /Server/ an 'Api' in a newly spawned process; The caller provides an
 -- effect handler for arbitrary effects used by the server callbacks.
@@ -166,7 +166,6 @@ apiServerLoop
   -> Eff serverEff ()
 apiServerLoop (MessageCallback sel cb) (InterruptCallback intCb) =
   receiveSelectedLoop
-    (SP @eff)
     sel
     (   either (fmap Left . intCb) (fmap Right . tryUninterrupted . cb)
     >=> handleCallbackResult
@@ -176,7 +175,7 @@ apiServerLoop (MessageCallback sel cb) (InterruptCallback intCb) =
     :: Either CallbackResult (Either InterruptReason CallbackResult)
     -> Eff serverEff (Maybe ())
   handleCallbackResult (Left AwaitNext) = return Nothing
-  handleCallbackResult (Left (StopServer r)) = exitBecause SP (NotRecovered r)
+  handleCallbackResult (Left (StopServer r)) = exitBecause (NotRecovered r)
   handleCallbackResult (Right (Right AwaitNext)) = return Nothing
   handleCallbackResult (Right (Right (StopServer r))) =
     intCb r >>= handleCallbackResult . Left
@@ -287,15 +286,14 @@ handleCalls
      , SetMember Process (Process effScheduler) eff
      , Member Interrupts eff
      )
-  => SchedulerProxy effScheduler
-  -> (  forall secret reply
+  => (  forall secret reply
       . (Typeable reply, Typeable (Api api ( 'Synchronous reply)))
      => Api api ( 'Synchronous reply)
      -> (Eff eff (Maybe reply, CallbackResult) -> secret)
      -> secret
      )
   -> MessageCallback api eff
-handleCalls _px h = MessageCallback
+handleCalls h = MessageCallback
   (selectMessageWithLazy
     (\case
       (Cast _ :: Request api) -> Nothing
@@ -323,8 +321,7 @@ handleCastsAndCalls
      , SetMember Process (Process effScheduler) eff
      , Member Interrupts eff
      )
-  => SchedulerProxy effScheduler
-  -> (Api api 'Asynchronous -> Eff eff CallbackResult)
+  => (Api api 'Asynchronous -> Eff eff CallbackResult)
   -> (  forall secret reply
       . (Typeable reply, Typeable (Api api ( 'Synchronous reply)))
      => Api api ( 'Synchronous reply)
@@ -332,8 +329,7 @@ handleCastsAndCalls
      -> secret
      )
   -> MessageCallback api eff
-handleCastsAndCalls px onCast onCall =
-  handleCalls px onCall <> handleCasts onCast
+handleCastsAndCalls onCast onCall = handleCalls onCall <> handleCasts onCast
 
 
 -- | A variation of 'handleCalls' that allows to defer a reply to a call.
@@ -346,15 +342,14 @@ handleCallsDeferred
      , SetMember Process (Process effScheduler) eff
      , Member Interrupts eff
      )
-  => SchedulerProxy effScheduler
-  -> (  forall reply
+  => (  forall reply
       . (Typeable reply, Typeable (Api api ( 'Synchronous reply)))
      => RequestOrigin (Api api ( 'Synchronous reply))
      -> Api api ( 'Synchronous reply)
      -> Eff eff CallbackResult
      )
   -> MessageCallback api eff
-handleCallsDeferred _px h = MessageCallback
+handleCallsDeferred h = MessageCallback
   (selectMessageWithLazy
     (\case
       (Cast _ :: Request api) -> Nothing

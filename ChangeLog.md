@@ -8,6 +8,9 @@
   - Remove `CallBackObserver`
   - Remove the observer support code in `Server2`
 
+- Remove the `SchedulerProxy` parameter and tell library users to enable `AllowAmbiguousTypes` and `TypeApplications`
+  - Remove dependent support code like `HasScheduler`
+
 ## 0.15.0
 
 - Add `Api` `Request` and `Reply` types

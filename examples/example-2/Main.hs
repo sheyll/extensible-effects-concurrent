@@ -13,7 +13,6 @@ import           Control.Concurrent
 main :: IO ()
 main = defaultMain (void counterExample)
 
-
 -- * First API
 
 data Counter deriving Typeable
@@ -33,21 +32,21 @@ counterExample = do
   lift (threadDelay 500000)
   registerObserver o co
   lift (threadDelay 500000)
-  cast SP c Inc
+  cast c Inc
   lift (threadDelay 500000)
-  sendMessage SP cp "test 123"
-  cast SP c Inc
+  sendMessage cp "test 123"
+  cast c Inc
   lift (threadDelay 500000)
-  cast SP c Inc
-  sendMessage SP cp (12312312 :: Int)
+  cast c Inc
+  sendMessage cp (12312312 :: Int)
   lift (threadDelay 500000)
-  cast SP c Inc
+  cast c Inc
   lift (threadDelay 500000)
-  cast SP c Inc
+  cast c Inc
   lift (threadDelay 500000)
-  cast SP c Inc
+  cast c Inc
   lift (threadDelay 500000)
-  r <- call SP c Cnt
+  r <- call c Cnt
   lift (threadDelay 500000)
   lift (putStrLn ("r: " ++ show r))
   lift (threadDelay 500000)
@@ -76,7 +75,6 @@ spawnCounter = spawnApiServerEffectful
     (Nothing :: Maybe (RequestOrigin (Api SupiDupi ( 'Synchronous (Maybe ())))))
   )
   (  handleCalls
-      SP
       (\case
         Cnt ->
           ($ do
@@ -106,7 +104,7 @@ spawnCounter = spawnApiServerEffectful
        )
   ^: handleObserverRegistration
   ^: handleCallsDeferred
-       SP
+
        (\origin ->
          (\case
            Whoopediedoo c -> do
