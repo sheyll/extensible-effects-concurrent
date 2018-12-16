@@ -18,7 +18,7 @@ module Control.Eff.Concurrent
     module Control.Eff.Concurrent.Api.Server
   ,
     -- ** /Server/ Functions for Providing APIs (new experimental)
-    module Control.Eff.Concurrent.Api.Server2
+    module Control.Eff.Concurrent.Api.Server
   ,
     -- ** Encapsulate 'Api's 'Cast's as well as 'Call's and their 'Reply's
     module Control.Eff.Concurrent.Api.Request
@@ -162,7 +162,7 @@ import           Control.Eff.Concurrent.Api.Request
                                                 , RequestOrigin(..)
                                                 , sendReply
                                                 )
-import           Control.Eff.Concurrent.Api.Server2
+import           Control.Eff.Concurrent.Api.Server
                                                 ( spawnApiServer
                                                 , spawnLinkApiServer
                                                 , spawnApiServerStateful
@@ -186,32 +186,6 @@ import           Control.Eff.Concurrent.Api.Server2
                                                 , ToServerPids(..)
                                                 , InterruptCallback(..)
                                                 , stopServerOnInterrupt
-                                                )
-
-import           Control.Eff.Concurrent.Api.Server
-                                                ( serve
-                                                , spawnServer
-                                                , spawnServerWithEffects
-                                                , ApiHandler(..)
-                                                , castCallback
-                                                , callCallback
-                                                , terminateCallback
-                                                , apiHandler
-                                                , apiHandlerForever
-                                                , castHandler
-                                                , castHandlerForever
-                                                , callHandler
-                                                , callHandlerForever
-                                                , castAndCallHandler
-                                                , castAndCallHandlerForever
-                                                , ApiServerCmd(..)
-                                                , unhandledCallError
-                                                , unhandledCastError
-                                                , defaultTermination
-                                                -- , Servable(..)
-                                                , ServerCallback(..)
-                                                , requestHandlerSelector
-                                                , terminationHandler
                                                 )
 import           Control.Eff.Concurrent.Api.Observer
                                                 ( Observer(..)

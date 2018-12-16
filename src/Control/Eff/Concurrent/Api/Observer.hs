@@ -23,7 +23,7 @@ import           Control.Eff
 import           Control.Eff.Concurrent.Process
 import           Control.Eff.Concurrent.Api
 import           Control.Eff.Concurrent.Api.Client
-import           Control.Eff.Concurrent.Api.Server2
+import           Control.Eff.Concurrent.Api.Server
 import           Control.Eff.State.Strict
 import           Control.Lens
 import           Data.Dynamic

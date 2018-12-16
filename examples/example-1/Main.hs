@@ -29,19 +29,10 @@ deriving instance Show (Api TestApi x)
 main :: IO ()
 main = defaultMain example
 
-mainProcessSpawnsAChildAndReturns
-  :: (HasCallStack, SetMember Process (Process q) r, Member Interrupts r)
-  => Eff r ()
+mainProcessSpawnsAChildAndReturns :: HasCallStack => Eff (InterruptableProcess q) ()
 mainProcessSpawnsAChildAndReturns = void (spawn (void receiveAnyMessage))
 
-example
-  :: ( HasCallStack
-     , SetMember Process (Process q) r
-     , Member Interrupts r
-     , HasLogging IO r
-     , HasLogging IO q
-     )
-  => Eff r ()
+example:: ( HasCallStack, HasLogging IO q) => Eff (InterruptableProcess q) ()
 example = do
   me <- self
   logInfo ("I am " ++ show me)
@@ -71,61 +62,51 @@ example = do
   registerServer server go
 
 testServerLoop
-  :: forall r q
+  :: forall q
    . ( HasCallStack
-     , SetMember Process (Process q) r
      , HasLogging IO q
-     , Member Interrupts r
      )
-  => Eff r (Server TestApi)
-testServerLoop = spawnServer
-  $ apiHandler handleCastTest handleCallTest handleTerminateTest
+  => Eff (InterruptableProcess q) (Server TestApi)
+testServerLoop = spawnApiServer
+  (handleCastTest <> handleCalls handleCallTest) handleTerminateTest
  where
-  handleCastTest
-    :: Api TestApi 'Asynchronous -> Eff (InterruptableProcess q) ApiServerCmd
-  handleCastTest (Shout x) = do
+  handleCastTest = handleCasts $ \(Shout x) -> do
     me <- self
     logInfo (show me ++ " Shouting: " ++ x)
-    return HandleNextRequest
-  handleCallTest
-    :: Api TestApi ( 'Synchronous x)
-    -> (x -> Eff (InterruptableProcess q) ())
-    -> Eff (InterruptableProcess q) ApiServerCmd
-  handleCallTest (SayHello "e1") _reply = do
+    return AwaitNext
+  handleCallTest :: Api TestApi ('Synchronous r) -> (Eff (InterruptableProcess q) (Maybe r, CallbackResult) -> xxx) -> xxx
+  handleCallTest (SayHello "e1") k = k $ do
     me <- self
     logInfo (show me ++ " raising an error")
     interrupt (ProcessError "No body loves me... :,(")
-  handleCallTest (SayHello "e2") _reply = do
+  handleCallTest (SayHello "e2") k = k $ do
     me <- self
     logInfo (show me ++ " throwing a MyException ")
-    lift (Exc.throw MyException)
-  handleCallTest (SayHello "self") reply = do
+    void (lift (Exc.throw MyException))
+    pure (Nothing, AwaitNext)
+  handleCallTest (SayHello "self") k = k $ do
     me <- self
     logInfo (show me ++ " casting to self")
     cast (asServer @TestApi me) (Shout "from me")
-    void (reply False)
-    return HandleNextRequest
-  handleCallTest (SayHello "stop") reply = do
+    return (Just False, AwaitNext)
+  handleCallTest (SayHello "stop") k = k $ do
     me <- self
     logInfo (show me ++ " stopping me")
-    void (reply False)
-    return (StopApiServer (ProcessError "test error"))
-  handleCallTest (SayHello x) reply = do
+    return (Just False, StopServer (ProcessError "test error"))
+  handleCallTest (SayHello x) k = k $ do
     me <- self
     logInfo (show me ++ " Got Hello: " ++ x)
-    void (reply (length x > 3))
-    return HandleNextRequest
-  handleCallTest Terminate reply = do
+    return (Just (length x > 3), AwaitNext)
+  handleCallTest Terminate k = k $ do
     me <- self
     logInfo (show me ++ " exiting")
-    void (reply ())
-    exitNormally
-  handleCallTest (TerminateError msg) reply = do
+    pure (Just (), StopServer ProcessFinished)
+  handleCallTest (TerminateError msg) k = k $ do
     me <- self
     logInfo (show me ++ " exiting with error: " ++ msg)
-    void (reply ())
-    exitWithError msg
-  handleTerminateTest msg = do
+    pure (Just (), StopServer (ProcessError msg))
+  handleTerminateTest = InterruptCallback $ \msg -> do
     me <- self
     logInfo (show me ++ " is exiting: " ++ show msg)
     logProcessExit msg
+    pure (StopServer msg)

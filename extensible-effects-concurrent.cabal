@@ -63,7 +63,6 @@ library
                   Control.Eff.Concurrent,
                   Control.Eff.Concurrent.Api,
                   Control.Eff.Concurrent.Api.Client,
-                  Control.Eff.Concurrent.Api.Server2,
                   Control.Eff.Concurrent.Api.Server,
                   Control.Eff.Concurrent.Process,
                   Control.Eff.Concurrent.Process.Timer,

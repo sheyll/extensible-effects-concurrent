@@ -4,7 +4,6 @@ import           Data.List                      ( sort )
 import           Data.Foldable                  ( traverse_ )
 import qualified Data.Dynamic                  as Dynamic
 import           Data.Typeable
-import           Data.Default
 import           Control.Exception
 import           Control.Concurrent
 import           Control.Concurrent.STM
@@ -103,28 +102,19 @@ stopReturnToSender
 stopReturnToSender toP = call toP StopReturnToSender
 
 returnToSenderServer
-  :: forall q r
-   . ( HasCallStack
-     , SetMember Process (Process q) r
-     , Member (Logs LogMessage) q
-     , Member Interrupts r
-     )
-  => Eff r (Server ReturnToSender)
-returnToSenderServer = asServer <$> spawn
-  (serve $ def
-    { _callCallback = Just
-                        (\m k -> case m of
+  :: forall q . ( HasCallStack, Member (Logs LogMessage) q )
+  => Eff (InterruptableProcess q) (Server ReturnToSender)
+returnToSenderServer = spawnApiServer
+  (handleCalls (\m k -> k $
+                        case m of
                           StopReturnToSender -> do
-                            k ()
-                            return (StopApiServer testInterruptReason)
+                            return (Nothing, StopServer testInterruptReason)
                           ReturnToSender fromP echoMsg -> do
                             sendMessage fromP echoMsg
                             yieldProcess
-                            k True
-                            return HandleNextRequest
+                            return (Just True, AwaitNext)
                         )
-    }
-  )
+  ) stopServerOnInterrupt
 
 selectiveReceiveTests
   :: forall r

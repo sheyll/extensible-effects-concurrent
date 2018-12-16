@@ -1,7 +1,7 @@
--- | Experimental new 'Api' server handler.
+-- | Support code to implement 'Api' _server_ processes.
 --
--- @since 0.13.2
-module Control.Eff.Concurrent.Api.Server2
+-- @since 0.16.0
+module Control.Eff.Concurrent.Api.Server
   ( -- * Starting Api Servers
     spawnApiServer
   , spawnLinkApiServer

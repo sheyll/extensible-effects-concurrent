@@ -19,7 +19,7 @@ import           Control.Eff.Log
 import           Control.Eff.Concurrent.Api
 import           Control.Eff.Concurrent.Api.Client
 import           Control.Eff.Concurrent.Api.Observer
-import           Control.Eff.Concurrent.Api.Server2
+import           Control.Eff.Concurrent.Api.Server
 import           Control.Eff.Reader.Strict
 import           Control.Exception.Safe        as Safe
 import           Control.Monad.IO.Class

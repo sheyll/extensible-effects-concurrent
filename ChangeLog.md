@@ -2,6 +2,13 @@
 
 ## 0.16.0
 
+API Stabilization and cleanup release with major API changes.
+
+- Replace `Control.Eff.Concurrent.Api.Server` with
+   `Control.Eff.Concurrent.Api.Server2` and rename
+   `Control.Eff.Concurrent.Api.Server2` to
+   `Control.Eff.Concurrent.Api.Server`
+
 - Rewrite `Observer` and related modules like `Observer.Queue`
   - Remove all type classes
   - Rely on `Server2`
