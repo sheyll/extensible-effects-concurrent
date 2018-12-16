@@ -189,8 +189,6 @@ import           Control.Eff.Concurrent.Api.Server2
                                                 , ToServerPids(..)
                                                 , InterruptCallback(..)
                                                 , stopServerOnInterrupt
-                                                , handleObservations
-                                                , Observing()
                                                 )
 
 import           Control.Eff.Concurrent.Api.Server
@@ -220,21 +218,16 @@ import           Control.Eff.Concurrent.Api.Server
                                                 )
 import           Control.Eff.Concurrent.Api.Observer
                                                 ( Observer(..)
-                                                , Observable(..)
-                                                , ObserverState
-                                                , notifyObserver
                                                 , registerObserver
                                                 , forgetObserver
-                                                , SomeObserver(..)
-                                                , notifySomeObserver
-                                                , Observers()
+                                                , handleObservations
+                                                , toObserver
+                                                , toObserverFor
+                                                , ObserverRegistry
+                                                , ObserverState
+                                                , handleObserverRegistration
                                                 , manageObservers
-                                                , addObserver
-                                                , removeObserver
-                                                , notifyObservers
-                                                , CallbackObserver
-                                                , spawnCallbackObserver
-                                                , spawnLoggingObserver
+                                                , observed
                                                 )
 import           Control.Eff.Concurrent.Api.Observer.Queue
                                                 ( ObservationQueue()
@@ -242,8 +235,7 @@ import           Control.Eff.Concurrent.Api.Observer.Queue
                                                 , readObservationQueue
                                                 , tryReadObservationQueue
                                                 , flushObservationQueue
-                                                , enqueueObservationsRegistered
-                                                , enqueueObservations
+                                                , spawnLinkObserverationQueue
                                                 )
 import           Control.Eff.Concurrent.Process.ForkIOScheduler
                                                 ( schedule

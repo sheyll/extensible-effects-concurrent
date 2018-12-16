@@ -5,7 +5,18 @@
 --
 -- @since 0.16.0
 module Control.Eff.Concurrent.Api.Observer
-  ()
+  ( Observer(..)
+  , registerObserver
+  , forgetObserver
+  , handleObservations
+  , toObserver
+  , toObserverFor
+  , ObserverRegistry
+  , ObserverState
+  , handleObserverRegistration
+  , manageObservers
+  , observed
+  )
 where
 
 import           Control.Eff
@@ -13,7 +24,6 @@ import           Control.Eff.Concurrent.Process
 import           Control.Eff.Concurrent.Api
 import           Control.Eff.Concurrent.Api.Client
 import           Control.Eff.Concurrent.Api.Server2
-import           Control.Eff.Log
 import           Control.Eff.State.Strict
 import           Control.Lens
 import           Data.Dynamic
@@ -24,7 +34,10 @@ import qualified Data.Set                      as Set
 import           Data.Typeable                  ( typeRep )
 import           GHC.Stack
 
+-- * Observers
+
 -- | Describes a process that observes another via 'Asynchronous' 'Api' messages.
+--
 -- An observer consists of a filter and a process id. The filter converts an observation to
 -- a message understood by the observer process, and the 'ProcessId' is used to send the message.
 --
@@ -47,8 +60,6 @@ instance Eq (Observer o) where
   (==) (Observer _ s1) (Observer _ s2) =
     (==) (s1 ^. fromServer) (s2 ^. fromServer)
 
--- * External Observer management API
-
 -- | And an 'Observer' to the set of reciepients for all observations reported by 'observed'.
 --   Note that the observers are keyed by the observing process, i.e. a previous entry for the process
 --   contained in the 'Observer' is overwritten. If you want multiple entries for a single process, just
@@ -61,12 +72,11 @@ registerObserver
      , Member Interrupts r
      , Typeable o
      )
-  => SchedulerProxy q
-  -> Observer o
+  => Observer o
   -> Server (ObserverRegistry o)
   -> Eff r ()
-registerObserver px observer observed =
-  cast px observed (RegisterObserver observer)
+registerObserver observer observerRegistry =
+  cast SP observerRegistry (RegisterObserver observer)
 
 -- | Send the 'forgetObserverMessage'
 --
@@ -77,12 +87,55 @@ forgetObserver
      , Member Interrupts r
      , Typeable o
      )
-  => SchedulerProxy q
-  -> Observer o
+  => Observer o
   -> Server (ObserverRegistry o)
   -> Eff r ()
-forgetObserver px observer observed =
-  cast px observed (ForgetObserver observer)
+forgetObserver observer observerRegistry =
+  cast SP observerRegistry (ForgetObserver observer)
+
+-- ** Observer Support Functions
+
+-- | A minimal Api for handling observations.
+-- This is one simple way of receiving observations - of course users can use
+-- any other 'Asynchronous' 'Api' message type for receiving observations.
+--
+-- @since 0.16.0
+data instance Api (Observer o) r where
+  Observed :: o -> Api (Observer o) 'Asynchronous
+
+-- | Based on the 'Api' instance for 'Observer' this simplified writing
+-- a callback handler for observations. In order to register to
+-- and 'ObservationRegistry' use 'toObserver'.
+--
+-- @since 0.16.0
+handleObservations
+  :: (HasCallStack, Typeable o, SetMember Process (Process q) r)
+  => (o -> Eff r CallbackResult)
+  -> MessageCallback (Observer o) r
+handleObservations k = handleCasts
+  (\case
+    Observed o -> k o
+  )
+
+-- | Use a 'Server' as an 'Observer' for 'handleObserved'.
+--
+-- @since 0.16.0
+toObserver :: Typeable o => Server (Observer o) -> Observer o
+toObserver = toObserverFor Observed
+
+-- | Create an 'Observer' that conditionally accepts all observeration of the
+-- given type and applies the given function to them; the function takes an observation and returns an 'Api'
+-- cast that the observer server is compatible to.
+--
+-- @since 0.16.0
+toObserverFor
+  :: (Typeable a, Typeable o)
+  => (o -> Api a 'Asynchronous)
+  -> Server a
+  -> Observer o
+toObserverFor wrapper = Observer (Just . wrapper)
+
+-- * Managing Observers
 
 -- | An 'Api' for managing 'Observer's, encompassing  registration and de-registration of
 -- 'Observer's.
@@ -108,6 +161,7 @@ data instance Api (ObserverRegistry o) r where
 handleObserverRegistration
   :: forall o q r
    . ( HasCallStack
+     , Typeable o
      , SetMember Process (Process q) r
      , Member (ObserverState o) r
      )
@@ -115,9 +169,15 @@ handleObserverRegistration
 handleObserverRegistration = handleCasts
   (\case
     RegisterObserver ob ->
-      get @(Observers o) >>= put . over observers (mappend ob)
+      get @(Observers o)
+        >>= put
+        .   over observers (Set.insert ob)
+        >>  pure AwaitNext
     ForgetObserver ob ->
-      get @(Observers o) >>= put . over observers (Set.delete ob)
+      get @(Observers o)
+        >>= put
+        .   over observers (Set.delete ob)
+        >>  pure AwaitNext
   )
 
 
@@ -151,9 +211,8 @@ observed
   => o
   -> Eff r ()
 observed observation = do
-  me <- asServer @o <$> self SP
   os <- view observers <$> get
-  mapM_ (notifySomeObserver me) os
+  mapM_ notifySomeObserver os
  where
-  notifySomeObserver me (Observer messageFilter receiver) =
+  notifySomeObserver (Observer messageFilter receiver) =
     traverse_ (cast SP receiver) (messageFilter observation)

@@ -295,7 +295,7 @@ handleCalls
      -> secret
      )
   -> MessageCallback api eff
-handleCalls px h = MessageCallback
+handleCalls _px h = MessageCallback
   (selectMessageWithLazy
     (\case
       (Cast _ :: Request api) -> Nothing
@@ -354,7 +354,7 @@ handleCallsDeferred
      -> Eff eff CallbackResult
      )
   -> MessageCallback api eff
-handleCallsDeferred px h = MessageCallback
+handleCallsDeferred _px h = MessageCallback
   (selectMessageWithLazy
     (\case
       (Cast _ :: Request api) -> Nothing

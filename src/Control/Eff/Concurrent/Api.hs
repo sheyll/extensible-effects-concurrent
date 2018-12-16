@@ -24,15 +24,12 @@ module Control.Eff.Concurrent.Api
   )
 where
 
-import           Control.DeepSeq
-import           Control.Eff
 import           Control.Eff.Concurrent.Process
 import           Control.Lens
 import           Data.Kind
 import           Data.Typeable                  ( Typeable
                                                 , typeRep
                                                 )
-import           GHC.Generics
 
 -- | This data family defines an API, a communication interface description
 -- between at least two processes. The processes act as __servers__ or
@@ -78,8 +75,7 @@ newtype Server api = Server { _fromServer :: ProcessId }
 
 instance Typeable api => Show (Server api) where
   showsPrec d s@(Server c) =
-    showParen (d >= 10)
-      (showsPrec 11 (typeRep s) . showsPrec 11 c)
+    showParen (d >= 10) (showsPrec 11 (typeRep s) . showsPrec 11 c)
 
 makeLenses ''Server
 
