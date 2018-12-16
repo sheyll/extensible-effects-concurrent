@@ -53,7 +53,7 @@ firstExample = do
   person <- spawn
     (do
       logInfo "I am waiting for someone to ask me..."
-      WhoAreYou replyPid <- receiveMessage px
+      WhoAreYou replyPid <- receiveMessage
       sendMessage replyPid "Alice"
       logInfo (show replyPid ++ " just needed to know it.")
     )
