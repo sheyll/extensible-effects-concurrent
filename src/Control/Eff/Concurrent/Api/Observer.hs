@@ -6,6 +6,7 @@
 -- @since 0.16.0
 module Control.Eff.Concurrent.Api.Observer
   ( Observer(..)
+  , Api(RegisterObserver, ForgetObserver, Observed)
   , registerObserver
   , forgetObserver
   , handleObservations
@@ -101,6 +102,9 @@ forgetObserver observer observerRegistry =
 --
 -- @since 0.16.0
 data instance Api (Observer o) r where
+  -- | This message denotes that the given value was 'observed'.
+  --
+  -- @since 0.16.1
   Observed :: o -> Api (Observer o) 'Asynchronous
 
 -- | Based on the 'Api' instance for 'Observer' this simplified writing
@@ -148,7 +152,14 @@ data ObserverRegistry o
 --
 -- @since 0.16.0
 data instance Api (ObserverRegistry o) r where
+  -- | This message denotes that the given 'Observer' should receive observations until 'ForgetObserver' is
+  --   received.
+  --
+  -- @since 0.16.1
   RegisterObserver :: Observer o -> Api (ObserverRegistry o) 'Asynchronous
+  -- | This message denotes that the given 'Observer' should not receive observations anymore.
+  --
+  -- @since 0.16.1
   ForgetObserver :: Observer o -> Api (ObserverRegistry o) 'Asynchronous
 
 

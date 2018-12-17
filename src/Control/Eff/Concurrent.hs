@@ -186,6 +186,11 @@ import           Control.Eff.Concurrent.Api.Server
                                                 )
 import           Control.Eff.Concurrent.Api.Observer
                                                 ( Observer(..)
+                                                , Api
+                                                  ( RegisterObserver
+                                                  , ForgetObserver
+                                                  , Observed
+                                                  )
                                                 , registerObserver
                                                 , forgetObserver
                                                 , handleObservations

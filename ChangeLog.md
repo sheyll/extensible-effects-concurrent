@@ -1,5 +1,9 @@
 # Changelog for extensible-effects-concurrent
 
+## 0.16.1
+
+- Export `ObserverRegistry` constructors for custom event registration handling
+
 ## 0.16.0
 
 API Stabilization and cleanup release with major API changes.
