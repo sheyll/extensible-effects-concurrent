@@ -1,5 +1,9 @@
 # Changelog for extensible-effects-concurrent
 
+## 0.18.0
+
+- Split-up and replace `spawnLinkObservationQueue` with a simpler (but more verbose) alternative
+
 ## 0.17.0
 
 - Rename misspelled `spawnLinkObserverationQueue` to `spawnLinkObservationQueue`

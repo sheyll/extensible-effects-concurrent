@@ -208,7 +208,8 @@ import           Control.Eff.Concurrent.Api.Observer.Queue
                                                 , readObservationQueue
                                                 , tryReadObservationQueue
                                                 , flushObservationQueue
-                                                , spawnLinkObservationQueue
+                                                , withObservationQueue
+                                                , spawnLinkObservationQueueWriter
                                                 )
 import           Control.Eff.Concurrent.Process.ForkIOScheduler
                                                 ( schedule
