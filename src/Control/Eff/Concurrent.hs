@@ -208,7 +208,7 @@ import           Control.Eff.Concurrent.Api.Observer.Queue
                                                 , readObservationQueue
                                                 , tryReadObservationQueue
                                                 , flushObservationQueue
-                                                , spawnLinkObserverationQueue
+                                                , spawnLinkObservationQueue
                                                 )
 import           Control.Eff.Concurrent.Process.ForkIOScheduler
                                                 ( schedule

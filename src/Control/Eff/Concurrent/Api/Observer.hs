@@ -127,7 +127,7 @@ handleObservations k = handleCasts
 toObserver :: Typeable o => Server (Observer o) -> Observer o
 toObserver = toObserverFor Observed
 
--- | Create an 'Observer' that conditionally accepts all observeration of the
+-- | Create an 'Observer' that conditionally accepts all observations of the
 -- given type and applies the given function to them; the function takes an observation and returns an 'Api'
 -- cast that the observer server is compatible to.
 --

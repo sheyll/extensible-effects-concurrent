@@ -1,5 +1,9 @@
 # Changelog for extensible-effects-concurrent
 
+## 0.17.0
+
+- Rename misspelled `spawnLinkObserverationQueue` to `spawnLinkObservationQueue`
+
 ## 0.16.1
 
 - Export `ObserverRegistry` constructors for custom event registration handling

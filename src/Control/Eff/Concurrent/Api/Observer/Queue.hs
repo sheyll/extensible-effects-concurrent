@@ -5,7 +5,7 @@ module Control.Eff.Concurrent.Api.Observer.Queue
   , readObservationQueue
   , tryReadObservationQueue
   , flushObservationQueue
-  , spawnLinkObserverationQueue
+  , spawnLinkObservationQueue
   )
 where
 
@@ -29,7 +29,7 @@ import           Text.Printf
 import           GHC.Stack
 
 -- | Contains a 'TBQueue' capturing observations received by 'enqueueObservationsRegistered'
--- or 'spawnLinkObserverationQueue'.
+-- or 'spawnLinkObservationQueue'.
 newtype ObservationQueue a = ObservationQueue (TBQueue a)
 
 -- | A 'Reader' for an 'ObservationQueue'.
@@ -38,7 +38,7 @@ type ObservationQueueReader a = Reader (ObservationQueue a)
 logPrefix :: forall o proxy . (HasCallStack, Typeable o) => proxy o -> String
 logPrefix px = "observation queue: " ++ show (typeRep px)
 
--- | Read queued observations captured and enqueued in the shared 'TBQueue' by 'spawnLinkObserverationQueue'.
+-- | Read queued observations captured and enqueued in the shared 'TBQueue' by 'spawnLinkObservationQueue'.
 -- This blocks until something was captured or an interrupt or exceptions was thrown. For a non-blocking
 -- variant use 'tryReadObservationQueue' or 'flushObservationQueue'.
 readObservationQueue
@@ -54,7 +54,7 @@ readObservationQueue = do
   ObservationQueue q <- ask @(ObservationQueue o)
   liftIO (atomically (readTBQueue q))
 
--- | Read queued observations captured and enqueued in the shared 'TBQueue' by 'spawnLinkObserverationQueue'.
+-- | Read queued observations captured and enqueued in the shared 'TBQueue' by 'spawnLinkObservationQueue'.
 -- Return the oldest enqueued observation immediately or 'Nothing' if the queue is empty.
 -- Use 'readObservationQueue' to block until an observation is observed.
 tryReadObservationQueue
@@ -70,7 +70,7 @@ tryReadObservationQueue = do
   ObservationQueue q <- ask @(ObservationQueue o)
   liftIO (atomically (tryReadTBQueue q))
 
--- | Read at once all currently queued observations captured and enqueued in the shared 'TBQueue' by 'spawnLinkObserverationQueue'.
+-- | Read at once all currently queued observations captured and enqueued in the shared 'TBQueue' by 'spawnLinkObservationQueue'.
 -- This returns immediately all currently enqueued 'Observation's. For a blocking
 -- variant use 'readObservationQueue'.
 flushObservationQueue
@@ -96,14 +96,14 @@ data instance Api (ObservationQueue a) r where
 -- can be obtained by 'readObservationQueue'. All observations are captured up to
 -- the queue size limit, such that the first message received will be first message
 -- returned by 'readObservationQueue'.
-spawnLinkObserverationQueue
+spawnLinkObservationQueue
   :: forall o q a
    . (Typeable o, Show o, HasLogging IO q, Lifted IO q, HasCallStack)
   => Server (ObserverRegistry o)
   -> Int
   -> Eff (ObservationQueueReader o ': InterruptableProcess q) a
   -> Eff (InterruptableProcess q) a
-spawnLinkObserverationQueue oSvr queueLimit k = withQueue
+spawnLinkObservationQueue oSvr queueLimit k = withQueue
   queueLimit
   (do
     ObservationQueue q <- ask @(ObservationQueue o)
