@@ -268,15 +268,19 @@ handleCasts h = MessageCallback
 
 -- | A smart constructor for 'MessageCallback's
 --
--- > handleCalls SP
--- >   (\ (RentBook bookId customerId) runCall ->
--- >      runCall $ do
--- >          rentalIdE <- rentBook bookId customerId
--- >          case rentalIdE of
--- >            -- on fail we just don't send a reply, let the caller run into
--- >            -- timeout
--- >            Left err -> return (Nothing, AwaitNext)
--- >            Right rentalId -> return (Just rentalId, AwaitNext))
+-- ==== __Example__
+--
+-- @
+-- handleCalls
+--   (\ (RentBook bookId customerId) runCall ->
+--      runCall $ do
+--          rentalIdE <- rentBook bookId customerId
+--          case rentalIdE of
+--            -- on fail we just don't send a reply, let the caller run into
+--            -- timeout
+--            Left err -> return (Nothing, AwaitNext)
+--            Right rentalId -> return (Just rentalId, AwaitNext))
+-- @
 --
 -- @since 0.13.2
 handleCalls

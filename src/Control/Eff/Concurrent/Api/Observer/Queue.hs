@@ -86,16 +86,16 @@ flushObservationQueue = do
 -- | Create a mutable queue for observations. Use 'spawnLinkObservationQueueWriter' for a simple way to get
 -- a process that enqueues all observations.
 --
--- ==== __Example__ ====
+-- ==== __Example__
 --
 -- @
 -- withObservationQueue 100 $ do
---   q  <- ask @(ObservationQueueReader TestEvent)
+--   q  <- ask \@(ObservationQueueReader TestEvent)
 --   wq <- spawnLinkObservationQueueWriter q
 --   registerObserver wq testServer
 --   ...
 --   cast testServer DoSomething
---   evt <- readObservationQueue @TestEvent
+--   evt <- readObservationQueue \@TestEvent
 --   ...
 -- @
 --
