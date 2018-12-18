@@ -1,5 +1,9 @@
 # Changelog for extensible-effects-concurrent
 
+## 0.18.1
+
+- Fix inappropriate `LinkedProcessCrashed` interrupt when a process exits with `NotRecovered ProcessFinished`
+
 ## 0.18.0
 
 - Split-up and replace `spawnLinkObservationQueue` with a simpler (but more verbose) alternative

@@ -227,9 +227,10 @@ instance Show (Process r b) where
     FlushMessages -> showString "flush messages"
     YieldProcess  -> showString "yield process"
     SelfPid       -> showString "lookup the current process id"
-    Spawn    _    -> showString "spawn a new process"
+    Spawn     _   -> showString "spawn a new process"
     SpawnLink _   -> showString "spawn a new process and link to it"
-    Shutdown sr   -> showParen (d >= 10) (showString "shutdown " . showsPrec 10 sr)
+    Shutdown sr ->
+      showParen (d >= 10) (showString "shutdown " . showsPrec 10 sr)
     SendShutdown toPid sr -> showParen
       (d >= 10)
       ( showString "shutting down "
@@ -251,13 +252,13 @@ instance Show (Process r b) where
       . showChar ' '
       . showsPrec 10 sr
       )
-    ReceiveSelectedMessage _ -> showString "receive a message"
-    GetProcessState pid      -> showString "get the process state of " . shows pid
-    MakeReference            -> showString "generate a unique reference"
-    Monitor   pid            -> showString "monitor " . shows pid
-    Demonitor i              -> showString "demonitor " . shows i
-    Link      l              -> showString "link " . shows l
-    Unlink    l              -> showString "unlink " . shows l
+    ReceiveSelectedMessage _   -> showString "receive a message"
+    GetProcessState pid -> showString "get the process state of " . shows pid
+    MakeReference              -> showString "generate a unique reference"
+    Monitor   pid              -> showString "monitor " . shows pid
+    Demonitor i                -> showString "demonitor " . shows i
+    Link      l                -> showString "link " . shows l
+    Unlink    l                -> showString "unlink " . shows l
 
 -- | Every 'Process' action returns it's actual result wrapped in this type. It
 -- will allow to signal errors as well as pass on normal results such as
@@ -428,7 +429,8 @@ data ProcessState =
 
 instance NFData ProcessState
 
-instance Default ProcessState where def = ProcessBooting
+instance Default ProcessState where
+  def = ProcessBooting
 
 -- | This kind is used to indicate if a 'ExitReason' can be treated like
 -- a short interrupt which can be handled or ignored.
@@ -439,10 +441,11 @@ instance NFData ExitRecovery
 
 instance Show ExitRecovery where
   showsPrec d =
-    showParen (d>=10) .
-    (\case
-        Recoverable -> showString "recoverable"
-        NoRecovery  -> showString "not recoverable")
+    showParen (d >= 10)
+      . (\case
+          Recoverable -> showString "recoverable"
+          NoRecovery  -> showString "not recoverable"
+        )
 
 -- | Get the 'ExitRecover'y
 toExitRecovery :: ExitReason r -> ExitRecovery
@@ -463,19 +466,21 @@ data ExitSeverity = NormalExit | Crash
 
 instance Show ExitSeverity where
   showsPrec d =
-    showParen (d>=10) .
-    (\case
-        NormalExit -> showString "exit success"
-        Crash      -> showString "crash")
+    showParen (d >= 10)
+      . (\case
+          NormalExit -> showString "exit success"
+          Crash      -> showString "crash"
+        )
 
 instance NFData ExitSeverity
 
 -- | Get the 'ExitSeverity' of a 'ExitReason'.
 toExitSeverity :: ExitReason e -> ExitSeverity
 toExitSeverity = \case
-  ExitNormally    -> NormalExit
-  ProcessFinished -> NormalExit
-  _               -> Crash
+  ExitNormally                 -> NormalExit
+  ProcessFinished              -> NormalExit
+  NotRecovered ProcessFinished -> NormalExit
+  _                            -> Crash
 
 -- | A sum-type with reasons for why a process exists the scheduling loop,
 -- this includes errors, that can occur when scheduleing messages.
@@ -514,69 +519,70 @@ data ExitReason (t :: ExitRecovery) where
 
 instance Show (ExitReason x) where
   showsPrec d =
-    showParen (d>=10) .
-    (\case
-        ProcessFinished             -> showString "process finished"
-        ProcessNotRunning p         -> showString "process not running: " . shows p
-        LinkedProcessCrashed m      -> showString "linked process "
-                                        . shows m . showString " crashed"
-        ProcessError reason         -> showString "error: " . showString reason
-        ExitNormally                -> showString "exit normally"
-        NotRecovered         e      -> showString "not recovered from: " . shows e
-        UnexpectedException w m     -> showString "unhandled runtime exception: "
-                                       . showString m
-                                       . showString " caught here: "
-                                       . showString w
-        Killed                      -> showString "killed"
-    )
+    showParen (d >= 10)
+      . (\case
+          ProcessFinished     -> showString "process finished"
+          ProcessNotRunning p -> showString "process not running: " . shows p
+          LinkedProcessCrashed m ->
+            showString "linked process " . shows m . showString " crashed"
+          ProcessError reason -> showString "error: " . showString reason
+          ExitNormally        -> showString "exit normally"
+          NotRecovered e      -> showString "not recovered from: " . shows e
+          UnexpectedException w m ->
+            showString "unhandled runtime exception: "
+              . showString m
+              . showString " caught here: "
+              . showString w
+          Killed -> showString "killed"
+        )
 
 instance Exc.Exception (ExitReason 'Recoverable)
 instance Exc.Exception (ExitReason 'NoRecovery )
 
 instance NFData (ExitReason x) where
-  rnf ProcessFinished = rnf ()
-  rnf (ProcessNotRunning !l) = rnf l
-  rnf (LinkedProcessCrashed !l) = rnf l
-  rnf (ProcessError !l) = rnf l
-  rnf ExitNormally = rnf ()
-  rnf (NotRecovered !l) = rnf l
+  rnf ProcessFinished               = rnf ()
+  rnf (ProcessNotRunning    !l)     = rnf l
+  rnf (LinkedProcessCrashed !l)     = rnf l
+  rnf (ProcessError         !l)     = rnf l
+  rnf ExitNormally                  = rnf ()
+  rnf (NotRecovered !l            ) = rnf l
   rnf (UnexpectedException !l1 !l2) = rnf l1 `seq` rnf l2 `seq` ()
-  rnf Killed = rnf ()
+  rnf Killed                        = rnf ()
 
 instance Ord (ExitReason x) where
-  compare ProcessFinished ProcessFinished = EQ
-  compare ProcessFinished _ = LT
-  compare _ ProcessFinished = GT
-  compare (ProcessNotRunning l) (ProcessNotRunning r) = compare l r
-  compare (ProcessNotRunning _) _ = LT
-  compare _ (ProcessNotRunning _) = GT
+  compare ProcessFinished          ProcessFinished          = EQ
+  compare ProcessFinished          _                        = LT
+  compare _                        ProcessFinished          = GT
+  compare (ProcessNotRunning l)    (ProcessNotRunning r)    = compare l r
+  compare (ProcessNotRunning _)    _                        = LT
+  compare _                        (ProcessNotRunning    _) = GT
   compare (LinkedProcessCrashed l) (LinkedProcessCrashed r) = compare l r
-  compare (LinkedProcessCrashed _) _ = LT
-  compare _ (LinkedProcessCrashed _) = GT
-  compare (ProcessError l) (ProcessError r) = compare l r
-  compare ExitNormally ExitNormally = EQ
-  compare ExitNormally _ = LT
-  compare _ ExitNormally = GT
-  compare (NotRecovered l) (NotRecovered r) = compare l r
-  compare (NotRecovered _) _ = LT
-  compare _ (NotRecovered _) = GT
+  compare (LinkedProcessCrashed _) _                        = LT
+  compare _                        (LinkedProcessCrashed _) = GT
+  compare (ProcessError l)         (ProcessError         r) = compare l r
+  compare ExitNormally             ExitNormally             = EQ
+  compare ExitNormally             _                        = LT
+  compare _                        ExitNormally             = GT
+  compare (NotRecovered l)         (NotRecovered r)         = compare l r
+  compare (NotRecovered _)         _                        = LT
+  compare _                        (NotRecovered _)         = GT
   compare (UnexpectedException l1 l2) (UnexpectedException r1 r2) =
     compare l1 r1 <> compare l2 r2
-  compare (UnexpectedException _ _) _ = LT
-  compare _ (UnexpectedException _ _) = GT
-  compare Killed Killed = EQ
+  compare (UnexpectedException _ _) _                         = LT
+  compare _                         (UnexpectedException _ _) = GT
+  compare Killed                    Killed                    = EQ
 
 instance Eq (ExitReason x) where
-  (==) ProcessFinished ProcessFinished = True
-  (==) (ProcessNotRunning l) (ProcessNotRunning r) = (==) l r
-  (==) ExitNormally ExitNormally = True
+  (==) ProcessFinished          ProcessFinished          = True
+  (==) (ProcessNotRunning l)    (ProcessNotRunning r)    = (==) l r
+  (==) ExitNormally             ExitNormally             = True
   (==) (LinkedProcessCrashed l) (LinkedProcessCrashed r) = l == r
-  (==) (ProcessError l) (ProcessError r) = (==) l r
-  (==) (NotRecovered l) (NotRecovered r) = (==) l r
+  (==) (ProcessError         l) (ProcessError         r) = (==) l r
+  (==) (NotRecovered         l) (NotRecovered         r) = (==) l r
   (==) (UnexpectedException l1 l2) (UnexpectedException r1 r2) =
     (==) l1 r1 && (==) l2 r2
   (==) Killed Killed = True
-  (==) _ _ = False
+  (==) _      _      = False
 
 -- | A predicate for linked process __crashes__.
 isBecauseDown :: Maybe ProcessId -> ExitReason r -> Bool
@@ -895,8 +901,7 @@ isProcessAlive
    . (HasCallStack, SetMember Process (Process q) r, Member Interrupts r)
   => ProcessId
   -> Eff r Bool
-isProcessAlive  pid =
-  isJust <$> executeAndResumeOrThrow (GetProcessState pid)
+isProcessAlive pid = isJust <$> executeAndResumeOrThrow (GetProcessState pid)
 
 -- | Block until a message was received.
 -- See 'ReceiveSelectedMessage' for more documentation.
@@ -940,14 +945,10 @@ receiveMessage = receiveSelectedMessage (MessageSelector fromDynamic)
 --
 -- @since 0.12.0
 flushMessages
-  :: forall  r q
-   . ( HasCallStack
-     , SetMember Process (Process q) r
-     , Member Interrupts r
-     )
+  :: forall r q
+   . (HasCallStack, SetMember Process (Process q) r, Member Interrupts r)
   => Eff r [Dynamic]
-flushMessages =
-  executeAndResumeOrThrow @q FlushMessages
+flushMessages = executeAndResumeOrThrow @q FlushMessages
 
 -- | Enter a loop to receive messages and pass them to a callback, until the
 -- function returns 'Just' a result.
@@ -989,9 +990,7 @@ receiveLoop
 receiveLoop = receiveSelectedLoop selectMessageLazy
 
 -- | Returns the 'ProcessId' of the current process.
-self
-  :: (HasCallStack, SetMember Process (Process q) r)
-  => Eff r ProcessId
+self :: (HasCallStack, SetMember Process (Process q) r) => Eff r ProcessId
 self = executeAndResumeOrExit SelfPid
 
 -- | Generate a unique 'Int' for the current process.
@@ -1013,12 +1012,11 @@ data MonitorReference =
 instance NFData MonitorReference
 
 instance Show MonitorReference where
-  showsPrec d m =
-    showParen (d>=10)
-      ( showString "monitor: "
-      . shows (monitorIndex m)
-      . showChar ' '
-      . shows (monitoredProcess m))
+  showsPrec d m = showParen
+    (d >= 10)
+    (showString "monitor: " . shows (monitorIndex m) . showChar ' ' . shows
+      (monitoredProcess m)
+    )
 
 -- | Monitor another process. When the monitored process exits a
 --  'ProcessDown' is sent to the calling process.
@@ -1078,8 +1076,8 @@ receiveWithMonitor
   -> Eff r (Either ProcessDown a)
 receiveWithMonitor pid sel = withMonitor
   pid
-  (\ref -> receiveSelectedMessage
-    (Left <$> selectProcessDown ref <|> Right <$> sel)
+  (\ref ->
+    receiveSelectedMessage (Left <$> selectProcessDown ref <|> Right <$> sel)
   )
 
 -- | A monitored process exited.
@@ -1105,14 +1103,14 @@ instance NFData ProcessDown
 
 instance Show ProcessDown where
   showsPrec d =
-    showParen
-      (d>=10)
-    . (\case
+    showParen (d >= 10)
+      . (\case
           ProcessDown ref reason ->
             showString "monitored process down "
-             . showsPrec 11 ref . showChar ' '
-             . showsPrec 11 reason
-      )
+              . showsPrec 11 ref
+              . showChar ' '
+              . showsPrec 11 reason
+        )
 
 -- | A 'MesssageSelector' for the 'ProcessDown' message of a specific
 -- process.
@@ -1154,10 +1152,8 @@ exitBecause = send . Shutdown @q . force
 
 -- | Exit the process.
 exitNormally
-  :: forall r q a
-   . (HasCallStack, SetMember Process (Process q) r)
-  => Eff r a
-exitNormally = exitBecause  ExitNormally
+  :: forall r q a . (HasCallStack, SetMember Process (Process q) r) => Eff r a
+exitNormally = exitBecause ExitNormally
 
 -- | Exit the process with an error.
 exitWithError
@@ -1174,10 +1170,9 @@ newtype ProcessId = ProcessId { _fromProcessId :: Int }
   deriving (Eq,Ord,Typeable,Bounded,Num, Enum, Integral, Real, NFData)
 
 instance Read ProcessId where
-  readsPrec _ ('!':rest1) =
-    case reads rest1 of
-      [(c, rest2)] -> [(ProcessId c, rest2)]
-      _ -> []
+  readsPrec _ ('!' : rest1) = case reads rest1 of
+    [(c, rest2)] -> [(ProcessId c, rest2)]
+    _            -> []
   readsPrec _ _ = []
 
 instance Show ProcessId where
