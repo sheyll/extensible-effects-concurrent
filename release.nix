@@ -20,5 +20,5 @@ let
       else customHaskellPackages;
 
 in
-  { extensible-effects-concurrent = customHaskellPackages.extensible-effects-concurrent;
+  { extensible-effects-concurrent = hoogleAugmentedHaskellPackages.extensible-effects-concurrent;
   }
