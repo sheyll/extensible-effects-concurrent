@@ -1,3 +1,4 @@
+# Use `ghc.WithHoogle` as `ghc` in `haskellPackages`
 {
 
 # Library of functions to use, for composeExtensions.
@@ -5,11 +6,11 @@ lib ? (import <nixpkgs> {}).pkgs.lib
 
 # Input set of all haskell packages. A valid input would be:
 # (import <nixpkgs> {}).pkgs.haskellPackages
-input
+haskellPackages ? (import <nixpkgs> {}).pkgs.haskellPackages
 
 }:
 
-input.override
+haskellPackages.override
   (old: {
     overrides =
       lib.composeExtensions

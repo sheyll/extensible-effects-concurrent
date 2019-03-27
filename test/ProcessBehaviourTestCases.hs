@@ -102,19 +102,21 @@ stopReturnToSender
 stopReturnToSender toP = call toP StopReturnToSender
 
 returnToSenderServer
-  :: forall q . ( HasCallStack, Member (Logs LogMessage) q )
+  :: forall q
+   . (HasCallStack, Member (Logs LogMessage) q)
   => Eff (InterruptableProcess q) (Server ReturnToSender)
 returnToSenderServer = spawnApiServer
-  (handleCalls (\m k -> k $
-                        case m of
-                          StopReturnToSender -> do
-                            return (Nothing, StopServer testInterruptReason)
-                          ReturnToSender fromP echoMsg -> do
-                            sendMessage fromP echoMsg
-                            yieldProcess
-                            return (Just True, AwaitNext)
-                        )
-  ) stopServerOnInterrupt
+  (handleCalls
+    (\m k -> k $ case m of
+      StopReturnToSender -> do
+        return (Nothing, StopServer testInterruptReason)
+      ReturnToSender fromP echoMsg -> do
+        sendMessage fromP echoMsg
+        yieldProcess
+        return (Just True, AwaitNext)
+    )
+  )
+  stopServerOnInterrupt
 
 selectiveReceiveTests
   :: forall r

@@ -1,13 +1,13 @@
-{ pkgs, ... }:
+{ lib, haskellPackages }:
 let
-  cleanSrc = pkgs.pkgs.lib.cleanSourceWith {
+  cleanSrc = lib.cleanSourceWith {
     filter = (path: type:
       let base = baseNameOf (toString path);
-      in !(pkgs.pkgs.lib.hasPrefix ".ghc.environment." base) &&
-         !(pkgs.pkgs.lib.hasSuffix ".nix" base)
+      in !(lib.hasPrefix ".ghc.environment." base) &&
+         !(lib.hasSuffix ".nix" base)
     );
-    src = pkgs.pkgs.lib.cleanSource ./.;
+    src = lib.cleanSource ./.;
   };
 
-  in pkgs.haskellPackages.callCabal2nix
+  in haskellPackages.callCabal2nix
        "extensible-effects-concurrent" cleanSrc {}
