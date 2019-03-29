@@ -16,7 +16,6 @@ import qualified Control.Exception.Safe        as Safe
 import qualified Control.Monad.Catch           as Catch
 import           Control.Eff
 import           Control.Eff.Extend
-import           Control.Eff.Lift
 import           Control.Eff.Exception         as Eff
 import           GHC.Stack
 import           Control.Eff.Reader.Lazy       as Lazy

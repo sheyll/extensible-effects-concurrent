@@ -83,7 +83,6 @@ where
 import           Control.Concurrent
 import           Control.DeepSeq
 import           Control.Eff
-import           Control.Eff.Lift
 import           Control.Eff.Log.Handler
 import           Control.Lens
 import           Control.Monad                  ( (>=>) )
@@ -267,7 +266,7 @@ ioLogMessageWriter delegatee = foldingLogWriter
 ioLogMessageHandler
   :: (HasCallStack, Lifted IO e)
   => LogWriter String IO
-  -> Eff (Logs LogMessage ': LogWriterReader LogMessage IO ': e) a
+  -> Eff (Logs LogMessage ': e) a
   -> Eff e a
 ioLogMessageHandler delegatee =
   writeLogs (ioLogMessageWriter delegatee)

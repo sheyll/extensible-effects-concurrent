@@ -1,5 +1,6 @@
+cabal-version:  2.0
 name:           extensible-effects-concurrent
-version:        0.18.1
+version:        0.19.0
 description:    Please see the README on GitHub at <https://github.com/sheyll/extensible-effects-concurrent#readme>
 synopsis:       Message passing concurrency as extensible-effect
 homepage:       https://github.com/sheyll/extensible-effects-concurrent#readme
@@ -7,12 +8,11 @@ bug-reports:    https://github.com/sheyll/extensible-effects-concurrent/issues
 author:         Sven Heyll
 maintainer:     sven.heyll@gmail.com
 category:       Concurrency, Control, Effect
-tested-with:    GHC==8.2.2, GHC==8.4.3, GHC==8.4.4, GHC==8.6.1
+tested-with:    GHC==8.6.4
 copyright:      Copyright Sven Heyll
 license:        BSD3
 license-file:   LICENSE
 build-type:     Simple
-cabal-version:  2.0
 
 extra-doc-files:
     docs/extensible-effects-concurrent-test-Loop-without-space-leaks.png
@@ -20,7 +20,11 @@ extra-doc-files:
 
 extra-source-files:
     stack.yaml
-    stack.nightly-2018-05-29.yaml
+    extensible-effects-concurrent.nix
+    default.nix
+    shell.nix
+    release.nix
+    with-hoogle.nix
     ChangeLog.md
     README.md
     brittany.yaml
@@ -35,7 +39,7 @@ library
       src
   build-depends:
       async >= 2.2 && <3,
-      base >=4.7 && <5,
+      base >= 4.12 && <5,
       data-default >= 0.7 && < 0.8,
       deepseq >= 1.4 && < 1.5,
       exceptions >= 0.10 && < 0.11,
@@ -44,12 +48,12 @@ library
       time >= 1.8 && < 1.9,
       mtl >= 2.2 && < 2.3,
       containers >=0.5.8 && <0.7,
-      QuickCheck <2.12,
+      QuickCheck,
       lens >= 4.14 && < 4.18,
       parallel >= 3.2 && < 3.3,
       process >= 1.6 && < 1.7,
       monad-control >= 1.0 && < 1.1,
-      extensible-effects >= 3.1.0.2 && <4,
+      extensible-effects >= 5 && < 6,
       stm >= 2.4.5 && <2.6,
       transformers-base >= 0.4 && < 0.5
   autogen-modules: Paths_extensible_effects_concurrent
@@ -113,7 +117,7 @@ executable extensible-effects-concurrent-example-1
               , extensible-effects-concurrent
               , extensible-effects
               , lens
-  ghc-options: -Wall -threaded -fno-full-laziness -rtsopts -with-rtsopts=-N
+  ghc-options: -Wall -threaded -fno-full-laziness
   default-language: Haskell2010
   default-extensions:   AllowAmbiguousTypes
                       , BangPatterns
@@ -141,7 +145,7 @@ executable extensible-effects-concurrent-example-2
               , extensible-effects-concurrent
               , extensible-effects
               , lens
-  ghc-options: -Wall -threaded -fno-full-laziness -rtsopts -with-rtsopts=-N
+  ghc-options: -Wall -threaded -fno-full-laziness
   default-language: Haskell2010
   default-extensions:   AllowAmbiguousTypes
                       , BangPatterns
@@ -171,7 +175,7 @@ executable extensible-effects-concurrent-example-3
               , extensible-effects
               , filepath
               , lens
-  ghc-options: -Wall -threaded -fno-full-laziness -rtsopts -with-rtsopts=-N
+  ghc-options: -Wall -threaded -fno-full-laziness
   default-language: Haskell2010
   default-extensions:   AllowAmbiguousTypes
                       , BangPatterns
@@ -198,7 +202,7 @@ executable extensible-effects-concurrent-example-4
               , extensible-effects-concurrent
               , extensible-effects
               , deepseq
-  ghc-options: -Wall -threaded -fno-full-laziness -rtsopts -with-rtsopts=-N
+  ghc-options: -Wall -threaded -fno-full-laziness
   default-language: Haskell2010
   default-extensions:   AllowAmbiguousTypes
                       , BangPatterns
@@ -230,13 +234,13 @@ test-suite extensible-effects-concurrent-test
               , LoopTests
               , ProcessBehaviourTestCases
               , SingleThreadedScheduler
-  ghc-options: -Wall -threaded -fno-full-laziness -rtsopts -with-rtsopts=-N
+  ghc-options: -Wall -threaded -fno-full-laziness
   build-depends:
                 async
-              , base >=4.7 && <5
+              , base
               , data-default
               , extensible-effects-concurrent
-              , extensible-effects >= 3.1.0.2 && < 3.2
+              , extensible-effects
               , tasty
               , tasty-discover
               , tasty-hunit

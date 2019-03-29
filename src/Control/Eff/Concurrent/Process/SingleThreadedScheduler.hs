@@ -13,7 +13,6 @@ where
 import           Control.Concurrent             ( yield )
 import           Control.DeepSeq
 import           Control.Eff
-import           Control.Eff.Lift
 import           Control.Eff.Extend
 import           Control.Eff.Concurrent.Process
 import           Control.Eff.Log
@@ -34,6 +33,7 @@ import           Data.Dynamic
 import           Data.Foldable
 import           Data.Monoid
 import qualified Control.Monad.State.Strict    as State
+import Data.Function (fix)
 
 -- -----------------------------------------------------------------------------
 --  STS
@@ -219,7 +219,7 @@ scheduleMonadIOEff = -- schedule (lift yield)
 scheduleIOWithLogging
   :: (NFData l)
   => LogWriter l IO
-  -> Eff (InterruptableProcess '[Logs l, LogWriterReader l IO, Lift IO]) a
+  -> Eff (InterruptableProcess '[Logs l, Lift IO]) a
   -> IO (Either (ExitReason 'NoRecovery) a)
 scheduleIOWithLogging h = scheduleIO (writeLogs h)
 
@@ -328,25 +328,26 @@ runAsCoroutinePure
   => (forall a . Eff r a -> m a)
   -> Eff (ConsProcess r) v
   -> m (OnYield r v)
-runAsCoroutinePure r = r . handle_relay (return . OnDone) cont
+runAsCoroutinePure r = r . fix (handle_relay' cont (return . OnDone))
  where
-  cont :: Process r x -> (x -> Eff r (OnYield r v)) -> Eff r (OnYield r v)
-  cont FlushMessages                k  = return (OnFlushMessages k)
-  cont YieldProcess                 k  = return (OnYield k)
-  cont SelfPid                      k  = return (OnSelf k)
-  cont (Spawn     e               ) k  = return (OnSpawn False e k)
-  cont (SpawnLink e               ) k  = return (OnSpawn True e k)
-  cont (Shutdown  !sr             ) _k = return (OnShutdown sr)
-  cont (SendMessage !tp !msg      ) k  = return (OnSend tp msg k)
-  cont (ReceiveSelectedMessage f  ) k  = return (OnRecv f k)
-  cont (GetProcessState        !tp) k  = return (OnGetProcessState tp k)
-  cont (SendInterrupt !tp  !er    ) k  = return (OnSendInterrupt tp er k)
-  cont (SendShutdown  !pid !sr    ) k  = return (OnSendShutdown pid sr k)
-  cont MakeReference                k  = return (OnMakeReference k)
-  cont (Monitor   !pid)             k  = return (OnMonitor pid k)
-  cont (Demonitor !ref)             k  = return (OnDemonitor ref k)
-  cont (Link      !pid)             k  = return (OnLink pid k)
-  cont (Unlink    !pid)             k  = return (OnUnlink pid k)
+  -- cont :: (x -> Eff r (OnYield r v)) -> Process r x -> Eff r (OnYield r v)
+  cont :: (Eff (ConsProcess r) (OnYield r v) -> Eff r (OnYield r v)) -> Arrs (ConsProcess r) x (OnYield r v) -> Process r x -> Eff r (OnYield r v)
+  cont k q FlushMessages                = k (return (OnFlushMessages (qApp q)))
+--  cont k q YieldProcess                 = k (return (OnYield (qApp q)))
+--  cont k q SelfPid                      = k (return (OnSelf (qApp q)))
+--  cont k q (Spawn     e               ) = k (return (OnSpawn False e (qApp q)))
+--  cont k q (SpawnLink e               ) = k (return (OnSpawn True e (qApp q)))
+--  cont k _ (Shutdown  !sr             )  = k (return (OnShutdown sr))
+--  cont k q (SendMessage !tp !msg      )  = k (return (OnSend tp msg (qApp q)))
+--  cont k q (ReceiveSelectedMessage f  )  = k (return (OnRecv f (qApp q)))
+--  cont k q (GetProcessState        !tp)  = k (return (OnGetProcessState tp (qApp q)))
+--  cont k q (SendInterrupt !tp  !er    )  = k (return (OnSendInterrupt tp er (qApp q)))
+--  cont k q (SendShutdown  !pid !sr    )  = k (return (OnSendShutdown pid sr (qApp q)))
+--  cont k q MakeReference                 = k (return (OnMakeReference (qApp q)))
+--  cont k q (Monitor   !pid)              = k (return (OnMonitor pid (qApp q)))
+--  cont k q (Demonitor !ref)              = k (return (OnDemonitor ref (qApp q)))
+--  cont k q (Link      !pid)              = k (return (OnLink pid (qApp q)))
+--  cont k q (Unlink    !pid)              = k (return (OnUnlink pid (qApp q)))
 
 -- | Internal 'Process' handler function.
 handleProcess

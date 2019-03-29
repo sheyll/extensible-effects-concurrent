@@ -1057,7 +1057,7 @@ withMonitor
   => ProcessId
   -> (MonitorReference -> Eff r a)
   -> Eff r a
-withMonitor pid eff = monitor pid >>= \ref -> eff ref <* demonitor ref
+withMonitor pid e = monitor pid >>= \ref -> e ref <* demonitor ref
 
 -- | A 'MessageSelector' for receiving either a monitor of the
 -- given process or another message.

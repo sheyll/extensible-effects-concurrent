@@ -12,3 +12,8 @@ TAGS
 \#*
 .vscode/phoityne.log
 extensible-effects-concurrent-example3.log
+/.idea/
+*.iml
+/dist/
+/dist-new/
+/out/

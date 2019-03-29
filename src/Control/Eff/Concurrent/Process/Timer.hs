@@ -20,7 +20,6 @@ where
 
 import           Control.Eff.Concurrent.Process
 import           Control.Concurrent
-import           Control.Eff.Lift
 import           Control.Eff
 import           Control.DeepSeq
 import           Control.Monad.IO.Class

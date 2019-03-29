@@ -10,7 +10,6 @@ where
 import           Control.Concurrent.Async
 import           Control.Concurrent.STM
 import           Control.Eff                   as Eff
-import           Control.Eff.Lift
 import           Control.Exception              ( evaluate )
 import           Control.Monad                  ( void
                                                 , unless
@@ -67,7 +66,7 @@ withAsyncLogChannel queueLen ioWriter action = do
 -- When the queue is full, flush it
 handleLoggingAndIO
   :: (NFData m, HasCallStack)
-  => Eff '[Logs m, LogWriterReader m IO, Lift IO] a
+  => Eff '[Logs m, Lift IO] a
   -> LogChannel m
   -> IO a
 handleLoggingAndIO e lc = runLift
@@ -85,7 +84,7 @@ handleLoggingAndIO e lc = runLift
 -- | Like 'handleLoggingAndIO' but return @()@.
 handleLoggingAndIO_
   :: (NFData m, HasCallStack)
-  => Eff '[Logs m, LogWriterReader m IO, Lift IO] a
+  => Eff '[Logs m, Lift IO] a
   -> LogChannel m
   -> IO ()
 handleLoggingAndIO_ e lc = void (handleLoggingAndIO e lc)
