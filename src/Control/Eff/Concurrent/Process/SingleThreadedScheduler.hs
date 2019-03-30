@@ -45,7 +45,7 @@ data STS r m = STS
   , _msgQs :: !(Map.Map ProcessId (Seq Dynamic))
   , _monitors :: !(Set.Set (MonitorReference, ProcessId))
   , _processLinks :: !(Set.Set (ProcessId, ProcessId))
-  , _runEff :: (forall a . Eff r a -> m a)
+  , _runEff :: forall a . Eff r a -> m a
   , _yieldEff :: m ()
   }
 
@@ -65,7 +65,7 @@ instance Show (STS r m) where
         (foldMap
           (\(pid, msgs) ->
             Endo (showString "  " . shows pid . showString ": ")
-              <> foldMap (\m -> Endo (shows (dynTypeRep m))) (toList msgs)
+              <> foldMap (Endo . shows . dynTypeRep) (toList msgs)
           )
           (sts ^.. msgQs . itraversed . withIndex)
         )
@@ -84,7 +84,7 @@ incRef :: STS r m -> (Int, STS r m)
 incRef sts = (sts ^. nextRef, sts & nextRef %~ (+ 1))
 
 enqueueMsg :: ProcessId -> Dynamic -> STS r m -> STS r m
-enqueueMsg toPid msg = msgQs . at toPid . _Just %~ (:|> msg)
+enqueueMsg toPid msg = msgQs . ix toPid %~ (:|> msg)
 
 newProcessQ :: Maybe ProcessId -> STS r m -> (ProcessId, STS r m)
 newProcessQ parentLink sts =
@@ -330,24 +330,26 @@ runAsCoroutinePure
   -> m (OnYield r v)
 runAsCoroutinePure r = r . fix (handle_relay' cont (return . OnDone))
  where
-  -- cont :: (x -> Eff r (OnYield r v)) -> Process r x -> Eff r (OnYield r v)
-  cont :: (Eff (ConsProcess r) (OnYield r v) -> Eff r (OnYield r v)) -> Arrs (ConsProcess r) x (OnYield r v) -> Process r x -> Eff r (OnYield r v)
-  cont k q FlushMessages                = k (return (OnFlushMessages (qApp q)))
---  cont k q YieldProcess                 = k (return (OnYield (qApp q)))
---  cont k q SelfPid                      = k (return (OnSelf (qApp q)))
---  cont k q (Spawn     e               ) = k (return (OnSpawn False e (qApp q)))
---  cont k q (SpawnLink e               ) = k (return (OnSpawn True e (qApp q)))
---  cont k _ (Shutdown  !sr             )  = k (return (OnShutdown sr))
---  cont k q (SendMessage !tp !msg      )  = k (return (OnSend tp msg (qApp q)))
---  cont k q (ReceiveSelectedMessage f  )  = k (return (OnRecv f (qApp q)))
---  cont k q (GetProcessState        !tp)  = k (return (OnGetProcessState tp (qApp q)))
---  cont k q (SendInterrupt !tp  !er    )  = k (return (OnSendInterrupt tp er (qApp q)))
---  cont k q (SendShutdown  !pid !sr    )  = k (return (OnSendShutdown pid sr (qApp q)))
---  cont k q MakeReference                 = k (return (OnMakeReference (qApp q)))
---  cont k q (Monitor   !pid)              = k (return (OnMonitor pid (qApp q)))
---  cont k q (Demonitor !ref)              = k (return (OnDemonitor ref (qApp q)))
---  cont k q (Link      !pid)              = k (return (OnLink pid (qApp q)))
---  cont k q (Unlink    !pid)              = k (return (OnUnlink pid (qApp q)))
+  cont :: (Eff (ConsProcess r) v -> Eff r (OnYield r v))
+       -> Arrs (ConsProcess r) x v
+       -> Process r x
+       -> Eff r (OnYield r v)
+  cont k q FlushMessages                = return (OnFlushMessages (k . qApp q))
+  cont k q YieldProcess                 = return (OnYield (k . qApp q))
+  cont k q SelfPid                      = return (OnSelf (k . qApp q))
+  cont k q (Spawn     e               ) = return (OnSpawn False e (k . qApp q))
+  cont k q (SpawnLink e               ) = return (OnSpawn True e (k . qApp q))
+  cont _ _ (Shutdown  !sr             ) = return (OnShutdown sr)
+  cont k q (SendMessage !tp !msg      ) = return (OnSend tp msg (k . qApp q))
+  cont k q (ReceiveSelectedMessage f  ) = return (OnRecv f (k . qApp q))
+  cont k q (GetProcessState        !tp) = return (OnGetProcessState tp (k . qApp q))
+  cont k q (SendInterrupt !tp  !er    ) = return (OnSendInterrupt tp er (k . qApp q))
+  cont k q (SendShutdown  !pid !sr    ) = return (OnSendShutdown pid sr (k . qApp q))
+  cont k q MakeReference                = return (OnMakeReference (k . qApp q))
+  cont k q (Monitor   !pid)             = return (OnMonitor pid (k . qApp q))
+  cont k q (Demonitor !ref)             = return (OnDemonitor ref (k . qApp q))
+  cont k q (Link      !pid)             = return (OnLink pid (k . qApp q))
+  cont k q (Unlink    !pid)             = return (OnUnlink pid (k . qApp q))
 
 -- | Internal 'Process' handler function.
 handleProcess
@@ -550,14 +552,7 @@ singleThreadedIoScheduler = SchedulerProxy
 
 -- | Execute a 'Process' using 'schedule' on top of 'Lift' @IO@ and 'Logs'
 -- @String@ effects.
-defaultMainSingleThreaded
-  :: HasCallStack
-  => Eff
-       ( InterruptableProcess
-           '[Logs LogMessage, LogWriterReader LogMessage IO, Lift IO]
-       )
-       ()
-  -> IO ()
+defaultMainSingleThreaded :: HasCallStack => Eff (InterruptableProcess '[Logs LogMessage, Lift IO]) ()-> IO ()
 defaultMainSingleThreaded =
   void
     . runLift
