@@ -1,7 +1,6 @@
 module Main where
 
 import           Control.Eff
-import           Control.Eff.Lift
 import           Control.Eff.Concurrent
 import           Data.Dynamic
 import           Control.Concurrent

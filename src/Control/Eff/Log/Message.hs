@@ -84,11 +84,11 @@ import           Control.Concurrent
 import           Control.DeepSeq
 import           Control.Eff
 import           Control.Eff.Log.Handler
+import           Control.Eff.Log.Writer
 import           Control.Lens
 import           Control.Monad                  ( (>=>) )
 import           Control.Monad.IO.Class
 import           Data.Default
-import           Data.Foldable
 import           Data.Maybe
 import           Data.String
 import           Data.Time.Clock
@@ -139,9 +139,7 @@ showLmMessage (LogMessage _f _s _ts _hn _an _pid _mi _sd ti loc msg _dist) =
 -- | A 'LogWriter' that applys 'renderLogMessage' to the log message and then
 -- traces it using 'traceM'.
 traceLogMessageWriter :: Monad m => LogWriter LogMessage m
-traceLogMessageWriter =
-  foldingLogWriter (traverse_ (traceM . renderLogMessage))
-
+traceLogMessageWriter = MkLogWriter (traceM . renderLogMessage)
 
 -- | Render a 'LogMessage' human readable.
 renderLogMessage :: LogMessage -> String
@@ -256,17 +254,17 @@ printLogMessage = setLogMessageTimestamp >=> putStrLn . renderLogMessage
 -- then /write/ the log message using the 'IO' and 'String' based 'LogWriter'.
 ioLogMessageWriter
   :: HasCallStack => LogWriter String IO -> LogWriter LogMessage IO
-ioLogMessageWriter delegatee = foldingLogWriter
-  (   traverse setLogMessageTimestamp
-  >=> traverse setLogMessageThreadId
-  >=> (writeAllLogMessages delegatee . fmap renderLogMessage)
+ioLogMessageWriter delegatee = MkLogWriter
+  (   setLogMessageTimestamp
+  >=> setLogMessageThreadId
+  >=> (runLogWriter delegatee . renderLogMessage)
   )
 
 -- | Use 'ioLogMessageWriter' to /handle/ logging using 'handleLogs'.
 ioLogMessageHandler
   :: (HasCallStack, Lifted IO e)
   => LogWriter String IO
-  -> Eff (Logs LogMessage ': e) a
+  -> Eff (Logs LogMessage ': LogWriterReader LogMessage IO ': e) a
   -> Eff e a
 ioLogMessageHandler delegatee =
   writeLogs (ioLogMessageWriter delegatee)

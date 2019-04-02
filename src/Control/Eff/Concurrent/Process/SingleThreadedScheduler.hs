@@ -21,6 +21,7 @@ import           Control.Lens            hiding ( (|>)
                                                 )
 import           Control.Monad                  ( void
                                                 , when
+                                                , foldM
                                                 )
 import           Control.Monad.IO.Class
 import qualified Data.Sequence                 as Seq
@@ -219,7 +220,7 @@ scheduleMonadIOEff = -- schedule (lift yield)
 scheduleIOWithLogging
   :: (NFData l)
   => LogWriter l IO
-  -> Eff (InterruptableProcess '[Logs l, Lift IO]) a
+  -> Eff (InterruptableProcess '[Logs l, LogWriterReader l IO, Lift IO]) a
   -> IO (Either (ExitReason 'NoRecovery) a)
 scheduleIOWithLogging h = scheduleIO (writeLogs h)
 
@@ -361,186 +362,160 @@ handleProcess _sts Empty =
   return $ Left (NotRecovered (ProcessError "no main process"))
 
 handleProcess sts allProcs@((!processState, !pid) :<| rest) =
-  let handleExit res = if pid == 0
-        then return res
-        else do
-          let (downPids, stsNew) = removeLinksTo pid sts
-              linkedPids         = filter (/= pid) downPids
-              reason             = LinkedProcessCrashed pid
-              unlinkLoop []                ps = return ps
-              unlinkLoop (dPid : dPidRest) ps = do
-                ps' <- sendInterruptToOtherPid dPid reason ps
-                unlinkLoop dPidRest ps'
-          let allProcsWithoutPid = Seq.filter (\(_, p) -> p /= pid) rest
-          nextTargets <- unlinkLoop linkedPids allProcsWithoutPid
-          handleProcess
-            (dropMsgQ
-              pid
-              (triggerAndRemoveMonitor
-                pid
-                (either SomeExitReason (const (SomeExitReason ExitNormally)) res
-                )
-                stsNew
-              )
-            )
-            nextTargets
-  in
-    case processState of
-      OnDone     r    -> handleExit (Right r)
-
-      OnShutdown e    -> handleExit (Left e)
-
-      OnInterrupt e k -> do
-        nextK <- diskontinue sts k e
-        handleProcess sts (rest :|> (nextK, pid))
-
-      OnSendInterrupt targetPid sr k -> doSendInterrupt targetPid sr k
-
-      OnSendShutdown  targetPid sr k -> do
-        let allButTarget =
-              Seq.filter (\(_, e) -> e /= pid && e /= targetPid) allProcs
-            targets = Seq.filter (\(_, e) -> e == targetPid) allProcs
-            suicide = targetPid == pid
-        if suicide
-          then handleExit (Left sr)
+  let handleExit res =
+        if pid == 0
+          then return res
           else do
-            let deliverTheGoodNews (targetState, tPid) = do
-                  nextTargetState <- case targetState of
-                    OnSendInterrupt _ _ _tk -> return (OnShutdown sr)
-                    OnSendShutdown  _ _ _tk -> return (OnShutdown sr)
-                    OnFlushMessages _tk     -> return (OnShutdown sr)
-                    OnYield         _tk     -> return (OnShutdown sr)
-                    OnSelf          _tk     -> return (OnShutdown sr)
-                    OnSend _ _ _tk          -> return (OnShutdown sr)
-                    OnRecv _ _tk            -> return (OnShutdown sr)
-                    OnSpawn _ _ _tk         -> return (OnShutdown sr)
-                    OnDone x                -> return (OnDone x)
-                    OnGetProcessState _ _tk -> return (OnShutdown sr)
-                    OnShutdown sr'          -> return (OnShutdown sr')
-                    OnInterrupt _er _tk     -> return (OnShutdown sr)
-                    OnMakeReference _tk     -> return (OnShutdown sr)
-                    OnMonitor   _ _tk       -> return (OnShutdown sr)
-                    OnDemonitor _ _tk       -> return (OnShutdown sr)
-                    OnLink      _ _tk       -> return (OnShutdown sr)
-                    OnUnlink    _ _tk       -> return (OnShutdown sr)
-                  return (nextTargetState, tPid)
-            nextTargets <- _runEff sts $ traverse deliverTheGoodNews targets
-            nextK       <- kontinue sts k ()
-            handleProcess sts
-                          (allButTarget Seq.>< (nextTargets :|> (nextK, pid)))
-
-      OnSelf k -> do
-        nextK <- kontinue sts k pid
-        handleProcess sts (rest :|> (nextK, pid))
-
-      OnMakeReference k -> do
-        let (ref, stsNext) = incRef sts
-        nextK <- kontinue sts k ref
-        handleProcess stsNext (rest :|> (nextK, pid))
-
-      OnYield k -> do
-        sts ^. yieldEff
-        nextK <- kontinue sts k ()
-        handleProcess sts (rest :|> (nextK, pid))
-
-      OnSend toPid msg k -> do
-        nextK <- kontinue sts k ()
-        handleProcess (enqueueMsg toPid msg sts) (rest :|> (nextK, pid))
-
-      OnGetProcessState toPid k -> do
-        nextK <- kontinue sts k (getProcessState toPid sts)
-        handleProcess sts (rest :|> (nextK, pid))
-
-      OnSpawn link f k -> do
-        let (newPid, newSts) =
-              newProcessQ (if link then Just pid else Nothing) sts
-        fk    <- runAsCoroutinePure (newSts ^. runEff) (f >> exitNormally)
-        nextK <- kontinue newSts k newPid
-        handleProcess newSts (rest :|> (fk, newPid) :|> (nextK, pid))
-
-      OnFlushMessages k -> do
-        let (msgs, newSts) = flushMsgs pid sts
-        nextK <- kontinue newSts k msgs
-        handleProcess newSts (rest :|> (nextK, pid))
-
-      recv@(OnRecv messageSelector k) ->
-        case receiveMsg pid messageSelector sts of
-          Nothing -> do
-            nextK <- diskontinue
-              sts
-              k
-              (ProcessError (show pid ++ " has no message queue"))
-
-            handleProcess sts (rest :|> (nextK, pid))
-          Just Nothing -> if Seq.length rest == 0
-            then do
-              nextK <- diskontinue sts
-                                   k
-                                   (ProcessError (show pid ++ " deadlocked"))
+            let (downPids, stsNew) = removeLinksTo pid sts
+                linkedPids = filter (/= pid) downPids
+                reason = LinkedProcessCrashed pid
+                unlinkLoop dPidRest ps = foldM (\ps dPid -> sendInterruptToOtherPid dPid reason ps) ps dPidRest
+            let allProcsWithoutPid = Seq.filter (\(_, p) -> p /= pid) rest
+            nextTargets <- unlinkLoop linkedPids allProcsWithoutPid
+            handleProcess
+              (dropMsgQ
+                 pid
+                 (triggerAndRemoveMonitor pid (either SomeExitReason (const (SomeExitReason ExitNormally)) res) stsNew))
+              nextTargets
+   in case processState of
+        OnDone r -> handleExit (Right r)
+        OnShutdown e -> handleExit (Left e)
+        OnInterrupt e k -> do
+          nextK <- diskontinue sts k e
+          handleProcess sts (rest :|> (nextK, pid))
+        OnSendInterrupt targetPid sr k -> doSendInterrupt targetPid sr k
+        OnSendShutdown targetPid sr k -> do
+          let allButTarget = Seq.filter (\(_, e) -> e /= pid && e /= targetPid) allProcs
+              targets = Seq.filter (\(_, e) -> e == targetPid) allProcs
+              suicide = targetPid == pid
+          if suicide
+            then handleExit (Left sr)
+            else do
+              let deliverTheGoodNews (targetState, tPid) = do
+                    nextTargetState <-
+                      case targetState of
+                        OnSendInterrupt _ _ _tk -> return (OnShutdown sr)
+                        OnSendShutdown _ _ _tk -> return (OnShutdown sr)
+                        OnFlushMessages _tk -> return (OnShutdown sr)
+                        OnYield _tk -> return (OnShutdown sr)
+                        OnSelf _tk -> return (OnShutdown sr)
+                        OnSend _ _ _tk -> return (OnShutdown sr)
+                        OnRecv _ _tk -> return (OnShutdown sr)
+                        OnSpawn _ _ _tk -> return (OnShutdown sr)
+                        OnDone x -> return (OnDone x)
+                        OnGetProcessState _ _tk -> return (OnShutdown sr)
+                        OnShutdown sr' -> return (OnShutdown sr')
+                        OnInterrupt _er _tk -> return (OnShutdown sr)
+                        OnMakeReference _tk -> return (OnShutdown sr)
+                        OnMonitor _ _tk -> return (OnShutdown sr)
+                        OnDemonitor _ _tk -> return (OnShutdown sr)
+                        OnLink _ _tk -> return (OnShutdown sr)
+                        OnUnlink _ _tk -> return (OnShutdown sr)
+                    return (nextTargetState, tPid)
+              nextTargets <- _runEff sts $ traverse deliverTheGoodNews targets
+              nextK <- kontinue sts k ()
+              handleProcess sts (allButTarget Seq.>< (nextTargets :|> (nextK, pid)))
+        OnSelf k -> do
+          nextK <- kontinue sts k pid
+          handleProcess sts (rest :|> (nextK, pid))
+        OnMakeReference k -> do
+          let (ref, stsNext) = incRef sts
+          nextK <- kontinue sts k ref
+          handleProcess stsNext (rest :|> (nextK, pid))
+        OnYield k -> do
+          sts ^. yieldEff
+          nextK <- kontinue sts k ()
+          handleProcess sts (rest :|> (nextK, pid))
+        OnSend toPid msg k -> do
+          nextK <- kontinue sts k ()
+          handleProcess (enqueueMsg toPid msg sts) (rest :|> (nextK, pid))
+        OnGetProcessState toPid k -> do
+          nextK <- kontinue sts k (getProcessState toPid sts)
+          handleProcess sts (rest :|> (nextK, pid))
+        OnSpawn link f k -> do
+          let (newPid, newSts) =
+                newProcessQ
+                  (if link
+                     then Just pid
+                     else Nothing)
+                  sts
+          fk <- runAsCoroutinePure (newSts ^. runEff) (f >> exitNormally)
+          nextK <- kontinue newSts k newPid
+          handleProcess newSts (rest :|> (fk, newPid) :|> (nextK, pid))
+        OnFlushMessages k -> do
+          let (msgs, newSts) = flushMsgs pid sts
+          nextK <- kontinue newSts k msgs
+          handleProcess newSts (rest :|> (nextK, pid))
+        recv@(OnRecv messageSelector k) ->
+          case receiveMsg pid messageSelector sts of
+            Nothing -> do
+              nextK <- diskontinue sts k (ProcessError (show pid ++ " has no message queue"))
               handleProcess sts (rest :|> (nextK, pid))
-            else handleProcess sts (rest :|> (recv, pid))
-          Just (Just (result, newSts)) -> do
-            nextK <- kontinue newSts k result
-            handleProcess newSts (rest :|> (nextK, pid))
-
-      OnMonitor toPid k -> do
-        let (ref, stsNew) = addMonitoring pid toPid sts
-        nextK <- kontinue stsNew k ref
-        handleProcess stsNew (rest :|> (nextK, pid))
-
-      OnDemonitor monRef k -> do
-        let stsNew = removeMonitoring monRef sts
-        nextK <- kontinue stsNew k ()
-        handleProcess stsNew (rest :|> (nextK, pid))
-
-      OnLink toPid k -> do
-        let (downInterrupts, stsNew) = addLink pid toPid sts
-        nextK <- case downInterrupts of
-          Nothing -> kontinue stsNew k ()
-          Just i  -> diskontinue stsNew k i
-        handleProcess stsNew (rest :|> (nextK, pid))
-
-      OnUnlink toPid k -> do
-        let (_, stsNew) = removeLinksTo toPid sts
-        nextK <- kontinue stsNew k ()
-        handleProcess stsNew (rest :|> (nextK, pid))
- where
-  doSendInterrupt targetPid sr k = do
-    let suicide = targetPid == pid
-    if suicide
-      then do
-        nextK <- diskontinue sts k sr
-        handleProcess sts (rest :|> (nextK, pid))
-      else do
-        nextTargets <- sendInterruptToOtherPid targetPid sr rest
-        nextK       <- kontinue sts k ()
-        handleProcess sts (nextTargets :|> (nextK, pid))
-
-  sendInterruptToOtherPid targetPid sr procs = do
-    let allButTarget = Seq.filter (\(_, e) -> e /= targetPid) procs
-        targets      = Seq.filter (\(_, e) -> e == targetPid) procs
-        deliverTheGoodNews (targetState, tPid) = do
-          nextTargetState <- case targetState of
-            OnSendInterrupt _ _ tk -> tk (Interrupted sr)
-            OnSendShutdown  _ _ tk -> tk (Interrupted sr)
-            OnFlushMessages tk     -> tk (Interrupted sr)
-            OnYield         tk     -> tk (Interrupted sr)
-            OnSelf          tk     -> tk (Interrupted sr)
-            OnSend _ _ tk          -> tk (Interrupted sr)
-            OnRecv _ tk            -> tk (Interrupted sr)
-            OnSpawn _ _ tk         -> tk (Interrupted sr)
-            OnDone x               -> return (OnDone x)
-            OnGetProcessState _ tk -> tk (Interrupted sr)
-            OnShutdown sr'         -> return (OnShutdown sr')
-            OnInterrupt er tk      -> tk (Interrupted er)
-            OnMakeReference tk     -> tk (Interrupted sr)
-            OnMonitor   _ tk       -> tk (Interrupted sr)
-            OnDemonitor _ tk       -> tk (Interrupted sr)
-            OnLink      _ tk       -> tk (Interrupted sr)
-            OnUnlink    _ tk       -> tk (Interrupted sr)
-          return (nextTargetState, tPid)
-    nextTargets <- _runEff sts $ traverse deliverTheGoodNews targets
-    return (nextTargets Seq.>< allButTarget)
+            Just Nothing ->
+              if Seq.length rest == 0
+                then do
+                  nextK <- diskontinue sts k (ProcessError (show pid ++ " deadlocked"))
+                  handleProcess sts (rest :|> (nextK, pid))
+                else handleProcess sts (rest :|> (recv, pid))
+            Just (Just (result, newSts)) -> do
+              nextK <- kontinue newSts k result
+              handleProcess newSts (rest :|> (nextK, pid))
+        OnMonitor toPid k -> do
+          let (ref, stsNew) = addMonitoring pid toPid sts
+          nextK <- kontinue stsNew k ref
+          handleProcess stsNew (rest :|> (nextK, pid))
+        OnDemonitor monRef k -> do
+          let stsNew = removeMonitoring monRef sts
+          nextK <- kontinue stsNew k ()
+          handleProcess stsNew (rest :|> (nextK, pid))
+        OnLink toPid k -> do
+          let (downInterrupts, stsNew) = addLink pid toPid sts
+          nextK <-
+            case downInterrupts of
+              Nothing -> kontinue stsNew k ()
+              Just i -> diskontinue stsNew k i
+          handleProcess stsNew (rest :|> (nextK, pid))
+        OnUnlink toPid k -> do
+          let (_, stsNew) = removeLinksTo toPid sts
+          nextK <- kontinue stsNew k ()
+          handleProcess stsNew (rest :|> (nextK, pid))
+  where
+    doSendInterrupt targetPid sr k = do
+      let suicide = targetPid == pid
+      if suicide
+        then do
+          nextK <- diskontinue sts k sr
+          handleProcess sts (rest :|> (nextK, pid))
+        else do
+          nextTargets <- sendInterruptToOtherPid targetPid sr rest
+          nextK <- kontinue sts k ()
+          handleProcess sts (nextTargets :|> (nextK, pid))
+    sendInterruptToOtherPid targetPid sr procs = do
+      let allButTarget = Seq.filter (\(_, e) -> e /= targetPid) procs
+          targets = Seq.filter (\(_, e) -> e == targetPid) procs
+          deliverTheGoodNews (targetState, tPid) = do
+            nextTargetState <-
+              case targetState of
+                OnSendInterrupt _ _ tk -> tk (Interrupted sr)
+                OnSendShutdown _ _ tk -> tk (Interrupted sr)
+                OnFlushMessages tk -> tk (Interrupted sr)
+                OnYield tk -> tk (Interrupted sr)
+                OnSelf tk -> tk (Interrupted sr)
+                OnSend _ _ tk -> tk (Interrupted sr)
+                OnRecv _ tk -> tk (Interrupted sr)
+                OnSpawn _ _ tk -> tk (Interrupted sr)
+                OnDone x -> return (OnDone x)
+                OnGetProcessState _ tk -> tk (Interrupted sr)
+                OnShutdown sr' -> return (OnShutdown sr')
+                OnInterrupt er tk -> tk (Interrupted er)
+                OnMakeReference tk -> tk (Interrupted sr)
+                OnMonitor _ tk -> tk (Interrupted sr)
+                OnDemonitor _ tk -> tk (Interrupted sr)
+                OnLink _ tk -> tk (Interrupted sr)
+                OnUnlink _ tk -> tk (Interrupted sr)
+            return (nextTargetState, tPid)
+      nextTargets <- _runEff sts $ traverse deliverTheGoodNews targets
+      return (nextTargets Seq.>< allButTarget)
 
 -- | The concrete list of 'Eff'ects for running this pure scheduler on @IO@ and
 -- with string logging.
@@ -552,9 +527,9 @@ singleThreadedIoScheduler = SchedulerProxy
 
 -- | Execute a 'Process' using 'schedule' on top of 'Lift' @IO@ and 'Logs'
 -- @String@ effects.
-defaultMainSingleThreaded :: HasCallStack => Eff (InterruptableProcess '[Logs LogMessage, Lift IO]) ()-> IO ()
+defaultMainSingleThreaded :: HasCallStack => Eff (InterruptableProcess LoggingAndIo) ()-> IO ()
 defaultMainSingleThreaded =
   void
     . runLift
-    . writeLogs (multiMessageLogWriter ($ printLogMessage))
+    . writeLogs (MkLogWriter printLogMessage)
     . scheduleMonadIOEff

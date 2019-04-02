@@ -15,6 +15,7 @@ import           Control.Monad                  ( void
                                                 , unless
                                                 )
 import           Control.Eff.Log.Handler
+import           Control.Eff.Log.Writer
 import           Data.Foldable                  ( traverse_ )
 import           Data.Kind                      ( )
 import           Control.DeepSeq
@@ -58,7 +59,7 @@ withAsyncLogChannel queueLen ioWriter action = do
       h <- readTBQueue tq
       t <- flushTBQueue tq
       return (h : t)
-    writeAllLogMessages ioWriter ms
+    traverse_ (runLogWriter ioWriter) ms
     logLoop tq
 
 -- | Fork an IO based log writer thread and set the 'LogWriter' to an action
@@ -66,11 +67,11 @@ withAsyncLogChannel queueLen ioWriter action = do
 -- When the queue is full, flush it
 handleLoggingAndIO
   :: (NFData m, HasCallStack)
-  => Eff '[Logs m, Lift IO] a
+  => Eff '[Logs m, LogWriterReader m IO, Lift IO] a
   -> LogChannel m
   -> IO a
 handleLoggingAndIO e lc = runLift
-  (writeLogs (foldingLogWriter (traverse_ logChannelPutIO)) e)
+  (writeLogs (MkLogWriter logChannelPutIO) e)
  where
   logQ = fromLogChannel lc
   logChannelPutIO (force -> me) = do
@@ -84,7 +85,7 @@ handleLoggingAndIO e lc = runLift
 -- | Like 'handleLoggingAndIO' but return @()@.
 handleLoggingAndIO_
   :: (NFData m, HasCallStack)
-  => Eff '[Logs m, Lift IO] a
+  => Eff '[Logs m, LogWriterReader m IO, Lift IO] a
   -> LogChannel m
   -> IO ()
 handleLoggingAndIO_ e lc = void (handleLoggingAndIO e lc)

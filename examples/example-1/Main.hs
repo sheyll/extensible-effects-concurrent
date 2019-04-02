@@ -3,7 +3,6 @@ module Main where
 
 import           GHC.Stack
 import           Control.Eff
-import           Control.Eff.Lift
 import           Control.Monad
 import           Data.Dynamic
 import           Control.Eff.Concurrent

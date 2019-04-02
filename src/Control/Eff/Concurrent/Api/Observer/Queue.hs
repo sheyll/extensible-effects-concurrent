@@ -13,7 +13,6 @@ where
 import           Control.Concurrent.STM
 import           Control.Eff
 import           Control.Eff.ExceptionExtra     ( )
-import           Control.Eff.Lift
 import           Control.Eff.Concurrent.Process
 import           Control.Eff.Log
 import           Control.Eff.Concurrent.Api.Observer

@@ -113,7 +113,7 @@ addMonitoring target owner schedulerState = do
     pt <- readTVar (schedulerState ^. processTable)
     if Map.member target pt
       then modifyTVar' (schedulerState ^. processMonitors) (Set.insert (mref, owner))
-      else let pdown = (ProcessDown mref (SomeExitReason (ProcessNotRunning target)))
+      else let pdown = ProcessDown mref (SomeExitReason (ProcessNotRunning target))
             in enqueueMessageOtherProcess owner (toDyn pdown) schedulerState
   return mref
 
@@ -195,13 +195,13 @@ type HasSchedulerIO r = (HasCallStack, Lifted IO r, SchedulerIO <:: r)
 type SchedulerIO = (Reader SchedulerState : LoggingAndIO)
 
 -- | Basic effects: 'Logs' 'LogMessage' and 'Lift' IO
-type LoggingAndIO = '[ Logs LogMessage, Lift IO]
+type LoggingAndIO = '[ Logs LogMessage, LogWriterReader LogMessage IO, Lift IO]
 
 -- | Start the message passing concurrency system then execute a 'Process' on
 -- top of 'SchedulerIO' effect. All logging is sent to standard output.
 defaultMain :: HasCallStack => Eff InterruptableProcEff () -> IO ()
 defaultMain c =
-  withAsyncLogChannel (1024 :: Int) (multiMessageLogWriter ($ printLogMessage)) (handleLoggingAndIO_ (schedule c))
+  withAsyncLogChannel (1024 :: Int) (MkLogWriter printLogMessage) (handleLoggingAndIO_ (schedule c))
 
 -- | Start the message passing concurrency system then execute a 'Process' on
 -- top of 'SchedulerIO' effect. All logging is sent to standard output.
@@ -316,7 +316,7 @@ handleProcess myProcessInfo actionToRun =
          forall v a. HasCallStack
       => Arr SchedulerIO v a
       -> Arr SchedulerIO (ExitReason 'NoRecovery) a
-      -> (ExitReason 'Recoverable)
+      -> ExitReason 'Recoverable
       -> Process SchedulerIO v
       -> Eff SchedulerIO a
     interpretRequestAfterInterruptRequest kontinue diskontinue interruptRequest =
@@ -383,10 +383,10 @@ handleProcess myProcessInfo actionToRun =
         interpretUnlink !toPid = do
           setMyProcessState ProcessBusyUnlinking
           schedulerState <- getSchedulerState
-          let procInfosVar = schedulerState ^. processTable
+          let procInfoVar = schedulerState ^. processTable
           lift $
             atomically $ do
-              procInfos <- readTVar procInfosVar
+              procInfos <- readTVar procInfoVar
               traverse_
                 (\toProcInfo -> modifyTVar' (toProcInfo ^. processLinks) (Set.delete myPid))
                 (procInfos ^. at toPid)
@@ -394,18 +394,18 @@ handleProcess myProcessInfo actionToRun =
         interpretGetProcessState !toPid = do
           setMyProcessState ProcessBusy
           schedulerState <- getSchedulerState
-          let procInfosVar = schedulerState ^. processTable
+          let procInfoVar = schedulerState ^. processTable
           lift $
             atomically $ do
-              procInfos <- readTVar procInfosVar
+              procInfos <- readTVar procInfoVar
               traverse (\toProcInfo -> readTVar (toProcInfo ^. processState)) (procInfos ^. at toPid)
         interpretLink !toPid = do
           setMyProcessState ProcessBusyLinking
           schedulerState <- getSchedulerState
-          let procInfosVar = schedulerState ^. processTable
+          let procInfoVar = schedulerState ^. processTable
           lift $
             atomically $ do
-              procInfos <- readTVar procInfosVar
+              procInfos <- readTVar procInfoVar
               case procInfos ^. at toPid of
                 Just toProcInfo -> do
                   modifyTVar' (toProcInfo ^. processLinks) (Set.insert myPid)
@@ -513,7 +513,7 @@ spawnNewProcess mlinkedParent mfa = do
                return procInfo))
     logAppendProcInfo pid =
       let addProcessId = over lmProcessId (maybe (Just (printf "% 9s" (show pid))) Just)
-       in traverseLogMessages (traverse setLogMessageThreadId >=> traverse (return . addProcessId))
+       in traverseLogMessages (setLogMessageThreadId >=> return . addProcessId)
     triggerProcessLinksAndMonitors !pid !reason !linkSetVar = do
       schedulerState <- getSchedulerState
       lift $ atomically $ triggerAndRemoveMonitor pid (SomeExitReason reason) schedulerState

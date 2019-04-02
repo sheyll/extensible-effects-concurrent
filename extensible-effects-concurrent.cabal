@@ -64,6 +64,7 @@ library
                   Control.Eff.Log.Channel,
                   Control.Eff.Log.Handler,
                   Control.Eff.Log.Message,
+                  Control.Eff.Log.Writer,
                   Control.Eff.Concurrent,
                   Control.Eff.Concurrent.Api,
                   Control.Eff.Concurrent.Api.Client,

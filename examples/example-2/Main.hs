@@ -3,7 +3,6 @@ module Main where
 
 import           Data.Dynamic
 import           Control.Eff
-import           Control.Eff.Lift
 import           Control.Eff.Concurrent
 import           Control.Eff.State.Strict
 import           Control.Monad

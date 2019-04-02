@@ -1,7 +1,7 @@
 module Main where
 
 import           Control.Concurrent
-import           Control.Eff.Lift
+import           Control.Eff
 import           Control.Eff.Log
 import           Control.Exception             as IOException
 import           System.Directory
@@ -26,8 +26,8 @@ main = withAsyncLogChannel
   )
 
 fileAppender :: FilePath -> LogWriter String IO
-fileAppender fnIn = multiMessageLogWriter
-  (\writeLogMessageWith -> bracket
+fileAppender fnIn = MkLogWriter
+  (\m -> bracket
     (do
       fnCanon <- canonicalizePath fnIn
       createDirectoryIfMissing True (takeDirectory fnCanon)
@@ -36,9 +36,9 @@ fileAppender fnIn = multiMessageLogWriter
       return h
     )
     (\h -> IOException.try @SomeException (hFlush h) >> hClose h)
-    (writeLogMessageWith . hPutStrLn)
+    (\h -> hPutStrLn h m)
   )
 
 fileAppenderSimple :: FilePath -> LogWriter String IO
 fileAppenderSimple fnIn =
-  singleMessageLogWriter (\msg -> withFile fnIn AppendMode (`hPutStrLn` msg))
+  MkLogWriter (\msg -> withFile fnIn AppendMode (`hPutStrLn` msg))

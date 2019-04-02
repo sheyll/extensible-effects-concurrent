@@ -38,7 +38,6 @@ where
 import           Control.Concurrent
 import           Control.Concurrent.STM
 import           Control.Eff
-import           Control.Eff.Lift
 import           Control.Eff.Concurrent.Api
 import           Control.Eff.Concurrent.Api.Client
 import           Control.Eff.Concurrent.Process

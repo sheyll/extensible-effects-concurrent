@@ -2,37 +2,22 @@
 -- | A logging effect based on 'Control.Monad.Log.MonadLog'.
 module Control.Eff.Log.Handler
   ( logMsg
-  , logMsgs
-  , HasLogWriter
   , mapLogMessages
   , filterLogMessages
-  , traverseLogMessages
-  , changeLogWriter
   , ignoreLogs
   , traceLogs
-  , LogWriter()
-  , LogWriterReader
-  , foldingLogWriter
-  , writeAllLogMessages
-  , singleMessageLogWriter
-  , multiMessageLogWriter
-  , askLogWriter
   , Logs()
-  , writeLogs
   , withLogMessageHandler
+  , askLogFilter
+  , runLogsFiltered
   )
 where
 
 import           Control.DeepSeq
 import           Control.Eff                   as Eff
 import           Control.Eff.Extend
-import           Control.Eff.Reader.Strict
 import qualified Control.Exception.Safe        as Safe
-import           Data.Default
-import           Data.Foldable                  ( traverse_ )
 import           Data.Function                  ( fix )
-import           Data.Functor.Compose           ( Compose( Compose ) )
-import           Control.Monad
 import qualified Control.Monad.Catch           as Catch
 import           Control.Monad.Trans.Control    ( MonadBaseControl
                                                   ( restoreM
@@ -47,23 +32,7 @@ import           Debug.Trace
 
 -- | Log a message. The message is reduced to normal form (strict).
 logMsg :: (NFData m, Member (Logs m) e) => m -> Eff e ()
-logMsg (force -> msg) = logMsgs [msg]
-
--- | Log a bunch of messages. This might be more efficient than calling 'logMsg'
--- multiple times.
--- The messages are reduced to normal form (strict).
-logMsgs
-  :: ( Traversable f
-     , NFData1 f
-     , NFData (f m)
-     , NFData m
-     , Member (Logs m) e
-     )
-  => f m
-  -> Eff e ()
-logMsgs !msgs = rnf1 msgs `seq` do
-  lf <- send AskLogFilter
-  send (LogMsgs (Compose (traverse (fmap force . lf) msgs) ))
+logMsg (force -> msg) = rnf msg `seq` send (SendLogMessage msg)
 
 -- ** Filter and Transform Log Messages
 
@@ -95,64 +64,8 @@ filterLogMessages predicate logEff  = do
   old <- send AskLogFilter
   localLogFilter (\m -> if predicate m then old m else Nothing) logEff
 
--- ** Filter and Transform Log Messages effectfully
-
--- | Map an 'Eff'ectful function over every bunch of log messages.
---
--- For example, to attach the current time to each log message:
---
--- > appendTimestamp
--- >  :: ( Member (Logs String) e
--- >     , Lifted IO e)
--- >  => Eff e a
--- >  -> Eff e a
--- > appendTimestamp = traverseLogMessages $ \ms -> do
--- >   now <- getCurrentTime
--- >   return (fmap (show now ++) ms)
-traverseLogMessages
-  :: forall m r h b
-   . ( Member (Logs m) r
-     , Member (Reader (LogWriter m h)) r
-     , Monad h
-     , Lifted h r
-     )
-  => (forall f . (Traversable f, NFData1 f) => f m -> h (f m))
-  -> Eff r b
-  -> Eff r b
-traverseLogMessages f = changeLogWriter
-  (\msgs -> do
-    lw    <- ask
-    msgs' <- lift (f msgs)
-    lift (runLogWriter lw msgs')
-  )
-
--- ** Change the Log Writer
-
--- | Change the way log messages are *written*.
--- Replaces the existing 'LogWriter' by a new one. The new 'LogWriter'
--- is constructed from a function that gets a /bunch/ of messages and
--- returns an 'Eff'ect.
--- That effect has a 'Reader' for the previous 'LogWriter' and 'Lift's
--- the log writer base monad.
-changeLogWriter
-  :: forall r m h a
-   . (Monad h, Lifted h r, Member (Reader (LogWriter m h)) r)
-  => (  forall f
-      . (Traversable f, NFData1 f, MonadPlus f)
-     => f m
-     -> Eff '[Reader (LogWriter m h), Lift h] ()
-     )
-  -> Eff r a
-  -> Eff r a
-changeLogWriter interceptor =
-  let replaceWriter old = LogWriter (runLift . runReader old . interceptor)
-  in  local replaceWriter
 
 -- * Handle Log Messages
-
--- | Throw away all log messages.
-ignoreLogs :: forall m r a . Eff (Logs m ': r) a -> Eff r a
-ignoreLogs = runLogsFiltered (const Nothing)
 
 -- | Trace all log messages using 'traceM'. The message value is
 -- converted to 'String' using the given function.
@@ -164,8 +77,8 @@ traceLogs
   -> Eff r a
 traceLogs toString = runLogsFiltered Just . withLogMessageHandler go
  where
-  go :: (Monad m, Foldable f) => f message -> m ()
-  go = traverse_ (traceM . toString)
+  go :: (Monad m) => message -> m ()
+  go = traceM . toString
 
 
 -- ** Log Message Writer Creation
@@ -180,9 +93,8 @@ traceLogs toString = runLogsFiltered Just . withLogMessageHandler go
 data Logs m v where
   AskLogFilter
     :: (NFData m) => Logs m (m -> Maybe m)
-  LogMsgs
-    :: (Traversable f, NFData1 f, NFData m, NFData (f m))
-    => f m -> Logs m ()
+  SendLogMessage
+    :: (NFData m) => m -> Logs m ()
 
 -- | Drops all messages
 instance Handle (Logs m) e a ((m -> Maybe m) -> k) where
@@ -190,13 +102,16 @@ instance Handle (Logs m) e a ((m -> Maybe m) -> k) where
     case request of
       AskLogFilter ->
         handleNext (handleResponseAndContinue ^$ logMessageFilter) logMessageFilter
-      LogMsgs _ ->
+      SendLogMessage _ ->
         handleNext
           (handleResponseAndContinue ^$ ())
           logMessageFilter
 
+-- | Get the current 'Logs' filter/transformer function.
+askLogFilter :: (NFData m, Member (Logs m) e) => Eff e (m -> Maybe m)
+askLogFilter = send AskLogFilter
 
--- | Replace the current log filter. --TODO write localLogFilter test
+-- | Replace the current log filter.
 localLogFilter
   :: forall m e b
    . (NFData m, Member (Logs m) e)
@@ -209,118 +124,64 @@ localLogFilter lf actionThatLogs =
         (\step co (req :: Logs m v) lf2 ->
             case req of
               AskLogFilter -> step (co ^$ lf2) lf2
-              LogMsgs ms   -> send (LogMsgs ms) >> step (co ^$ ()) lf2
+              SendLogMessage ms -> logMsg ms >> step (co ^$ ()) lf2
         )
         (\a _lf -> return a)
      )
      actionThatLogs
      lf
 
--- | Install 'Logs' handler that 'ask's for a 'LogWriter' for the
--- message type and applies the log writer to the messages.
+-- | Handle the 'Logs' effect.
 --
--- This functions will provide a filter/transformation function for log messages.
+-- The 'Logs' effect contains two elements:
+--
+-- * A 'Reader' for the log filter/transformation function
+--
+-- * A log message writer interface
+--
+-- The first argument is used as filter/transformation function.
 --
 -- All log messages received by this function are silently dropped.
---
 -- Log message writing is a task delegated to e.g. 'withLogMessageHandler'
 -- or to 'withLogWriter'.
 runLogsFiltered :: (m -> Maybe m) -> Eff (Logs m ': e) b -> Eff e b
-runLogsFiltered logMessageFilter actionThatLogs =
-  fix (handle_relay (\a _f -> return a)) actionThatLogs logMessageFilter
+runLogsFiltered logMessageFilter logClient =
+  fix (handle_relay (\a _f -> return a)) logClient logMessageFilter
 
--- | Apply a callback to log messages, that pass the filter.
+-- | Handle the 'Logs' effect, start with a filter that discards all messages.
+--
+-- This function has the semantics of @'runLogsFiltered' (const Nothing)@.
+ignoreLogs :: forall m r a . Eff (Logs m ': r) a -> Eff r a
+ignoreLogs = runLogsFiltered (const Nothing)
+
+-- | Apply a callback to log messages, that pass the current log message filter (see: 'askLogFilter').
 withLogMessageHandler
   :: forall m e b
    . (NFData m, SetMember Logs (Logs m) e)
-  => (forall f . (Traversable f, NFData1 f, NFData m, NFData (f m)) => f m -> Eff e ())
+  => (m -> Eff e ())
   -> Eff e b
   -> Eff e b
 withLogMessageHandler lw actionThatLogs =
-  send (AskLogFilter :: Logs m (m -> Maybe m))
+  (askLogFilter :: Eff e (m -> Maybe m))
   >>=
   fix
      (respond_relay'
         (\step co (req :: Logs m v) lf2 ->
             case req of
-              AskLogFilter -> step (co ^$ lf2) lf2
-              LogMsgs ms ->
-                step (do
-                         lw (force (Compose (lf2 <$> ms)))
-                         co ^$ ()
-                     )
-                     lf2
+              AskLogFilter      -> step (co ^$ lf2)                 lf2
+              SendLogMessage ms -> step (lw (force ms) >>= qApp co) lf2
         )
         (\a _lf -> return a)
      )
      actionThatLogs
 
--- | Apply a 'LogWriter' to those log messages, that pass the filter.
-withLogWriter
-  :: forall m h e b
-   . (NFData m, Applicative h, Lifted h e, SetMember Logs (Logs m) e)
-  => LogWriter m h
-  -> Eff e b
-  -> Eff e b
-withLogWriter lw actionThatLogs =
-  send (AskLogFilter :: Logs m (m -> Maybe m))
-  >>=
-  fix
-     (respond_relay'
-        (\step co (req :: Logs m v) lf2 ->
-            case req of
-              AskLogFilter -> step (co ^$ lf2) lf2
-              LogMsgs ms ->
-                step (do
-                         lift (traverse_ (runLogWriter lw . lf2) ms)
-                         co ^$ ()
-                     )
-                     lf2
-        )
-        (\a _lf -> return a)
-     )
-     actionThatLogs
-
--- | Handle log message effects by a monadic action, e.g. an IO action
--- to send logs to the console output or a log-server.
--- The monadic log writer action is wrapped in a newtype called
--- 'LogWriter'.
---
--- Use the smart constructors below to create them, e.g.
--- 'foldingLogWriter', 'singleMessageLogWriter' or
--- 'mulitMessageLogWriter'.
-writeLogs
-  :: forall message writerM r a
-   . (Applicative writerM, Lifted writerM r, NFData message)
-  => LogWriter message writerM
-  -> Eff (Logs message ': r) a
-  -> Eff r a
-writeLogs  = writeLogsFiltered Just
-
--- | Handle log message effects by a monadic action, e.g. an IO action
--- to send logs to the console output or a log-server.
--- The monadic log writer action is wrapped in a newtype called
--- 'LogWriter'.
---
--- Use the smart constructors below to create them, e.g.
--- 'foldingLogWriter', 'singleMessageLogWriter' or
--- 'mulitMessageLogWriter'.
-writeLogsFiltered
-  :: forall message writerM r a
-   . (Applicative writerM, Lifted writerM r, NFData message)
-  => (message -> Maybe message)
-  -> LogWriter message writerM
-  -> Eff (Logs message ': r) a
-  -> Eff r a
-writeLogsFiltered f w = runLogsFiltered f . withLogWriter w
-
--- | This instance allows liftings of the 'Logs' effect.
+-- | This instance allows lifting to the 'Logs' effect.
 instance (MonadBase m m, LiftedBase m r, NFData l) => MonadBaseControl m (Eff (Logs l ': r)) where
 
     type StM (Eff (Logs l ': r)) a =  StM (Eff r) a
 
     liftBaseWith f = do
-      lf <- send AskLogFilter
+      lf <- askLogFilter
       raise (liftBaseWith (\runInBase -> f (runInBase . runLogsFiltered lf)))
 
     restoreM = raise . restoreM
@@ -332,7 +193,7 @@ instance (NFData l, LiftedBase m e, Catch.MonadThrow (Eff e))
 instance (NFData l, Applicative m, LiftedBase m e, Catch.MonadCatch (Eff e))
   => Catch.MonadCatch (Eff (Logs l ': e)) where
   catch effect handler = do
-    logFilter <- send AskLogFilter
+    logFilter <- askLogFilter
     let lower                   = runLogsFiltered logFilter
         nestedEffects           = lower effect
         nestedHandler exception = lower (handler exception)
@@ -341,7 +202,7 @@ instance (NFData l, Applicative m, LiftedBase m e, Catch.MonadCatch (Eff e))
 instance (NFData l, Applicative m, LiftedBase m e, Catch.MonadMask (Eff e))
   => Catch.MonadMask (Eff (Logs l ': e)) where
   mask maskedEffect = do
-    logFilter <- send AskLogFilter
+    logFilter <- askLogFilter
     let
       lower :: Eff (Logs l ': e) a -> Eff e a
       lower = runLogsFiltered logFilter
@@ -354,7 +215,7 @@ instance (NFData l, Applicative m, LiftedBase m e, Catch.MonadMask (Eff e))
           )
         )
   uninterruptibleMask maskedEffect = do
-    logFilter <- send AskLogFilter
+    logFilter <- askLogFilter
     let
       lower :: Eff (Logs l ': e) a -> Eff e a
       lower = runLogsFiltered logFilter
@@ -367,7 +228,7 @@ instance (NFData l, Applicative m, LiftedBase m e, Catch.MonadMask (Eff e))
           )
         )
   generalBracket acquire release use = do
-    logFilter <- send AskLogFilter
+    logFilter <- askLogFilter
     let
       lower :: Eff (Logs l ': e) a -> Eff e a
       lower = runLogsFiltered logFilter
