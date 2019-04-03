@@ -22,7 +22,7 @@ data instance Api Counter x where
   deriving Typeable
 
 counterExample
-  :: (Member (Logs LogMessage) q, Lifted IO q)
+  :: (HasLogging h q, Lifted IO q)
   => Eff (InterruptableProcess q) ()
 counterExample = do
   (c, (co, (_sdp, cp))) <- spawnCounter
@@ -61,7 +61,7 @@ data CounterChanged = CounterChanged Integer
   deriving (Show, Typeable)
 
 spawnCounter
-  :: (Member (Logs LogMessage) q)
+  :: (HasLogging h q)
   => Eff
        (InterruptableProcess q)
        ( Server Counter
@@ -126,7 +126,7 @@ spawnCounter = spawnApiServerEffectful
 deriving instance Show (Api Counter x)
 
 logCounterObservations
-  :: (Member (Logs LogMessage) q)
+  :: (HasLogging h q)
   => Eff (InterruptableProcess q) (Observer CounterChanged)
 logCounterObservations = do
   svr <- spawnApiServer

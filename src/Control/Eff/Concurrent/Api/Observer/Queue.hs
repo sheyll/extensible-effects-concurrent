@@ -105,6 +105,7 @@ withObservationQueue
      , Typeable o
      , Show o
      , HasLogging IO e
+     , Lifted IO e
      , Integral len
      , Member Interrupts e
      )
@@ -112,14 +113,14 @@ withObservationQueue
   -> Eff (ObservationQueueReader o ': e) b
   -> Eff e b
 withObservationQueue queueLimit e = do
-  q   <- liftIO (newTBQueueIO (fromIntegral queueLimit))
+  q   <- lift (newTBQueueIO (fromIntegral queueLimit))
   res <- handleInterrupts (return . Left)
                           (Right <$> runReader (ObservationQueue q) e)
-  rest <- liftIO (atomically (flushTBQueue q))
+  rest <- lift (atomically (flushTBQueue q))
   unless
     (null rest)
     (logNotice (logPrefix (Proxy @o) ++ " unread observations: " ++ show rest))
-  either (\em -> logError (show em) >> liftIO (throwIO em)) return res
+  either (\em -> logError (show em) >> lift (throwIO em)) return res
 
 -- | Spawn a process that can be used as an 'Observer' that enqueues the observations into an
 --   'ObservationQueue'. See 'withObservationQueue' for an example.

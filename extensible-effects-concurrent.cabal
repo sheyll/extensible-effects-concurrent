@@ -42,6 +42,7 @@ library
       base >= 4.12 && <5,
       data-default >= 0.7 && < 0.8,
       deepseq >= 1.4 && < 1.5,
+      directory,
       exceptions >= 0.10 && < 0.11,
       safe-exceptions >= 0.1 && < 0.2,
       filepath >= 1.4 && < 1.5,

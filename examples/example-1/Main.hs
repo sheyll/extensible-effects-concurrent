@@ -31,7 +31,7 @@ main = defaultMain example
 mainProcessSpawnsAChildAndReturns :: HasCallStack => Eff (InterruptableProcess q) ()
 mainProcessSpawnsAChildAndReturns = void (spawn (void receiveAnyMessage))
 
-example:: ( HasCallStack, HasLogging IO q) => Eff (InterruptableProcess q) ()
+example:: ( HasCallStack, HasLogging IO q, Lifted IO q) => Eff (InterruptableProcess q) ()
 example = do
   me <- self
   logInfo ("I am " ++ show me)
@@ -64,6 +64,7 @@ testServerLoop
   :: forall q
    . ( HasCallStack
      , HasLogging IO q
+     , Lifted IO q
      )
   => Eff (InterruptableProcess q) (Server TestApi)
 testServerLoop = spawnApiServer

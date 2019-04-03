@@ -9,11 +9,11 @@ import           System.FilePath
 import           System.IO
 
 main :: IO ()
-main = withAsyncLogChannel
+main =
+  withLogFileAppender  "extensible-effects-concurrent-example-3.log" $ \fileAppender ->
+  withAsyncLogChannel
   (1000 :: Int)
-  (ioLogMessageWriter
-    (fileAppender "extensible-effects-concurrent-example-3.log")
-  )
+  fileAppender
   (handleLoggingAndIO
     (do
       logInfo "test 1"
@@ -24,21 +24,3 @@ main = withAsyncLogChannel
       lift (threadDelay 1000000)
     )
   )
-
-fileAppender :: FilePath -> LogWriter String IO
-fileAppender fnIn = MkLogWriter
-  (\m -> bracket
-    (do
-      fnCanon <- canonicalizePath fnIn
-      createDirectoryIfMissing True (takeDirectory fnCanon)
-      h <- openFile fnCanon AppendMode
-      hSetBuffering h (BlockBuffering (Just 1024))
-      return h
-    )
-    (\h -> IOException.try @SomeException (hFlush h) >> hClose h)
-    (\h -> hPutStrLn h m)
-  )
-
-fileAppenderSimple :: FilePath -> LogWriter String IO
-fileAppenderSimple fnIn =
-  MkLogWriter (\msg -> withFile fnIn AppendMode (`hPutStrLn` msg))

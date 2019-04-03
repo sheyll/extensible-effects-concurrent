@@ -11,7 +11,6 @@ module Control.Eff.Concurrent.Process.SingleThreadedScheduler
 where
 
 import           Control.Concurrent             ( yield )
-import           Control.DeepSeq
 import           Control.Eff
 import           Control.Eff.Extend
 import           Control.Eff.Concurrent.Process
@@ -105,35 +104,37 @@ flushMsgs pid = State.runState $ do
 
 receiveMsg
   :: ProcessId -> MessageSelector a -> STS m r -> Maybe (Maybe (a, STS m r))
-receiveMsg pid messageSelector sts = case sts ^. msgQs . at pid of
-  Nothing   -> Nothing
-  Just msgQ -> Just $ case partitionMessages msgQ Empty of
+receiveMsg pid messageSelector sts =
+  case sts ^. msgQs . at pid of
     Nothing -> Nothing
-    Just (result, otherMessages) ->
-      Just (result, sts & msgQs . at pid . _Just .~ otherMessages)
- where
-  partitionMessages Empty           _acc = Nothing
-  partitionMessages (m :<| msgRest) acc  = maybe
-    (partitionMessages msgRest (acc :|> m))
-    (\res -> Just (res, acc Seq.>< msgRest))
-    (runMessageSelector messageSelector m)
+    Just msgQ ->
+      Just $
+      case partitionMessages msgQ Empty of
+        Nothing -> Nothing
+        Just (result, otherMessages) -> Just (result, sts & msgQs . ix pid .~ otherMessages)
+  where
+    partitionMessages Empty _acc = Nothing
+    partitionMessages (m :<| msgRest) acc =
+      maybe
+        (partitionMessages msgRest (acc :|> m))
+        (\res -> Just (res, acc Seq.>< msgRest))
+        (runMessageSelector messageSelector m)
 
 -- | Add monitor: If the process is dead, enqueue a ProcessDown message into the
 -- owners message queue
 addMonitoring
   :: ProcessId -> ProcessId -> STS m r -> (MonitorReference, STS m r)
-addMonitoring owner target = State.runState $ do
-  mi <- State.state incRef
-  let mref = MonitorReference mi target
-  when (target /= owner) $ do
-    pt <- use msgQs
-    if Map.member target pt
-      then monitors %= Set.insert (mref, owner)
-      else
-        let pdown =
-              (ProcessDown mref (SomeExitReason (ProcessNotRunning target)))
-        in  State.modify' (enqueueMsg owner (toDyn pdown))
-  return mref
+addMonitoring owner target =
+  State.runState $ do
+    mi <- State.state incRef
+    let mref = MonitorReference mi target
+    when (target /= owner) $ do
+      pt <- use msgQs
+      if Map.member target pt
+        then monitors %= Set.insert (mref, owner)
+        else let pdown = ProcessDown mref (SomeExitReason (ProcessNotRunning target))
+              in State.modify' (enqueueMsg owner (toDyn pdown))
+    return mref
 
 removeMonitoring :: MonitorReference -> STS m r -> STS m r
 removeMonitoring mref = monitors %~ Set.filter (\(ref, _) -> ref /= mref)
@@ -183,7 +184,7 @@ diskontinue sts k e = (sts ^. runEff) (k (Interrupted e))
 --
 -- @since 0.3.0.2
 schedulePure
-  :: Eff (InterruptableProcess '[Logs LogMessage]) a
+  :: Eff (InterruptableProcess '[Logs DiscardLogs]) a
   -> Either (ExitReason 'NoRecovery) a
 schedulePure e = run (scheduleM ignoreLogs (return ()) e)
 
@@ -218,11 +219,11 @@ scheduleMonadIOEff = -- schedule (lift yield)
 --
 -- @since 0.4.0.0
 scheduleIOWithLogging
-  :: (NFData l)
-  => LogWriter l IO
-  -> Eff (InterruptableProcess '[Logs l, LogWriterReader l IO, Lift IO]) a
+  :: HasCallStack
+  => LogWriter IO
+  -> Eff (InterruptableProcess '[Logs IO, Lift IO]) a
   -> IO (Either (ExitReason 'NoRecovery) a)
-scheduleIOWithLogging h = scheduleIO (writeLogs h)
+scheduleIOWithLogging h = scheduleIO (runLogs h)
 
 -- | Handle the 'Process' effect, as well as all lower effects using an effect handler function.
 --
@@ -369,7 +370,7 @@ handleProcess sts allProcs@((!processState, !pid) :<| rest) =
             let (downPids, stsNew) = removeLinksTo pid sts
                 linkedPids = filter (/= pid) downPids
                 reason = LinkedProcessCrashed pid
-                unlinkLoop dPidRest ps = foldM (\ps dPid -> sendInterruptToOtherPid dPid reason ps) ps dPidRest
+                unlinkLoop dPidRest ps = foldM (\ps' dPid -> sendInterruptToOtherPid dPid reason ps') ps dPidRest
             let allProcsWithoutPid = Seq.filter (\(_, p) -> p /= pid) rest
             nextTargets <- unlinkLoop linkedPids allProcsWithoutPid
             handleProcess
@@ -517,19 +518,15 @@ handleProcess sts allProcs@((!processState, !pid) :<| rest) =
       nextTargets <- _runEff sts $ traverse deliverTheGoodNews targets
       return (nextTargets Seq.>< allButTarget)
 
--- | The concrete list of 'Eff'ects for running this pure scheduler on @IO@ and
--- with string logging.
-type LoggingAndIo = '[Logs LogMessage, LogWriterReader LogMessage IO, Lift IO]
-
 -- | A 'SchedulerProxy' for 'LoggingAndIo'.
 singleThreadedIoScheduler :: SchedulerProxy LoggingAndIo
 singleThreadedIoScheduler = SchedulerProxy
 
 -- | Execute a 'Process' using 'schedule' on top of 'Lift' @IO@ and 'Logs'
 -- @String@ effects.
-defaultMainSingleThreaded :: HasCallStack => Eff (InterruptableProcess LoggingAndIo) ()-> IO ()
+defaultMainSingleThreaded :: HasCallStack => Eff (InterruptableProcess LoggingAndIo) () -> IO ()
 defaultMainSingleThreaded =
   void
     . runLift
-    . writeLogs (MkLogWriter printLogMessage)
+    . runLogs (MkLogWriter printLogMessage)
     . scheduleMonadIOEff

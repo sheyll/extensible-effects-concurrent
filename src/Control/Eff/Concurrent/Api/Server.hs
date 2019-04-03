@@ -423,12 +423,13 @@ exitOnUnhandled = MessageCallback selectAnyMessageLazy $ \msg ->
 --
 -- @since 0.13.2
 logUnhandledMessages
-  :: forall eff
-   . (Member (Logs LogMessage) eff, HasCallStack)
+  :: forall eff h
+   . (HasLogging h eff, HasCallStack)
   => MessageCallback '[] eff
 logUnhandledMessages = MessageCallback selectAnyMessageLazy $ \msg -> do
   logWarning ("ignoring unhandled message " ++ show msg)
   return AwaitNext
+
 
 -- | Helper type class for the return values of 'spawnApiServer' et al.
 --

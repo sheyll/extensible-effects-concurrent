@@ -106,20 +106,20 @@ makeLenses ''SchedulerState
 -- owners message queue
 addMonitoring :: ProcessId -> ProcessId -> SchedulerState -> STM MonitorReference
 addMonitoring target owner schedulerState = do
-  mi <- readTVar (schedulerState ^. nextMonitorIndex)
+  aNewMonitorIndex <- readTVar (schedulerState ^. nextMonitorIndex)
   modifyTVar' (schedulerState ^. nextMonitorIndex) (+ 1)
-  let mref = MonitorReference mi target
+  let monitorRef = MonitorReference aNewMonitorIndex target
   when (target /= owner) $ do
     pt <- readTVar (schedulerState ^. processTable)
     if Map.member target pt
-      then modifyTVar' (schedulerState ^. processMonitors) (Set.insert (mref, owner))
-      else let pdown = ProcessDown mref (SomeExitReason (ProcessNotRunning target))
-            in enqueueMessageOtherProcess owner (toDyn pdown) schedulerState
-  return mref
+      then modifyTVar' (schedulerState ^. processMonitors) (Set.insert (monitorRef, owner))
+      else let processDownMessage = ProcessDown monitorRef (SomeExitReason (ProcessNotRunning target))
+            in enqueueMessageOtherProcess owner (toDyn processDownMessage) schedulerState
+  return monitorRef
 
 removeMonitoring :: MonitorReference -> SchedulerState -> STM ()
-removeMonitoring mref schedulerState =
-  modifyTVar' (schedulerState ^. processMonitors) (Set.filter (\(ref, _) -> ref /= mref))
+removeMonitoring monitorRef schedulerState =
+  modifyTVar' (schedulerState ^. processMonitors) (Set.filter (\(ref, _) -> ref /= monitorRef))
 
 triggerAndRemoveMonitor :: ProcessId -> SomeExitReason -> SchedulerState -> STM ()
 triggerAndRemoveMonitor downPid reason schedulerState = do
@@ -129,8 +129,8 @@ triggerAndRemoveMonitor downPid reason schedulerState = do
     go (mr, owner) =
       when
         (monitoredProcess mr == downPid)
-        (do let pdown = ProcessDown mr reason
-            enqueueMessageOtherProcess owner (toDyn pdown) schedulerState
+        (do let processDownMessage = ProcessDown mr reason
+            enqueueMessageOtherProcess owner (toDyn processDownMessage) schedulerState
             removeMonitoring mr schedulerState)
 
 -- * Process Implementation
@@ -148,7 +148,7 @@ newSchedulerState = SchedulerState <$> newTVar 1 <*> newTVar def <*> newTVar def
 
 -- | Create a new 'SchedulerState' run an IO action, catching all exceptions,
 -- and when the actions returns, clean up and kill all processes.
-withNewSchedulerState :: (HasCallStack) => Eff SchedulerIO () -> Eff LoggingAndIO ()
+withNewSchedulerState :: (HasCallStack) => Eff SchedulerIO () -> Eff LoggingAndIo ()
 withNewSchedulerState mainProcessAction =
   Safe.bracketWithError
     (lift (atomically newSchedulerState))
@@ -162,12 +162,13 @@ withNewSchedulerState mainProcessAction =
        logDebug "scheduler loop returned"
        return x)
   where
+    tearDownScheduler :: Eff SchedulerIO ()
     tearDownScheduler = do
       schedulerState <- getSchedulerState
       let cancelTableVar = schedulerState ^. processCancellationTable
       -- cancel all processes
       allProcesses <- lift (atomically (readTVar cancelTableVar <* writeTVar cancelTableVar def))
-      logNotice ("cancelling processes: " ++ show (toListOf (ifolded . asIndex) allProcesses))
+      logNotice @IO ("cancelling processes: " ++ show (toListOf (ifolded . asIndex) allProcesses))
       void
         (liftBaseWith
            (\runS ->
@@ -176,9 +177,9 @@ withNewSchedulerState mainProcessAction =
                 (Async.mapConcurrently
                    (\a -> do
                       Async.cancel a
-                      runS (logNotice ("process cancelled: " ++ show (asyncThreadId a))))
+                      runS (logNotice @IO ("process cancelled: " ++ show (asyncThreadId a))))
                    allProcesses >>
-                 runS (logNotice "all processes cancelled"))))
+                 runS (logNotice @IO "all processes cancelled"))))
 
 -- | The concrete list of 'Eff'ects of processes compatible with this scheduler.
 -- This builds upon 'SchedulerIO'.
@@ -192,10 +193,7 @@ type InterruptableProcEff = InterruptableProcess SchedulerIO
 type HasSchedulerIO r = (HasCallStack, Lifted IO r, SchedulerIO <:: r)
 
 -- | The concrete list of 'Eff'ects for this scheduler implementation.
-type SchedulerIO = (Reader SchedulerState : LoggingAndIO)
-
--- | Basic effects: 'Logs' 'LogMessage' and 'Lift' IO
-type LoggingAndIO = '[ Logs LogMessage, LogWriterReader LogMessage IO, Lift IO]
+type SchedulerIO = (Reader SchedulerState : LoggingAndIo)
 
 -- | Start the message passing concurrency system then execute a 'Process' on
 -- top of 'SchedulerIO' effect. All logging is sent to standard output.
@@ -205,7 +203,7 @@ defaultMain c =
 
 -- | Start the message passing concurrency system then execute a 'Process' on
 -- top of 'SchedulerIO' effect. All logging is sent to standard output.
-defaultMainWithLogChannel :: HasCallStack => Eff InterruptableProcEff () -> LogChannel LogMessage -> IO ()
+defaultMainWithLogChannel :: HasCallStack => Eff InterruptableProcEff () -> LogChannel -> IO ()
 defaultMainWithLogChannel = handleLoggingAndIO_ . schedule
 
 -- | A 'SchedulerProxy' for 'SchedulerIO'
@@ -386,10 +384,10 @@ handleProcess myProcessInfo actionToRun =
           let procInfoVar = schedulerState ^. processTable
           lift $
             atomically $ do
-              procInfos <- readTVar procInfoVar
+              procInfo <- readTVar procInfoVar
               traverse_
                 (\toProcInfo -> modifyTVar' (toProcInfo ^. processLinks) (Set.delete myPid))
-                (procInfos ^. at toPid)
+                (procInfo ^. at toPid)
               modifyTVar' (myProcessInfo ^. processLinks) (Set.delete toPid)
         interpretGetProcessState !toPid = do
           setMyProcessState ProcessBusy
@@ -397,16 +395,16 @@ handleProcess myProcessInfo actionToRun =
           let procInfoVar = schedulerState ^. processTable
           lift $
             atomically $ do
-              procInfos <- readTVar procInfoVar
-              traverse (\toProcInfo -> readTVar (toProcInfo ^. processState)) (procInfos ^. at toPid)
+              procInfoTable <- readTVar procInfoVar
+              traverse (\toProcInfo -> readTVar (toProcInfo ^. processState)) (procInfoTable ^. at toPid)
         interpretLink !toPid = do
           setMyProcessState ProcessBusyLinking
           schedulerState <- getSchedulerState
           let procInfoVar = schedulerState ^. processTable
           lift $
             atomically $ do
-              procInfos <- readTVar procInfoVar
-              case procInfos ^. at toPid of
+              procInfoTable <- readTVar procInfoVar
+              case procInfoTable ^. at toPid of
                 Just toProcInfo -> do
                   modifyTVar' (toProcInfo ^. processLinks) (Set.insert myPid)
                   modifyTVar' (myProcessInfo ^. processLinks) (Set.insert toPid)
@@ -463,7 +461,7 @@ handleProcess myProcessInfo actionToRun =
 -- | This is the main entry point to running a message passing concurrency
 -- application. This function takes a 'Process' on top of the 'SchedulerIO'
 -- effect and a 'LogChannel' for concurrent logging.
-schedule :: (HasCallStack) => Eff InterruptableProcEff () -> Eff LoggingAndIO ()
+schedule :: (HasCallStack) => Eff InterruptableProcEff () -> Eff LoggingAndIo ()
 schedule procEff =
   liftBaseWith
     (\runS ->
@@ -472,9 +470,9 @@ schedule procEff =
           withNewSchedulerState $ do
             (_, mainProcAsync) <-
               spawnNewProcess Nothing $ do
-                logNotice "++++++++ main process started ++++++++"
+                logNotice @IO "++++++++ main process started ++++++++"
                 provideInterruptsShutdown procEff
-                logNotice "++++++++ main process returned ++++++++"
+                logNotice @IO "++++++++ main process returned ++++++++"
             lift (void (Async.wait mainProcAsync)))
          (\ast ->
             runS $ do
@@ -487,10 +485,10 @@ spawnNewProcess ::
   => Maybe ProcessInfo
   -> Eff ProcEff ()
   -> Eff SchedulerIO (ProcessId, Async (ExitReason 'NoRecovery))
-spawnNewProcess mlinkedParent mfa = do
+spawnNewProcess mLinkedParent mfa = do
   schedulerState <- getSchedulerState
   procInfo <- allocateProcInfo schedulerState
-  traverse_ (linkToParent procInfo) mlinkedParent
+  traverse_ (linkToParent procInfo) mLinkedParent
   procAsync <- doForkProc procInfo schedulerState
   return (procInfo ^. processId, procAsync)
   where
@@ -505,15 +503,16 @@ spawnNewProcess mlinkedParent mfa = do
       lift
         (atomically
            (do let nextPidVar = schedulerState ^. nextPid
-                   processInfosVar = schedulerState ^. processTable
+                   processInfoVar = schedulerState ^. processTable
                pid <- readTVar nextPidVar
                modifyTVar' nextPidVar (+ 1)
                procInfo <- newProcessInfo pid
-               modifyTVar' processInfosVar (at pid ?~ procInfo)
+               modifyTVar' processInfoVar (at pid ?~ procInfo)
                return procInfo))
     logAppendProcInfo pid =
       let addProcessId = over lmProcessId (maybe (Just (printf "% 9s" (show pid))) Just)
        in traverseLogMessages (setLogMessageThreadId >=> return . addProcessId)
+    triggerProcessLinksAndMonitors :: ProcessId -> ExitReason e -> TVar (Set ProcessId) -> Eff SchedulerIO ()
     triggerProcessLinksAndMonitors !pid !reason !linkSetVar = do
       schedulerState <- getSchedulerState
       lift $ atomically $ triggerAndRemoveMonitor pid (SomeExitReason reason) schedulerState
@@ -522,8 +521,8 @@ spawnNewProcess mlinkedParent mfa = do
             let msg = SomeExitReason (LinkedProcessCrashed pid)
             lift $
               atomically $ do
-                procInfos <- readTVar (schedulerState ^. processTable)
-                let mLinkedProcInfo = procInfos ^? ix linkedPid
+                procInfoTable <- readTVar (schedulerState ^. processTable)
+                let mLinkedProcInfo = procInfoTable ^? ix linkedPid
                 case mLinkedProcInfo of
                   Nothing -> return (Left linkedPid)
                   Just linkedProcInfo ->
@@ -544,7 +543,7 @@ spawnNewProcess mlinkedParent mfa = do
                  return linkSet))
       res <- traverse sendIt (toList linkedPids)
       traverse_
-        (logDebug . either (("linked process no found: " ++) . show) (("sent shutdown to linked process: " ++) . show))
+        (logDebug @IO . either (("linked process no found: " ++) . show) (("sent shutdown to linked process: " ++) . show))
         res
     doForkProc :: ProcessInfo -> SchedulerState -> Eff SchedulerIO (Async (ExitReason 'NoRecovery))
     doForkProc procInfo schedulerState =
@@ -552,7 +551,7 @@ spawnNewProcess mlinkedParent mfa = do
       liftBaseWith
         (\inScheduler -> do
            let cancellationsVar = schedulerState ^. processCancellationTable
-               processInfosVar = schedulerState ^. processTable
+               processInfoVar = schedulerState ^. processTable
                pid = procInfo ^. processId
            procAsync <-
              Async.async
@@ -560,11 +559,11 @@ spawnNewProcess mlinkedParent mfa = do
                   (logAppendProcInfo
                      pid
                      (Safe.bracketWithError
-                        (logDebug "enter process")
+                        (logDebug @IO "enter process")
                         (\mExc () -> do
                            lift
                              (atomically
-                                (do modifyTVar' processInfosVar (at pid .~ Nothing)
+                                (do modifyTVar' processInfoVar (at pid .~ Nothing)
                                     modifyTVar' cancellationsVar (at pid .~ Nothing)))
                            traverse_ (\exc -> logExitAndTriggerLinksAndMonitors (exitReasonFromException exc) pid) mExc)
                         (const

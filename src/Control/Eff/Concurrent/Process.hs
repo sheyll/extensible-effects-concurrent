@@ -120,7 +120,6 @@ import           Control.Eff
 import           Control.Eff.Exception
 import           Control.Eff.Extend
 import           Control.Eff.Log.Handler
-import           Control.Eff.Log.Message
 import           Control.Lens
 import           Control.Monad                  ( void
                                                 , (>=>)
@@ -176,7 +175,7 @@ data Process (r :: [Type -> Type]) b where
   SpawnLink :: Eff (Process r ': r) () -> Process r (ResumeProcess ProcessId)
   -- | Get the process state (or 'Nothing' if the process is dead)
   GetProcessState :: ProcessId -> Process r (ResumeProcess (Maybe ProcessState))
-  -- | Shutdown the process; irregardles of the exit reason, this function never
+  -- | Shutdown the process; irregardless of the exit reason, this function never
   -- returns,
   Shutdown :: ExitReason 'NoRecovery   -> Process r a
   -- | Raise an error, that can be handled.
@@ -190,7 +189,7 @@ data Process (r :: [Type -> Type]) b where
   -- destination process does not exist, or does not accept messages of the
   -- given type.
   SendMessage :: ProcessId -> Dynamic -> Process r (ResumeProcess ())
-  -- | Receive a message that matches a criterium.
+  -- | Receive a message that matches a criteria.
   -- This should block until an a message was received. The message is returned
   -- as a 'ProcessMessage' value. The function should also return if an exception
   -- was caught or a shutdown was requested.
@@ -203,7 +202,7 @@ data Process (r :: [Type -> Type]) b where
   -- There can be multiple monitors on the same process,
   -- and a message for each will be sent.
   -- If the process is already dead, the 'ProcessDown' message
-  -- will be sent immediately, w.thout exit reason
+  -- will be sent immediately, without exit reason
   --
   -- @since 0.12.0
   Monitor :: ProcessId -> Process r (ResumeProcess MonitorReference)
@@ -213,11 +212,11 @@ data Process (r :: [Type -> Type]) b where
   Demonitor :: MonitorReference -> Process r (ResumeProcess ())
   -- | Connect the calling process to another process, such that
   -- if one of the processes crashes (i.e. 'isCrash' returns 'True'), the other
-  -- is shutdown with the 'ProcessExitReaon' 'LinkedProcessCrashed'.
+  -- is shutdown with the 'ExitReason' 'LinkedProcessCrashed'.
   --
   -- @since 0.12.0
   Link :: ProcessId -> Process r (ResumeProcess ())
-  -- | Unlink the calling proccess from the other process.
+  -- | Unlink the calling process from the other process.
   --
   -- @since 0.12.0
   Unlink :: ProcessId -> Process r (ResumeProcess ())
@@ -276,7 +275,7 @@ instance NFData a => NFData (ResumeProcess a)
 
 instance NFData1 ResumeProcess
 
--- | A function that deciced if the next message will be received by
+-- | A function that decided if the next message will be received by
 -- 'ReceiveSelectedMessage'. It conveniently is an instance of
 -- 'Alternative' so the message selector can be combined:
 -- >
@@ -395,7 +394,7 @@ selectMessageProxyLazy _ = selectDynamicMessageLazy fromDynamic
 -- @__r__@ in @'Process' r : r@, this might be dependent on the
 -- scheduler implementation.
 data SchedulerProxy :: [Type -> Type] -> Type where
-  -- | Tell the typechecker what effects we have below 'Process'
+  -- | Tell the type checker what effects we have below 'Process'
   SchedulerProxy :: SchedulerProxy q
   -- | Like 'SchedulerProxy' but shorter
   SP :: SchedulerProxy q
@@ -413,7 +412,7 @@ thisSchedulerProxy = return SchedulerProxy
 data ProcessState =
     ProcessBooting              -- ^ The process has just been started but not
                                 --   called 'handleProcess' yet.
-  | ProcessIdle                 -- ^ The process yielded it's timeslice
+  | ProcessIdle                 -- ^ The process yielded it's time slice
   | ProcessBusy                 -- ^ The process is busy with non-blocking
   | ProcessBusySending          -- ^ The process is busy with sending a message
   | ProcessBusySendingShutdown  -- ^ The process is busy with killing
@@ -459,7 +458,7 @@ toExitRecovery = \case
   (UnexpectedException _ _) -> NoRecovery
   Killed                    -> NoRecovery
 
--- | This value indicates wether a process exited in way consistent with
+-- | This value indicates whether a process exited in way consistent with
 -- the planned behaviour or not.
 data ExitSeverity = NormalExit | Crash
   deriving (Typeable, Ord, Eq, Generic)
@@ -483,12 +482,12 @@ toExitSeverity = \case
   _                            -> Crash
 
 -- | A sum-type with reasons for why a process exists the scheduling loop,
--- this includes errors, that can occur when scheduleing messages.
+-- this includes errors, that can occur when scheduling messages.
 data ExitReason (t :: ExitRecovery) where
     -- | A process has finished a unit of work and might exit or work on
-    --   something else. This is primarily used for interupting infinite
+    --   something else. This is primarily used for interrupting infinite
     --   server loops, allowing for additional cleanup work before
-    --   exitting (e.g. with 'ExitNormally')
+    --   exiting (e.g. with 'ExitNormally')
     --
     -- @since 0.13.2
     ProcessFinished
@@ -603,7 +602,7 @@ type InterruptReason = ExitReason 'Recoverable
 -- See 'handleInterrupts', 'exitOnInterrupt' or 'provideInterrupts'
 type Interrupts = Exc InterruptReason
 
--- | This adds a layer of the 'Interrupts' effect ontop of 'ConsProcess'
+-- | This adds a layer of the 'Interrupts' effect on top of 'ConsProcess'
 type InterruptableProcess e = Interrupts ': ConsProcess e
 
 -- | Handle all 'InterruptReason's of an 'InterruptableProcess' by
@@ -639,7 +638,7 @@ tryUninterrupted = handleInterrupts (pure . Left) . fmap Right
 -- | Handle interrupts by logging them with `logProcessExit` and otherwise
 -- ignoring them.
 logInterrupts
-  :: (HasCallStack, '[Interrupts, Logs LogMessage] <:: r)
+  :: forall h r . (HasLogging h r, HasCallStack, Member Interrupts r)
   => Eff r ()
   -> Eff r ()
 logInterrupts = handleInterrupts logProcessExit
@@ -680,7 +679,7 @@ isCrash ExitNormally      = False
 isCrash _                 = True
 
 -- | A predicate for recoverable exit reasons. This predicate defines the
--- exit reasonson which functions such as 'executeAndResume'
+-- exit reasons which functions such as 'executeAndResume'
 isRecoverable :: ExitReason x -> Bool
 isRecoverable (toExitRecovery -> Recoverable) = True
 isRecoverable _                               = False
@@ -731,11 +730,10 @@ toCrashReason :: ExitReason x -> Maybe String
 toCrashReason e | isCrash e = Just (show e)
                 | otherwise = Nothing
 
--- | Log the 'ProcessExitReaons'
-logProcessExit
-  :: (HasCallStack, Member (Logs LogMessage) e) => ExitReason x -> Eff e ()
-logProcessExit (toCrashReason -> Just ex) = withFrozenCallStack (logError ex)
-logProcessExit ex = withFrozenCallStack (logDebug (show ex))
+-- | Log the 'ExitReasons'
+logProcessExit :: forall h e x. (SetMember Logs (Logs h) e, HasCallStack) => ExitReason x -> Eff e ()
+logProcessExit (toCrashReason -> Just ex) = withFrozenCallStack (logError @h ex)
+logProcessExit ex = withFrozenCallStack (logDebug @h (show ex))
 
 
 -- | Execute a and action and return the result;
@@ -955,7 +953,7 @@ flushMessages = executeAndResumeOrThrow @q FlushMessages
 -- Only the messages of the given type will be received.
 -- If the process is interrupted by an exception of by a 'SendShutdown' from
 -- another process, with an exit reason that satisfies 'isRecoverable', then
--- the callback will be invoked with @'Left' 'ProcessExitReaon'@, otherwise the
+-- the callback will be invoked with @'Left' 'ExitReason'@, otherwise the
 -- process will be exited with the same reason using 'exitBecause'.
 -- See also 'ReceiveSelectedMessage' for more documentation.
 receiveSelectedLoop
@@ -964,12 +962,12 @@ receiveSelectedLoop
   => MessageSelector a
   -> (Either InterruptReason a -> Eff r (Maybe endOfLoopResult))
   -> Eff r endOfLoopResult
-receiveSelectedLoop selectMesage handlers = do
-  mReq <- send (ReceiveSelectedMessage @q @a selectMesage)
+receiveSelectedLoop selector handlers = do
+  mReq <- send (ReceiveSelectedMessage @q @a selector)
   mRes <- case mReq of
     Interrupted reason  -> handlers (Left reason)
     ResumeWith  message -> handlers (Right message)
-  maybe (receiveSelectedLoop selectMesage handlers) return mRes
+  maybe (receiveSelectedLoop selector handlers) return mRes
 
 -- | Like 'receiveSelectedLoop' but /not selective/.
 -- See also 'selectAnyMessageLazy', 'receiveSelectedLoop'.
@@ -1024,7 +1022,7 @@ instance Show MonitorReference where
 -- There can be multiple monitors on the same process,
 -- and a message for each will be sent.
 -- If the process is already dead, the 'ProcessDown' message
--- will be sent immediately, w.thout exit reason
+-- will be sent immediately, without exit reason
 --
 -- @since 0.12.0
 monitor
@@ -1112,7 +1110,7 @@ instance Show ProcessDown where
               . showsPrec 11 reason
         )
 
--- | A 'MesssageSelector' for the 'ProcessDown' message of a specific
+-- | A 'MessageSelector' for the 'ProcessDown' message of a specific
 -- process.
 --
 -- @since 0.12.0
@@ -1122,7 +1120,7 @@ selectProcessDown ref0 =
 
 -- | Connect the calling process to another process, such that
 -- if one of the processes crashes (i.e. 'isCrash' returns 'True'), the other
--- is shutdown with the 'ProcessExitReaon' 'LinkedProcessCrashed'.
+-- is shutdown with the 'ExitReason' 'LinkedProcessCrashed'.
 --
 -- @since 0.12.0
 linkProcess
@@ -1132,7 +1130,7 @@ linkProcess
   -> Eff r ()
 linkProcess = executeAndResumeOrThrow . Link . force
 
--- | Unlink the calling proccess from the other process.
+-- | Unlink the calling process from the other process.
 --
 -- @since 0.12.0
 unlinkProcess
@@ -1142,7 +1140,7 @@ unlinkProcess
   -> Eff r ()
 unlinkProcess = executeAndResumeOrThrow . Unlink . force
 
--- | Exit the process with a 'ProcessExitReaon'.
+-- | Exit the process with a 'ExitReason'.
 exitBecause
   :: forall r q a
    . (HasCallStack, SetMember Process (Process q) r)
