@@ -25,10 +25,7 @@ test_loopTests =
                     "scheduleMonadIOEff with many yields from replicateCheapM_"
                 $ do
                       res <-
-                          Scheduler.scheduleIOWithLogging
-                                  (multiMessageLogWriter
-                                      ($! (putStrLn . (">>> " ++)))
-                                  )
+                          Scheduler.scheduleIOWithLogging  (makeIoLogWriter printLogMessage)
                               $ replicateCheapM_ soMany yieldProcess
                       res @=? Right ()
             , testCase
@@ -46,12 +43,7 @@ test_loopTests =
             , testCase
                     "'foreverCheap' inside a child process and 'replicateCheapM_' in the main process"
                 $ do
-                      res <-
-                          Scheduler.scheduleIOWithLogging
-                                  (multiMessageLogWriter
-                                      ($! (putStrLn . (">>> " ++)))
-                                  )
-
+                      res <- Scheduler.scheduleIOWithLogging  (makeIoLogWriter (putStrLn . (">>> " ++) . renderLogMessage))
                               $ do
                                     me <- self
                                     spawn_ (foreverCheap $ sendMessage me ())
@@ -72,10 +64,7 @@ test_loopWithLeaksTests =
             [ testCase "scheduleMonadIOEff with many yields from replicateM_"
                 $ do
                       res <-
-                          Scheduler.scheduleIOWithLogging
-                                  (multiMessageLogWriter
-                                      ($! (putStrLn . (">>> " ++)))
-                                  )
+                          Scheduler.scheduleIOWithLogging  (makeIoLogWriter (putStrLn . (">>> " ++) . renderLogMessage))
                               $ replicateM_ soMany yieldProcess
                       res @=? Right ()
             , testCase
@@ -95,10 +84,7 @@ test_loopWithLeaksTests =
                     "'forever' inside a child process and 'replicateM_' in the main process"
                 $ do
                       res <-
-                          Scheduler.scheduleIOWithLogging
-                                  (multiMessageLogWriter
-                                      ($! (putStrLn . (">>> " ++)))
-                                  )
+                          Scheduler.scheduleIOWithLogging  (makeIoLogWriter (putStrLn . (">>> " ++) . renderLogMessage))
                               $ do
                                     me <- self
                                     spawn_ (forever $ sendMessage me ())

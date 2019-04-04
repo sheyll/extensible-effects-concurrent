@@ -5,8 +5,6 @@ import           Control.Eff.Log
 import           Test.Tasty
 import           Test.Tasty.HUnit
 import           Common
-import           Control.Concurrent.STM
-import           Control.DeepSeq
 
 demo :: ('[Logs] <:: e) => Eff e ()
 demo = do
@@ -16,7 +14,8 @@ demo = do
 pureLogs :: Eff '[Logs, CapturedLogsWriter] a -> [LogMessage]
 pureLogs = snd . run . runCapturedLogsWriter . runLogs . logTo captureLogMessages
 
+test_Logging :: TestTree
 test_Logging = setTravisTestOptions $ testGroup "Logging"
   [ testCase "basic logging works" $
-      pureLogs demo @?= [infoMessage "jo", infoMessage "oh"]
+      pureLogs demo @?= [infoMessage "jo", debugMessage "oh"]
   ]

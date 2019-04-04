@@ -38,7 +38,7 @@ test_forkIo = setTravisTestOptions $ withTestLogC
     $ runLogWriterReader noOpLogWriter
     $ runLogs
     $ logToReader @IO
-    $ withAsyncLogging (makeIoLogWriter (\m -> when (view lmSeverity m < errorSeverity) (printLogMessage m)))
+    $ withAsyncLogging 100 (makeIoLogWriter (\m -> when (view lmSeverity m < errorSeverity) (printLogMessage m)))
     $ ForkIO.schedule c)
   (\factory -> testGroup "ForkIOScheduler" [allTests factory])
 
@@ -62,7 +62,7 @@ test_singleThreaded = setTravisTestOptions $ withTestLogC
 
 allTests
   :: forall r
-   . (Member Logs r, Lifted IO r)
+   . (Member Logs r, Lifted IO r, Member (LogWriterReader IO) r)
   => IO (Eff (InterruptableProcess r) () -> IO ())
   -> TestTree
 allTests schedulerFactory = localOption
@@ -131,7 +131,7 @@ returnToSenderServer = spawnApiServer
 
 selectiveReceiveTests
   :: forall r
-   . (Member Logs r, Lifted IO r)
+   . (Member Logs r, Lifted IO r, Member (LogWriterReader IO) r)
   => IO (Eff (InterruptableProcess r) () -> IO ())
   -> TestTree
 selectiveReceiveTests schedulerFactory = setTravisTestOptions
@@ -184,7 +184,7 @@ selectiveReceiveTests schedulerFactory = setTravisTestOptions
 
 yieldLoopTests
   :: forall r
-   . (Member Logs r, Lifted IO r)
+   . (Member Logs r, Lifted IO r, Member (LogWriterReader IO) r)
   => IO (Eff (InterruptableProcess r) () -> IO ())
   -> TestTree
 yieldLoopTests schedulerFactory =
@@ -224,7 +224,7 @@ data Pong = Pong
 
 pingPongTests
   :: forall r
-   . (Member Logs r, Lifted IO r)
+   . (Member Logs r, Lifted IO r, Member (LogWriterReader IO) r)
   => IO (Eff (InterruptableProcess r) () -> IO ())
   -> TestTree
 pingPongTests schedulerFactory = testGroup
@@ -299,7 +299,7 @@ pingPongTests schedulerFactory = testGroup
 
 errorTests
   :: forall r
-   . (Member Logs r, Lifted IO r)
+   . (Member Logs r, Lifted IO r, Member (LogWriterReader IO) r)
   => IO (Eff (InterruptableProcess r) () -> IO ())
   -> TestTree
 errorTests schedulerFactory = testGroup
@@ -344,7 +344,7 @@ errorTests schedulerFactory = testGroup
 
 concurrencyTests
   :: forall r
-   . (Member Logs r, Lifted IO r)
+   . (Member Logs r, Lifted IO r, Member (LogWriterReader IO) r)
   => IO (Eff (InterruptableProcess r) () -> IO ())
   -> TestTree
 concurrencyTests schedulerFactory =
@@ -455,7 +455,7 @@ concurrencyTests schedulerFactory =
 
 exitTests
   :: forall r
-   . (Member Logs r, Lifted IO r)
+   . (Member Logs r, Lifted IO r, Member (LogWriterReader IO) r)
   => IO (Eff (InterruptableProcess r) () -> IO ())
   -> TestTree
 exitTests schedulerFactory =
@@ -604,7 +604,7 @@ exitTests schedulerFactory =
 
 sendShutdownTests
   :: forall r
-   . (Member Logs r, Lifted IO r)
+   . (Member Logs r, Lifted IO r, Member (LogWriterReader IO) r)
   => IO (Eff (InterruptableProcess r) () -> IO ())
   -> TestTree
 sendShutdownTests schedulerFactory = testGroup
@@ -697,7 +697,7 @@ sendShutdownTests schedulerFactory = testGroup
 
 linkingTests
   :: forall r
-   . (Member Logs r, Lifted IO r)
+   . (Member Logs r, Lifted IO r, Member (LogWriterReader IO) r)
   => IO (Eff (InterruptableProcess r) () -> IO ())
   -> TestTree
 linkingTests schedulerFactory = setTravisTestOptions
@@ -864,7 +864,7 @@ linkingTests schedulerFactory = setTravisTestOptions
 
 monitoringTests
   :: forall r
-   . (Member Logs r, Lifted IO r)
+   . (Member Logs r, Lifted IO r, Member (LogWriterReader IO) r)
   => IO (Eff (InterruptableProcess r) () -> IO ())
   -> TestTree
 monitoringTests schedulerFactory = setTravisTestOptions
@@ -934,7 +934,7 @@ monitoringTests schedulerFactory = setTravisTestOptions
 
 timerTests
   :: forall r
-   . (Member Logs r, Lifted IO r)
+   . (Member Logs r, Lifted IO r, Member (LogWriterReader IO) r)
   => IO (Eff (InterruptableProcess r) () -> IO ())
   -> TestTree
 timerTests schedulerFactory = setTravisTestOptions
