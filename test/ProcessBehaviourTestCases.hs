@@ -20,38 +20,49 @@ import           Control.Eff
 import           Control.Eff.Extend
 import           Control.Eff.Log
 import           Control.Eff.Loop
-import           Control.Eff.Lift
 import           Control.Monad
 import           Test.Tasty
 import           Test.Tasty.HUnit
 import           Common
 import           Control.Applicative
 import           Data.Void
+import Control.Lens (view)
 
 testInterruptReason :: InterruptReason
 testInterruptReason = ProcessError "test interrupt"
 
 test_forkIo :: TestTree
 test_forkIo = setTravisTestOptions $ withTestLogC
-  (\c lc -> handleLoggingAndIO_ (ForkIO.schedule c) lc)
+  (\c ->
+      runLift
+    $ runLogWriterReader noOpLogWriter
+    $ runLogs
+    $ logToReader @IO
+    $ withAsyncLogging (makeIoLogWriter (\m -> when (view lmSeverity m < errorSeverity) (printLogMessage m)))
+    $ ForkIO.schedule c)
   (\factory -> testGroup "ForkIOScheduler" [allTests factory])
 
 
 test_singleThreaded :: TestTree
 test_singleThreaded = setTravisTestOptions $ withTestLogC
-  (\e logC ->
+  (\e ->
         -- void (runLift (logToChannel logC (SingleThreaded.schedule (return ()) e)))
     let runEff
-          :: Eff '[Logs LogMessage, LogWriterReader LogMessage IO, Lift IO] a
+          :: Eff '[Logs, LogWriterReader IO, Lift IO] a
           -> IO a
-        runEff = flip handleLoggingAndIO logC
+        runEff =
+            runLift
+          . runLogWriterReader
+              (makeIoLogWriter (\m -> when (view lmSeverity m < errorSeverity) (printLogMessage m)))
+          . runLogs
+          . logToReader @IO
     in  void $ SingleThreaded.scheduleM runEff yield e
   )
   (\factory -> testGroup "SingleThreadedScheduler" [allTests factory])
 
 allTests
   :: forall r
-   . (Member (Logs LogMessage) r, SetMember Lift (Lift IO) r)
+   . (Member Logs r, Lifted IO r)
   => IO (Eff (InterruptableProcess r) () -> IO ())
   -> TestTree
 allTests schedulerFactory = localOption
@@ -103,7 +114,7 @@ stopReturnToSender toP = call toP StopReturnToSender
 
 returnToSenderServer
   :: forall q
-   . (HasCallStack, Member (Logs LogMessage) q)
+   . (HasCallStack, Member Logs q)
   => Eff (InterruptableProcess q) (Server ReturnToSender)
 returnToSenderServer = spawnApiServer
   (handleCalls
@@ -120,7 +131,7 @@ returnToSenderServer = spawnApiServer
 
 selectiveReceiveTests
   :: forall r
-   . (Member (Logs LogMessage) r, SetMember Lift (Lift IO) r)
+   . (Member Logs r, Lifted IO r)
   => IO (Eff (InterruptableProcess r) () -> IO ())
   -> TestTree
 selectiveReceiveTests schedulerFactory = setTravisTestOptions
@@ -173,7 +184,7 @@ selectiveReceiveTests schedulerFactory = setTravisTestOptions
 
 yieldLoopTests
   :: forall r
-   . (Member (Logs LogMessage) r, SetMember Lift (Lift IO) r)
+   . (Member Logs r, Lifted IO r)
   => IO (Eff (InterruptableProcess r) () -> IO ())
   -> TestTree
 yieldLoopTests schedulerFactory =
@@ -213,7 +224,7 @@ data Pong = Pong
 
 pingPongTests
   :: forall r
-   . (Member (Logs LogMessage) r, SetMember Lift (Lift IO) r)
+   . (Member Logs r, Lifted IO r)
   => IO (Eff (InterruptableProcess r) () -> IO ())
   -> TestTree
 pingPongTests schedulerFactory = testGroup
@@ -288,7 +299,7 @@ pingPongTests schedulerFactory = testGroup
 
 errorTests
   :: forall r
-   . (Member (Logs LogMessage) r, SetMember Lift (Lift IO) r)
+   . (Member Logs r, Lifted IO r)
   => IO (Eff (InterruptableProcess r) () -> IO ())
   -> TestTree
 errorTests schedulerFactory = testGroup
@@ -333,7 +344,7 @@ errorTests schedulerFactory = testGroup
 
 concurrencyTests
   :: forall r
-   . (Member (Logs LogMessage) r, SetMember Lift (Lift IO) r)
+   . (Member Logs r, Lifted IO r)
   => IO (Eff (InterruptableProcess r) () -> IO ())
   -> TestTree
 concurrencyTests schedulerFactory =
@@ -444,7 +455,7 @@ concurrencyTests schedulerFactory =
 
 exitTests
   :: forall r
-   . (Member (Logs LogMessage) r, SetMember Lift (Lift IO) r)
+   . (Member Logs r, Lifted IO r)
   => IO (Eff (InterruptableProcess r) () -> IO ())
   -> TestTree
 exitTests schedulerFactory =
@@ -593,7 +604,7 @@ exitTests schedulerFactory =
 
 sendShutdownTests
   :: forall r
-   . (Member (Logs LogMessage) r, SetMember Lift (Lift IO) r)
+   . (Member Logs r, Lifted IO r)
   => IO (Eff (InterruptableProcess r) () -> IO ())
   -> TestTree
 sendShutdownTests schedulerFactory = testGroup
@@ -686,7 +697,7 @@ sendShutdownTests schedulerFactory = testGroup
 
 linkingTests
   :: forall r
-   . (Member (Logs LogMessage) r, SetMember Lift (Lift IO) r)
+   . (Member Logs r, Lifted IO r)
   => IO (Eff (InterruptableProcess r) () -> IO ())
   -> TestTree
 linkingTests schedulerFactory = setTravisTestOptions
@@ -853,7 +864,7 @@ linkingTests schedulerFactory = setTravisTestOptions
 
 monitoringTests
   :: forall r
-   . (Member (Logs LogMessage) r, SetMember Lift (Lift IO) r)
+   . (Member Logs r, Lifted IO r)
   => IO (Eff (InterruptableProcess r) () -> IO ())
   -> TestTree
 monitoringTests schedulerFactory = setTravisTestOptions
@@ -923,7 +934,7 @@ monitoringTests schedulerFactory = setTravisTestOptions
 
 timerTests
   :: forall r
-   . (Member (Logs LogMessage) r, SetMember Lift (Lift IO) r)
+   . (Member Logs r, Lifted IO r)
   => IO (Eff (InterruptableProcess r) () -> IO ())
   -> TestTree
 timerTests schedulerFactory = setTravisTestOptions

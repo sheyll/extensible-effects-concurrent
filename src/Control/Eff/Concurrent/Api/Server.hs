@@ -12,7 +12,7 @@ module Control.Eff.Concurrent.Api.Server
   -- ** Api Server Callbacks
   , CallbackResult(..)
   , MessageCallback(..)
-  -- ** Callback Smart Contructors
+  -- ** Callback Smart Constructors
   -- *** Calls and Casts (for 'Api's)
   , handleCasts
   , handleCalls
@@ -124,9 +124,9 @@ spawnApiServerEffectful
   -> MessageCallback api serverEff
   -> InterruptCallback serverEff
   -> Eff (InterruptableProcess eff) (ServerPids api)
-spawnApiServerEffectful handleServerInteralEffects scb icb =
+spawnApiServerEffectful handleServerInternalEffects scb icb =
   toServerPids (Proxy @api)
-    <$> spawn (handleServerInteralEffects (apiServerLoop scb icb))
+    <$> spawn (handleServerInternalEffects (apiServerLoop scb icb))
 
 
 -- | /Server/ an 'Api' in a newly spawned process; The caller provides an
@@ -145,9 +145,9 @@ spawnLinkApiServerEffectful
   -> MessageCallback api serverEff
   -> InterruptCallback serverEff
   -> Eff (InterruptableProcess eff) (ServerPids api)
-spawnLinkApiServerEffectful handleServerInteralEffects scb icb =
+spawnLinkApiServerEffectful handleServerInternalEffects scb icb =
   toServerPids (Proxy @api)
-    <$> spawnLink (handleServerInteralEffects (apiServerLoop scb icb))
+    <$> spawnLink (handleServerInternalEffects (apiServerLoop scb icb))
 
 -- | Receive loop for 'Api' 'call's. This starts a receive loop for
 -- a 'MessageCallback'. It is used behind the scenes by 'spawnLinkApiServerEffectful'
@@ -191,7 +191,7 @@ data CallbackResult where
   -- | Tell the server to keep the server loop running
   AwaitNext :: CallbackResult
   -- | Tell the server to exit, this will make 'serve' stop handling requests without
-  -- exitting the process. '_terminateCallback' will be invoked with the given
+  -- exiting the process. '_terminateCallback' will be invoked with the given
   -- optional reason.
   StopServer :: InterruptReason -> CallbackResult
   --  SendReply :: reply -> CallbackResult () -> CallbackResult (reply -> Eff eff ())
@@ -378,7 +378,7 @@ handleProcessDowns
   -> MessageCallback '[] eff
 handleProcessDowns k = MessageCallback selectMessage (k . downReference)
 
--- | Compose two 'Api's to a type-leve pair of them.
+-- | Compose two 'Api's to a type-level pair of them.
 --
 -- > handleCalls api1calls ^: handleCalls api2calls ^:
 --
@@ -423,8 +423,8 @@ exitOnUnhandled = MessageCallback selectAnyMessageLazy $ \msg ->
 --
 -- @since 0.13.2
 logUnhandledMessages
-  :: forall eff h
-   . (HasLogging h eff, HasCallStack)
+  :: forall eff
+   . (Member Logs eff, HasCallStack)
   => MessageCallback '[] eff
 logUnhandledMessages = MessageCallback selectAnyMessageLazy $ \msg -> do
   logWarning ("ignoring unhandled message " ++ show msg)

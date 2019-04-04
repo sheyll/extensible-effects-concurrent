@@ -2,7 +2,6 @@ module Interactive where
 
 import           Control.Concurrent
 import           Control.Eff
-import           Control.Eff.Lift
 import           Control.Eff.Concurrent.Process
 import           Control.Eff.Concurrent.Process.Interactive
 import qualified Control.Eff.Concurrent.Process.SingleThreadedScheduler

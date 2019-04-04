@@ -248,7 +248,7 @@ test-suite extensible-effects-concurrent-test
               , tasty-hunit
               , containers
               , deepseq
-              , QuickCheck <2.12
+              , QuickCheck
               , lens
               , HUnit
               , stm

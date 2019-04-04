@@ -2,6 +2,7 @@
 -- logging them.
 module Control.Eff.Log.Message
   ( LogMessage(..)
+  , LogPredicate
   , ToLogMessage(..)
   , renderRFC5424
   , printLogMessage
@@ -102,6 +103,9 @@ instance Default LogMessage where
 
 instance NFData LogMessage
 
+-- | The filter predicate for message that shall be logged.
+type LogPredicate = LogMessage -> Bool
+
 -- | RFC-5424 defines how structured data can be included in a log message.
 data StructuredDataElement =
   SdElement { _sdElementId :: !String
@@ -174,6 +178,9 @@ instance IsString LogMessage where
 
 -- * Log Message Rendering
 
+instance Show LogMessage where
+  show = unlines . showLmMessage
+
 showLmMessage :: LogMessage -> [String]
 showLmMessage (LogMessage _f _s _ts _hn _an _pid _mi _sd ti loc msg _dist) =
   if null msg
@@ -229,7 +236,7 @@ renderRFC5424 l@(LogMessage f s ts hn an pid mi sd _ _ _ _) = unwords
 
 -- | Render a 'LogMessage' but set the timestamp and thread id fields.
 printLogMessage :: LogMessage -> IO ()
-printLogMessage = setLogMessageTimestamp >=> putStrLn . renderLogMessage
+printLogMessage = putStrLn . renderLogMessage
 
 -- * Message modification
 

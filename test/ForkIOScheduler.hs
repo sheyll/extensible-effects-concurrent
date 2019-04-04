@@ -5,8 +5,6 @@ import           Control.Concurrent
 import           Control.Concurrent.Async
 import           Control.Concurrent.STM
 import           Control.Eff.Extend
-import           Control.Eff.Lift
-import           Control.Eff.Log
 import           Control.Eff.Loop
 import           Control.Eff.Concurrent.Process
 import           Control.Eff.Concurrent.Process.Timer
@@ -19,8 +17,6 @@ import           Test.Tasty
 import           Test.Tasty.HUnit
 import           Data.Dynamic
 import           Common
-import           Numeric.Natural
-import           Data.Default
 
 test_IOExceptionsIsolated :: TestTree
 test_IOExceptionsIsolated = setTravisTestOptions $ testGroup
@@ -33,10 +29,7 @@ test_IOExceptionsIsolated = setTravisTestOptions $ testGroup
         )
       $ do
           aVar <- newEmptyTMVarIO
-          withAsyncLogChannel
-            (1000 :: Natural)
-            def -- (singleMessageLogWriter (putStrLn . renderLogMessage))
-            (Scheduler.defaultMainWithLogChannel
+          (Scheduler.defaultMain
               (do
                 p1 <- spawn $ foreverCheap busyEffect
                 lift (threadDelay 1000)
@@ -94,29 +87,21 @@ test_mainProcessSpawnsAChildAndReturns :: TestTree
 test_mainProcessSpawnsAChildAndReturns = setTravisTestOptions
   (testCase
     "spawn a child and return"
-    (withAsyncLogChannel
-      (1000 :: Natural)
-      def
-      (Scheduler.defaultMainWithLogChannel
+      (Scheduler.defaultMain
         (void (spawn (void receiveAnyMessage)))
       )
-    )
   )
 
 test_mainProcessSpawnsAChildAndExitsNormally :: TestTree
 test_mainProcessSpawnsAChildAndExitsNormally = setTravisTestOptions
   (testCase
     "spawn a child and exit normally"
-    (withAsyncLogChannel
-      (1000 :: Natural)
-      def
-      (Scheduler.defaultMainWithLogChannel
+      (Scheduler.defaultMain
         (do
           void (spawn (void receiveAnyMessage))
           void exitNormally
           fail "This should not happen!!"
         )
-      )
     )
   )
 
@@ -126,10 +111,7 @@ test_mainProcessSpawnsAChildInABusySendLoopAndExitsNormally =
   setTravisTestOptions
     (testCase
       "spawn a child with a busy send loop and exit normally"
-      (withAsyncLogChannel
-        (1000 :: Natural)
-        def
-        (Scheduler.defaultMainWithLogChannel
+        (Scheduler.defaultMain
           (do
             void (spawn (foreverCheap (void (sendMessage 1000 "test"))))
             void exitNormally
@@ -137,55 +119,44 @@ test_mainProcessSpawnsAChildInABusySendLoopAndExitsNormally =
           )
         )
       )
-    )
 
 
 test_mainProcessSpawnsAChildBothReturn :: TestTree
 test_mainProcessSpawnsAChildBothReturn = setTravisTestOptions
   (testCase
     "spawn a child and let it return and return"
-    (withAsyncLogChannel
-      (1000 :: Natural)
-      def
-      (Scheduler.defaultMainWithLogChannel
+    (Scheduler.defaultMain
         (do
           child <- spawn (void (receiveMessage @String))
           sendMessage child "test"
           return ()
         )
-      )
-    )
-  )
+  ))
 
 test_mainProcessSpawnsAChildBothExitNormally :: TestTree
 test_mainProcessSpawnsAChildBothExitNormally = setTravisTestOptions
   (testCase
     "spawn a child and let it exit and exit"
-    (withAsyncLogChannel
-      (1000 :: Natural)
-      def
-      (Scheduler.defaultMainWithLogChannel
-        (do
-          child <- spawn $ void $ provideInterrupts $ exitOnInterrupt
-            (do
-              void (receiveMessage @String)
+      (Scheduler.defaultMain
+           (do
+              child <- spawn $ void $ provideInterrupts $ exitOnInterrupt
+                (do
+                  void (receiveMessage @String)
+                  void exitNormally
+                  error "This should not happen (child)!!"
+                )
+              sendMessage child "test"
               void exitNormally
-              error "This should not happen (child)!!"
+              error "This should not happen!!"
             )
-          sendMessage child "test"
-          void exitNormally
-          error "This should not happen!!"
-        )
       )
     )
-  )
 
 test_timer :: TestTree
 test_timer =
   setTravisTestOptions
     $ testCase "flush via timer"
-    $ withAsyncLogChannel (1000 :: Natural) def
-    $ Scheduler.defaultMainWithLogChannel
+    $ Scheduler.defaultMain
     $ do
         let n = 100
             testMsg :: Float

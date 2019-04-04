@@ -1,20 +1,40 @@
 {-# LANGUAGE UndecidableInstances #-}
--- | A logging effect based on 'Control.Monad.Log.MonadLog'.
+-- | A logging effect.
+--
+-- There is just one log message type: 'LogMessage' and it is written using 'logMsg' and
+-- the functions built on top of it.
+--
+-- Example:
+--
+-- > main =
+-- >     runLift
+-- >   $ runLogWriterReader (makeIoLogWriter printLogMessage)
+-- >   $ runLogs
+-- >   $ logToReader
+-- >   $ do
+-- >       logDebug "test 1.1"
+-- >       logDebug "test 1.2"
+-- >       setThreadIdAndTimestamp
+-- >        $ do
+-- >             logTo traceLogMessages
+-- >              $ filterLogMessages (\m -> (view lmMessage m) /= "not logged")
+-- >              $ do
+-- >                   logDebug "not logged"
+-- >                   logDebug "test 2.1"
+-- >             logDebug "test 2.2"
+-- >       logDebug "test 1.3"
 module Control.Eff.Log.Handler
   ( logMsg
-  , mapLogMessages
+  , respondToLogMessage
+  , censorLogs
+  , censorLogsM
   , filterLogMessages
-  , traverseLogMessages
   , Logs()
-  , HasLogging
   , runLogsFiltered
   , runLogs
+  , ignoreLogs
   , askLogFilter
-  , askLogWriter
   , localLogFilter
-  , localLogWriter
-  , increaseLogMessageDistance
-  , dropDistantLogMessages
   , logWithSeverity
   , logEmergency
   , logAlert
@@ -24,12 +44,9 @@ module Control.Eff.Log.Handler
   , logNotice
   , logInfo
   , logDebug
-  , ignoreLogs
-  , traceLogs
+  , logTo
+  , logToReader
   , LoggingAndIo
-  , ioLogMessageHandler
-  , withReopeningLogFileAppender
-  , withLogFileAppender
   )
 where
 
@@ -40,7 +57,7 @@ import           Control.Eff.Log.Message
 import           Control.Eff.Log.Writer
 import qualified Control.Exception.Safe        as Safe
 import           Control.Lens
-import           Control.Monad                   ( (>=>) )
+import           Control.Monad                   ( when, (>=>) )
 import           Control.Monad.Base              ( MonadBase() )
 import qualified Control.Monad.Catch           as Catch
 import           Control.Monad.Trans.Control     ( MonadBaseControl
@@ -50,84 +67,67 @@ import           Control.Monad.Trans.Control     ( MonadBaseControl
                                                    )
                                                  )
 import           Data.Default
-import           Data.Foldable                  ( traverse_ )
 import           Data.Function                  ( fix )
 import           GHC.Stack                      ( HasCallStack
                                                 , callStack
                                                 , withFrozenCallStack
                                                 )
-import           System.IO                      ( withFile
-                                                , IOMode(AppendMode)
-                                                , hPutStrLn
-                                                , hSetBuffering
-                                                , hClose
-                                                , hFlush
-                                                , openFile
-                                                , BufferMode(BlockBuffering)
-                                                )
-import           System.Directory
-import           System.FilePath
+
+
 -- * Message Logging Effect
 
 
 -- | This effect sends log messages.
--- There are three messages for the 'Logs' effect, that have these purposes:
+-- There are two messages for the 'Logs' effect, that have these purposes:
 --
--- 1. Retreiving a log filter function
--- 2. Retreiving the 'LogWriter'
--- 3. Writing a 'LogMessage'
+-- 1. Retrieving a (global, pre-writing) 'LogPredicate'
+-- 2. Writing a 'LogMessage'
 --
--- These three parts are just loosely coupled; the 'Handle' instance
--- does not apply any filters, neither does the 'LogWriter'
-data Logs h v where
+-- To log a message use 'logMsg'. To store or display log messages, use 'logTo'.
+data Logs v where
   AskLogFilter
-    :: Logs h (LogMessage -> Maybe LogMessage)
-  AskLogWriter
-    :: Logs h (LogWriter h)
+    :: Logs LogPredicate
   WriteLogMessage
-    :: LogMessage -> Logs h ()
+    :: LogMessage -> Logs ()
 
-instance (LiftsLogWriter h e) => Handle (Logs h) e a ((LogMessage -> Maybe LogMessage) -> LogWriter h -> k) where
-  handle handleNext handleResponseAndContinue request logMessageFilter logMessageWriter =
-    case request of
-      AskLogFilter ->
-        handleNext (handleResponseAndContinue ^$ logMessageFilter) logMessageFilter logMessageWriter
-      AskLogWriter ->
-        handleNext (handleResponseAndContinue ^$ logMessageWriter) logMessageFilter logMessageWriter
-      WriteLogMessage m ->
-        handleNext (liftLogWriter logMessageWriter m >> handleResponseAndContinue ^$ ()) logMessageFilter logMessageWriter
+instance forall e a k. Handle Logs e a (LogPredicate -> k) where
+  handle h q AskLogFilter p         = h (q ^$ p) p
+  handle h q (WriteLogMessage _) p  = h (q ^$ ()) p
 
--- | This instance allows lifting to the 'Logs' effect.
-instance (MonadBase m m, LiftedBase m r, LiftsLogWriter m (Logs m ': r)) => MonadBaseControl m (Eff (Logs m ': r)) where
-    type StM (Eff (Logs m ': r)) a =  StM (Eff r) a
+-- | This instance allows lifting to the 'Logs' effect, they do, however, need a
+-- 'LogWriter' in the base monad, in order to be able to handle 'WriteLogMessage'.
+--
+-- The 'LogWriterReader' effect is must be available to get to the 'LogWriter'.
+--
+-- Otherwise there is no way to preserve to log messages.
+instance forall m r. (MonadBase m m, LiftedBase m r, LiftsLogWriter m (Logs ': r), Member (LogWriterReader m) r)
+  => MonadBaseControl m (Eff (Logs ': r)) where
+    type StM (Eff (Logs ': r)) a =  StM (Eff r) a
     liftBaseWith f = do
-      lf <- askLogFilter @m
-      lw <- askLogWriter @m
-      raise (liftBaseWith (\runInBase -> f (runInBase . runLogsFiltered lf lw)))
+      lf <- askLogFilter
+      raise (liftBaseWith (\runInBase -> f (runInBase . runLogsFiltered lf . logToReader @m)))
     restoreM = raise . restoreM
 
 instance (LiftedBase m e, Catch.MonadThrow (Eff e))
-  => Catch.MonadThrow (Eff (Logs m ': e)) where
+  => Catch.MonadThrow (Eff (Logs ': e)) where
   throwM exception = raise (Catch.throwM exception)
 
-instance (Applicative m, LiftedBase m e, Catch.MonadCatch (Eff e), LiftsLogWriter m (Logs m ': e))
-  => Catch.MonadCatch (Eff (Logs m ': e)) where
+instance (Applicative m, LiftedBase m e, Catch.MonadCatch (Eff e), LiftsLogWriter m (Logs ': e), Member (LogWriterReader m) e)
+  => Catch.MonadCatch (Eff (Logs ': e)) where
   catch effect handler = do
-    lf <- askLogFilter @m
-    lw <- askLogWriter @m
-    let lower                   = runLogsFiltered lf lw
+    lf <- askLogFilter
+    let lower                   = runLogsFiltered lf . logToReader @m
         nestedEffects           = lower effect
         nestedHandler exception = lower (handler exception)
     raise (Catch.catch nestedEffects nestedHandler)
 
-instance (Applicative m, LiftedBase m e, Catch.MonadMask (Eff e), LiftsLogWriter m (Logs m ': e))
-  => Catch.MonadMask (Eff (Logs m ': e)) where
+instance (Applicative m, LiftedBase m e, Catch.MonadMask (Eff e), LiftsLogWriter m (Logs ': e), Member (LogWriterReader m) e)
+  => Catch.MonadMask (Eff (Logs ': e)) where
   mask maskedEffect = do
-    lf <- askLogFilter @m
-    lw <- askLogWriter @m
+    lf <- askLogFilter
     let
-      lower :: Eff (Logs m ': e) a -> Eff e a
-      lower = runLogsFiltered lf lw
+      lower :: Eff (Logs ': e) a -> Eff e a
+      lower = runLogsFiltered lf . logToReader @m
     raise
         (Catch.mask
           (\nestedUnmask -> lower
@@ -137,11 +137,10 @@ instance (Applicative m, LiftedBase m e, Catch.MonadMask (Eff e), LiftsLogWriter
           )
         )
   uninterruptibleMask maskedEffect = do
-    lf <- askLogFilter @m
-    lw <- askLogWriter @m
+    lf <- askLogFilter
     let
-      lower :: Eff (Logs m ': e) a -> Eff e a
-      lower = runLogsFiltered lf lw
+      lower :: Eff (Logs ': e) a -> Eff e a
+      lower = runLogsFiltered lf . logToReader @m
     raise
         (Catch.uninterruptibleMask
           (\nestedUnmask -> lower
@@ -151,11 +150,10 @@ instance (Applicative m, LiftedBase m e, Catch.MonadMask (Eff e), LiftsLogWriter
           )
         )
   generalBracket acquire release useIt = do
-    lf <- askLogFilter @m
-    lw <- askLogWriter @m
+    lf <- askLogFilter
     let
-      lower :: Eff (Logs m ': e) a -> Eff e a
-      lower = runLogsFiltered lf lw
+      lower :: Eff (Logs ': e) a -> Eff e a
+      lower = runLogsFiltered lf . logToReader @m
     raise
         (Catch.generalBracket
           (lower acquire)
@@ -163,279 +161,268 @@ instance (Applicative m, LiftedBase m e, Catch.MonadMask (Eff e), LiftsLogWriter
           (lower . useIt)
       )
 
--- | A convenient alias.
-type HasLogging h e = SetMember Logs (Logs h) e
+-- | Handle the 'Logs' effect.
+runLogsFiltered :: LogPredicate -> Eff (Logs ': e) b -> Eff e b
+runLogsFiltered p m = fix (handle_relay (\a _ -> return a)) m p
+
+-- | Handle the 'Logs' effect, like 'runLogsFiltered' does, but start with a
+-- permissive log filter that removes no log messages.
+runLogs :: Eff (Logs ': e) b -> Eff e b
+runLogs = runLogsFiltered (const True)
+
+-- | Handle the 'Logs' effect, start with a filter that discards all messages.
+--
+-- This function has the semantics of @'runLogsFiltered' (const Nothing)@.
+ignoreLogs :: forall r a . Eff (Logs ': r) a -> Eff r a
+ignoreLogs = runLogsFiltered (const False)
+
+-- * Modify the 'LogPredicate'
 
 -- | Get the current 'Logs' filter/transformer function.
-askLogFilter :: forall h e . (Member (Logs h) e) => Eff e (LogMessage -> Maybe LogMessage)
-askLogFilter = send @(Logs h) AskLogFilter
-
--- | Get the current 'Logs' writer function.
-askLogWriter :: forall h e . (Member (Logs h) e) => Eff e (LogWriter h)
-askLogWriter = send AskLogWriter
-
--- | Replace the current log filter.
-localLogFilter
-  :: forall h e b
-   . (LiftsLogWriter h e,  Member (Logs h) e)
-  => (LogMessage -> Maybe LogMessage)
-  -> Eff e b
-  -> Eff e b
-localLogFilter lfIn actionThatLogs = do
-  lwIn <- askLogWriter @h
-  (fix (respond_relay @(Logs h) @e (\x _ _ -> return x))) actionThatLogs lfIn lwIn
-
--- | Replace the current 'LogWriter'.
-localLogWriter
-  :: forall h e b
-   . (LiftsLogWriter h e, Member (Logs h) e)
-  => LogWriter h
-  -> Eff e b
-  -> Eff e b
-localLogWriter lwIn actionThatLogs = do
-  lfIn <- askLogFilter  @h
-  (fix (respond_relay @(Logs h) @e (\x _ _ -> return x))) actionThatLogs lfIn lwIn
-
--- | Handle the 'Logs' effect.
---
--- The 'Logs' effect contains two elements:
---
--- * A 'Reader' for the log filter/transformation function
---
--- * A log message writer interface
---
--- The first argument is used as filter/transformation function.
---
--- The second argument is the 'LogWriter' to send message to.
-runLogsFiltered :: LiftsLogWriter h (Logs h ': e) => (LogMessage -> Maybe LogMessage) -> LogWriter h -> Eff (Logs h ': e) b -> Eff e b
-runLogsFiltered logMessageFilter logMessageWriter logClient = do
-  (res, logEff) <- fix (handle_relay (\a _f _w -> return (a, return ()))) logClient logMessageFilter logMessageWriter
-  logEff
-  return res
-
--- | Handle the 'Logs' effect, like 'runLogsFiltered' does, but start with a permissive log filter
--- that removes no log messages.
-runLogs :: LiftsLogWriter h (Logs h ': e) => LogWriter h -> Eff (Logs h ': e) b -> Eff e b
-runLogs = runLogsFiltered Just
-
--- ** Filter and Transform Log Messages
-
--- | Map a pure function over log messages.
-mapLogMessages
-  :: forall h r b
-   . (LiftsLogWriter h r, Member (Logs h) r)
-  => (LogMessage -> LogMessage)
-  -> Eff r b
-  -> Eff r b
-mapLogMessages f = localLogFilter @h (Just . f)
-
--- * Filtering
+askLogFilter :: forall e . (Member Logs e) => Eff e LogPredicate
+askLogFilter = send @Logs AskLogFilter
 
 -- | Keep only those messages, for which a predicate holds.
 --
 -- E.g. to keep only messages which begin with @"OMG"@:
 --
--- > filterLogMessages (\msg -> case msg of
+-- > filterLogMessages (\msg -> case lmMessage msg of
 -- >                             'O':'M':'G':_ -> True
 -- >                              _            -> False)
 -- >                   (do logMsg "this message will not be logged"
 -- >                       logMsg "OMG logged")
+--
+-- In order to also delegate to the previous predicate, use 'localLogFilter'
 filterLogMessages
-  :: forall h r b
-   . (LiftsLogWriter h r, Member (Logs h) r)
-  => (LogMessage -> Bool)
+  :: forall r b
+   . (Member Logs r, HasCallStack)
+  => LogPredicate
   -> Eff r b
   -> Eff r b
-filterLogMessages predicate logEff  = do
-  old <- askLogFilter @h
-  localLogFilter @h (\m -> if predicate m then old m else Nothing) logEff
+filterLogMessages = localLogFilter . const
 
--- | Traverse over log messages.
-traverseLogMessages
-  :: forall h r b
-   . (Monad h, LiftsLogWriter h r, Member (Logs h) r)
-  => (LogMessage -> h LogMessage)
+-- | Change the 'LogPredicate'.
+--
+-- Other than 'filterLogMessages' this function allows to include the previous predicate, too.
+--
+-- For to discard all messages currently no satisfieing the predicate and also all messages
+-- that are to long:
+--
+-- @
+-- > localLogFilter (\previousPredicate msg -> previousPredicate msg && length (lmMessage msg) < 29 )
+-- >                (do logMsg "this message will not be logged"
+-- >                    logMsg "this message might be logged")
+-- @
+localLogFilter
+  :: forall e b
+   . (Member Logs e, HasCallStack)
+  => (LogPredicate -> LogPredicate)
+  -> Eff e b
+  -> Eff e b
+localLogFilter lpIn e = askLogFilter >>= fix step e . lpIn
+  where
+    ret x _ = return x
+    step :: (Eff e b -> LogPredicate -> Eff e b) ->  Eff e b -> LogPredicate -> Eff e b
+    step k (E q (prj -> Just (WriteLogMessage !l))) lp = do
+      logMsg l
+      respond_relay @Logs ret k (q ^$ ()) lp
+    step k m lp = respond_relay @Logs ret k m lp
+
+-- * Transform Written Log Messages
+
+-- | Respond to the 'WriteLogMessage' command.
+--
+-- NOTE: The effects of this function are **lost** when using
+-- 'MonadBaseControl', 'MonadMask', 'MonadCatch' and 'MonadThrow'.
+--
+-- It's better to use the functions based on modifying the 'LogWriter' in a 'LogWriterReader',
+-- since the instances of the above mentioned classes use 'logToReader' internally.
+respondToLogMessage
+  :: forall r b
+   . (Member Logs r)
+  => (LogMessage -> Eff r ())
   -> Eff r b
   -> Eff r b
-traverseLogMessages f e = do
-  previousWriter <- askLogWriter
-  logFilter <- askLogFilter @h
-  localLogWriter (MkLogWriter (traverse_ (f >=> runLogWriter previousWriter) . logFilter)) e
+respondToLogMessage f e = askLogFilter >>= fix step e
+  where
+    step :: (Eff r b -> LogPredicate -> Eff r b) ->  Eff r b -> LogPredicate -> Eff r b
+    step k (E q (prj -> Just (WriteLogMessage !l))) lp = do
+      f l
+      respond_relay @Logs ret k (q ^$ ()) lp
+    step k m lp = respond_relay @Logs ret k m lp
+    ret x _lf = return x
 
--- ** Distance Based Log Message Filtering
+-- | Change the 'LogMessages' logged using 'logMsg' or 'WriteLogMessage'. See 'censorLogsM'
+--
+-- NOTE: The effects of this function are **lost** when using
+-- 'MonadBaseControl', 'MonadMask', 'MonadCatch' and 'MonadThrow'.
+--
+-- It's better to use the functions based on modifying the 'LogWriter' in a 'LogWriterReader',
+-- since the instances of the above mentioned classes use 'logToReader' internally.
+censorLogs
+  :: forall r b
+   . (Member Logs r)
+  => (LogMessage -> LogMessage)
+  -> Eff r b
+  -> Eff r b
+censorLogs f = respondToLogMessage (logMsg . f)
 
--- | Increase the /distance/ of log messages by one.
--- Logs can be filtered by their distance with 'dropDistantLogMessages'
-increaseLogMessageDistance
-  :: forall h e a . (HasCallStack, LiftsLogWriter h e, Member (Logs h) e) => Eff e a -> Eff e a
-increaseLogMessageDistance = mapLogMessages @h (over lmDistance (+ 1))
+-- | Change the 'LogMessages' using an effectful function. See 'censorLogs'.
+--
+-- NOTE: The effects of this function are **lost** when using
+-- 'MonadBaseControl', 'MonadMask', 'MonadCatch' and 'MonadThrow'.
+--
+-- It's better to use the functions based on modifying the 'LogWriter' in a 'LogWriterReader',
+-- since the instances of the above mentioned classes use 'logToReader' internally.
+censorLogsM
+  :: forall r b
+   . (Member Logs r)
+  => (LogMessage -> Eff r LogMessage)
+  -> Eff r b
+  -> Eff r b
+censorLogsM f = respondToLogMessage (f >=> logMsg)
 
--- | Drop all log messages with an 'lmDistance' greater than the given
--- value.
-dropDistantLogMessages :: forall h e a . (HasCallStack, LiftsLogWriter h e, Member (Logs h) e) => Int -> Eff e a -> Eff e a
-dropDistantLogMessages maxDistance =
-  filterLogMessages @h (\lm -> lm ^. lmDistance <= maxDistance)
-
+-- ** LogMessage enrichment
 
 -- * Logging functions
 
 -- | Log a message. The message is reduced to normal form (strict).
-logMsg :: forall h e m . (Member (Logs h) e, ToLogMessage m) => m -> Eff e ()
+logMsg :: forall e m . (Member Logs e, ToLogMessage m) => m -> Eff e ()
 logMsg (force . toLogMessage -> msgIn) = do
-  lf <- askLogFilter @h
-  traverse_
-    (send @(Logs h) . WriteLogMessage)
-    (lf msgIn)
+  lf <- askLogFilter
+  when (lf msgIn) (send @Logs (WriteLogMessage msgIn))
 
 -- | Log a 'String' as 'LogMessage' with a given 'Severity'.
 logWithSeverity
-  :: forall m e .
+  :: forall e .
      ( HasCallStack
-     , SetMember Logs (Logs m) e
+     , Member Logs e
      )
   => Severity
   -> String
   -> Eff e ()
 logWithSeverity !s =
   withFrozenCallStack
-    $ logMsg @m
+    $ logMsg
     . setCallStack callStack
     . set lmSeverity s
     . flip (set lmMessage) def
 
 -- | Log a 'String' as 'emergencySeverity'.
 logEmergency
-  :: forall m e .
+  :: forall e .
      ( HasCallStack
-     , SetMember Logs (Logs m) e
+     , Member Logs e
      )
   => String
   -> Eff e ()
-logEmergency = withFrozenCallStack (logWithSeverity @m emergencySeverity)
+logEmergency = withFrozenCallStack (logWithSeverity emergencySeverity)
 
 -- | Log a message with 'alertSeverity'.
 logAlert
-  :: forall m e .
+  :: forall e .
      ( HasCallStack
-     , SetMember Logs (Logs m) e
+     , Member Logs e
      )
   => String
   -> Eff e ()
-logAlert = withFrozenCallStack (logWithSeverity @m alertSeverity)
+logAlert = withFrozenCallStack (logWithSeverity alertSeverity)
 
 -- | Log a 'criticalSeverity' message.
 logCritical
-  :: forall m e .
+  :: forall e .
      ( HasCallStack
-     , SetMember Logs (Logs m) e
+     , Member Logs e
      )
   => String
   -> Eff e ()
-logCritical = withFrozenCallStack (logWithSeverity @m criticalSeverity)
+logCritical = withFrozenCallStack (logWithSeverity criticalSeverity)
 
 -- | Log a 'errorSeverity' message.
 logError
-  :: forall m e .
+  :: forall e .
      ( HasCallStack
-     , SetMember Logs (Logs m) e
+     , Member Logs e
      )
   => String
   -> Eff e ()
-logError = withFrozenCallStack (logWithSeverity @m errorSeverity)
+logError = withFrozenCallStack (logWithSeverity errorSeverity)
 
 -- | Log a 'warningSeverity' message.
 logWarning
-  :: forall m e .
+  :: forall e .
      ( HasCallStack
-     , SetMember Logs (Logs m) e
+     , Member Logs e
      )
   => String
   -> Eff e ()
-logWarning = withFrozenCallStack (logWithSeverity @m warningSeverity)
+logWarning = withFrozenCallStack (logWithSeverity warningSeverity)
 
 -- | Log a 'noticeSeverity' message.
 logNotice
-  :: forall m e .
+  :: forall e .
      ( HasCallStack
-     , SetMember Logs (Logs m) e
+     , Member Logs e
      )
   => String
   -> Eff e ()
-logNotice = withFrozenCallStack (logWithSeverity @m noticeSeverity)
+logNotice = withFrozenCallStack (logWithSeverity noticeSeverity)
 
 -- | Log a 'informationalSeverity' message.
 logInfo
-  :: forall m e .
+  :: forall e .
      ( HasCallStack
-     , SetMember Logs (Logs m) e
+     , Member Logs e
      )
   => String
   -> Eff e ()
-logInfo = withFrozenCallStack (logWithSeverity @m informationalSeverity)
+logInfo = withFrozenCallStack (logWithSeverity informationalSeverity)
 
 -- | Log a 'debugSeverity' message.
 logDebug
-  :: forall m e .
+  :: forall e .
      ( HasCallStack
-     , SetMember Logs (Logs m) e
+     , Member Logs e
      )
   => String
   -> Eff e ()
-logDebug = withFrozenCallStack (logWithSeverity @m debugSeverity)
+logDebug = withFrozenCallStack (logWithSeverity debugSeverity)
 
--- * Log Messages Writing
+-- * 'LogWriter' integration
 
--- | Handle the 'Logs' effect, start with a filter that discards all messages.
+-- | Relay all logs to a single 'LogWriter'.
+-- There can be multiple, stacked log writers:
 --
--- This function has the semantics of @'runLogsFiltered' (const Nothing)@.
-ignoreLogs :: forall r a . Eff (Logs DiscardLogs ': r) a -> Eff r a
-ignoreLogs = runLogsFiltered (const Nothing) discardLogMessages
+-- >>> runLift $ runLogs $ logTo traceLogMessages $ logTo traceLogMessages $ logMsg "this message is logged twice"
+-- INFO      this message is logged twice                                                     Message.hs line 170
+-- INFO      this message is logged twice                                                     Message.hs line 170
+--
+-- NOTE: The effects of 'logTo' are **lost** when using
+-- 'MonadBaseControl', 'MonadMask', 'MonadCatch' and 'MonadThrow'.
+--
+-- It's better to use the functions based on modifying the 'LogWriter' in a 'LogWriterReader',
+-- since the instances of the above mentioned classes use 'logToReader' internally.
+logTo
+  :: forall h e a. (Member Logs e, LiftsLogWriter h e)
+  => LogWriter h -> Eff e a -> Eff e a
+logTo lw = respondToLogMessage go
+  where
+    go m = do
+      liftLogWriter @h lw m
+      logMsg m
 
--- | Trace all log messages using 'traceM'. The message value is
--- converted to 'String' using the given function.
-traceLogs :: Eff (Logs TraceLogs ': r) a -> Eff r a
-traceLogs = runLogsFiltered Just traceLogMessages
+-- | Relay all logs to a 'LogWriter'.
+-- There can be multiple log writers.
+logToReader
+  :: forall h e a. (Member Logs e, Member (LogWriterReader h) e, LiftsLogWriter h e)
+  => Eff e a -> Eff e a
+logToReader = censorLogsM go
+  where go msg = do
+          lw <- askLogWriter @h
+          liftLogWriter lw msg
+          return msg
 
--- ** Writing LogMessages to IO
-
--- | The concrete list of 'Eff'ects for logging with an IO based 'LogWriter'.
-type LoggingAndIo = '[Logs IO, Lift IO]
-
--- | Use 'ioLogMessageWriter' to /handle/ logging using 'handleLogs'.
-ioLogMessageHandler
-  :: (HasCallStack, Lifted IO e)
-  => (String -> IO ())
-  -> Eff (Logs IO ': e) a
-  -> Eff e a
-ioLogMessageHandler delegatee =
-  runLogs (ioLogMessageWriter delegatee)
-
--- ** File Based Logging
-
-withLogFileAppender
-  :: HasCallStack
-  => FilePath
-  -> (LogWriter IO -> IO a)
-  -> IO a
-withLogFileAppender fnIn e =
-  Safe.bracket
-      (do
-        fnCanon <- canonicalizePath fnIn
-        createDirectoryIfMissing True (takeDirectory fnCanon)
-        h <- openFile fnCanon AppendMode
-        hSetBuffering h (BlockBuffering (Just 1024))
-        return h
-      )
-      (\h -> Safe.try @IO @Catch.SomeException (hFlush h) >> hClose h)
-      (\h -> e (ioLogMessageWriter (hPutStrLn h)))
-
-withReopeningLogFileAppender
-  :: (Lifted IO e, Member (Logs IO) e)
-  => FilePath
-  -> Eff e a
-  -> Eff e a
-withReopeningLogFileAppender fnIn =
-  localLogWriter (ioLogMessageWriter fileAppenderSimple)
- where
-  fileAppenderSimple = \msg -> withFile fnIn AppendMode (`hPutStrLn` msg)
-
+-- | The concrete list of 'Eff'ects for logging with an IO based 'LogWriter', and a 'LogWriterReader'
+-- with these effects it is possible to use the 'MonadBaseControl', 'MonadMask', 'MonadCatch' and 'MonadThrow'
+-- instances.
+type LoggingAndIo = '[Logs, LogWriterReader IO, Lift IO]

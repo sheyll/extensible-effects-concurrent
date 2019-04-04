@@ -184,7 +184,7 @@ diskontinue sts k e = (sts ^. runEff) (k (Interrupted e))
 --
 -- @since 0.3.0.2
 schedulePure
-  :: Eff (InterruptableProcess '[Logs DiscardLogs]) a
+  :: Eff (InterruptableProcess '[Logs]) a
   -> Either (ExitReason 'NoRecovery) a
 schedulePure e = run (scheduleM ignoreLogs (return ()) e)
 
@@ -221,9 +221,9 @@ scheduleMonadIOEff = -- schedule (lift yield)
 scheduleIOWithLogging
   :: HasCallStack
   => LogWriter IO
-  -> Eff (InterruptableProcess '[Logs IO, Lift IO]) a
+  -> Eff (InterruptableProcess '[Logs, Lift IO]) a
   -> IO (Either (ExitReason 'NoRecovery) a)
-scheduleIOWithLogging h = scheduleIO (runLogs h)
+scheduleIOWithLogging h = scheduleIO (runLogs . logTo h)
 
 -- | Handle the 'Process' effect, as well as all lower effects using an effect handler function.
 --
@@ -519,14 +519,15 @@ handleProcess sts allProcs@((!processState, !pid) :<| rest) =
       return (nextTargets Seq.>< allButTarget)
 
 -- | A 'SchedulerProxy' for 'LoggingAndIo'.
-singleThreadedIoScheduler :: SchedulerProxy LoggingAndIo
+singleThreadedIoScheduler :: SchedulerProxy '[Logs, Lift IO]
 singleThreadedIoScheduler = SchedulerProxy
 
 -- | Execute a 'Process' using 'schedule' on top of 'Lift' @IO@ and 'Logs'
 -- @String@ effects.
-defaultMainSingleThreaded :: HasCallStack => Eff (InterruptableProcess LoggingAndIo) () -> IO ()
+defaultMainSingleThreaded :: HasCallStack => Eff (InterruptableProcess '[Logs, Lift IO]) () -> IO ()
 defaultMainSingleThreaded =
   void
     . runLift
-    . runLogs (MkLogWriter printLogMessage)
+    . runLogs
+    . logTo (makeIoLogWriter printLogMessage)
     . scheduleMonadIOEff

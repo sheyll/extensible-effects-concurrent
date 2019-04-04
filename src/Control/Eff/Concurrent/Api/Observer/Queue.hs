@@ -43,7 +43,7 @@ readObservationQueue
      , HasCallStack
      , MonadIO (Eff r)
      , Typeable o
-     , HasLogging IO r
+     , Member Logs r
      )
   => Eff r o
 readObservationQueue = do
@@ -59,7 +59,7 @@ tryReadObservationQueue
      , HasCallStack
      , MonadIO (Eff r)
      , Typeable o
-     , HasLogging IO r
+     , Member Logs r
      )
   => Eff r (Maybe o)
 tryReadObservationQueue = do
@@ -75,7 +75,7 @@ flushObservationQueue
      , HasCallStack
      , MonadIO (Eff r)
      , Typeable o
-     , HasLogging IO r
+     , Member Logs r
      )
   => Eff r [o]
 flushObservationQueue = do
@@ -104,7 +104,7 @@ withObservationQueue
    . ( HasCallStack
      , Typeable o
      , Show o
-     , HasLogging IO e
+     , Member Logs e
      , Lifted IO e
      , Integral len
      , Member Interrupts e
@@ -132,7 +132,7 @@ withObservationQueue queueLimit e = do
 -- @since 0.18.0
 spawnLinkObservationQueueWriter
   :: forall o q
-   . (Typeable o, Show o, HasLogging IO q, Lifted IO q, HasCallStack)
+   . (Typeable o, Show o, Member Logs q, Lifted IO q, HasCallStack)
   => ObservationQueue o
   -> Eff (InterruptableProcess q) (Observer o)
 spawnLinkObservationQueueWriter (ObservationQueue q) = do

@@ -638,7 +638,7 @@ tryUninterrupted = handleInterrupts (pure . Left) . fmap Right
 -- | Handle interrupts by logging them with `logProcessExit` and otherwise
 -- ignoring them.
 logInterrupts
-  :: forall h r . (HasLogging h r, HasCallStack, Member Interrupts r)
+  :: forall r . (Member Logs r, HasCallStack, Member Interrupts r)
   => Eff r ()
   -> Eff r ()
 logInterrupts = handleInterrupts logProcessExit
@@ -731,9 +731,9 @@ toCrashReason e | isCrash e = Just (show e)
                 | otherwise = Nothing
 
 -- | Log the 'ExitReasons'
-logProcessExit :: forall h e x. (SetMember Logs (Logs h) e, HasCallStack) => ExitReason x -> Eff e ()
-logProcessExit (toCrashReason -> Just ex) = withFrozenCallStack (logError @h ex)
-logProcessExit ex = withFrozenCallStack (logDebug @h (show ex))
+logProcessExit :: forall e x. (Member Logs e, HasCallStack) => ExitReason x -> Eff e ()
+logProcessExit (toCrashReason -> Just ex) = withFrozenCallStack (logError ex)
+logProcessExit ex = withFrozenCallStack (logDebug (show ex))
 
 
 -- | Execute a and action and return the result;

@@ -16,7 +16,7 @@
 module Control.Eff.Concurrent.Process.ForkIOScheduler
   ( schedule
   , defaultMain
-  , defaultMainWithLogChannel
+  , defaultMainWithLogWriter
   , ProcEff
   , InterruptableProcEff
   , SchedulerIO
@@ -36,8 +36,8 @@ import Control.Eff.Log
 import Control.Eff.Reader.Strict as Reader
 import Control.Exception.Safe as Safe
 import Control.Lens
-import Control.Monad ((>=>), void, when)
-import Control.Monad.Trans.Control (MonadBaseControl(..))
+import Control.Monad (void, when)
+import Control.Monad.Trans.Control (MonadBaseControl(..), control)
 import Data.Default
 import Data.Dynamic
 import Data.Foldable
@@ -168,7 +168,7 @@ withNewSchedulerState mainProcessAction =
       let cancelTableVar = schedulerState ^. processCancellationTable
       -- cancel all processes
       allProcesses <- lift (atomically (readTVar cancelTableVar <* writeTVar cancelTableVar def))
-      logNotice @IO ("cancelling processes: " ++ show (toListOf (ifolded . asIndex) allProcesses))
+      logNotice ("cancelling processes: " ++ show (toListOf (ifolded . asIndex) allProcesses))
       void
         (liftBaseWith
            (\runS ->
@@ -177,9 +177,9 @@ withNewSchedulerState mainProcessAction =
                 (Async.mapConcurrently
                    (\a -> do
                       Async.cancel a
-                      runS (logNotice @IO ("process cancelled: " ++ show (asyncThreadId a))))
+                      runS (logNotice ("process cancelled: " ++ show (asyncThreadId a))))
                    allProcesses >>
-                 runS (logNotice @IO "all processes cancelled"))))
+                 runS (logNotice "all processes cancelled"))))
 
 -- | The concrete list of 'Eff'ects of processes compatible with this scheduler.
 -- This builds upon 'SchedulerIO'.
@@ -198,13 +198,14 @@ type SchedulerIO = (Reader SchedulerState : LoggingAndIo)
 -- | Start the message passing concurrency system then execute a 'Process' on
 -- top of 'SchedulerIO' effect. All logging is sent to standard output.
 defaultMain :: HasCallStack => Eff InterruptableProcEff () -> IO ()
-defaultMain c =
-  withAsyncLogChannel (1024 :: Int) (MkLogWriter printLogMessage) (handleLoggingAndIO_ (schedule c))
+defaultMain = defaultMainWithLogWriter (makeIoLogWriter printLogMessage)
 
 -- | Start the message passing concurrency system then execute a 'Process' on
 -- top of 'SchedulerIO' effect. All logging is sent to standard output.
-defaultMainWithLogChannel :: HasCallStack => Eff InterruptableProcEff () -> LogChannel -> IO ()
-defaultMainWithLogChannel = handleLoggingAndIO_ . schedule
+defaultMainWithLogWriter :: HasCallStack => LogWriter IO -> Eff InterruptableProcEff () -> IO ()
+defaultMainWithLogWriter lw =
+  runLift .
+  runLogWriterReader (makeIoLogWriter printLogMessage) . runLogs . withAsyncLogging (1024 :: Int) lw . logToReader @IO . schedule
 
 -- | A 'SchedulerProxy' for 'SchedulerIO'
 forkIoScheduler :: SchedulerProxy SchedulerIO
@@ -470,9 +471,9 @@ schedule procEff =
           withNewSchedulerState $ do
             (_, mainProcAsync) <-
               spawnNewProcess Nothing $ do
-                logNotice @IO "++++++++ main process started ++++++++"
+                logNotice "++++++++ main process started ++++++++"
                 provideInterruptsShutdown procEff
-                logNotice @IO "++++++++ main process returned ++++++++"
+                logNotice "++++++++ main process returned ++++++++"
             lift (void (Async.wait mainProcAsync)))
          (\ast ->
             runS $ do
@@ -511,7 +512,7 @@ spawnNewProcess mLinkedParent mfa = do
                return procInfo))
     logAppendProcInfo pid =
       let addProcessId = over lmProcessId (maybe (Just (printf "% 9s" (show pid))) Just)
-       in traverseLogMessages (setLogMessageThreadId >=> return . addProcessId)
+       in censorLogs addProcessId
     triggerProcessLinksAndMonitors :: ProcessId -> ExitReason e -> TVar (Set ProcessId) -> Eff SchedulerIO ()
     triggerProcessLinksAndMonitors !pid !reason !linkSetVar = do
       schedulerState <- getSchedulerState
@@ -543,12 +544,11 @@ spawnNewProcess mLinkedParent mfa = do
                  return linkSet))
       res <- traverse sendIt (toList linkedPids)
       traverse_
-        (logDebug @IO . either (("linked process no found: " ++) . show) (("sent shutdown to linked process: " ++) . show))
+        (logDebug . either (("linked process no found: " ++) . show) (("sent shutdown to linked process: " ++) . show))
         res
     doForkProc :: ProcessInfo -> SchedulerState -> Eff SchedulerIO (Async (ExitReason 'NoRecovery))
     doForkProc procInfo schedulerState =
-      restoreM =<<
-      liftBaseWith
+      control
         (\inScheduler -> do
            let cancellationsVar = schedulerState ^. processCancellationTable
                processInfoVar = schedulerState ^. processTable
@@ -559,7 +559,7 @@ spawnNewProcess mLinkedParent mfa = do
                   (logAppendProcInfo
                      pid
                      (Safe.bracketWithError
-                        (logDebug @IO "enter process")
+                        (logDebug "enter process")
                         (\mExc () -> do
                            lift
                              (atomically

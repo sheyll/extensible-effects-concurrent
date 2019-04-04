@@ -1,26 +1,28 @@
 module Main where
 
-import           Control.Concurrent
 import           Control.Eff
 import           Control.Eff.Log
-import           Control.Exception             as IOException
-import           System.Directory
-import           System.FilePath
-import           System.IO
+import           Control.Lens
 
 main :: IO ()
 main =
-  withLogFileAppender  "extensible-effects-concurrent-example-3.log" $ \fileAppender ->
-  withAsyncLogChannel
-  (1000 :: Int)
-  fileAppender
-  (handleLoggingAndIO
-    (do
-      logInfo "test 1"
-      lift (threadDelay 1000000)
-      logDebug "test 2"
-      lift (threadDelay 1000000)
-      logCritical "test 3"
-      lift (threadDelay 1000000)
-    )
-  )
+  runLift
+  $  runLogWriterReader (noOpLogWriter @IO)
+  $  runLogs
+  $  withLogFileAppender  "extensible-effects-concurrent-example-3.log"
+  $  logToReader @IO
+  $  logTo (writeFiltered testPred (writeModified (lmMessage %~ ("TRACED "++)) traceLogMessages))
+  $  setThreadIdAndTimestamp
+  $  do
+        logEmergency "test emergencySeverity 1"
+        logCritical "test criticalSeverity 2"
+        logAlert "test alertSeverity 3"
+        logError "test errorSeverity 4"
+        logWarning "test warningSeverity 5"
+        logInfo "test informationalSeverity 6"
+        logDebug "test debugSeverity 7"
+
+
+testPred :: LogPredicate
+testPred = view (lmSeverity . to (<= errorSeverity))
+

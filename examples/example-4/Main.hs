@@ -6,18 +6,19 @@ import           Data.Dynamic
 import           Control.Concurrent
 import           Control.DeepSeq
 import Debug.Trace
+import GHC.Stack (HasCallStack)
 
 main :: IO ()
-main = defaultMain
+main = defaultMain  $ logTo traceLogMessages
   (do
     lift (threadDelay 100000) -- because of async logging
     firstExample
-    lift (threadDelay 100000) -- ... async logging
+    lift (threadDelay 1000000) -- ... async logging
   )
 
 newtype WhoAreYou = WhoAreYou ProcessId deriving (Typeable, NFData, Show)
 
-firstExample :: (HasLogging IO q) => Eff (InterruptableProcess q) ()
+firstExample :: (HasCallStack, Member Logs q) => Eff (InterruptableProcess q) ()
 firstExample = do
   traceShowM "A - 0000"
   person <- spawn
