@@ -9,7 +9,7 @@ import Debug.Trace
 import GHC.Stack (HasCallStack)
 
 main :: IO ()
-main = defaultMain  $ logTo traceLogMessages
+main = defaultMain  $ logTo debugTraceLogWriter
   (do
     lift (threadDelay 100000) -- because of async logging
     firstExample

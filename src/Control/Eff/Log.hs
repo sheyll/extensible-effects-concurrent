@@ -18,16 +18,15 @@ import           Control.Lens (view, (%~), to)
 _example1 :: IO ()
 _example1 =
     runLift
-  $ runLogWriterReader (makeIoLogWriter printLogMessage)
+  $ runLogWriterReader (ioLogWriter printLogMessage)
   $ runLogs
-  $ logToReader @IO
   $ do
       logDebug "test 1.1"
       logDebug "test 1.2"
       setThreadIdAndTimestamp
        $ do
-            logTo traceLogMessages
-             $ filterLogMessages (\m -> (view lmMessage m) /= "not logged")
+            addLogWriter debugTraceLogWriter
+             $ setLogPredicate (\m -> (view lmMessage m) /= "not logged")
              $ do
                   logDebug "not logged"
                   logDebug "test 2.1"
@@ -37,10 +36,10 @@ _example1 =
 _example2 :: IO Int
 _example2 =
     runLift
-  $ runLogs
-  $ logTo (makeIoLogWriter printLogMessage)
+  $ runLogWriterReader (ioLogWriter printLogMessage)
+  $ runLogs @IO
   $ do logMsg "test"
-       filterLogMessages (\ msg -> case view lmMessage msg of
+       setLogPredicate (\ msg -> case view lmMessage msg of
                                   'O':'M':'G':_ -> True
                                   _             -> False)
                          (do logMsg "this message will not be logged"
@@ -52,10 +51,11 @@ _example3 :: IO ()
 _example3 = go >>= putStrLn
  where go = fmap (unlines . map renderLogMessage . snd)
               $  runLift
-              $  runLogs
               $  runCapturedLogsWriter
-              $  logTo (writeModified (lmMessage %~ ("CAPTURED "++)) captureLogMessages)
-              $  logTo (writeFiltered testPred (writeModified (lmMessage %~ ("TRACED "++)) traceLogMessages))
+              $  runLogWriterReader listLogWriter
+              $  runLogs
+              $  addLogWriter (mappingLogWriter (lmMessage %~ ("CAPTURED "++)) listLogWriter)
+              $  addLogWriter (filteringLogWriter testPred (mappingLogWriter (lmMessage %~ ("TRACED "++)) debugTraceLogWriter))
               $  do
                     logEmergency "test emergencySeverity 1"
                     logCritical "test criticalSeverity 2"

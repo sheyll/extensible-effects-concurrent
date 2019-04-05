@@ -10,8 +10,7 @@ main =
   $  runLogWriterReader (noOpLogWriter @IO)
   $  runLogs
   $  withLogFileAppender  "extensible-effects-concurrent-example-3.log"
-  $  logToReader @IO
-  $  logTo (writeFiltered testPred (writeModified (lmMessage %~ ("TRACED "++)) traceLogMessages))
+  $  addLogWriter (filteringLogWriter testPred (mappingLogWriter (lmMessage %~ ("TRACED "++)) debugTraceLogWriter))
   $  setThreadIdAndTimestamp
   $  do
         logEmergency "test emergencySeverity 1"

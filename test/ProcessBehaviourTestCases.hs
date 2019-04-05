@@ -36,9 +36,8 @@ test_forkIo = setTravisTestOptions $ withTestLogC
   (\c ->
       runLift
     $ runLogWriterReader noOpLogWriter
-    $ runLogs
-    $ logToReader @IO
-    $ withAsyncLogging 100 (makeIoLogWriter (\m -> when (view lmSeverity m < errorSeverity) (printLogMessage m)))
+    $ runLogs @IO
+    $ withAsyncLogging (100 :: Int) (ioLogWriter (\m -> when (view lmSeverity m < errorSeverity) (printLogMessage m)))
     $ ForkIO.schedule c)
   (\factory -> testGroup "ForkIOScheduler" [allTests factory])
 
@@ -53,9 +52,8 @@ test_singleThreaded = setTravisTestOptions $ withTestLogC
         runEff =
             runLift
           . runLogWriterReader
-              (makeIoLogWriter (\m -> when (view lmSeverity m < errorSeverity) (printLogMessage m)))
-          . runLogs
-          . logToReader @IO
+              (ioLogWriter (\m -> when (view lmSeverity m < errorSeverity) (printLogMessage m)))
+          . runLogs @IO
     in  void $ SingleThreaded.scheduleM runEff yield e
   )
   (\factory -> testGroup "SingleThreadedScheduler" [allTests factory])
@@ -150,8 +148,8 @@ selectiveReceiveTests schedulerFactory = setTravisTestOptions
               void $ receiveSelectedMessage (filterMessage (== n))
               go (n - 1)
 
-          senderLoop receviverPid =
-            traverse_ (sendMessage receviverPid) [1 .. nMax]
+          senderLoop destination =
+            traverse_ (sendMessage destination) [1 .. nMax]
 
         me          <- self
         receiverPid <- spawn (receiverLoop me)
@@ -176,8 +174,8 @@ selectiveReceiveTests schedulerFactory = setTravisTestOptions
       ()   <- receiveMessage
       ()   <- receiveMessage
       -- replicateCheapM_ 40 yieldProcess
-      msgs <- flushMessages
-      lift (length msgs @?= 30)
+      messages <- flushMessages
+      lift (length messages @?= 30)
     ]
   )
 

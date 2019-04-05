@@ -32,15 +32,13 @@ import Control.Lens ((%~))
 -- > main =
 -- >     runLift
 -- >   $ runLogs
--- >   $ withAsyncLogging 1000 (makeIoLogWriter printLogMessage)
+-- >   $ withAsyncLogging 1000 (ioLogWriter printLogMessage)
 -- >   $ do logMsg "test 1"
 -- >        logMsg "test 2"
 -- >        logMsg "test 3"
 -- >
 withAsyncLogging ::
-     ( LiftsLogWriter IO e
-     , Member Logs e
-     , Member (LogWriterReader IO) e
+     ( LogsTo IO e
      , Lifted IO e
      , MonadBaseControl IO (Eff e)
      , Integral len
@@ -52,8 +50,8 @@ withAsyncLogging ::
   -> Eff e a
 withAsyncLogging queueLength lw e =
   liftBaseOp
-    (withAsyncLogChannel queueLength (runLogWriter (writeModified (lmMessage %~ ("ASYNC "++)) lw) . force))
-    (\lc -> localLogWriter (const (makeLogChannelWriter lc)) (logToReader @IO e))
+    (withAsyncLogChannel queueLength (runLogWriter (mappingLogWriter (lmMessage %~ ("ASYNC "++)) lw) . force))
+    (\lc -> setLogWriter (makeLogChannelWriter lc) e)
 
 withAsyncLogChannel ::
      forall a len. (Integral len)
@@ -75,7 +73,7 @@ withAsyncLogChannel queueLen ioWriter action = do
       logLoop tq
 
 makeLogChannelWriter :: LogChannel -> LogWriter IO
-makeLogChannelWriter lc = makeIoLogWriter logChannelPutIO
+makeLogChannelWriter lc = ioLogWriter logChannelPutIO
   where
     logChannelPutIO (force -> me) = do
       !m <- evaluate me

@@ -3,34 +3,21 @@
 module Control.Eff.Log.Writer
   ( LogWriter(MkLogWriter, runLogWriter)
   , noOpLogWriter
-  , writeFiltered
-  , writeModified
-  , writeModifiedM
-  , makeIoLogWriter
-  , writeToIoHandle
+  , filteringLogWriter
+  , mappingLogWriter
+  , mappingLogWriterM
+  , ioLogWriter
+  , ioHandleLogWriter
   , LiftsLogWriter(..)
-  , traceLogMessages
-  , TraceLogs(..)
-  , captureLogMessages
+  , debugTraceLogWriter
+  , PureLogWriter(..)
+  , listLogWriter
   , CaptureLogs(..)
   , CapturedLogsWriter
   , runCapturedLogsWriter
-  , LogWriterReader
-  , runLogWriterReader
-  , askLogWriter
-  , localLogWriter
-  , localAddLogWriter
-  , localModifiedWriter
-  , localModifiedWriterM
-  , localFilteredWriter
-  , setThreadIdAndTimestamp
-  , increaseLogMessageDistance
-  , dropDistantLogMessages
-  , withLogFileAppender
   ) where
 
 import Control.Eff
-import Control.Eff.Reader.Lazy
 import Control.Eff.Log.Message
 import Data.Default
 import Debug.Trace
@@ -41,12 +28,6 @@ import Control.DeepSeq (deepseq)
 import Data.Foldable (traverse_)
 import System.IO
 import Control.Monad ((>=>))
-import Control.Lens ((^.), over)
-import Control.Monad.Trans.Control (MonadBaseControl, liftBaseOp)
-import qualified Control.Exception.Safe as Safe
-import qualified Control.Monad.Catch as Catch
-import System.Directory (canonicalizePath, createDirectoryIfMissing)
-import System.FilePath (takeDirectory)
 
 -- | A function that takes a log message and returns an effect that
 -- /logs/ the message.
@@ -57,28 +38,6 @@ newtype LogWriter writerM = MkLogWriter
 instance Applicative w => Default (LogWriter w) where
   def = MkLogWriter (const (pure ()))
 
--- * Basic 'LogWriter's
-
--- | This 'LogWriter' will discard all messages.
---
--- NOTE: This is just an alias for 'def'
-noOpLogWriter :: Applicative m => LogWriter m
-noOpLogWriter = def
-
--- | A 'LogWriter' that applies a predicate to the 'LogMessage' and delegates to
--- to the given writer of the predicate is satisfied.
-writeFiltered :: Monad e => LogPredicate -> LogWriter e -> LogWriter e
-writeFiltered p lw = MkLogWriter (\msg -> if p msg then (runLogWriter lw msg) else return ())
-
--- | A 'LogWriter' that applies a function to the 'LogMessage' and delegates the result to
--- to the given writer.
-writeModified :: (LogMessage -> LogMessage) -> LogWriter e -> LogWriter e
-writeModified f lw = MkLogWriter (runLogWriter lw . f)
-
--- | Like 'writeModified' allow the function that changes the 'LogMessage' to have effects.
-writeModifiedM :: Monad e => (LogMessage -> e LogMessage) -> LogWriter e -> LogWriter e
-writeModifiedM f lw = MkLogWriter (f >=> runLogWriter lw)
-
 -- * LogWriter liftings
 
 -- | This class describes how to lift the log writer action into some monad.
@@ -88,41 +47,42 @@ writeModifiedM f lw = MkLogWriter (f >=> runLogWriter lw)
 class LiftsLogWriter h e where
   liftLogWriter :: LogWriter h -> LogMessage -> Eff e ()
 
--- ** 'IO' based 'LogWriter's
-
--- | A 'LogWriter' that uses an 'IO' action to write the message.
-makeIoLogWriter :: HasCallStack => (LogMessage-> IO ()) -> LogWriter IO
-makeIoLogWriter = MkLogWriter
-
--- | A 'LogWriter' that uses an 'IO' action to write the message.
-writeToIoHandle :: HasCallStack => Handle -> LogWriter IO
-writeToIoHandle h = makeIoLogWriter (hPutStrLn h . renderLogMessage)
-
-instance (Lifted IO e) => LiftsLogWriter IO e where
-  liftLogWriter = (lift . ) . runLogWriter
-
--- * LogWriter variants
+-- * 'LogWriter' Zoo
 
 -- ** Pure Log Writers
 
--- | A 'LogWriter' that applies 'renderLogMessage' to the log message and then
--- traces it using 'traceM'.
-traceLogMessages :: LogWriter TraceLogs
-traceLogMessages = MkLogWriter (traceM . renderLogMessage)
-
--- | The monad for 'traceLogMessages'.
+-- | A base monad for all side effect free 'LogWriter'.
+--
+-- This is only required, when no other 'LogWriter' is available from 'LogWriterReader',
+-- e.g. when logs are only either discarded or traced.
+-- See 'debugTraceLogWriter' or 'noOpLogWriter'.
+--
 -- This is just a wrapper around 'Identity' and serves as a type that has a special
 -- 'LiftsLogWriter' instance.
-newtype TraceLogs a = MkTraceLogs { runTraceLogs :: Identity a }
+newtype PureLogWriter a = MkPureLogWriter { runPureLogWriter :: Identity a }
   deriving (Functor, Applicative, Monad)
 
 -- | A 'LogWriter' monad for 'Debug.Trace' based pure logging.
-instance LiftsLogWriter TraceLogs e where
-  liftLogWriter lw msg = deepseq (runTraceLogs (runLogWriter lw msg)) (return ())
+instance LiftsLogWriter PureLogWriter e where
+  liftLogWriter lw msg = deepseq (runPureLogWriter (runLogWriter lw msg)) (return ())
+
+-- | This 'LogWriter' will discard all messages.
+--
+-- NOTE: This is just an alias for 'def'
+noOpLogWriter :: Applicative m => LogWriter m
+noOpLogWriter = def
+
+-- | A 'LogWriter' that applies 'renderLogMessage' to the log message and then
+-- traces it using 'traceM'.
+-- This 'LogWriter' work with /any/ base monad.
+debugTraceLogWriter :: Monad h => LogWriter h
+debugTraceLogWriter = MkLogWriter (traceM . renderLogMessage)
+
+-- ** Impure logging
 
 -- | A 'LogWriter' monad that provides pure logging by capturing via the 'Writer' effect.
-captureLogMessages :: LogWriter CaptureLogs
-captureLogMessages = MkLogWriter (MkCaptureLogs . tell)
+listLogWriter :: LogWriter CaptureLogs
+listLogWriter = MkLogWriter (MkCaptureLogs . tell)
 
 -- | A 'LogWriter' monad that provides pure logging by capturing via the 'Writer' effect.
 newtype CaptureLogs a = MkCaptureLogs { unCaptureLogs :: Eff '[CapturedLogsWriter] a }
@@ -143,89 +103,28 @@ runCapturedLogsWriter = runListWriter
 -- | Alias for the 'Writer' that contains the captured 'LogMessage's from 'CaptureLogs'.
 type CapturedLogsWriter = Writer LogMessage
 
--- * 'LogWriter' 'Reader'
+-- | A 'LogWriter' that uses an 'IO' action to write the message.
+ioLogWriter :: HasCallStack => (LogMessage-> IO ()) -> LogWriter IO
+ioLogWriter = MkLogWriter
 
--- | A 'Reader' for the 'LogWriter'
-type LogWriterReader h = Reader (LogWriter h)
+-- | A 'LogWriter' that uses an 'IO' action to write the message.
+ioHandleLogWriter :: HasCallStack => Handle -> LogWriter IO
+ioHandleLogWriter h = ioLogWriter (hPutStrLn h . renderLogMessage)
 
--- | Provide the 'LogWriter'
-runLogWriterReader :: LogWriter h -> Eff (LogWriterReader h ': e) a -> Eff e a
-runLogWriterReader = runReader
+instance (Lifted IO e) => LiftsLogWriter IO e where
+  liftLogWriter = (lift . ) . runLogWriter
 
--- | Get the current 'LogWriter'.
-askLogWriter :: Member (LogWriterReader h) e => Eff e (LogWriter h)
-askLogWriter = ask
 
--- | Change the current 'LogWriter'.
-localLogWriter :: Member (LogWriterReader h) e => (LogWriter h -> LogWriter h) -> Eff e a -> Eff e a
-localLogWriter = local
+-- | A 'LogWriter' that applies a predicate to the 'LogMessage' and delegates to
+-- to the given writer of the predicate is satisfied.
+filteringLogWriter :: Monad e => LogPredicate -> LogWriter e -> LogWriter e
+filteringLogWriter p lw = MkLogWriter (\msg -> if p msg then (runLogWriter lw msg) else return ())
 
--- | Modify the the 'LogMessage's written in the given sub-expression.
---
--- Note: This is equivalent to @'localLogWriter' . 'writeModified'@
-localModifiedWriter :: forall h e a . (Member (LogWriterReader h) e) => (LogMessage -> LogMessage) -> Eff e a -> Eff e a
-localModifiedWriter = localLogWriter @h . writeModified
+-- | A 'LogWriter' that applies a function to the 'LogMessage' and delegates the result to
+-- to the given writer.
+mappingLogWriter :: (LogMessage -> LogMessage) -> LogWriter e -> LogWriter e
+mappingLogWriter f lw = MkLogWriter (runLogWriter lw . f)
 
--- | Modify the the 'LogMessage's written in the given sub-expression, as in 'localModifiedWriter'
--- but with a effectful function.
---
--- Note: This is equivalent to @'localLogWriter' . 'writeModifiedM'@
-localModifiedWriterM :: forall h e a . (Monad h, Member (LogWriterReader h) e) => (LogMessage -> h LogMessage) -> Eff e a -> Eff e a
-localModifiedWriterM = localLogWriter @h . writeModifiedM
-
--- | Combine the effects of a given 'LogWriter' and the existing one.
---
--- @runLogWriterReader w1 . localAddLogWriter w2  == runLogWriterReader (\m -> w1 m >> w2 m)@
-localAddLogWriter :: forall h e a . (Monad h, Member (LogWriterReader h) e) => LogWriter h -> Eff e a -> Eff e a
-localAddLogWriter lw2 = localLogWriter (\lw1 -> MkLogWriter (\m -> runLogWriter lw1 m >> runLogWriter lw2 m))
-
--- | Filter the 'LogMessage's written in the given sub-expression with the given
---   'LogPredicate'.
---
--- Note: This is equivalent to @'localLogWriter' . 'writeFiltered'@
-localFilteredWriter :: forall h e a . (Monad h, Member (LogWriterReader h) e) => LogPredicate -> Eff e a -> Eff e a
-localFilteredWriter = localLogWriter @h . writeFiltered
-
--- | Set the current thread id and time of each 'LogMessage' (at the moment the message is logged).
-setThreadIdAndTimestamp :: (LiftsLogWriter IO e, Member (LogWriterReader IO) e, Lifted IO e) => Eff e a -> Eff e a
-setThreadIdAndTimestamp = localModifiedWriterM @IO (setLogMessageThreadId >=> setLogMessageTimestamp)
-
--- ** Distance Based Log Message Filtering
-
--- | Increase the /distance/ of log messages by one.
--- Logs can be filtered by their distance with 'dropDistantLogMessages'
-increaseLogMessageDistance
-  :: forall h e a . (HasCallStack, Member (LogWriterReader h) e) => Eff e a -> Eff e a
-increaseLogMessageDistance = localModifiedWriter @h (over lmDistance (+ 1))
-
--- | Drop all log messages with an 'lmDistance' greater than the given
--- value.
-dropDistantLogMessages :: forall h e a . (HasCallStack, Monad h, Member (LogWriterReader h) e) => Int -> Eff e a -> Eff e a
-dropDistantLogMessages maxDistance =
-  localFilteredWriter @h (\lm -> lm ^. lmDistance <= maxDistance)
-
--- ** File Based Logging
-
--- | Open a file and add the 'LogWriter' in the 'LogWriterReader' tha appends the log messages to it.
-withLogFileAppender
-  :: (HasCallStack, LiftsLogWriter IO e, Lifted IO e, Member (LogWriterReader IO) e, MonadBaseControl IO (Eff e))
-  => FilePath
-  -> Eff e b
-  -> Eff e b
-withLogFileAppender fnIn e = liftBaseOp withOpenedLogFile (`localAddLogWriter` e)
-  where
-    withOpenedLogFile
-      :: HasCallStack
-      => (LogWriter IO -> IO a)
-      -> IO a
-    withOpenedLogFile ioE =
-      Safe.bracket
-          (do
-            fnCanon <- canonicalizePath fnIn
-            createDirectoryIfMissing True (takeDirectory fnCanon)
-            h <- openFile fnCanon AppendMode
-            hSetBuffering h (BlockBuffering (Just 1024))
-            return h
-          )
-          (\h -> Safe.try @IO @Catch.SomeException (hFlush h) >> hClose h)
-          (\h -> ioE (writeToIoHandle h))
+-- | Like 'mappingLogWriter' allow the function that changes the 'LogMessage' to have effects.
+mappingLogWriterM :: Monad e => (LogMessage -> e LogMessage) -> LogWriter e -> LogWriter e
+mappingLogWriterM f lw = MkLogWriter (f >=> runLogWriter lw)

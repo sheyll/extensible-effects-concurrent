@@ -185,7 +185,7 @@ data Process (r :: [Type -> Type]) b where
   -- interrupt and continue as if nothing happened.
   SendInterrupt :: ProcessId -> InterruptReason -> Process r (ResumeProcess ())
   -- | Send a message to a process addressed by the 'ProcessId'. Sending a
-  -- message should **always succeed** and return **immediately**, even if the
+  -- message should __always succeed__ and return __immediately__, even if the
   -- destination process does not exist, or does not accept messages of the
   -- given type.
   SendMessage :: ProcessId -> Dynamic -> Process r (ResumeProcess ())

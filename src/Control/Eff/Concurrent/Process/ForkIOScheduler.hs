@@ -198,14 +198,14 @@ type SchedulerIO = (Reader SchedulerState : LoggingAndIo)
 -- | Start the message passing concurrency system then execute a 'Process' on
 -- top of 'SchedulerIO' effect. All logging is sent to standard output.
 defaultMain :: HasCallStack => Eff InterruptableProcEff () -> IO ()
-defaultMain = defaultMainWithLogWriter (makeIoLogWriter printLogMessage)
+defaultMain = defaultMainWithLogWriter (ioLogWriter printLogMessage)
 
 -- | Start the message passing concurrency system then execute a 'Process' on
 -- top of 'SchedulerIO' effect. All logging is sent to standard output.
 defaultMainWithLogWriter :: HasCallStack => LogWriter IO -> Eff InterruptableProcEff () -> IO ()
 defaultMainWithLogWriter lw =
   runLift .
-  runLogWriterReader (makeIoLogWriter printLogMessage) . runLogs . withAsyncLogging (1024 :: Int) lw . logToReader @IO . schedule
+  runLogWriterReader (ioLogWriter printLogMessage) . runLogs . withAsyncLogging (1024 :: Int) lw . schedule
 
 -- | A 'SchedulerProxy' for 'SchedulerIO'
 forkIoScheduler :: SchedulerProxy SchedulerIO
@@ -512,7 +512,7 @@ spawnNewProcess mLinkedParent mfa = do
                return procInfo))
     logAppendProcInfo pid =
       let addProcessId = over lmProcessId (maybe (Just (printf "% 9s" (show pid))) Just)
-       in censorLogs addProcessId
+       in censorLogs @IO addProcessId
     triggerProcessLinksAndMonitors :: ProcessId -> ExitReason e -> TVar (Set ProcessId) -> Eff SchedulerIO ()
     triggerProcessLinksAndMonitors !pid !reason !linkSetVar = do
       schedulerState <- getSchedulerState
