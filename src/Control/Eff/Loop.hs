@@ -6,7 +6,7 @@
 -- the @-fno-full-laziness@ GHC option.
 --
 -- There is a unit test in the sources of this module, which can be used to do a
--- comperative heap profiling of these function vs. their counterparts in the
+-- comparative heap profiling of these function vs. their counterparts in the
 -- @base@ package.
 --
 -- Here are the images of the profiling results, the images show that the

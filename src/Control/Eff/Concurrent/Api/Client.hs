@@ -71,8 +71,8 @@ call (Server pidInternal) req = do
             extractResult (Reply _pxResult callRefMsg result) =
               if callRefMsg == callRef then Just result else Nothing
         in  selectMessageWith extractResult
-  rres <- receiveWithMonitor pidInternal selectResult
-  either (interrupt . becauseProcessIsDown) return rres
+  resultOrError <- receiveWithMonitor pidInternal selectResult
+  either (interrupt . becauseProcessIsDown) return resultOrError
 
 -- | Instead of passing around a 'Server' value and passing to functions like
 -- 'cast' or 'call', a 'Server' can provided by a 'Reader' effect, if there is

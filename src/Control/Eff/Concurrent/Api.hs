@@ -2,10 +2,10 @@
 -- /requests/) a 'Server' ('Process') can handle, and if the caller blocks and
 -- waits for an answer, which the server process provides.
 --
--- The type magic in the 'Api' type familiy allows to define a related set of /requests/ along
+-- The type magic in the 'Api' type family allows to define a related set of /requests/ along
 -- with the corresponding responses.
 --
--- Request handling can be either blocking, if a response is requred, or
+-- Request handling can be either blocking, if a response is required, or
 -- non-blocking.
 --
 -- A process can /serve/ a specific 'Api' instance by using the functions provided by

@@ -40,8 +40,8 @@ test_IOExceptionsIsolated = setTravisTestOptions $ testGroup
 
                 me <- self
                 spawn_ (lift (threadDelay 10000) >> sendMessage me ())
-                eres <- receiveWithMonitor p1 (selectMessage @())
-                case eres of
+                resultOrError <- receiveWithMonitor p1 (selectMessage @())
+                case resultOrError of
                   Left  _down -> lift (atomically (putTMVar aVar False))
                   Right ()    -> withMonitor p1 $ \ref -> do
                     sendShutdown p1 (NotRecovered (ProcessError "test 123"))
@@ -161,11 +161,11 @@ test_timer =
         let n = 100
             testMsg :: Float
             testMsg   = 123
-            flushMsgs = do
+            flushMessages = do
               res <- receiveSelectedAfter (selectDynamicMessageLazy Just) 0
               case res of
                 Left  _to -> return ()
-                Right _   -> flushMsgs
+                Right _   -> flushMessages
         me <- self
         spawn_
           (do
@@ -176,7 +176,7 @@ test_timer =
         do
           res <- receiveAfter @Float 1000000
           lift (res @?= Just testMsg)
-        flushMsgs
+        flushMessages
         res <- receiveSelectedAfter (selectDynamicMessageLazy Just) 10000
         case res of
           Left  _ -> return ()

@@ -93,12 +93,12 @@ forkInteractiveScheduler ioScheduler = do
       case mInQueue of
         Nothing                       -> return (Left True)
         Just (SchedulerQueue inQueue) -> do
-          mnextAction <- tryReadTChan inQueue
-          case mnextAction of
+          mNextAction <- tryReadTChan inQueue
+          case mNextAction of
             Nothing         -> return (Left False)
             Just nextAction -> return (Right nextAction)
 
--- | Exit the schedulder immediately using an asynchronous exception.
+-- | Exit the scheduler immediately using an asynchronous exception.
 killInteractiveScheduler :: SchedulerSession r -> IO ()
 killInteractiveScheduler (SchedulerSession qVar) =
   atomically (void (tryTakeTMVar qVar))

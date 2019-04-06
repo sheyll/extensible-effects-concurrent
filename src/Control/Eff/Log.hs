@@ -187,7 +187,7 @@ exampleLogCapture = go >>= putStrLn
               $  runCapturedLogsWriter
               $  withLogging listLogWriter
               $  addLogWriter (mappingLogWriter (lmMessage %~ ("CAPTURED "++)) listLogWriter)
-              $  addLogWriter (filteringLogWriter testPred (mappingLogWriter (lmMessage %~ ("TRACED "++)) debugTraceLogWriter))
+              $  addLogWriter (filteringLogWriter severeMessages (mappingLogWriter (lmMessage %~ ("TRACED "++)) debugTraceLogWriter))
               $  do
                     logEmergency "test emergencySeverity 1"
                     logCritical "test criticalSeverity 2"
@@ -196,7 +196,7 @@ exampleLogCapture = go >>= putStrLn
                     logWarning "test warningSeverity 5"
                     logInfo "test informationalSeverity 6"
                     logDebug "test debugSeverity 7"
-       testPred = view (lmSeverity . to (<= errorSeverity))
+       severeMessages = view (lmSeverity . to (<= errorSeverity))
 
 
 -- | Example code for:

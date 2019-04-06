@@ -91,7 +91,7 @@ import           System.FilePath                ( takeDirectory )
 -- | This effect sends 'LogMessage's and is a reader for a 'LogPredicate'.
 --
 -- Logs are sent via 'logMsg';
--- for more informaion about log predicates, see "Control.Eff.Log.Handler#LogPredicate"
+-- for more information about log predicates, see "Control.Eff.Log.Handler#LogPredicate"
 --
 -- This effect is handled via 'withLogging'.
 data Logs v where
@@ -687,7 +687,7 @@ censorLogsM = modifyLogWriter . mappingLogWriterM
 -- >               $  runCapturedLogsWriter
 -- >               $  withLogging listLogWriter
 -- >               $  addLogWriter (mappingLogWriter (lmMessage %~ ("CAPTURED "++)) listLogWriter)
--- >               $  addLogWriter (filteringLogWriter testPred (mappingLogWriter (lmMessage %~ ("TRACED "++)) debugTraceLogWriter))
+-- >               $  addLogWriter (filteringLogWriter severeMessages (mappingLogWriter (lmMessage %~ ("TRACED "++)) debugTraceLogWriter))
 -- >               $  do
 -- >                     logEmergency "test emergencySeverity 1"
 -- >                     logCritical "test criticalSeverity 2"
@@ -696,7 +696,7 @@ censorLogsM = modifyLogWriter . mappingLogWriterM
 -- >                     logWarning "test warningSeverity 5"
 -- >                     logInfo "test informationalSeverity 6"
 -- >                     logDebug "test debugSeverity 7"
--- >        testPred = view (lmSeverity . to (<= errorSeverity))
+-- >        severeMessages = view (lmSeverity . to (<= errorSeverity))
 -- >
 --
 addLogWriter :: forall h e a .

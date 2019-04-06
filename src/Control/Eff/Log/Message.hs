@@ -426,7 +426,7 @@ lmFacility :: Functor f =>
 -- > debugLogsForAppName myAppName lm =
 -- >   view lmAppName lm == Just myAppName || lmSeverityIsAtLeast warningSeverity lm
 --
--- This is implemented in 'discriminateByAppName'.
+-- This concept is also implemented in 'discriminateByAppName'.
 lmAppName :: Functor f =>
              (Maybe String -> f (Maybe String)) -> LogMessage -> f LogMessage
 
@@ -604,43 +604,49 @@ instance IsString LogMessage where
 type LogPredicate = LogMessage -> Bool
 
 -- | All messages.
+--
+-- See "Control.Eff.Log.Message#PredefinedPredicates" for more predicates.
 allLogMessages :: LogPredicate
 allLogMessages = const True
 
 -- | No messages.
+--
+-- See "Control.Eff.Log.Message#PredefinedPredicates" for more predicates.
 noLogMessages :: LogPredicate
 noLogMessages = const False
 
 -- | Match 'LogMessage's that have exactly the given severity.
 -- See 'lmSeverityIsAtLeast'.
 --
--- See "Control.Eff.Log.Handler#LogPredicate"
+-- See "Control.Eff.Log.Message#PredefinedPredicates" for more predicates.
 lmSeverityIs :: Severity -> LogPredicate
 lmSeverityIs s = view (lmSeverity . to (== s))
 
 -- | Match 'LogMessage's that have the given severity __or worse__.
 -- See 'lmSeverityIs'.
 --
--- See "Control.Eff.Log.Handler#LogPredicate"
+-- See "Control.Eff.Log.Message#PredefinedPredicates" for more predicates.
 lmSeverityIsAtLeast :: Severity -> LogPredicate
 lmSeverityIsAtLeast s = view (lmSeverity . to (<= s))
 
 -- | Match 'LogMessage's whose 'lmMessage' starts with the given string.
 --
--- See "Control.Eff.Log.Handler#LogPredicate"
+-- See "Control.Eff.Log.Message#PredefinedPredicates" for more predicates.
 lmMessageStartsWith :: String -> LogPredicate
 lmMessageStartsWith prefix lm =
   case length prefix of
     0         -> True
     prefixLen -> take prefixLen (lm ^. lmMessage) == prefix
 
--- | Apply discriminate 'LogMessage's by their 'lmAppName' and delegate
+-- | Apply a 'LogPredicate' based on the 'lmAppName' and delegate
 -- to one of two 'LogPredicate's.
 --
 -- One useful application for this is to allow info and debug message
 -- from one application, e.g. the current application itself,
 -- while at the same time allowing only warning and error messages
 -- from third party libraries.
+--
+-- See "Control.Eff.Log.Message#PredefinedPredicates" for more predicates.
 discriminateByAppName :: String -> LogPredicate -> LogPredicate -> LogPredicate
 discriminateByAppName appName appPredicate otherPredicate lm =
    if view lmAppName lm == Just appName

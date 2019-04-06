@@ -61,7 +61,7 @@ instance Eq (Observer o) where
   (==) (Observer _ s1) (Observer _ s2) =
     (==) (s1 ^. fromServer) (s2 ^. fromServer)
 
--- | And an 'Observer' to the set of reciepients for all observations reported by 'observed'.
+-- | And an 'Observer' to the set of recipients for all observations reported by 'observed'.
 --   Note that the observers are keyed by the observing process, i.e. a previous entry for the process
 --   contained in the 'Observer' is overwritten. If you want multiple entries for a single process, just
 --   combine several filter functions.

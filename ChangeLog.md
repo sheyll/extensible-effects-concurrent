@@ -113,7 +113,7 @@ API Stabilization and cleanup release with major API changes.
 - Fix a bug in the logging system that caused all log filters to be forgotten
   when using unliftings such as `MonadBaseControl`, `MonadThrow`, `MonadCatch`
   and `MonadMask`
-- Fix the scheduler schutdown to not always run into the cancellation timeout
+- Fix the scheduler shutdown to not always run into the cancellation timeout
 
 ## 0.11.1
 
@@ -164,7 +164,7 @@ API Stabilization and cleanup release with major API changes.
 - Make all `ApiHandler` handler callbacks optional (by changing the type to `Maybe ...`)
 - `ApiHandler` must now return an `ApiServerCmd`.
 - Add `ApiServerCmd` which allows handler functions to leave to server loop without
-  exitting the process
+  exiting the process
 - Fix `Observer.Queue`
 - Rename fields in `ApiHandler`
 - Add smart constructors for `ApiHandler`

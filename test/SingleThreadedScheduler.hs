@@ -22,14 +22,14 @@ test_pureScheduler = setTravisTestOptions $ testGroup
                       sendMessage from ((arg1 + arg2) :: Int)
                       foreverCheap $ void $ receiveAnyMessage
 
-                  multChild <- spawn $ do
+                  multiplierChild <- spawn $ do
                       (from, arg1, arg2) <- receiveMessage
                       sendMessage from ((arg1 * arg2) :: Int)
 
                   me <- self
                   sendMessage adderChild (me, 3 :: Int, 4 :: Int)
                   x <- receiveMessage @Int
-                  sendMessage multChild (me, x, 6 :: Int)
+                  sendMessage multiplierChild (me, x, 6 :: Int)
                   receiveMessage @Int
               )
     ]
