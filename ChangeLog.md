@@ -1,5 +1,14 @@
 # Changelog for extensible-effects-concurrent
 
+## 0.19.0
+
+- Adapt to extensible-effects-concurrent 5.0.0.1
+- Update to Stackage LTS-13.13
+- Improve NIX expressions
+- Rewrite the logging API
+- Improve Documentation
+- Add Examples
+
 ## 0.18.1
 
 - Fix inappropriate `LinkedProcessCrashed` interrupt when a process exits with `NotRecovered ProcessFinished`

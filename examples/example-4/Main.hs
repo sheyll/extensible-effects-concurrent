@@ -3,7 +3,6 @@ module Main where
 import           Control.Eff
 import           Control.Eff.Concurrent
 import           Data.Dynamic
-import           Control.Concurrent
 import           Control.DeepSeq
 import           GHC.Stack (HasCallStack)
 
@@ -11,11 +10,7 @@ main :: IO ()
 main =
     defaultMainWithLogWriter
       (defaultIoLogWriter "example-4" local0 consoleLogWriter)
-  $ do
-       lift (threadDelay 100000) -- because of async logging
-       firstExample
-       lift (threadDelay 100000) -- ... async logging
-
+      firstExample
 
 newtype WhoAreYou = WhoAreYou ProcessId deriving (Typeable, NFData, Show)
 
