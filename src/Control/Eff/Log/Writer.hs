@@ -133,9 +133,7 @@ instance (Lifted IO e) => SupportsLogger IO e where
 consoleLogWriter :: LogWriter IO
 consoleLogWriter = ioLogWriter printLogMessage
 
--- | Decorate an IO based 'LogWriter' to set important fields in log messages.
---
--- ALl log messages are censored to include basic log message information:
+-- | Decorate an IO based 'LogWriter' to fill out these fields in 'LogMessage's:
 --
 -- * The messages will carry the given application name in the 'lmAppName' field.
 -- * The 'lmTimestamp' field contains the UTC time of the log event
@@ -143,8 +141,12 @@ consoleLogWriter = ioLogWriter printLogMessage
 -- * The 'lmHostname' field contains the FQDN of the current host
 -- * The 'lmFacility' field contains the given 'Facility'
 --
--- It installs the given 'LogWriter', wrapped using 'mappingLogWriterM'.
-defaultIoLogWriter :: String -> Facility -> LogWriter IO -> LogWriter IO
+-- It works by using 'mappingLogWriterM'.
+defaultIoLogWriter
+  :: String -- ^ The default application name to put into the 'lmAppName' field.
+  -> Facility -- ^ The default RFC-5424 facility to put into the 'lmFacility' field.
+  -> LogWriter IO -- ^ The IO based writer to decorate
+  -> LogWriter IO
 defaultIoLogWriter appName facility =
   mappingLogWriterM
     (   setLogMessageThreadId
