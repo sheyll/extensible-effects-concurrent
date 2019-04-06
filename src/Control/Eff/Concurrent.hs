@@ -214,6 +214,7 @@ import           Control.Eff.Concurrent.Api.Observer.Queue
 import           Control.Eff.Concurrent.Process.ForkIOScheduler
                                                 ( schedule
                                                 , defaultMain
+                                                , defaultMainWithLogWriter
                                                 , ProcEff
                                                 , InterruptableProcEff
                                                 , SchedulerIO

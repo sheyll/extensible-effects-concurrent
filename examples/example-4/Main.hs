@@ -9,7 +9,8 @@ import           GHC.Stack (HasCallStack)
 
 main :: IO ()
 main =
-    defaultMain
+    defaultMainWithLogWriter
+      (defaultIoLogWriter "example-4" local0 consoleLogWriter)
   $ do
        lift (threadDelay 100000) -- because of async logging
        firstExample
