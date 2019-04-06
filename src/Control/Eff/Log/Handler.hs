@@ -104,12 +104,9 @@ instance forall e a k. Handle Logs e a (LogPredicate -> k) where
   handle h q AskLogFilter p         = h (q ^$ p ) p
   handle h q (WriteLogMessage _) p  = h (q ^$ ()) p
 
--- | This instance allows lifting to the 'Logs' effect, they do, however, need a
--- 'LogWriter' in the base monad, in order to be able to handle 'logMsg' invocations.
---
--- The 'LogWriterReader' effect is must be available to get to the 'LogWriter'.
---
--- Otherwise there is no way to preserve to log messages.
+-- | This instance allows lifting the 'Logs' effect into a base monad, e.g. 'IO'.
+-- This instance needs a 'LogWriterReader' in the base monad,
+-- that is capable to handle 'logMsg' invocations.
 instance forall m e. (MonadBase m m, LiftedBase m e, SupportsLogger m (Logs ': e), SetMember LogWriterReader (LogWriterReader m) (Logs ': e))
   => MonadBaseControl m (Eff (Logs ': e)) where
     type StM (Eff (Logs ': e)) a =  StM (Eff e) a
@@ -176,14 +173,15 @@ instance (Applicative m, LiftedBase m e, Catch.MonadMask (Eff e), SupportsLogger
 -- contained 'LogWriterReader' has a 'SupportsLogger' instance.
 --
 -- The requirements of this constraint are provided by:
--- * 'withStdOutLogging'
+--
+-- * 'withConsoleLogging'
 -- * 'withIoLogging'
 -- * 'withLogging'
 -- * 'withSomeLogging'
 --
 type LogsTo h e = (Member Logs e, SupportsLogger h e, SetMember LogWriterReader (LogWriterReader h) e)
 
--- | Enable logging to @stdout@ using the 'defaultIoLogWriter' in combination with
+-- | Enable logging to @standard output@ using the 'defaultIoLogWriter' in combination with
 -- the 'consoleLogWriter'.
 --
 -- Example:
@@ -214,9 +212,9 @@ withConsoleLogging = withIoLogging consoleLogWriter
 -- > exampleWithIoLogging =
 -- >     runLift
 -- >   $ withIoLogging consoleLogWriter
---                     "my-app"
---                     local7
---                     (lmSeverityIsAtLeast informationalSeverity)
+-- >                   "my-app"
+-- >                   local7
+-- >                   (lmSeverityIsAtLeast informationalSeverity)
 -- >   $ logInfo "Oh, hi there"
 --
 withIoLogging
