@@ -6,15 +6,14 @@
 
 ## From Erlang to Haskell
 
-This project is an attempt to implement ideas from the Erlang eco-system 
-using 'extensible-effects'.
+This project is an attempt to implement core ideas learned from the **Erlang/OTP**  
+framework in Haskell using **`extensible-effects`**.
 
 This library sketches my personal history of working on a large, real world Erlang
 application, trying to bring some of the ideas over to Haskell.
 
-I know about cloud-haskell and transient. 
-
-But nature loves variety, and I wanted something based on 'extensible-effects'.
+I know about cloud-haskell and transient, but I wanted something based on 
+'extensible-effects', and I also wanted to deepen my understanding of it.
 
 ### Modeling an Application with Processes
 
