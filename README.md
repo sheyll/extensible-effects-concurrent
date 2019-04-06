@@ -6,7 +6,8 @@
 
 ## From Erlang to Haskell
 
-Bring ideas from the Erlang eco-system to applications using 'extensible-effects'.
+This project is an attempt to implement ideas from the Erlang eco-system 
+using 'extensible-effects'.
 
 This library sketches my personal history of working on a large, real world Erlang
 application, trying to bring some of the ideas over to Haskell.
