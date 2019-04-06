@@ -1,7 +1,7 @@
 -- | Implement Erlang style message passing concurrency.
 --
--- This handles the 'MessagePassing' and 'Process' effects, using
--- 'STM.TQueue's and 'forkIO'.
+-- This module contains 'spawn' which handles the 'Process' effects, using
+-- 'STM.TQueue's and 'Control.Concurrent.Async.withAsync'.
 --
 -- This aims to be a pragmatic implementation, so even logging is
 -- supported.
@@ -9,9 +9,6 @@
 -- At the core is a /main process/ that enters 'schedule'
 -- and creates all of the internal state stored in 'STM.TVar's
 -- to manage processes with message queues.
---
--- The 'Eff' handler for 'Process' and 'MessagePassing' use
--- are implemented and available through 'spawn'.
 --
 module Control.Eff.Concurrent.Process.ForkIOScheduler
   ( schedule
@@ -21,7 +18,6 @@ module Control.Eff.Concurrent.Process.ForkIOScheduler
   , InterruptableProcEff
   , SchedulerIO
   , HasSchedulerIO
-  , forkIoScheduler
   ) where
 
 import Control.Concurrent (yield)
@@ -55,8 +51,9 @@ import System.Timeout
 import Text.Printf
 
 -- * Process Types
+
 -- | A message queue of a process, contains the actual queue and maybe an
--- exit reason.
+-- exit reason. The message queue is backed by a 'Seq' sequence with 'Dynamic' values.
 data MessageQ = MessageQ
   { _incomingMessages :: Seq Dynamic
   , _shutdownRequests :: Maybe SomeExitReason
@@ -75,9 +72,9 @@ tryTakeNextShutdownRequestSTM mqVar = do
   when (isJust (mq ^. shutdownRequests)) (writeTVar mqVar (mq & shutdownRequests .~ Nothing))
   return (mq ^. shutdownRequests)
 
--- | Information about a process, needed to implement 'MessagePassing' and
--- 'Process' handlers. The message queue is backed by a 'STM.TQueue' and contains
--- 'MessageQEntry' values.
+-- | Information about a process, needed to implement
+-- 'Process' handlers. The message queue is backed by a 'STM.TVar' that contains
+-- a 'MessageQ'.
 data ProcessInfo = ProcessInfo
   { _processId :: ProcessId
   , _processState :: TVar ProcessState
@@ -88,21 +85,20 @@ data ProcessInfo = ProcessInfo
 makeLenses ''ProcessInfo
 
 -- * Scheduler Types
+
 -- | Contains all process info'elements, as well as the state needed to
--- implement inter process communication. It contains also a 'LogChannel' to
--- which the logs of all processes are forwarded to.
+-- implement inter process communication.
 data SchedulerState = SchedulerState
   { _nextPid :: TVar ProcessId
   , _processTable :: TVar (Map ProcessId ProcessInfo)
   , _processCancellationTable :: TVar (Map ProcessId (Async (ExitReason 'NoRecovery)))
-  , _processMonitors :: TVar (Set (MonitorReference, ProcessId))
+  , _processMonitors :: TVar (Set (MonitorReference, ProcessId))  -- ^ Set of monitors and monitor owners
   , _nextMonitorIndex :: TVar Int
-                              -- Set of monitors and monitor owners
   }
 
 makeLenses ''SchedulerState
 
--- | Add monitor: If the process is dead, enqueue a ProcessDown message into the
+-- | Add monitor: If the process is dead, enqueue a 'ProcessDown' message into the
 -- owners message queue
 addMonitoring :: ProcessId -> ProcessId -> SchedulerState -> STM MonitorReference
 addMonitoring target owner schedulerState = do
@@ -142,6 +138,7 @@ newProcessInfo :: HasCallStack => ProcessId -> STM ProcessInfo
 newProcessInfo a = ProcessInfo a <$> newTVar ProcessBooting <*> newTVar def <*> newTVar def
 
 -- * Scheduler Implementation
+
 -- | Create a new 'SchedulerState'
 newSchedulerState :: HasCallStack => STM SchedulerState
 newSchedulerState = SchedulerState <$> newTVar 1 <*> newTVar def <*> newTVar def <*> newTVar def <*> newTVar def
@@ -198,20 +195,16 @@ type SchedulerIO = (Reader SchedulerState : LoggingAndIo)
 -- | Start the message passing concurrency system then execute a 'Process' on
 -- top of 'SchedulerIO' effect. All logging is sent to standard output.
 defaultMain :: HasCallStack => Eff InterruptableProcEff () -> IO ()
-defaultMain = defaultMainWithLogWriter (ioLogWriter printLogMessage)
+defaultMain = defaultMainWithLogWriter consoleLogWriter
 
 -- | Start the message passing concurrency system then execute a 'Process' on
 -- top of 'SchedulerIO' effect. All logging is sent to standard output.
 defaultMainWithLogWriter :: HasCallStack => LogWriter IO -> Eff InterruptableProcEff () -> IO ()
 defaultMainWithLogWriter lw =
-  runLift .
-  runLogWriterReader (ioLogWriter printLogMessage) . runLogs . withAsyncLogging (1024 :: Int) lw . schedule
+  runLift . withSomeLogging . withAsyncLogging (1024 :: Int) lw . schedule
 
--- | A 'SchedulerProxy' for 'SchedulerIO'
-forkIoScheduler :: SchedulerProxy SchedulerIO
-forkIoScheduler = SchedulerProxy
+-- ** Process Execution
 
--- ** MessagePassing execution
 handleProcess ::
      (HasCallStack) => ProcessInfo -> Eff ProcEff (ExitReason 'NoRecovery) -> Eff SchedulerIO (ExitReason 'NoRecovery)
 handleProcess myProcessInfo actionToRun =
@@ -453,15 +446,9 @@ handleProcess myProcessInfo actionToRun =
                 (\res -> Just (res, acc Seq.>< msgRest))
                 (runMessageSelector f m)
 
---  handle_relay_s
---    0
---    (const return)
---    (\ !nextRef !request k ->
---       stepProcessInterpreter nextRef request k return
---    )
 -- | This is the main entry point to running a message passing concurrency
 -- application. This function takes a 'Process' on top of the 'SchedulerIO'
--- effect and a 'LogChannel' for concurrent logging.
+-- effect for concurrent logging.
 schedule :: (HasCallStack) => Eff InterruptableProcEff () -> Eff LoggingAndIo ()
 schedule procEff =
   liftBaseWith

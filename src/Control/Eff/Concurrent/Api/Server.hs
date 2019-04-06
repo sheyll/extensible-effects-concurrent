@@ -149,7 +149,7 @@ spawnLinkApiServerEffectful handleServerInternalEffects scb icb =
   toServerPids (Proxy @api)
     <$> spawnLink (handleServerInternalEffects (apiServerLoop scb icb))
 
--- | Receive loop for 'Api' 'call's. This starts a receive loop for
+-- | Receive loop for 'Api' 'Control.Eff.Concurrent.Api.Client.call's. This starts a receive loop for
 -- a 'MessageCallback'. It is used behind the scenes by 'spawnLinkApiServerEffectful'
 -- and 'spawnApiServerEffectful'.
 --
@@ -182,17 +182,16 @@ apiServerLoop (MessageCallback sel cb) (InterruptCallback intCb) =
   handleCallbackResult (Right (Left r)) =
     intCb r >>= handleCallbackResult . Left
 
--- | A command to the server loop started e.g. by 'server' or 'spawnServerWithEffects'.
--- Typically returned by an 'ApiHandler' member to indicate if the server
+-- | A command to the server loop started by 'apiServerLoop'.
+-- Typically returned by a 'MessageCallback' to indicate if the server
 -- should continue or stop.
 --
 -- @since 0.13.2
 data CallbackResult where
   -- | Tell the server to keep the server loop running
   AwaitNext :: CallbackResult
-  -- | Tell the server to exit, this will make 'serve' stop handling requests without
-  -- exiting the process. '_terminateCallback' will be invoked with the given
-  -- optional reason.
+  -- | Tell the server to exit, this will cause 'apiServerLoop' to stop handling requests without
+  -- exiting the process.
   StopServer :: InterruptReason -> CallbackResult
   --  SendReply :: reply -> CallbackResult () -> CallbackResult (reply -> Eff eff ())
   deriving ( Typeable )

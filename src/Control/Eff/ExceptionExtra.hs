@@ -4,7 +4,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TypeOperators #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
--- | Add-ons to 'Control.Eff.Exception' and 'Control.Excepion'
+-- | Add-ons to 'Control.Eff.Exception' and 'Control.Exception'
 module Control.Eff.ExceptionExtra
   ( liftTry
   , maybeThrow

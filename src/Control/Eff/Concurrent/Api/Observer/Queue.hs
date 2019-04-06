@@ -24,8 +24,8 @@ import           Control.Monad                  ( unless )
 import           Data.Typeable
 import           GHC.Stack
 
--- | Contains a 'TBQueue' capturing observations received by 'enqueueObservationsRegistered'
--- or 'spawnLinkObservationQueueWriter'.
+-- | Contains a 'TBQueue' capturing observations.
+-- See 'spawnLinkObservationQueueWriter', 'readObservationQueue'.
 newtype ObservationQueue a = ObservationQueue (TBQueue a)
 
 -- | A 'Reader' for an 'ObservationQueue'.
@@ -66,9 +66,10 @@ tryReadObservationQueue = do
   ObservationQueue q <- ask @(ObservationQueue o)
   liftIO (atomically (tryReadTBQueue q))
 
--- | Read at once all currently queued observations captured and enqueued in the shared 'TBQueue' by 'spawnLinkObservationQueueWriter'.
--- This returns immediately all currently enqueued 'Observation's. For a blocking
--- variant use 'readObservationQueue'.
+-- | Read at once all currently queued observations captured and enqueued
+-- in the shared 'TBQueue' by 'spawnLinkObservationQueueWriter'.
+-- This returns immediately all currently enqueued observations.
+-- For a blocking variant use 'readObservationQueue'.
 flushObservationQueue
   :: forall o r
    . ( Member (ObservationQueueReader o) r

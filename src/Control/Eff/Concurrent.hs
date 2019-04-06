@@ -218,13 +218,11 @@ import           Control.Eff.Concurrent.Process.ForkIOScheduler
                                                 , InterruptableProcEff
                                                 , SchedulerIO
                                                 , HasSchedulerIO
-                                                , forkIoScheduler
                                                 )
 
 import           Control.Eff.Concurrent.Process.SingleThreadedScheduler
                                                 ( schedulePure
                                                 , defaultMainSingleThreaded
-                                                , singleThreadedIoScheduler
                                                 )
 import           Control.Eff.Log
 import           Control.Eff.Loop

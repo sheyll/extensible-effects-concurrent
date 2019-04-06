@@ -191,7 +191,7 @@ data Process (r :: [Type -> Type]) b where
   SendMessage :: ProcessId -> Dynamic -> Process r (ResumeProcess ())
   -- | Receive a message that matches a criteria.
   -- This should block until an a message was received. The message is returned
-  -- as a 'ProcessMessage' value. The function should also return if an exception
+  -- as a 'ResumeProcess' value. The function should also return if an exception
   -- was caught or a shutdown was requested.
   ReceiveSelectedMessage :: forall r a . MessageSelector a -> Process r (ResumeProcess a)
   -- | Generate a unique 'Int' for the current process.
@@ -411,7 +411,7 @@ thisSchedulerProxy = return SchedulerProxy
 -- | The state that a 'Process' is currently in.
 data ProcessState =
     ProcessBooting              -- ^ The process has just been started but not
-                                --   called 'handleProcess' yet.
+                                --   scheduled yet.
   | ProcessIdle                 -- ^ The process yielded it's time slice
   | ProcessBusy                 -- ^ The process is busy with non-blocking
   | ProcessBusySending          -- ^ The process is busy with sending a message
@@ -446,7 +446,7 @@ instance Show ExitRecovery where
           NoRecovery  -> showString "not recoverable"
         )
 
--- | Get the 'ExitRecover'y
+-- | Get the 'ExitRecovery'
 toExitRecovery :: ExitReason r -> ExitRecovery
 toExitRecovery = \case
   ProcessFinished           -> Recoverable
@@ -666,7 +666,7 @@ mergeEitherInterruptAndExitReason
   :: Either InterruptReason (ExitReason 'NoRecovery) -> ExitReason 'NoRecovery
 mergeEitherInterruptAndExitReason = either NotRecovered id
 
--- | Throw an 'InterruptReason', can be handled by 'recoverFromInterrupt' or
+-- | Throw an 'InterruptReason', can be handled by 'handleInterrupts' or
 --   'exitOnInterrupt' or 'provideInterrupts'.
 interrupt :: (HasCallStack, Member Interrupts r) => InterruptReason -> Eff r a
 interrupt = throwError
@@ -730,7 +730,7 @@ toCrashReason :: ExitReason x -> Maybe String
 toCrashReason e | isCrash e = Just (show e)
                 | otherwise = Nothing
 
--- | Log the 'ExitReasons'
+-- | Log the 'ExitReason's
 logProcessExit :: forall e x. (Member Logs e, HasCallStack) => ExitReason x -> Eff e ()
 logProcessExit (toCrashReason -> Just ex) = withFrozenCallStack (logError ex)
 logProcessExit ex = withFrozenCallStack (logDebug (show ex))
@@ -843,7 +843,7 @@ sendInterrupt pid s =
 -- | Start a new process, the new process will execute an effect, the function
 -- will return immediately with a 'ProcessId'. If the new process is
 -- interrupted, the process will 'Shutdown' with the 'InterruptReason'
--- wrapped in 'NotCovered'. For specific use cases it might be better to use
+-- wrapped in 'NotRecovered'. For specific use cases it might be better to use
 -- 'spawnRaw'.
 spawn
   :: forall r q
@@ -1080,7 +1080,7 @@ receiveWithMonitor pid sel = withMonitor
 
 -- | A monitored process exited.
 -- This message is sent to a process by the scheduler, when
--- a process that was monitored via a 'SchedulerCommand' died.
+-- a process that was monitored died.
 --
 -- @since 0.12.0
 data ProcessDown =
@@ -1090,8 +1090,9 @@ data ProcessDown =
     }
   deriving (Typeable, Generic, Eq, Ord)
 
--- | Trigger an 'Interrupt' for a 'ProcessDown' message.
--- The reason will be 'ProcessNotRunning'
+-- | Make an 'InterruptReason' for a 'ProcessDown' message.
+--
+-- For example: @doSomething >>= either (interrupt . becauseProcessIsDown) return@
 --
 -- @since 0.12.0
 becauseProcessIsDown :: ProcessDown -> InterruptReason

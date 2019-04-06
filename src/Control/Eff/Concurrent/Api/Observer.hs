@@ -79,7 +79,7 @@ registerObserver
 registerObserver observer observerRegistry =
   cast observerRegistry (RegisterObserver observer)
 
--- | Send the 'forgetObserverMessage'
+-- | Send the 'ForgetObserver' message
 --
 -- @since 0.16.0
 forgetObserver
@@ -109,7 +109,7 @@ data instance Api (Observer o) r where
 
 -- | Based on the 'Api' instance for 'Observer' this simplified writing
 -- a callback handler for observations. In order to register to
--- and 'ObservationRegistry' use 'toObserver'.
+-- and 'ObserverRegistry' use 'toObserver'.
 --
 -- @since 0.16.0
 handleObservations
@@ -121,7 +121,7 @@ handleObservations k = handleCasts
     Observed o -> k o
   )
 
--- | Use a 'Server' as an 'Observer' for 'handleObserved'.
+-- | Use a 'Server' as an 'Observer' for 'handleObservations'.
 --
 -- @since 0.16.0
 toObserver :: Typeable o => Server (Observer o) -> Observer o
@@ -148,7 +148,7 @@ toObserverFor wrapper = Observer (Just . wrapper)
 data ObserverRegistry o
 
 -- | Api for managing observers. This can be added to any server for any number of different observation types.
--- The functions 'manageObservers' and 'handleObserverApi' are used to include observer handling;
+-- The functions 'manageObservers' and 'handleObserverRegistration' are used to include observer handling;
 --
 -- @since 0.16.0
 data instance Api (ObserverRegistry o) r where
@@ -165,7 +165,7 @@ data instance Api (ObserverRegistry o) r where
 
 -- ** Api for integrating 'ObserverRegistry' into processes.
 
--- | Provide the implementation for the 'Observerd' Api, this handled 'RegisterObserver' and 'ForgetObserver'
+-- | Provide the implementation for the 'ObserverRegistry' Api, this handled 'RegisterObserver' and 'ForgetObserver'
 -- messages. It also adds the 'ObserverState' constraint to the effect list.
 --
 -- @since 0.16.0
@@ -192,8 +192,9 @@ handleObserverRegistration = handleCasts
   )
 
 
--- | Keep track of registered 'Observer's Observers can be added and removed,
--- and an 'Observation' can be sent to all registerd observers at once.
+-- | Keep track of registered 'Observer's.
+--
+-- Handle the 'ObserverState' introduced by 'handleObserverRegistration'.
 --
 -- @since 0.16.0
 manageObservers :: Eff (ObserverState o ': r) a -> Eff r a

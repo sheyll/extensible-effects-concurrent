@@ -29,7 +29,7 @@ untilInterrupted pa = do
     _ -> untilInterrupted pa
 
 scheduleAndAssert ::
-     forall r. (SetMember Lift (Lift IO) r, Member Logs r, Member (LogWriterReader IO) r)
+     forall r. (Lifted IO r, LogsTo IO r)
   => IO (Eff (InterruptableProcess r) () -> IO ())
   -> ((String -> Bool -> Eff (InterruptableProcess r) ()) -> Eff (InterruptableProcess r) ())
   -> IO ()
@@ -44,7 +44,7 @@ scheduleAndAssert schedulerFactory testCaseAction =
     assertBool title result
 
 applySchedulerFactory ::
-     forall r. (Member Logs r, Member (LogWriterReader IO) r, SetMember Lift (Lift IO) r)
+     forall r. (Lifted IO r, LogsTo IO r)
   => IO (Eff (InterruptableProcess r) () -> IO ())
   -> Eff (InterruptableProcess r) ()
   -> IO ()

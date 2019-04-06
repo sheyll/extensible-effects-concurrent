@@ -7,11 +7,11 @@ import           Control.Lens
 main :: IO ()
 main =
   runLift
-  $  runLogWriterReader (noOpLogWriter @IO)
-  $  runLogs
+  $  withSomeLogging @IO
   $  withLogFileAppender  "extensible-effects-concurrent-example-3.log"
-  $  addLogWriter (filteringLogWriter testPred (mappingLogWriter (lmMessage %~ ("TRACED "++)) debugTraceLogWriter))
-  $  setThreadIdAndTimestamp
+  $  addLogWriter (filteringLogWriter testPred (mappingLogWriter (lmMessage %~ ("traced: "++)) debugTraceLogWriter))
+  $  modifyLogWriter (defaultIoLogWriter "example-3" local0)
+  $  addLogWriter (filteringLogWriter testPred (mappingLogWriter (lmMessage %~ ("traced without timestamp: "++)) debugTraceLogWriter))
   $  do
         logEmergency "test emergencySeverity 1"
         logCritical "test criticalSeverity 2"
@@ -24,4 +24,3 @@ main =
 
 testPred :: LogPredicate
 testPred = view (lmSeverity . to (<= errorSeverity))
-

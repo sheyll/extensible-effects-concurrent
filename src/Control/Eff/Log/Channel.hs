@@ -15,7 +15,6 @@ import Control.Monad (unless)
 import Control.Monad.Trans.Control (MonadBaseControl, liftBaseOp)
 import Data.Foldable (traverse_)
 import Data.Kind ()
-import Control.Lens ((%~))
 
 -- | Fork a new process in which the given log message writer, will listen
 -- on a message queue, to which all log message will be relayed.
@@ -28,15 +27,16 @@ import Control.Lens ((%~))
 --
 -- Example:
 --
--- >
--- > main =
+-- > exampleAsyncLogging :: IO ()
+-- > exampleAsyncLogging =
 -- >     runLift
--- >   $ runLogs
--- >   $ withAsyncLogging 1000 (ioLogWriter printLogMessage)
+-- >   $ withSomeLogging @IO
+-- >   $ withAsyncLogging (1000::Int) consoleLogWriter
 -- >   $ do logMsg "test 1"
 -- >        logMsg "test 2"
 -- >        logMsg "test 3"
 -- >
+--
 withAsyncLogging ::
      ( LogsTo IO e
      , Lifted IO e
@@ -50,7 +50,7 @@ withAsyncLogging ::
   -> Eff e a
 withAsyncLogging queueLength lw e =
   liftBaseOp
-    (withAsyncLogChannel queueLength (runLogWriter (mappingLogWriter (lmMessage %~ ("ASYNC "++)) lw) . force))
+    (withAsyncLogChannel queueLength (runLogWriter lw . force))
     (\lc -> setLogWriter (makeLogChannelWriter lc) e)
 
 withAsyncLogChannel ::

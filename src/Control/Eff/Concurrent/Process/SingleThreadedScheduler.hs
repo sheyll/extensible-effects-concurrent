@@ -6,7 +6,6 @@ module Control.Eff.Concurrent.Process.SingleThreadedScheduler
   , scheduleMonadIOEff
   , scheduleIOWithLogging
   , defaultMainSingleThreaded
-  , singleThreadedIoScheduler
   )
 where
 
@@ -179,16 +178,16 @@ diskontinue sts k e = (sts ^. runEff) (k (Interrupted e))
 --  Meat Of The Thing
 -- -----------------------------------------------------------------------------
 
--- | Like 'schedule' but /pure/. The @yield@ effect is just @return ()@.
+-- | Like 'scheduleIO' but /pure/. The @yield@ effect is just @return ()@.
 -- @schedulePure == runIdentity . 'scheduleM' (Identity . run)  (return ())@
 --
 -- @since 0.3.0.2
 schedulePure
   :: Eff (InterruptableProcess '[Logs, LogWriterReader PureLogWriter]) a
   -> Either (ExitReason 'NoRecovery) a
-schedulePure e = run (scheduleM (runLogWriterReader noOpLogWriter . ignoreLogs @PureLogWriter) (return ()) e)
+schedulePure e = run (scheduleM (withSomeLogging @PureLogWriter) (return ()) e)
 
--- | Invoke 'schedule' with @lift 'Control.Concurrent.yield'@ as yield effect.
+-- | Invoke 'scheduleM' with @lift 'Control.Concurrent.yield'@ as yield effect.
 -- @scheduleIO runEff == 'scheduleM' (runLift . runEff) (liftIO 'yield')@
 --
 -- @since 0.4.0.0
@@ -199,7 +198,7 @@ scheduleIO
   -> m (Either (ExitReason 'NoRecovery) a)
 scheduleIO r = scheduleM (runLift . r) (liftIO yield)
 
--- | Invoke 'schedule' with @lift 'Control.Concurrent.yield'@ as yield effect.
+-- | Invoke 'scheduleM' with @lift 'Control.Concurrent.yield'@ as yield effect.
 -- @scheduleMonadIOEff == 'scheduleM' id (liftIO 'yield')@
 --
 -- @since 0.3.0.2
@@ -215,7 +214,7 @@ scheduleMonadIOEff = -- schedule (lift yield)
 --
 -- Log messages are evaluated strict.
 --
--- @scheduleIOWithLogging == 'run' . 'captureLogs' . 'schedule' (return ())@
+-- @scheduleIOWithLogging == 'scheduleIO' . 'withLogging'@
 --
 -- @since 0.4.0.0
 scheduleIOWithLogging
@@ -223,14 +222,14 @@ scheduleIOWithLogging
   => LogWriter IO
   -> Eff (InterruptableProcess LoggingAndIo) a
   -> IO (Either (ExitReason 'NoRecovery) a)
-scheduleIOWithLogging h = scheduleIO (runLogWriterReader h . runLogs @IO)
+scheduleIOWithLogging h = scheduleIO (withLogging h)
 
 -- | Handle the 'Process' effect, as well as all lower effects using an effect handler function.
 --
 -- Execute the __main__ 'Process' and all the other processes 'spawn'ed by it in the
 -- current thread concurrently, using a co-routine based, round-robin
--- scheduler. If a process exits with 'exitNormally', 'exitWithError',
--- 'raiseError' or is killed by another process @Left ...@ is returned.
+-- scheduler. If a process exits with eg.g 'exitNormally' or 'exitWithError'
+-- or is killed by another process @Left ...@ is returned.
 -- Otherwise, the result will be wrapped in a @Right@.
 --
 -- Every time a process _yields_ the effects are evaluated down to the a value
@@ -518,16 +517,11 @@ handleProcess sts allProcs@((!processState, !pid) :<| rest) =
       nextTargets <- _runEff sts $ traverse deliverTheGoodNews targets
       return (nextTargets Seq.>< allButTarget)
 
--- | A 'SchedulerProxy' for 'LoggingAndIo'.
-singleThreadedIoScheduler :: SchedulerProxy '[Logs, Lift IO]
-singleThreadedIoScheduler = SchedulerProxy
-
--- | Execute a 'Process' using 'schedule' on top of 'Lift' @IO@ and 'Logs'
+-- | Execute a 'Process' using 'scheduleM' on top of 'Lift' @IO@ and 'withLogging'
 -- @String@ effects.
 defaultMainSingleThreaded :: HasCallStack => Eff (InterruptableProcess LoggingAndIo) () -> IO ()
 defaultMainSingleThreaded =
   void
     . runLift
-    . runLogWriterReader (ioLogWriter printLogMessage)
-    . runLogs @IO
+    . withLogging consoleLogWriter
     . scheduleMonadIOEff

@@ -25,7 +25,7 @@ test_loopTests =
                     "scheduleMonadIOEff with many yields from replicateCheapM_"
                 $ do
                       res <-
-                          Scheduler.scheduleIOWithLogging  (ioLogWriter printLogMessage)
+                          Scheduler.scheduleIOWithLogging  consoleLogWriter
                               $ replicateCheapM_ soMany yieldProcess
                       res @=? Right ()
             , testCase
