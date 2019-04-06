@@ -37,11 +37,16 @@ There are two schedulers, that *interpret* the `Process` effect:
 
 ### Process Life-Cycles and Interprocess Links
 
-When processes start new processes, the are *related* and often *linked*.
+All processes except the first process are **`spawned`** by existing 
+processes.
+
+When a process **`spawns`** a new process, both are mutually **linked**, and
+the former is called *parent* and the other *child*.
 
 Process links form a trees.
 
 When a parent process dies, the child processes dies as well.
+
 If on the other hand a child dies, the parent will not die unless the
 child *crashed*. 
 
