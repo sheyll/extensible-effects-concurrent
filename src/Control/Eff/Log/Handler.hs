@@ -220,7 +220,7 @@ withConsoleLogging = withIoLogging consoleLogWriter
 withIoLogging
   :: SetMember Lift (Lift IO) e
   => LogWriter IO -- ^ The 'LogWriter' that will be used to write log messages.
-  => String -- ^ The default application name to put into the 'lmAppName' field.
+  -> String -- ^ The default application name to put into the 'lmAppName' field.
   -> Facility -- ^ The default RFC-5424 facility to put into the 'lmFacility' field.
   -> LogPredicate -- ^ The inital predicate for log messages, there are some pre-defined in "Control.Eff.Log.Message#PredefinedPredicates"
   -> Eff (Logs : LogWriterReader IO : e) a
