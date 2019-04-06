@@ -38,7 +38,7 @@ import Control.Eff.Writer.Strict (Writer, tell, runListWriter)
 import Data.Functor.Identity (Identity)
 import Control.DeepSeq (deepseq)
 import Data.Foldable (traverse_)
-import System.IO
+import System.IO as IO
 import Control.Monad ((>=>))
 import Control.Lens
 
@@ -121,7 +121,8 @@ type CapturedLogsWriter = Writer LogMessage
 ioLogWriter :: HasCallStack => (LogMessage-> IO ()) -> LogWriter IO
 ioLogWriter = MkLogWriter
 
--- | A 'LogWriter' that uses an 'IO' action to write the message.
+-- | A 'LogWriter' that renders 'LogMessage's to strings via 'renderLogMessage'
+-- and prints them to an 'IO.Handle' using 'hPutStrLn'.
 ioHandleLogWriter :: HasCallStack => Handle -> LogWriter IO
 ioHandleLogWriter h = ioLogWriter (hPutStrLn h . renderLogMessage)
 
