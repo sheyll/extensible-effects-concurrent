@@ -20,7 +20,7 @@ install:
 
 script:
   - stack --no-terminal --skip-ghc-check build
-  - stack --no-terminal --skip-ghc-check build --test --test-arguments '-p "$0 !~ /Loops WITH space leaks/ " --num-threads=2 +RTS -qa -qm -N2 -maxN2 -RTS'
+  - stack --no-terminal --skip-ghc-check build --test --test-arguments '-p "$0 !~ /Loops WITH space leaks/ " --num-threads=2'
   - stack --no-terminal --skip-ghc-check haddock
 
 cache:
