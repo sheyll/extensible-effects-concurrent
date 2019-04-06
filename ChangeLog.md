@@ -1,5 +1,11 @@
 # Changelog for extensible-effects-concurrent
 
+## 0.19.1
+
+- Fix Travis build
+- Fix typos
+- Fix README
+
 ## 0.19.0
 
 - Adapt to extensible-effects-concurrent 5.0.0.1
