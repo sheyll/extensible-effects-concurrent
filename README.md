@@ -1,28 +1,74 @@
 # extensible-effects-concurrent
 
-Message passing concurrency with 'forkIO' and 'extensible-effects' inspired by Erlang.
-
 [![Build Status](https://travis-ci.org/sheyll/extensible-effects-concurrent.svg?branch=master)](https://travis-ci.org/sheyll/extensible-effects-concurrent)
 
 [![Hackage](https://img.shields.io/hackage/v/extensible-effects-concurrent.svg?style=flat)](http://hackage.haskell.org/package/extensible-effects-concurrent)
 
-Also included:
+## From Erlang to Haskell
 
-- Logging
+Bring ideas from the Erlang eco-system to applications using 'extensible-effects'.
 
-- Memory Leak Free `forever`
+This library sketches my personal history of working on a large, real world Erlang
+application, trying to bring some of the ideas over to Haskell.
 
-## GHC Extensions
+I know about cloud-haskell and transient. 
 
-In order to use the library you might need to activate some extension
-in order to fight some ambiguous types, stemming from the flexibility to
-choose different Scheduler implementations.
+But nature loves variety, and I wanted something based on 'extensible-effects'.
 
-- AllowAmbiguousTypes
-- TypeApplications
+### Modeling an Application with Processes
 
+The fundamental approach to modelling applications in Erlang is
+based on the concept of concurrent, communicating processes, without
+shared state. 
 
-## Example
+**`Processes`** are at the center of that contraption. All *actions*
+happens in processes, and all *interactions* happen via messages sent
+between processes. 
+
+This is called **Message Passing Concurrency**;
+in this library it is provided via the **`Process`** effect. 
+
+The **`Process`** effect itself is just an *abstract interface*.
+
+There are two schedulers, that *interpret* the `Process` effect:
+
+- A *multi-threaded* scheduler, based on the `async`
+- A *pure* single-threaded scheduler, based on coroutines
+
+### Process Life-Cycles and Interprocess Links
+
+When processes start new processes, the are *related* and often *linked*.
+
+Process links form a trees.
+
+When a parent process dies, the child processes dies as well.
+If on the other hand a child dies, the parent will not die unless the
+child *crashed*. 
+
+A parent might also react by *restarting* the child from a defined starting
+state.
+
+Because processes never share memory, the internal - possibly broken - state of 
+a process is gone, when a process exits; hence restarting a process will not
+be bothered by left-over, possibly inconsistent, state. 
+
+Erlang such parent processes are call *supervisor* processes in Erlang.
+
+In order to build **supervision trees** the `Process` effect allows:
+
+- Interrupting and killing Processes
+- Process Monitoring
+- Process Linking
+- Timers and Timeouts
+
+These facilities are very important to build **non-defensive**, **let-it-crash**
+applications, resilient to runtime errors.   
+
+Currently a custom **logging effect** is also part of the code base.
+
+## Usage and Implementation
+
+### Example Code
 
 ```haskell
 module Main where
@@ -76,21 +122,18 @@ NOTICE    cancelling processes: []                                              
 NOTICE    all processes cancelled                                                  ForkIOScheduler.hs line 179
 ```
 
-## TODO
+### Required GHC Extensions
 
-### Stackage
+In order to use the library you might need to activate some extension
+in order to fight some ambiguous types, stemming from the flexibility to
+choose different Scheduler implementations.
 
-Still todo...
+- AllowAmbiguousTypes
+- TypeApplications
 
-[![extensible-effects-concurrent LTS](http://stackage.org/package/extensible-effects-concurrent/badge/lts)](http://stackage.org/lts/package/extensible-effects-concurrent)
 
+## Planned Features
 
-### Other
-
-- Process Linking/Monitoring
+- Stackage [![extensible-effects-concurrent LTS](http://stackage.org/package/extensible-effects-concurrent/badge/lts)](http://stackage.org/lts/package/extensible-effects-concurrent)
 
 - Scheduler `ekg` Monitoring
-
-- Timers and Timeouts (e.g. in `receive`)
-
-- Rename stuff
