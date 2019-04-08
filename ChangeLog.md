@@ -1,5 +1,9 @@
 # Changelog for extensible-effects-concurrent
 
+## 0.20.0
+
+- Rewrite Logging API so that usage is not as bloated
+
 ## 0.19.1
 
 - Fix Travis build

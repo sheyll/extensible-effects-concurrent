@@ -29,15 +29,14 @@ module Control.Eff.Log.Handler
   -- * Log Handling API
 
   -- ** Writing Logs
-  , LogWriterReader
   , setLogWriter
   , addLogWriter
+  , modifyLogWriter
+
   -- *** Log Message Modification
   , withLogFileAppender
   , censorLogs
   , censorLogsM
-  , askLogWriter
-  , modifyLogWriter
 
   -- ** 'Logs' Effect Handling
   , Logs()
@@ -52,8 +51,6 @@ module Control.Eff.Log.Handler
   , runLogs
   , respondToLogMessage
   , interceptLogMessages
-  -- *** LogWriter Handling
-  , runLogWriterReader
 
   )
 where
@@ -107,7 +104,7 @@ instance forall e a k. Handle Logs e a (LogPredicate -> k) where
 -- | This instance allows lifting the 'Logs' effect into a base monad, e.g. 'IO'.
 -- This instance needs a 'LogWriterReader' in the base monad,
 -- that is capable to handle 'logMsg' invocations.
-instance forall m e. (MonadBase m m, LiftedBase m e, SupportsLogger m (Logs ': e), SetMember LogWriterReader (LogWriterReader m) (Logs ': e))
+instance forall m e. (MonadBase m m, LiftedBase m e, LogsTo m (Logs ': e))
   => MonadBaseControl m (Eff (Logs ': e)) where
     type StM (Eff (Logs ': e)) a =  StM (Eff e) a
     liftBaseWith f = do
@@ -119,7 +116,7 @@ instance (LiftedBase m e, Catch.MonadThrow (Eff e))
   => Catch.MonadThrow (Eff (Logs ': e)) where
   throwM exception = raise (Catch.throwM exception)
 
-instance (Applicative m, LiftedBase m e, Catch.MonadCatch (Eff e), SupportsLogger m (Logs ': e), SetMember LogWriterReader (LogWriterReader m) (Logs ': e))
+instance (Applicative m, LiftedBase m e, Catch.MonadCatch (Eff e), LogsTo m (Logs ': e))
   => Catch.MonadCatch (Eff (Logs ': e)) where
   catch effect handler = do
     lf <- askLogPredicate
@@ -128,7 +125,7 @@ instance (Applicative m, LiftedBase m e, Catch.MonadCatch (Eff e), SupportsLogge
         nestedHandler exception = lower (handler exception)
     raise (Catch.catch nestedEffects nestedHandler)
 
-instance (Applicative m, LiftedBase m e, Catch.MonadMask (Eff e), SupportsLogger m (Logs ': e), SetMember LogWriterReader (LogWriterReader m) (Logs ': e))
+instance (Applicative m, LiftedBase m e, Catch.MonadMask (Eff e), LogsTo m (Logs ': e))
   => Catch.MonadMask (Eff (Logs ': e)) where
   mask maskedEffect = do
     lf <- askLogPredicate
@@ -170,7 +167,7 @@ instance (Applicative m, LiftedBase m e, Catch.MonadMask (Eff e), SupportsLogger
 
 
 -- | A constraint alias for effects that requires a 'LogWriterReader', as well as that the
--- contained 'LogWriterReader' has a 'SupportsLogger' instance.
+-- contained 'LogWriterReader' has a 'HandleLogWriter' instance.
 --
 -- The requirements of this constraint are provided by:
 --
@@ -179,7 +176,7 @@ instance (Applicative m, LiftedBase m e, Catch.MonadMask (Eff e), SupportsLogger
 -- * 'withLogging'
 -- * 'withSomeLogging'
 --
-type LogsTo h e = (Member Logs e, SupportsLogger h e, SetMember LogWriterReader (LogWriterReader h) e)
+type LogsTo h e = (Member Logs e, HandleLogWriter h, LogWriterEffects h <:: e, SetMember LogWriterReader (LogWriterReader h) e)
 
 -- | Enable logging to @standard output@ using the 'defaultIoLogWriter' in combination with
 -- the 'consoleLogWriter'.
@@ -276,7 +273,7 @@ type LoggingAndIo = '[Logs, LogWriterReader IO, Lift IO]
 -- Exposed for custom extensions, if in doubt use 'withLogging'.
 runLogs
   :: forall h e b .
-     (LogsTo h (Logs ': e), SupportsLogger h (Logs ': e))
+     (LogsTo h (Logs ': e))
   => LogPredicate
   -> Eff (Logs ': e) b
   -> Eff e b
@@ -556,104 +553,17 @@ interceptLogMessages f = respondToLogMessage (f >=> logMsg)
 
 -- | Internal function.
 sendLogMessageToLogWriter
-  :: forall h e b .
-     (LogsTo h e, SupportsLogger h e, Member Logs e)
-  => Eff e b -> Eff e b
-sendLogMessageToLogWriter = respondToLogMessage messageCallback
-  where
-    messageCallback msg = do
-      lw <- askLogWriter
-      liftLogWriter lw msg
-
--- | A Reader specialized for 'LogWriter's
---
--- The existing @Reader@ couldn't be used together with 'SetMember', so this
--- lazy reader was written, specialized to reading 'LogWriter'.
-data LogWriterReader h v where
-  AskLogWriter :: LogWriterReader h (LogWriter h)
-
-instance Handle (LogWriterReader h) e a (LogWriter h -> k) where
-  handle k q AskLogWriter lw = k (q ^$ lw) lw
-
-instance forall h m r. (MonadBase m m, LiftedBase m r)
-  => MonadBaseControl m (Eff (LogWriterReader h ': r)) where
-    type StM (Eff (LogWriterReader h ': r)) a =  StM (Eff r) a
-    liftBaseWith f = do
-      lf <- askLogWriter
-      raise (liftBaseWith (\runInBase -> f (runInBase . runLogWriterReader  lf)))
-    restoreM = raise . restoreM
-
-instance (LiftedBase m e, Catch.MonadThrow (Eff e))
-  => Catch.MonadThrow (Eff (LogWriterReader h ': e)) where
-  throwM exception = raise (Catch.throwM exception)
-
-instance (Applicative m, LiftedBase m e, Catch.MonadCatch (Eff e))
-  => Catch.MonadCatch (Eff (LogWriterReader h ': e)) where
-  catch effect handler = do
-    lf <- askLogWriter
-    let lower                   = runLogWriterReader  lf
-        nestedEffects           = lower effect
-        nestedHandler exception = lower (handler exception)
-    raise (Catch.catch nestedEffects nestedHandler)
-
-instance (Applicative m, LiftedBase m e, Catch.MonadMask (Eff e))
-  => Catch.MonadMask (Eff (LogWriterReader h ': e)) where
-  mask maskedEffect = do
-    lf <- askLogWriter
-    let
-      lower :: Eff (LogWriterReader h ': e) a -> Eff e a
-      lower = runLogWriterReader  lf
-    raise
-        (Catch.mask
-          (\nestedUnmask -> lower
-            (maskedEffect
-              ( raise . nestedUnmask . lower )
-            )
-          )
-        )
-  uninterruptibleMask maskedEffect = do
-    lf <- askLogWriter
-    let
-      lower :: Eff (LogWriterReader h ': e) a -> Eff e a
-      lower = runLogWriterReader  lf
-    raise
-        (Catch.uninterruptibleMask
-          (\nestedUnmask -> lower
-            (maskedEffect
-              ( raise . nestedUnmask . lower )
-            )
-          )
-        )
-  generalBracket acquire release useIt = do
-    lf <- askLogWriter
-    let
-      lower :: Eff (LogWriterReader h ': e) a -> Eff e a
-      lower = runLogWriterReader  lf
-    raise
-        (Catch.generalBracket
-          (lower acquire)
-          (((.).(.)) lower release)
-          (lower . useIt)
-      )
-
--- | Provide the 'LogWriter'
---
--- Exposed for custom extensions, if in doubt use 'withLogging'.
-runLogWriterReader :: LogWriter h -> Eff (LogWriterReader h ': e) a -> Eff e a
-runLogWriterReader e m = fix (handle_relay (\x _ -> return x)) m e
-
--- | Get the current 'LogWriter'.
-askLogWriter :: SetMember LogWriterReader (LogWriterReader h) e => Eff e (LogWriter h)
-askLogWriter = send AskLogWriter
+  :: forall h e b . (LogsTo h e) => Eff e b -> Eff e b
+sendLogMessageToLogWriter = respondToLogMessage liftWriteLogMessage
 
 -- | Change the current 'LogWriter'.
 modifyLogWriter
-  :: forall h e a. LogsTo h e => (LogWriter h -> LogWriter h) -> Eff e a -> Eff e a
-modifyLogWriter f = localLogWriterReader . sendLogMessageToLogWriter
-  where
-    localLogWriterReader m =
-      f <$> askLogWriter >>= fix (respond_relay @(LogWriterReader h) (\x _ -> return x)) m
-
+  :: forall h e a
+   . LogsTo h e
+  => (LogWriter h -> LogWriter h)
+  -> Eff e a
+  -> Eff e a
+modifyLogWriter f = localLogWriterReader f . sendLogMessageToLogWriter
 
 -- | Replace the current 'LogWriter'.
 -- To add an additional log message consumer use 'addLogWriter'
@@ -677,7 +587,7 @@ censorLogsM = modifyLogWriter . mappingLogWriterM
 
 -- | Combine the effects of a given 'LogWriter' and the existing one.
 --
--- > 
+-- >
 -- > exampleAddLogWriter :: IO ()
 -- > exampleAddLogWriter = go >>= putStrLn
 -- >  where go = fmap (unlines . map renderLogMessage . snd)
