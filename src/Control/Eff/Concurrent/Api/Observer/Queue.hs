@@ -22,6 +22,7 @@ import           Control.Exception.Safe        as Safe
 import           Control.Monad.IO.Class
 import           Control.Monad                  ( unless )
 import           Data.Typeable
+import qualified Data.Text                     as T
 import           GHC.Stack
 
 -- | Contains a 'TBQueue' capturing observations.
@@ -31,8 +32,8 @@ newtype ObservationQueue a = ObservationQueue (TBQueue a)
 -- | A 'Reader' for an 'ObservationQueue'.
 type ObservationQueueReader a = Reader (ObservationQueue a)
 
-logPrefix :: forall o proxy . (HasCallStack, Typeable o) => proxy o -> String
-logPrefix px = "observation queue: " ++ show (typeRep px)
+logPrefix :: forall o proxy . (HasCallStack, Typeable o) => proxy o -> T.Text
+logPrefix px = "observation queue: " <> T.pack (show (typeRep px))
 
 -- | Read queued observations captured and enqueued in the shared 'TBQueue' by 'spawnLinkObservationQueueWriter'.
 -- This blocks until something was captured or an interrupt or exceptions was thrown. For a non-blocking
@@ -120,8 +121,8 @@ withObservationQueue queueLimit e = do
   rest <- lift (atomically (flushTBQueue q))
   unless
     (null rest)
-    (logNotice (logPrefix (Proxy @o) ++ " unread observations: " ++ show rest))
-  either (\em -> logError (show em) >> lift (throwIO em)) return res
+    (logNotice (logPrefix (Proxy @o) <> " unread observations: " <> T.pack (show rest)))
+  either (\em -> logError (T.pack (show em)) >> lift (throwIO em)) return res
 
 -- | Spawn a process that can be used as an 'Observer' that enqueues the observations into an
 --   'ObservationQueue'. See 'withObservationQueue' for an example.

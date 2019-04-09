@@ -46,6 +46,7 @@ import Data.Sequence (Seq(..))
 import qualified Data.Sequence as Seq
 import Data.Set (Set)
 import qualified Data.Set as Set
+import qualified Data.Text as T
 import GHC.Stack
 import System.Timeout
 import Text.Printf
@@ -150,7 +151,7 @@ withNewSchedulerState mainProcessAction =
   Safe.bracketWithError
     (lift (atomically newSchedulerState))
     (\exceptions schedulerState -> do
-       traverse_ (logError . ("scheduler setup crashed with: " ++) . Safe.displayException) exceptions
+       traverse_ (logError . ("scheduler setup crashed with: " <>) . T.pack . Safe.displayException) exceptions
        logDebug "scheduler cleanup begin"
        runReader schedulerState tearDownScheduler)
     (\schedulerState -> do
@@ -165,7 +166,7 @@ withNewSchedulerState mainProcessAction =
       let cancelTableVar = schedulerState ^. processCancellationTable
       -- cancel all processes
       allProcesses <- lift (atomically (readTVar cancelTableVar <* writeTVar cancelTableVar def))
-      logNotice ("cancelling processes: " ++ show (toListOf (ifolded . asIndex) allProcesses))
+      logNotice ("cancelling processes: " <> T.pack (show (toListOf (ifolded . asIndex) allProcesses)))
       void
         (liftBaseWith
            (\runS ->
@@ -174,7 +175,7 @@ withNewSchedulerState mainProcessAction =
                 (Async.mapConcurrently
                    (\a -> do
                       Async.cancel a
-                      runS (logNotice ("process cancelled: " ++ show (asyncThreadId a))))
+                      runS (logNotice ("process cancelled: " <> T.pack (show (asyncThreadId a)))))
                    allProcesses >>
                  runS (logNotice "all processes cancelled"))))
 
@@ -222,7 +223,7 @@ handleProcess myProcessInfo actionToRun =
   -- DEBUG variant:
   -- setMyProcessState st = do
   --  oldSt <- lift (atomically (readTVar myProcessStateVar <* setMyProcessStateSTM st))
-  --  logDebug ("state change: "++ show oldSt ++ " -> " ++ show st)
+  --  logDebug ("state change: "<> show oldSt <> " -> " <> show st)
     setMyProcessStateSTM = writeTVar myProcessStateVar
     myMessageQVar = myProcessInfo ^. messageQ
     kontinueWith ::
@@ -259,11 +260,11 @@ handleProcess myProcessInfo actionToRun =
       where
         tryTakeNextShutdownRequest = lift (atomically (tryTakeNextShutdownRequestSTM myMessageQVar))
         onShutdownRequested shutdownRequest = do
-          logDebug ("shutdown requested: " ++ show shutdownRequest)
+          logDebug ("shutdown requested: " <> T.pack (show shutdownRequest))
           setMyProcessState ProcessShuttingDown
           interpretRequestAfterShutdownRequest (diskontinueWith diskontinue) shutdownRequest request
         onInterruptRequested interruptRequest = do
-          logDebug ("interrupt requested: " ++ show interruptRequest)
+          logDebug ("interrupt requested: " <> T.pack (show interruptRequest))
           setMyProcessState ProcessShuttingDown
           interpretRequestAfterInterruptRequest
             (kontinueWith kontinue nextRef)
@@ -498,7 +499,7 @@ spawnNewProcess mLinkedParent mfa = do
                modifyTVar' processInfoVar (at pid ?~ procInfo)
                return procInfo))
     logAppendProcInfo pid =
-      let addProcessId = over lmProcessId (maybe (Just (printf "% 9s" (show pid))) Just)
+      let addProcessId = over lmProcessId (maybe (Just (T.pack (printf "% 9s" (show pid)))) Just)
        in censorLogs @IO addProcessId
     triggerProcessLinksAndMonitors :: ProcessId -> ExitReason e -> TVar (Set ProcessId) -> Eff SchedulerIO ()
     triggerProcessLinksAndMonitors !pid !reason !linkSetVar = do
@@ -531,7 +532,7 @@ spawnNewProcess mLinkedParent mfa = do
                  return linkSet))
       res <- traverse sendIt (toList linkedPids)
       traverse_
-        (logDebug . either (("linked process no found: " ++) . show) (("sent shutdown to linked process: " ++) . show))
+        (logDebug . either (("linked process no found: " <>) . T.pack . show) (("sent shutdown to linked process: " <>) . T.pack . show))
         res
     doForkProc :: ProcessInfo -> SchedulerState -> Eff SchedulerIO (Async (ExitReason 'NoRecovery))
     doForkProc procInfo schedulerState =

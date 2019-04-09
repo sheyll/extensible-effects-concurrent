@@ -1,4 +1,4 @@
-{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE UndecidableInstances, OverloadedStrings #-}
 -- | A memory efficient, streaming, logging effect with support for
 -- efficiently not logging when no logs are required.
 --
@@ -34,18 +34,25 @@ module Control.Eff.Log.Handler
   , modifyLogWriter
 
   -- *** Log Message Modification
-  , withLogFileAppender
   , censorLogs
   , censorLogsM
 
   -- ** 'Logs' Effect Handling
   , Logs()
   , LogsTo
-  , withConsoleLogging
   , withIoLogging
   , withLogging
   , withSomeLogging
   , LoggingAndIo
+
+  -- ** Log Writers
+  , withConsoleLogging
+  , withLogFileAppender
+  , withUdp514
+  , withDevLog
+  , withRFC5424UnixDomainSocket
+  , withRFC3164UnixDomainSocketWriter
+
   -- ** Low-Level API for Custom Extensions
   -- *** Log Message Interception
   , runLogs
@@ -62,7 +69,7 @@ import           Control.Eff.Log.Message
 import           Control.Eff.Log.Writer
 import qualified Control.Exception.Safe        as Safe
 import           Control.Lens
-import           Control.Monad                   ( when, (>=>) )
+import           Control.Monad                   ( when, (>=>), void )
 import           Control.Monad.Base              ( MonadBase() )
 import qualified Control.Monad.Catch           as Catch
 import           Control.Monad.Trans.Control     ( MonadBaseControl
@@ -74,6 +81,9 @@ import           Control.Monad.Trans.Control     ( MonadBaseControl
                                                  )
 import           Data.Default
 import           Data.Function                  ( fix )
+import           Data.Text                     as T
+import           Data.Text.Encoding            as T
+import qualified Data.Text.IO                  as T
 import           GHC.Stack                      ( HasCallStack
                                                 , callStack
                                                 , withFrozenCallStack
@@ -83,6 +93,13 @@ import           System.Directory               ( canonicalizePath
                                                 , createDirectoryIfMissing
                                                 )
 import           System.FilePath                ( takeDirectory )
+import qualified System.Socket                  as Socket
+import           System.Socket.Type.Datagram    as Socket
+import           System.Socket.Family.Unix      as Socket
+import           System.Socket.Family.Inet      as Socket
+import qualified System.Socket.Protocol.Default as Socket
+import qualified System.Socket.Protocol.UDP     as Socket
+
 
 
 -- | This effect sends 'LogMessage's and is a reader for a 'LogPredicate'.
@@ -192,7 +209,7 @@ type LogsTo h e = (Member Logs e, HandleLogWriter h, LogWriterEffects h <:: e, S
 -- To vary the 'LogWriter' use 'withIoLogging'.
 withConsoleLogging
   :: SetMember Lift (Lift IO) e
-  => String -- ^ The default application name to put into the 'lmAppName' field.
+  => Text -- ^ The default application name to put into the 'lmAppName' field.
   -> Facility -- ^ The default RFC-5424 facility to put into the 'lmFacility' field.
   -> LogPredicate -- ^ The inital predicate for log messages, there are some pre-defined in "Control.Eff.Log.Message#PredefinedPredicates"
   -> Eff (Logs : LogWriterReader IO : e) a
@@ -217,7 +234,7 @@ withConsoleLogging = withIoLogging consoleLogWriter
 withIoLogging
   :: SetMember Lift (Lift IO) e
   => LogWriter IO -- ^ The 'LogWriter' that will be used to write log messages.
-  -> String -- ^ The default application name to put into the 'lmAppName' field.
+  -> Text -- ^ The default application name to put into the 'lmAppName' field.
   -> Facility -- ^ The default RFC-5424 facility to put into the 'lmFacility' field.
   -> LogPredicate -- ^ The inital predicate for log messages, there are some pre-defined in "Control.Eff.Log.Message#PredefinedPredicates"
   -> Eff (Logs : LogWriterReader IO : e) a
@@ -287,21 +304,21 @@ runLogs p m =
 -- This function is the only place where the 'LogPredicate' is applied.
 --
 -- Also, 'LogMessage's are evaluated using 'deepseq', __after__ they pass the 'LogPredicate'.
-logMsg :: forall e m . (HasCallStack, Member Logs e, ToLogMessage m) => m -> Eff e ()
-logMsg (toLogMessage -> msgIn) =
+logMsg :: forall e . (HasCallStack, Member Logs e) => LogMessage -> Eff e ()
+logMsg msgIn =
   withFrozenCallStack $ do
     lf <- askLogPredicate
     when (lf msgIn) $
       msgIn `deepseq` send @Logs (WriteLogMessage msgIn)
 
--- | Log a 'String' as 'LogMessage' with a given 'Severity'.
+-- | Log a 'T.Text' as 'LogMessage' with a given 'Severity'.
 logWithSeverity
   :: forall e .
      ( HasCallStack
      , Member Logs e
      )
   => Severity
-  -> String
+  -> Text
   -> Eff e ()
 logWithSeverity !s =
   withFrozenCallStack
@@ -316,7 +333,7 @@ logEmergency
      ( HasCallStack
      , Member Logs e
      )
-  => String
+  => Text
   -> Eff e ()
 logEmergency = withFrozenCallStack (logWithSeverity emergencySeverity)
 
@@ -326,7 +343,7 @@ logAlert
      ( HasCallStack
      , Member Logs e
      )
-  => String
+  => Text
   -> Eff e ()
 logAlert = withFrozenCallStack (logWithSeverity alertSeverity)
 
@@ -336,7 +353,7 @@ logCritical
      ( HasCallStack
      , Member Logs e
      )
-  => String
+  => Text
   -> Eff e ()
 logCritical = withFrozenCallStack (logWithSeverity criticalSeverity)
 
@@ -346,7 +363,7 @@ logError
      ( HasCallStack
      , Member Logs e
      )
-  => String
+  => Text
   -> Eff e ()
 logError = withFrozenCallStack (logWithSeverity errorSeverity)
 
@@ -356,7 +373,7 @@ logWarning
      ( HasCallStack
      , Member Logs e
      )
-  => String
+  => Text
   -> Eff e ()
 logWarning = withFrozenCallStack (logWithSeverity warningSeverity)
 
@@ -366,7 +383,7 @@ logNotice
      ( HasCallStack
      , Member Logs e
      )
-  => String
+  => Text
   -> Eff e ()
 logNotice = withFrozenCallStack (logWithSeverity noticeSeverity)
 
@@ -376,7 +393,7 @@ logInfo
      ( HasCallStack
      , Member Logs e
      )
-  => String
+  => Text
   -> Eff e ()
 logInfo = withFrozenCallStack (logWithSeverity informationalSeverity)
 
@@ -386,7 +403,7 @@ logDebug
      ( HasCallStack
      , Member Logs e
      )
-  => String
+  => Text
   -> Eff e ()
 logDebug = withFrozenCallStack (logWithSeverity debugSeverity)
 
@@ -587,9 +604,11 @@ censorLogsM = modifyLogWriter . mappingLogWriterM
 
 -- | Combine the effects of a given 'LogWriter' and the existing one.
 --
+-- > import Data.Text    as T
+-- > import Data.Text.IO as T
 -- >
 -- > exampleAddLogWriter :: IO ()
--- > exampleAddLogWriter = go >>= putStrLn
+-- > exampleAddLogWriter = go >>= T.putStrLn
 -- >  where go = fmap (unlines . map renderLogMessage . snd)
 -- >               $  runLift
 -- >               $  runCapturedLogsWriter
@@ -638,3 +657,105 @@ withLogFileAppender fnIn e = liftBaseOp withOpenedLogFile (`addLogWriter` e)
           )
           (\h -> Safe.try @IO @Catch.SomeException (IO.hFlush h) >> IO.hClose h)
           (\h -> ioE (ioHandleLogWriter h))
+
+
+-- | Open a unix domain socket connected to @/dev/log@
+--   provide a 'LogWriter', that writes log message to the socket,
+--   after rendering them with the given function.
+withDevLog
+  :: ( Lifted IO e
+     , LogsTo IO e
+     , MonadBaseControl IO (Eff e)
+     )
+  => (LogMessage -> T.Text)
+  -> Eff e b
+  -> Eff e b
+withDevLog render e = liftBaseOp withOpenedLogFile (`addLogWriter` e)
+  where
+    withOpenedLogFile
+      :: HasCallStack
+      => (LogWriter IO -> IO a)
+      -> IO a
+    withOpenedLogFile ioE =
+      Safe.bracket
+          (
+            Socket.socket :: IO (Socket.Socket Unix Datagram Socket.Default)
+          )
+          (Safe.try @IO @Catch.SomeException . Socket.close)
+          (\s ->
+               case socketAddressUnixPath "/dev/log" of
+                  Just addr -> do
+                    Socket.connect s addr
+                    ioE (ioLogWriter (\lmStr ->
+                      void $
+                      Socket.send
+                        s
+                        (T.encodeUtf8 (render  lmStr))
+                        Socket.msgNoSignal))
+
+                  Nothing -> do
+                    putStrLn "could not open /dev/log"
+                    ioE consoleLogWriter
+            )
+
+-- | Open a an inet socket, and provide a 'LogWriter', that sends log messages
+--   to UDP port 514 on that host, after rendering them with the given function.
+withUdp514
+  :: ( Lifted IO e
+     , LogsTo IO e
+     , MonadBaseControl IO (Eff e)
+     )
+  => (LogMessage -> T.Text)
+  -> T.Text -- ^ Hostname
+  -> Eff e b
+  -> Eff e b
+withUdp514 render hostname e = liftBaseOp withOpenedLogFile (`addLogWriter` e)
+  where
+    withOpenedLogFile
+      :: HasCallStack
+      => (LogWriter IO -> IO a)
+      -> IO a
+    withOpenedLogFile ioE =
+      Safe.bracket
+          (
+            Socket.socket :: IO (Socket.Socket Inet Datagram Socket.UDP)
+          )
+          (Safe.try @IO @Catch.SomeException . Socket.close)
+          (\s ->
+              do
+                 ai <- Socket.getAddressInfo (Just (T.encodeUtf8 hostname)) (Just "514") mempty
+                 case ai :: [Socket.AddressInfo Inet Datagram Socket.UDP] of
+                  (a:_) -> do
+                    let addr = Socket.socketAddress a
+                    Socket.connect s addr
+                    ioE (ioLogWriter (\lmStr ->
+                      void $
+                      Socket.send
+                        s
+                        (T.encodeUtf8 (render  lmStr))
+                        Socket.msgNoSignal))
+
+                  [] -> do
+                    T.putStrLn ("could not resolve UDP syslog server: " <> hostname)
+                    ioE consoleLogWriter
+            )
+
+-- | Open a file and add the 'LogWriter' in the 'LogWriterReader' tha appends the log messages to it.
+withRFC5424UnixDomainSocket
+  :: ( Lifted IO e
+     , LogsTo IO e
+     , MonadBaseControl IO (Eff e)
+     )
+  => Eff e b
+  -> Eff e b
+withRFC5424UnixDomainSocket = withDevLog renderRFC5424
+
+-- | Open a file and add the 'LogWriter' in the 'LogWriterReader' tha appends the log messages to it.
+withRFC3164UnixDomainSocketWriter
+  :: ( Lifted IO e
+     , LogsTo IO e
+     , MonadBaseControl IO (Eff e)
+     )
+  => Eff e b
+  -> Eff e b
+withRFC3164UnixDomainSocketWriter = withDevLog renderRFC3164

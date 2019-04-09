@@ -75,10 +75,10 @@ import           Control.Eff.Log.Channel
 import           Control.Eff.Log.Handler
 import           Control.Eff.Log.Message
 import           Control.Eff.Log.Writer
-
 import           Control.Eff
 import           Control.Lens (view, (%~), to)
-
+import           Data.Text    as T
+import           Data.Text.IO as T
 
 -- * Logging examples
 
@@ -111,7 +111,7 @@ exampleLogging =
              $ setLogPredicate (\m -> (view lmMessage m) /= "not logged")
              $ do
                   logInfo "not logged"
-                  logMsg "test 2.1"
+                  logMsg  "test 2.1"
             logWarning "test 2.2"
       logCritical "test 1.3"
 
@@ -150,10 +150,10 @@ exampleLogPredicate =
     runLift
   $ withSomeLogging @IO
   $ setLogWriter consoleLogWriter
-  $ do logMsg "test"
+  $ do logInfo "test"
        setLogPredicate (lmMessageStartsWith "OMG")
-                         (do logMsg "this message will not be logged"
-                             logMsg "OMG logged"
+                         (do logInfo "this message will not be logged"
+                             logInfo "OMG logged"
                              modifyLogPredicate (\p lm -> p lm || lmSeverityIs errorSeverity lm) $ do
                                logDebug "OMG logged"
                                logInfo "Not logged"
@@ -181,13 +181,13 @@ exampleLogPredicate =
 --  * 'mappingLogWriter'
 --  * 'filteringLogWriter'
 exampleLogCapture :: IO ()
-exampleLogCapture = go >>= putStrLn
- where go = fmap (unlines . map renderLogMessage . snd)
+exampleLogCapture = go >>= T.putStrLn
+ where go = fmap (T.unlines . Prelude.map renderLogMessage . snd)
               $  runLift
               $  runCapturedLogsWriter
               $  withLogging listLogWriter
-              $  addLogWriter (mappingLogWriter (lmMessage %~ ("CAPTURED "++)) listLogWriter)
-              $  addLogWriter (filteringLogWriter severeMessages (mappingLogWriter (lmMessage %~ ("TRACED "++)) debugTraceLogWriter))
+              $  addLogWriter (mappingLogWriter (lmMessage %~ ("CAPTURED " <>)) listLogWriter)
+              $  addLogWriter (filteringLogWriter severeMessages (mappingLogWriter (lmMessage %~ ("TRACED " <>)) debugTraceLogWriter))
               $  do
                     logEmergency "test emergencySeverity 1"
                     logCritical "test criticalSeverity 2"
@@ -207,6 +207,6 @@ exampleAsyncLogging =
     runLift
   $ withSomeLogging @IO
   $ withAsyncLogging (1000::Int) consoleLogWriter
-  $ do logMsg "test 1"
-       logMsg "test 2"
-       logMsg "test 3"
+  $ do logInfo "test 1"
+       logInfo "test 2"
+       logInfo "test 3"

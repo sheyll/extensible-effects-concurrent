@@ -25,6 +25,7 @@ module Control.Eff.Log.Message
 
   -- ** Log Message Text Rendering
   , renderRFC5424
+  , renderRFC3164
   , printLogMessage
   , renderLogMessage
 
@@ -71,8 +72,10 @@ module Control.Eff.Log.Message
   , debugSeverity
 
   -- * RFC 5424 Facility
-  , Facility(fromFacility)
+  , Facility
+    ( fromFacility
   -- ** Facility Constructors
+    )
   , kernelMessages
   , userLevelMessages
   , mailSystem
@@ -106,12 +109,14 @@ import           Control.Monad                  ( (>=>) )
 import           Control.Monad.IO.Class
 import           Data.Default
 import           Data.Maybe
-import           Data.String
+import           Data.String                    (IsString(..))
+import qualified Data.Text                     as T
+import qualified Data.Text.IO                  as T
 import           Data.Time.Clock
 import           Data.Time.Format
-import           GHC.Generics                   hiding (to)
+import           GHC.Generics            hiding ( to )
 import           GHC.Stack
-import           Network.HostName               as Network
+import           Network.HostName              as Network
 import           System.FilePath.Posix
 import           Text.Printf
 
@@ -120,14 +125,14 @@ data LogMessage =
   MkLogMessage { _lmFacility :: !Facility
                , _lmSeverity :: !Severity
                , _lmTimestamp :: !(Maybe UTCTime)
-               , _lmHostname :: !(Maybe String)
-               , _lmAppName :: !(Maybe String)
-               , _lmProcessId :: !(Maybe String)
-               , _lmMessageId :: !(Maybe String)
+               , _lmHostname :: !(Maybe T.Text)
+               , _lmAppName :: !(Maybe T.Text)
+               , _lmProcessId :: !(Maybe T.Text)
+               , _lmMessageId :: !(Maybe T.Text)
                , _lmStructuredData :: ![StructuredDataElement]
                , _lmThreadId :: !(Maybe ThreadId)
                , _lmSrcLoc :: !(Maybe SrcLoc)
-               , _lmMessage :: !String}
+               , _lmMessage :: !T.Text}
   deriving (Eq, Generic)
 
 instance Default LogMessage where
@@ -137,35 +142,39 @@ instance NFData LogMessage
 
 -- | RFC-5424 defines how structured data can be included in a log message.
 data StructuredDataElement =
-  SdElement { _sdElementId :: !String
+  SdElement { _sdElementId :: !T.Text
             , _sdElementParameters :: ![SdParameter]}
-  deriving (Eq, Ord, Generic)
+  deriving (Eq, Ord, Generic, Show)
 
-instance Show StructuredDataElement where
-  show (SdElement sdId params) =
-    "[" ++ sdName sdId ++ if null params then "" else " " ++ unwords (show <$> params) ++ "]"
+
+renderSdElement :: StructuredDataElement -> T.Text
+renderSdElement (SdElement sdId params) = "[" <> sdName sdId <> if null params
+  then ""
+  else " " <> T.unwords (renderSdParameter <$> params) <> "]"
 
 instance NFData StructuredDataElement
 
 -- | Component of an RFC-5424 'StructuredDataElement'
 data SdParameter =
-  MkSdParameter !String !String
-  deriving (Eq, Ord, Generic)
+  MkSdParameter !T.Text !T.Text
+  deriving (Eq, Ord, Generic, Show)
 
-instance Show SdParameter where
-  show (MkSdParameter k v) = sdName k ++ "=\"" ++ sdParamValue v ++ "\""
+renderSdParameter :: SdParameter -> T.Text
+renderSdParameter (MkSdParameter k v) =
+  sdName k <> "=\"" <> sdParamValue v <> "\""
 
 -- | Extract the name of an 'SdParameter' the length is cropped to 32 according to RFC 5424.
-sdName :: String -> String
-sdName = take 32 . filter (\c -> c == '=' || c == ']' || c == ' ' || c == '"')
+sdName :: T.Text -> T.Text
+sdName =
+  T.take 32 . T.filter (\c -> c == '=' || c == ']' || c == ' ' || c == '"')
 
 -- | Extract the value of an 'SdParameter'.
-sdParamValue :: String -> String
-sdParamValue e = e >>= \case
+sdParamValue :: T.Text -> T.Text
+sdParamValue = T.concatMap $ \case
   '"'  -> "\\\""
   '\\' -> "\\\\"
   ']'  -> "\\]"
-  x    -> [x]
+  x    -> T.singleton x
 
 instance NFData SdParameter
 
@@ -175,13 +184,13 @@ newtype Severity =
   deriving (Eq, Ord, Generic, NFData)
 
 instance Show Severity where
-  show (Severity 1)             = "ALERT    "
-  show (Severity 2)             = "CRITICAL "
-  show (Severity 3)             = "ERROR    "
-  show (Severity 4)             = "WARNING  "
-  show (Severity 5)             = "NOTICE   "
-  show (Severity 6)             = "INFO     "
-  show (Severity x) |  x <= 0   = "EMERGENCY"
+  show (Severity 1) = "ALERT    "
+  show (Severity 2) = "CRITICAL "
+  show (Severity 3) = "ERROR    "
+  show (Severity 4) = "WARNING  "
+  show (Severity 5) = "NOTICE   "
+  show (Severity 6) = "INFO     "
+  show (Severity x) | x <= 0    = "EMERGENCY"
                     | otherwise = "DEBUG    "
 --  *** Severities
 
@@ -362,60 +371,83 @@ instance Default Facility where
 makeLensesWith (lensRules & generateSignatures .~ False) ''StructuredDataElement
 
 -- | A lens for 'SdParameter's
-sdElementParameters :: Functor f =>
-                             ([SdParameter] -> f [SdParameter])
-                             -> StructuredDataElement -> f StructuredDataElement
+sdElementParameters
+  :: Functor f
+  => ([SdParameter] -> f [SdParameter])
+  -> StructuredDataElement
+  -> f StructuredDataElement
 
 -- | A lens for the key or ID of a group of RFC 5424 key-value pairs.
-sdElementId :: Functor f =>
-                     (String -> f String)
-                     -> StructuredDataElement -> f StructuredDataElement
+sdElementId
+  :: Functor f
+  => (T.Text -> f T.Text)
+  -> StructuredDataElement
+  -> f StructuredDataElement
 
 makeLensesWith (lensRules & generateSignatures .~ False) ''LogMessage
 
 -- | A lens for the UTC time of a 'LogMessage'
 -- The function 'setLogMessageTimestamp' can be used to set the field.
-lmTimestamp :: Functor f =>
-               (Maybe UTCTime -> f (Maybe UTCTime)) -> LogMessage -> f LogMessage
+lmTimestamp
+  :: Functor f
+  => (Maybe UTCTime -> f (Maybe UTCTime))
+  -> LogMessage
+  -> f LogMessage
 
 -- | A lens for the 'ThreadId' of a 'LogMessage'
 -- The function 'setLogMessageThreadId' can be used to set the field.
-lmThreadId :: Functor f =>
-              (Maybe ThreadId -> f (Maybe ThreadId)) -> LogMessage -> f LogMessage
+lmThreadId
+  :: Functor f
+  => (Maybe ThreadId -> f (Maybe ThreadId))
+  -> LogMessage
+  -> f LogMessage
 
 -- | A lens for the 'StructuredDataElement' of a 'LogMessage'
-lmStructuredData :: Functor f =>
-                    ([StructuredDataElement] -> f [StructuredDataElement])
-                    -> LogMessage -> f LogMessage
+lmStructuredData
+  :: Functor f
+  => ([StructuredDataElement] -> f [StructuredDataElement])
+  -> LogMessage
+  -> f LogMessage
 
 -- | A lens for the 'SrcLoc' of a 'LogMessage'
-lmSrcLoc :: Functor f =>
-            (Maybe SrcLoc -> f (Maybe SrcLoc)) -> LogMessage -> f LogMessage
+lmSrcLoc
+  :: Functor f
+  => (Maybe SrcLoc -> f (Maybe SrcLoc))
+  -> LogMessage
+  -> f LogMessage
 
 -- | A lens for the 'Severity' of a 'LogMessage'
-lmSeverity :: Functor f =>
-              (Severity -> f Severity) -> LogMessage -> f LogMessage
+lmSeverity
+  :: Functor f => (Severity -> f Severity) -> LogMessage -> f LogMessage
 
 -- | A lens for a user defined of /process/ id of a 'LogMessage'
-lmProcessId :: Functor f =>
-               (Maybe String -> f (Maybe String)) -> LogMessage -> f LogMessage
+lmProcessId
+  :: Functor f
+  => (Maybe T.Text -> f (Maybe T.Text))
+  -> LogMessage
+  -> f LogMessage
 
 -- | A lens for a user defined /message id/ of a 'LogMessage'
-lmMessageId :: Functor f =>
-               (Maybe String -> f (Maybe String)) -> LogMessage -> f LogMessage
+lmMessageId
+  :: Functor f
+  => (Maybe T.Text -> f (Maybe T.Text))
+  -> LogMessage
+  -> f LogMessage
 
 -- | A lens for the user defined textual message of a 'LogMessage'
-lmMessage :: Functor f =>
-             (String -> f String) -> LogMessage -> f LogMessage
+lmMessage :: Functor f => (T.Text -> f T.Text) -> LogMessage -> f LogMessage
 
 -- | A lens for the hostname of a 'LogMessage'
 -- The function 'setLogMessageHostname' can be used to set the field.
-lmHostname :: Functor f =>
-              (Maybe String -> f (Maybe String)) -> LogMessage -> f LogMessage
+lmHostname
+  :: Functor f
+  => (Maybe T.Text -> f (Maybe T.Text))
+  -> LogMessage
+  -> f LogMessage
 
 -- | A lens for the 'Facility' of a 'LogMessage'
-lmFacility :: Functor f =>
-              (Facility -> f Facility) -> LogMessage -> f LogMessage
+lmFacility
+  :: Functor f => (Facility -> f Facility) -> LogMessage -> f LogMessage
 
 -- | A lens for the RFC 5424 /application/ name of a 'LogMessage'
 --
@@ -427,69 +459,108 @@ lmFacility :: Functor f =>
 -- >   view lmAppName lm == Just myAppName || lmSeverityIsAtLeast warningSeverity lm
 --
 -- This concept is also implemented in 'discriminateByAppName'.
-lmAppName :: Functor f =>
-             (Maybe String -> f (Maybe String)) -> LogMessage -> f LogMessage
+lmAppName
+  :: Functor f
+  => (Maybe T.Text -> f (Maybe T.Text))
+  -> LogMessage
+  -> f LogMessage
 
 instance Show LogMessage where
-  show = unlines . showLmMessage
+  show = T.unpack . T.unlines . showLmMessage
 
--- | Print a 'LogMessage' in a very incomplete way, use only for tests and debugging
-showLmMessage :: LogMessage -> [String]
+-- | Print the /body/ of a 'LogMessage'
+showLmMessage :: LogMessage -> [T.Text]
 showLmMessage (MkLogMessage _f _s _ts _hn _an _pid _mi _sd ti loc msg) =
-  if null msg
+  if T.null msg
     then []
     else
-      maybe "" (printf "[%s]" . show) ti
-      : (msg ++ replicate (max 0 (60 - length msg)) ' ')
+      maybe "" ((<> " -") . T.pack . show) ti
+      : (msg <> T.replicate (max 0 (60 - T.length msg)) " ")
       : maybe
           []
           (\sl -> pure
-            (printf "% 30s line %i"
-                    (takeFileName (srcLocFile sl))
-                    (srcLocStartLine sl)
+            (T.pack $ printf "% 30s line %i"
+                             (takeFileName (srcLocFile sl))
+                             (srcLocStartLine sl)
             )
           )
           loc
 
 
 -- | Render a 'LogMessage' human readable.
-renderLogMessage :: LogMessage -> String
+renderLogMessage :: LogMessage -> T.Text
 renderLogMessage l@(MkLogMessage _f s ts hn an pid mi sd _ _ _) =
-  unwords $ filter
-    (not . null)
+  T.unwords $ filter
+    (not . T.null)
     ( maybe
         ""
-        (formatTime defaultTimeLocale (iso8601DateFormat (Just "%H:%M:%S")))
+        ( T.pack
+        .
+           -- formatTime defaultTimeLocale "%Y-%m-%dT%H:%M:%S%3Q%z"
+          formatTime defaultTimeLocale (iso8601DateFormat (Just "%H:%M:%S%6QZ"))
+        )
         ts
     : fromMaybe "" hn
-    : show s
+    : T.pack (show s)
     : fromMaybe "" an
     : fromMaybe "" pid
     : fromMaybe "" mi
-    : (if null sd then "" else show sd)
+    : (if null sd then "" else T.concat (renderSdElement <$> sd))
     : showLmMessage l
     )
 
--- | Render a 'LogMessage' according to the rules in the given RFC, except for
--- the rules concerning unicode and ascii
-renderRFC5424 :: LogMessage -> String
-renderRFC5424 l@(MkLogMessage f s ts hn an pid mi sd _ _ _) = unwords
-  ( ("<" ++ show (fromSeverity s + fromFacility f * 8) ++ ">" ++ "1")
-  : maybe
-      "-"
-      (formatTime defaultTimeLocale (iso8601DateFormat (Just "%H:%M:%S")))
-      ts
-  : fromMaybe "-" hn
-  : fromMaybe "-" an
-  : fromMaybe "-" pid
-  : fromMaybe "-" mi
-  : (if null sd then "-" else show sd)
-  : showLmMessage l
-  )
+-- | Render a 'LogMessage' according to the rules in the RFC-5424.
+renderRFC5424 :: LogMessage -> T.Text
+renderRFC5424 l@(MkLogMessage f s ts hn an pid mi sd _ _ _) =
+  T.unwords [header, structuredData, msg]
+  where
+    header =
+       T.unwords
+               ["<" <> T.pack (show (fromSeverity s + fromFacility f * 8)) <> ">1" -- PRI maybe "-"
+               , maybe "-"
+                 ( T.pack
+                 . formatTime defaultTimeLocale (iso8601DateFormat (Just "%H:%M:%S%6QZ"))
+                 )
+                 ts
+               , fromMaybe "wega" hn
+               , fromMaybe "aaa" an
+               , fromMaybe "ppp" pid
+               , fromMaybe "-" mi
+               ]
+    structuredData =
+      if null sd
+          then "-"
+          else
+            T.concat
+              (renderSdElement <$> sd)
+    msg = T.unwords (showLmMessage l)
+
+-- | Render a 'LogMessage' according to the rules in the RFC-3164,
+renderRFC3164 :: LogMessage -> T.Text
+renderRFC3164 l@(MkLogMessage f s ts hn an pid mi _ _ _ _) =
+  T.unwords [header, msg]
+  where
+    header =
+         "<" <> T.pack (show (fromSeverity s + fromFacility f * 8)) <> ">" -- PRI
+      <> " "
+      <> T.unwords
+               [ maybe "Jan 01 00:00:01"
+                 ( T.pack
+                 . -- formatTime defaultTimeLocale (iso8601DateFormat (Just "%H:%M:%S%6QZ"))
+                    formatTime defaultTimeLocale "%h %d %H:%M:%S"
+                 )
+                 ts
+               , fromMaybe "localhost" hn
+               ]
+    msg = T.unwords
+               ( fromMaybe "" an
+               : fromMaybe "" pid
+               : fromMaybe "" mi
+               : showLmMessage l)
 
 -- | Render a 'LogMessage' but set the timestamp and thread id fields.
 printLogMessage :: LogMessage -> IO ()
-printLogMessage = putStrLn . renderLogMessage
+printLogMessage = T.putStrLn . renderLogMessage
 
 -- | Put the source location of the given callstack in 'lmSrcLoc'
 setCallStack :: CallStack -> LogMessage -> LogMessage
@@ -498,7 +569,7 @@ setCallStack cs m = case getCallStack cs of
   (_, srcLoc) : _ -> m & lmSrcLoc ?~ srcLoc
 
 -- | Prefix the 'lmMessage'.
-prefixLogMessagesWith :: String -> LogMessage -> LogMessage
+prefixLogMessagesWith :: T.Text -> LogMessage -> LogMessage
 prefixLogMessagesWith = over lmMessage . (<>)
 
 -- | An IO action that sets the current UTC time in 'lmTimestamp'.
@@ -520,19 +591,19 @@ setLogMessageThreadId m = if isNothing (m ^. lmThreadId)
 
 -- | An IO action that sets the current hosts fully qualified hostname in 'lmHostname'.
 setLogMessageHostname :: LogMessage -> IO LogMessage
-setLogMessageHostname m = if isNothing (m ^. lmTimestamp)
+setLogMessageHostname m = if isNothing (m ^. lmHostname)
   then do
     fqdn <- Network.getHostName
-    return (m & lmHostname ?~ fqdn)
+    return (m & lmHostname ?~ T.pack fqdn)
   else return m
 
 -- | Construct a 'LogMessage' with 'errorSeverity'
-errorMessage :: HasCallStack => String -> LogMessage
+errorMessage :: HasCallStack => T.Text -> LogMessage
 errorMessage m = withFrozenCallStack
   (def & lmSeverity .~ errorSeverity & lmMessage .~ m & setCallStack callStack)
 
 -- | Construct a 'LogMessage' with 'informationalSeverity'
-infoMessage :: HasCallStack => String -> LogMessage
+infoMessage :: HasCallStack => T.Text -> LogMessage
 infoMessage m = withFrozenCallStack
   (  def
   &  lmSeverity
@@ -543,26 +614,26 @@ infoMessage m = withFrozenCallStack
   )
 
 -- | Construct a 'LogMessage' with 'debugSeverity'
-debugMessage :: HasCallStack => String -> LogMessage
+debugMessage :: HasCallStack => T.Text -> LogMessage
 debugMessage m = withFrozenCallStack
   (def & lmSeverity .~ debugSeverity & lmMessage .~ m & setCallStack callStack)
 
 -- | Construct a 'LogMessage' with 'errorSeverity'
-errorMessageIO :: (HasCallStack, MonadIO m) => String -> m LogMessage
+errorMessageIO :: (HasCallStack, MonadIO m) => T.Text -> m LogMessage
 errorMessageIO =
   withFrozenCallStack
     $ (liftIO . setLogMessageThreadId >=> liftIO . setLogMessageTimestamp)
     . errorMessage
 
 -- | Construct a 'LogMessage' with 'informationalSeverity'
-infoMessageIO :: (HasCallStack, MonadIO m) => String -> m LogMessage
+infoMessageIO :: (HasCallStack, MonadIO m) => T.Text -> m LogMessage
 infoMessageIO =
   withFrozenCallStack
     $ (liftIO . setLogMessageThreadId >=> liftIO . setLogMessageTimestamp)
     . infoMessage
 
 -- | Construct a 'LogMessage' with 'debugSeverity'
-debugMessageIO :: (HasCallStack, MonadIO m) => String -> m LogMessage
+debugMessageIO :: (HasCallStack, MonadIO m) => T.Text -> m LogMessage
 debugMessageIO =
   withFrozenCallStack
     $ (liftIO . setLogMessageThreadId >=> liftIO . setLogMessageTimestamp)
@@ -576,11 +647,11 @@ class ToLogMessage a where
 instance ToLogMessage LogMessage where
   toLogMessage = id
 
-instance ToLogMessage String where
+instance ToLogMessage T.Text where
   toLogMessage = infoMessage
 
 instance IsString LogMessage where
-  fromString = infoMessage
+  fromString = infoMessage . T.pack
 
 -- $PredefinedPredicates
 -- == Log Message Predicates
@@ -632,11 +703,10 @@ lmSeverityIsAtLeast s = view (lmSeverity . to (<= s))
 -- | Match 'LogMessage's whose 'lmMessage' starts with the given string.
 --
 -- See "Control.Eff.Log.Message#PredefinedPredicates" for more predicates.
-lmMessageStartsWith :: String -> LogPredicate
-lmMessageStartsWith prefix lm =
-  case length prefix of
-    0         -> True
-    prefixLen -> take prefixLen (lm ^. lmMessage) == prefix
+lmMessageStartsWith :: T.Text -> LogPredicate
+lmMessageStartsWith prefix lm = case T.length prefix of
+  0         -> True
+  prefixLen -> T.take prefixLen (lm ^. lmMessage) == prefix
 
 -- | Apply a 'LogPredicate' based on the 'lmAppName' and delegate
 -- to one of two 'LogPredicate's.
@@ -647,8 +717,8 @@ lmMessageStartsWith prefix lm =
 -- from third party libraries.
 --
 -- See "Control.Eff.Log.Message#PredefinedPredicates" for more predicates.
-discriminateByAppName :: String -> LogPredicate -> LogPredicate -> LogPredicate
+discriminateByAppName :: T.Text -> LogPredicate -> LogPredicate -> LogPredicate
 discriminateByAppName appName appPredicate otherPredicate lm =
-   if view lmAppName lm == Just appName
-      then appPredicate lm
-      else otherPredicate lm
+  if view lmAppName lm == Just appName
+    then appPredicate lm
+    else otherPredicate lm

@@ -37,6 +37,7 @@ module Control.Eff.Concurrent.Api.Server
   )
 where
 
+import           Control.Applicative
 import           Control.Eff
 import           Control.Eff.Extend
 import           Control.Eff.Log
@@ -44,15 +45,15 @@ import           Control.Eff.State.Lazy
 import           Control.Eff.Concurrent.Api
 import           Control.Eff.Concurrent.Api.Request
 import           Control.Eff.Concurrent.Process
-import           Control.Monad                  ( (>=>) )
-import           Data.Proxy
-import           Data.Dynamic
-import           Control.Applicative
-import           GHC.Stack
 import           Control.DeepSeq
-import           Data.Kind
-import           Data.Foldable
+import           Control.Monad                  ( (>=>) )
 import           Data.Default
+import           Data.Dynamic
+import           Data.Foldable
+import           Data.Kind
+import           Data.Proxy
+import           Data.Text as T
+import           GHC.Stack
 
 -- | /Serve/ an 'Api' in a newly spawned process.
 --
@@ -416,7 +417,7 @@ dropUnhandledMessages =
 -- @since 0.13.2
 exitOnUnhandled :: forall eff . HasCallStack => MessageCallback '[] eff
 exitOnUnhandled = MessageCallback selectAnyMessageLazy $ \msg ->
-  return (StopServer (ProcessError ("unhandled message " ++ show msg)))
+  return (StopServer (ProcessError ("unhandled message " <> show msg)))
 
 -- | A 'fallbackHandler' that drops the left-over messages.
 --
@@ -426,7 +427,7 @@ logUnhandledMessages
    . (Member Logs eff, HasCallStack)
   => MessageCallback '[] eff
 logUnhandledMessages = MessageCallback selectAnyMessageLazy $ \msg -> do
-  logWarning ("ignoring unhandled message " ++ show msg)
+  logWarning ("ignoring unhandled message " <> T.pack (show msg))
   return AwaitNext
 
 

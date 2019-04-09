@@ -7,6 +7,7 @@ import           Control.Monad
 import           Data.Dynamic
 import           Control.Eff.Concurrent
 import qualified Control.Exception             as Exc
+import qualified Data.Text as T
 
 data TestApi
   deriving Typeable
@@ -34,9 +35,9 @@ mainProcessSpawnsAChildAndReturns = void (spawn (void receiveAnyMessage))
 example:: ( HasCallStack, Member Logs q, Lifted IO q) => Eff (InterruptableProcess q) ()
 example = do
   me <- self
-  logInfo ("I am " ++ show me)
+  logInfo (T.pack ("I am " ++ show me))
   server <- testServerLoop
-  logInfo ("Started server " ++ show server)
+  logInfo (T.pack ("Started server " ++ show server))
   let go = do
         lift (putStr "Enter something: ")
         x <- lift getLine
@@ -56,7 +57,7 @@ example = do
           ('q' : _) -> logInfo "Done."
           _         -> do
             res <- callRegistered (SayHello x)
-            logInfo ("Result: " ++ show res)
+            logInfo (T.pack ("Result: " ++ show res))
             go
   registerServer server go
 
@@ -72,41 +73,41 @@ testServerLoop = spawnApiServer
  where
   handleCastTest = handleCasts $ \(Shout x) -> do
     me <- self
-    logInfo (show me ++ " Shouting: " ++ x)
+    logInfo (T.pack (show me ++ " Shouting: " ++ x))
     return AwaitNext
   handleCallTest :: Api TestApi ('Synchronous r) -> (Eff (InterruptableProcess q) (Maybe r, CallbackResult) -> xxx) -> xxx
   handleCallTest (SayHello "e1") k = k $ do
     me <- self
-    logInfo (show me ++ " raising an error")
+    logInfo (T.pack (show me ++ " raising an error"))
     interrupt (ProcessError "No body loves me... :,(")
   handleCallTest (SayHello "e2") k = k $ do
     me <- self
-    logInfo (show me ++ " throwing a MyException ")
+    logInfo (T.pack (show me ++ " throwing a MyException "))
     void (lift (Exc.throw MyException))
     pure (Nothing, AwaitNext)
   handleCallTest (SayHello "self") k = k $ do
     me <- self
-    logInfo (show me ++ " casting to self")
+    logInfo (T.pack (show me ++ " casting to self"))
     cast (asServer @TestApi me) (Shout "from me")
     return (Just False, AwaitNext)
   handleCallTest (SayHello "stop") k = k $ do
     me <- self
-    logInfo (show me ++ " stopping me")
+    logInfo (T.pack (show me ++ " stopping me"))
     return (Just False, StopServer (ProcessError "test error"))
   handleCallTest (SayHello x) k = k $ do
     me <- self
-    logInfo (show me ++ " Got Hello: " ++ x)
+    logInfo (T.pack (show me ++ " Got Hello: " ++ x))
     return (Just (length x > 3), AwaitNext)
   handleCallTest Terminate k = k $ do
     me <- self
-    logInfo (show me ++ " exiting")
+    logInfo (T.pack (show me ++ " exiting"))
     pure (Just (), StopServer ProcessFinished)
   handleCallTest (TerminateError msg) k = k $ do
     me <- self
-    logInfo (show me ++ " exiting with error: " ++ msg)
+    logInfo (T.pack (show me ++ " exiting with error: " ++ msg))
     pure (Just (), StopServer (ProcessError msg))
   handleTerminateTest = InterruptCallback $ \msg -> do
     me <- self
-    logInfo (show me ++ " is exiting: " ++ show msg)
+    logInfo (T.pack (show me ++ " is exiting: " ++ show msg))
     logProcessExit msg
     pure (StopServer msg)

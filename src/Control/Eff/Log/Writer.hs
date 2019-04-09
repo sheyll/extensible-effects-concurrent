@@ -68,6 +68,8 @@ import           Control.Monad.Trans.Control    ( MonadBaseControl
                                                 )
 import           Data.Kind
 import           Control.Lens
+import           Data.Text                     as T
+import           Data.Text.IO                  as T
 
 -- | A function that takes a log message and returns an effect that
 -- /logs/ the message.
@@ -204,7 +206,7 @@ noOpLogWriter = def
 -- traces it using 'traceM'.
 -- This 'LogWriter' work with /any/ base monad.
 debugTraceLogWriter :: Monad h => LogWriter h
-debugTraceLogWriter = MkLogWriter (traceM . renderLogMessage)
+debugTraceLogWriter = MkLogWriter (traceM . T.unpack . renderLogMessage)
 
 -- ** Impure logging
 
@@ -243,7 +245,7 @@ ioLogWriter = MkLogWriter
 -- | A 'LogWriter' that renders 'LogMessage's to strings via 'renderLogMessage'
 -- and prints them to an 'IO.Handle' using 'hPutStrLn'.
 ioHandleLogWriter :: HasCallStack => IO.Handle -> LogWriter IO
-ioHandleLogWriter h = ioLogWriter (IO.hPutStrLn h . renderLogMessage)
+ioHandleLogWriter h = ioLogWriter (T.hPutStrLn h . renderLogMessage)
 
 instance HandleLogWriter IO where
   type LogWriterEffects IO = '[Lift IO]
@@ -257,19 +259,17 @@ consoleLogWriter = ioLogWriter printLogMessage
 --
 -- * The messages will carry the given application name in the 'lmAppName' field.
 -- * The 'lmTimestamp' field contains the UTC time of the log event
--- * The 'lmThreadId' field contains the thread-Id
 -- * The 'lmHostname' field contains the FQDN of the current host
 -- * The 'lmFacility' field contains the given 'Facility'
 --
 -- It works by using 'mappingLogWriterM'.
 defaultIoLogWriter
-  :: String -- ^ The default application name to put into the 'lmAppName' field.
+  :: Text -- ^ The default application name to put into the 'lmAppName' field.
   -> Facility -- ^ The default RFC-5424 facility to put into the 'lmFacility' field.
   -> LogWriter IO -- ^ The IO based writer to decorate
   -> LogWriter IO
 defaultIoLogWriter appName facility = mappingLogWriterM
-  (   setLogMessageThreadId
-  >=> setLogMessageTimestamp
+  (   setLogMessageTimestamp
   >=> setLogMessageHostname
   >=> pure
   .   set lmFacility facility

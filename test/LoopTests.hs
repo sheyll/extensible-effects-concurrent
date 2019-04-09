@@ -14,6 +14,8 @@ import           Test.Tasty.HUnit
 import           Common
 import           Control.Eff.Concurrent.Process.SingleThreadedScheduler
                                                as Scheduler
+import           Data.Text as T
+import           Data.Text.IO as T
 
 test_loopTests :: TestTree
 test_loopTests =
@@ -43,7 +45,7 @@ test_loopTests =
             , testCase
                     "'foreverCheap' inside a child process and 'replicateCheapM_' in the main process"
                 $ do
-                      res <- Scheduler.scheduleIOWithLogging  (ioLogWriter (putStrLn . (">>> " ++) . renderLogMessage))
+                      res <- Scheduler.scheduleIOWithLogging  (ioLogWriter (T.putStrLn . (">>> " <>) . renderLogMessage))
                               $ do
                                     me <- self
                                     spawn_ (foreverCheap $ sendMessage me ())
@@ -64,7 +66,7 @@ test_loopWithLeaksTests =
             [ testCase "scheduleMonadIOEff with many yields from replicateM_"
                 $ do
                       res <-
-                          Scheduler.scheduleIOWithLogging  (ioLogWriter (putStrLn . (">>> " ++) . renderLogMessage))
+                          Scheduler.scheduleIOWithLogging  (ioLogWriter (T.putStrLn . (">>> " <>) . renderLogMessage))
                               $ replicateM_ soMany yieldProcess
                       res @=? Right ()
             , testCase
@@ -84,7 +86,7 @@ test_loopWithLeaksTests =
                     "'forever' inside a child process and 'replicateM_' in the main process"
                 $ do
                       res <-
-                          Scheduler.scheduleIOWithLogging  (ioLogWriter (putStrLn . (">>> " ++) . renderLogMessage))
+                          Scheduler.scheduleIOWithLogging  (ioLogWriter (T.putStrLn . (">>> " <>) . renderLogMessage))
                               $ do
                                     me <- self
                                     spawn_ (forever $ sendMessage me ())

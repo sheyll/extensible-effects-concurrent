@@ -131,6 +131,8 @@ import           GHC.Stack
 import           Data.Function
 import           Control.Applicative
 import           Data.Maybe
+import           Data.String                    (fromString)
+import qualified Data.Text                     as T
 import qualified Control.Exception             as Exc
 
 -- | The process effect is the basis for message passing concurrency. This
@@ -158,44 +160,44 @@ import qualified Control.Exception             as Exc
 -- * when the first process exists, all process should be killed immediately
 data Process (r :: [Type -> Type]) b where
   -- | Remove all messages from the process' message queue
-  FlushMessages :: Process r (ResumeProcess [Dynamic])
+  FlushMessages ::Process r (ResumeProcess [Dynamic])
   -- | In cooperative schedulers, this will give processing time to the
   -- scheduler. Every other operation implicitly serves the same purpose.
   --
   -- @since 0.12.0
-  YieldProcess :: Process r (ResumeProcess ())
+  YieldProcess ::Process r (ResumeProcess ())
   -- | Return the current 'ProcessId'
-  SelfPid :: Process r (ResumeProcess ProcessId)
+  SelfPid ::Process r (ResumeProcess ProcessId)
   -- | Start a new process, the new process will execute an effect, the function
   -- will return immediately with a 'ProcessId'.
-  Spawn :: Eff (Process r ': r) () -> Process r (ResumeProcess ProcessId)
+  Spawn ::Eff (Process r ': r) () -> Process r (ResumeProcess ProcessId)
   -- | Start a new process, and 'Link' to it .
   --
   -- @since 0.12.0
-  SpawnLink :: Eff (Process r ': r) () -> Process r (ResumeProcess ProcessId)
+  SpawnLink ::Eff (Process r ': r) () -> Process r (ResumeProcess ProcessId)
   -- | Get the process state (or 'Nothing' if the process is dead)
-  GetProcessState :: ProcessId -> Process r (ResumeProcess (Maybe ProcessState))
+  GetProcessState ::ProcessId -> Process r (ResumeProcess (Maybe ProcessState))
   -- | Shutdown the process; irregardless of the exit reason, this function never
   -- returns,
-  Shutdown :: ExitReason 'NoRecovery   -> Process r a
+  Shutdown ::ExitReason 'NoRecovery   -> Process r a
   -- | Raise an error, that can be handled.
-  SendShutdown :: ProcessId  -> ExitReason 'NoRecovery  -> Process r (ResumeProcess ())
+  SendShutdown ::ProcessId  -> ExitReason 'NoRecovery  -> Process r (ResumeProcess ())
   -- | Request that another a process interrupts. The targeted process is interrupted
   -- and gets an 'Interrupted', the target process may decide to ignore the
   -- interrupt and continue as if nothing happened.
-  SendInterrupt :: ProcessId -> InterruptReason -> Process r (ResumeProcess ())
+  SendInterrupt ::ProcessId -> InterruptReason -> Process r (ResumeProcess ())
   -- | Send a message to a process addressed by the 'ProcessId'. Sending a
   -- message should __always succeed__ and return __immediately__, even if the
   -- destination process does not exist, or does not accept messages of the
   -- given type.
-  SendMessage :: ProcessId -> Dynamic -> Process r (ResumeProcess ())
+  SendMessage ::ProcessId -> Dynamic -> Process r (ResumeProcess ())
   -- | Receive a message that matches a criteria.
   -- This should block until an a message was received. The message is returned
   -- as a 'ResumeProcess' value. The function should also return if an exception
   -- was caught or a shutdown was requested.
   ReceiveSelectedMessage :: forall r a . MessageSelector a -> Process r (ResumeProcess a)
   -- | Generate a unique 'Int' for the current process.
-  MakeReference :: Process r (ResumeProcess Int)
+  MakeReference ::Process r (ResumeProcess Int)
   -- | Monitor another process. When the monitored process exits a
   --  'ProcessDown' is sent to the calling process.
   -- The return value is a unique identifier for that monitor.
@@ -205,21 +207,21 @@ data Process (r :: [Type -> Type]) b where
   -- will be sent immediately, without exit reason
   --
   -- @since 0.12.0
-  Monitor :: ProcessId -> Process r (ResumeProcess MonitorReference)
+  Monitor ::ProcessId -> Process r (ResumeProcess MonitorReference)
   -- | Remove a monitor.
   --
   -- @since 0.12.0
-  Demonitor :: MonitorReference -> Process r (ResumeProcess ())
+  Demonitor ::MonitorReference -> Process r (ResumeProcess ())
   -- | Connect the calling process to another process, such that
   -- if one of the processes crashes (i.e. 'isCrash' returns 'True'), the other
   -- is shutdown with the 'ExitReason' 'LinkedProcessCrashed'.
   --
   -- @since 0.12.0
-  Link :: ProcessId -> Process r (ResumeProcess ())
+  Link ::ProcessId -> Process r (ResumeProcess ())
   -- | Unlink the calling process from the other process.
   --
   -- @since 0.12.0
-  Unlink :: ProcessId -> Process r (ResumeProcess ())
+  Unlink ::ProcessId -> Process r (ResumeProcess ())
 
 instance Show (Process r b) where
   showsPrec d = \case
@@ -266,9 +268,9 @@ data ResumeProcess v where
   -- | The current operation of the process was interrupted with a
   -- 'ExitReason'. If 'isRecoverable' holds for the given reason,
   -- the process may choose to continue.
-  Interrupted :: InterruptReason -> ResumeProcess v
+  Interrupted ::InterruptReason -> ResumeProcess v
   -- | The process may resume to do work, using the given result.
-  ResumeWith :: a -> ResumeProcess a
+  ResumeWith ::a -> ResumeProcess a
   deriving ( Typeable, Generic, Generic1, Show )
 
 instance NFData a => NFData (ResumeProcess a)
@@ -395,11 +397,11 @@ selectMessageProxyLazy _ = selectDynamicMessageLazy fromDynamic
 -- scheduler implementation.
 data SchedulerProxy :: [Type -> Type] -> Type where
   -- | Tell the type checker what effects we have below 'Process'
-  SchedulerProxy :: SchedulerProxy q
+  SchedulerProxy ::SchedulerProxy q
   -- | Like 'SchedulerProxy' but shorter
-  SP :: SchedulerProxy q
+  SP ::SchedulerProxy q
   -- | Like 'SP' but different
-  Scheduler :: SchedulerProxy q
+  Scheduler ::SchedulerProxy q
 
 -- | /Cons/ 'Process' onto a list of effects.
 type ConsProcess r = Process r ': r
@@ -491,29 +493,29 @@ data ExitReason (t :: ExitRecovery) where
     --
     -- @since 0.13.2
     ProcessFinished
-      :: ExitReason 'Recoverable
+      ::ExitReason 'Recoverable
     -- | A process that should be running was not running.
     ProcessNotRunning
-      :: ProcessId -> ExitReason 'Recoverable
+      ::ProcessId -> ExitReason 'Recoverable
     -- | A linked process is down
     LinkedProcessCrashed
-      :: ProcessId -> ExitReason 'Recoverable
+      ::ProcessId -> ExitReason 'Recoverable
     -- | An exit reason that has an error message but isn't 'Recoverable'.
     ProcessError
-      :: String -> ExitReason 'Recoverable
+      ::String -> ExitReason 'Recoverable
     -- | A process function returned or exited without any error.
     ExitNormally
-      :: ExitReason 'NoRecovery
+      ::ExitReason 'NoRecovery
     -- | An unhandled 'Recoverable' allows 'NoRecovery'.
     NotRecovered
-      :: (ExitReason 'Recoverable) -> ExitReason 'NoRecovery
+      ::(ExitReason 'Recoverable) -> ExitReason 'NoRecovery
     -- | An unexpected runtime exception was thrown, i.e. an exception
     --    derived from 'Control.Exception.Safe.SomeException'
     UnexpectedException
-      :: String -> String -> ExitReason 'NoRecovery
+      ::String -> String -> ExitReason 'NoRecovery
     -- | A process was cancelled (e.g. killed, in 'Async.cancel')
     Killed
-      :: ExitReason 'NoRecovery
+      ::ExitReason 'NoRecovery
   deriving Typeable
 
 instance Show (ExitReason x) where
@@ -638,7 +640,8 @@ tryUninterrupted = handleInterrupts (pure . Left) . fmap Right
 -- | Handle interrupts by logging them with `logProcessExit` and otherwise
 -- ignoring them.
 logInterrupts
-  :: forall r . (Member Logs r, HasCallStack, Member Interrupts r)
+  :: forall r
+   . (Member Logs r, HasCallStack, Member Interrupts r)
   => Eff r ()
   -> Eff r ()
 logInterrupts = handleInterrupts logProcessExit
@@ -686,7 +689,7 @@ isRecoverable _                               = False
 
 -- | An existential wrapper around 'ExitReason'
 data SomeExitReason where
-  SomeExitReason :: ExitReason x -> SomeExitReason
+  SomeExitReason ::ExitReason x -> SomeExitReason
 
 instance Ord SomeExitReason where
   compare = compare `on` fromSomeExitReason
@@ -726,14 +729,15 @@ fromSomeExitReason (SomeExitReason e) = case e of
 --
 -- > logCrash = traverse_ logError . toCrashReason
 --
-toCrashReason :: ExitReason x -> Maybe String
-toCrashReason e | isCrash e = Just (show e)
+toCrashReason :: ExitReason x -> Maybe T.Text
+toCrashReason e | isCrash e = Just (T.pack (show e))
                 | otherwise = Nothing
 
 -- | Log the 'ExitReason's
-logProcessExit :: forall e x. (Member Logs e, HasCallStack) => ExitReason x -> Eff e ()
+logProcessExit
+  :: forall e x . (Member Logs e, HasCallStack) => ExitReason x -> Eff e ()
 logProcessExit (toCrashReason -> Just ex) = withFrozenCallStack (logError ex)
-logProcessExit ex = withFrozenCallStack (logDebug (show ex))
+logProcessExit ex = withFrozenCallStack (logDebug (fromString (show ex)))
 
 
 -- | Execute a and action and return the result;
