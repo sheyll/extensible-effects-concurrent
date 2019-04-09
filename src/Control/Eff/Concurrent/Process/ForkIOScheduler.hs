@@ -29,7 +29,7 @@ import Control.Eff.Concurrent.Process
 import qualified Control.Eff.ExceptionExtra as ExcExtra ()
 import Control.Eff.Extend
 import Control.Eff.Log
-import Control.Eff.Log.Async
+import Control.Eff.LogWriter.Async
 import Control.Eff.Reader.Strict as Reader
 import Control.Exception.Safe as Safe
 import Control.Lens

@@ -96,10 +96,8 @@ module Control.Eff.Log
   , LoggingAndIo
 
     -- ** Log Writers
-  , withConsoleLogging
-  , withLogFileAppender
-  , withUdp514
-  , withDevLog
+  , withUDPLogWriter
+  , withUnixDomainSocketLogWriter
   , withRFC5424UnixDomainSocket
   , withRFC3164UnixDomainSocketWriter
 

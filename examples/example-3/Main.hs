@@ -2,13 +2,14 @@ module Main where
 
 import           Control.Eff
 import           Control.Eff.Log
+import           Control.Eff.LogWriter.File
 import           Control.Lens
 
 main :: IO ()
 main =
   runLift
   $  withSomeLogging @IO
-  $  withLogFileAppender  "extensible-effects-concurrent-example-3.log"
+  $  withFileLogWriter  "extensible-effects-concurrent-example-3.log"
   $  addLogWriter (filteringLogWriter severeMessages (mappingLogWriter (lmMessage %~ ("traced: " <>)) debugTraceLogWriter))
   $  modifyLogWriter (defaultIoLogWriter "example-3" local0)
   $  addLogWriter (filteringLogWriter severeMessages (mappingLogWriter (lmMessage %~ ("traced without timestamp: " <>)) debugTraceLogWriter))

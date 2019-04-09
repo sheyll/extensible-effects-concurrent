@@ -38,7 +38,13 @@ module Control.Eff.Concurrent
     module Control.Eff.Log
   ,
     -- *** Asynchronous Logging
-    module Control.Eff.Log.Async
+    module Control.Eff.LogWriter.Async
+  ,
+    -- *** Console Logging
+    module Control.Eff.LogWriter.Console
+  ,
+    -- *** File Logging
+    module Control.Eff.LogWriter.File
   ,
     -- ** Preventing Space Leaks
     module Control.Eff.Loop
@@ -229,5 +235,7 @@ import           Control.Eff.Concurrent.Process.SingleThreadedScheduler
                                                 , defaultMainSingleThreaded
                                                 )
 import           Control.Eff.Log
-import           Control.Eff.Log.Async
+import           Control.Eff.LogWriter.Async
+import           Control.Eff.LogWriter.Console
+import           Control.Eff.LogWriter.File
 import           Control.Eff.Loop

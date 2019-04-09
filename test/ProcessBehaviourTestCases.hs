@@ -19,7 +19,7 @@ import qualified Control.Eff.Concurrent.Process.SingleThreadedScheduler
 import           Control.Eff
 import           Control.Eff.Extend
 import           Control.Eff.Log
-import           Control.Eff.Log.Async
+import           Control.Eff.LogWriter.Async
 import           Control.Eff.Loop
 import           Control.Monad
 import           Test.Tasty

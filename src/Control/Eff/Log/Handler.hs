@@ -55,10 +55,9 @@ module Control.Eff.Log.Handler
   , LoggingAndIo
 
   -- ** Log Writers
-  , withConsoleLogging
-  , withLogFileAppender
-  , withUdp514
-  , withDevLog
+  , withUDPLogWriter
+  , withUnixDomainSocketLogWriter
+
   , withRFC5424UnixDomainSocket
   , withRFC3164UnixDomainSocketWriter
 
@@ -197,33 +196,11 @@ instance (Applicative m, LiftedBase m e, Catch.MonadMask (Eff e), LogsTo m (Logs
 --
 -- The requirements of this constraint are provided by:
 --
--- * 'withConsoleLogging'
 -- * 'withIoLogging'
 -- * 'withLogging'
 -- * 'withSomeLogging'
 --
 type LogsTo h e = (Member Logs e, HandleLogWriter h, LogWriterEffects h <:: e, SetMember LogWriterReader (LogWriterReader h) e)
-
--- | Enable logging to @standard output@ using the 'defaultIoLogWriter' in combination with
--- the 'consoleLogWriter'.
---
--- Example:
---
--- > exampleWithConsoleLogging :: IO ()
--- > exampleWithConsoleLogging =
--- >     runLift
--- >   $ withConsoleLogging "my-app" local7 allLogMessages
--- >   $ logInfo "Oh, hi there"
---
--- To vary the 'LogWriter' use 'withIoLogging'.
-withConsoleLogging
-  :: SetMember Lift (Lift IO) e
-  => Text -- ^ The default application name to put into the 'lmAppName' field.
-  -> Facility -- ^ The default RFC-5424 facility to put into the 'lmFacility' field.
-  -> LogPredicate -- ^ The inital predicate for log messages, there are some pre-defined in "Control.Eff.Log.Message#PredefinedPredicates"
-  -> Eff (Logs : LogWriterReader IO : e) a
-  -> Eff e a
-withConsoleLogging = withIoLogging consoleLogWriter
 
 -- | Enable logging to IO using the 'defaultIoLogWriter'.
 --
@@ -734,38 +711,10 @@ addLogWriter :: forall h e a .
   => LogWriter h -> Eff e a -> Eff e a
 addLogWriter lw2 = modifyLogWriter (\lw1 -> MkLogWriter (\m -> runLogWriter lw1 m >> runLogWriter lw2 m))
 
--- | Open a file and add the 'LogWriter' in the 'LogWriterReader' tha appends the log messages to it.
-withLogFileAppender
-  :: ( Lifted IO e
-     , LogsTo IO e
-     , MonadBaseControl IO (Eff e)
-     )
-  => FilePath
-  -> Eff e b
-  -> Eff e b
-withLogFileAppender fnIn e = liftBaseOp withOpenedLogFile (`addLogWriter` e)
-  where
-    withOpenedLogFile
-      :: HasCallStack
-      => (LogWriter IO -> IO a)
-      -> IO a
-    withOpenedLogFile ioE =
-      Safe.bracket
-          (do
-            fnCanon <- canonicalizePath fnIn
-            createDirectoryIfMissing True (takeDirectory fnCanon)
-            h <- IO.openFile fnCanon IO.AppendMode
-            IO.hSetBuffering h (IO.BlockBuffering (Just 1024))
-            return h
-          )
-          (\h -> Safe.try @IO @Catch.SomeException (IO.hFlush h) >> IO.hClose h)
-          (\h -> ioE (ioHandleLogWriter h))
-
-
 -- | Open a unix domain socket connected to @/dev/log@
 --   provide a 'LogWriter', that writes log message to the socket,
 --   after rendering them with the given function.
-withDevLog
+withUnixDomainSocketLogWriter
   :: ( Lifted IO e
      , LogsTo IO e
      , MonadBaseControl IO (Eff e)
@@ -773,7 +722,7 @@ withDevLog
   => (LogMessage -> T.Text)
   -> Eff e b
   -> Eff e b
-withDevLog render e = liftBaseOp withOpenedLogFile (`addLogWriter` e)
+withUnixDomainSocketLogWriter render e = liftBaseOp withOpenedLogFile (`addLogWriter` e)
   where
     withOpenedLogFile
       :: HasCallStack
@@ -803,7 +752,7 @@ withDevLog render e = liftBaseOp withOpenedLogFile (`addLogWriter` e)
 
 -- | Open a an inet socket, and provide a 'LogWriter', that sends log messages
 --   to UDP port 514 on that host, after rendering them with the given function.
-withUdp514
+withUDPLogWriter
   :: ( Lifted IO e
      , LogsTo IO e
      , MonadBaseControl IO (Eff e)
@@ -812,7 +761,7 @@ withUdp514
   -> T.Text -- ^ Hostname
   -> Eff e b
   -> Eff e b
-withUdp514 render hostname e = liftBaseOp withOpenedLogFile (`addLogWriter` e)
+withUDPLogWriter render hostname e = liftBaseOp withOpenedLogFile (`addLogWriter` e)
   where
     withOpenedLogFile
       :: HasCallStack
@@ -851,7 +800,7 @@ withRFC5424UnixDomainSocket
      )
   => Eff e b
   -> Eff e b
-withRFC5424UnixDomainSocket = withDevLog renderRFC5424
+withRFC5424UnixDomainSocket = withUnixDomainSocketLogWriter renderRFC5424
 
 -- | Open a file and add the 'LogWriter' in the 'LogWriterReader' tha appends the log messages to it.
 withRFC3164UnixDomainSocketWriter
@@ -861,4 +810,4 @@ withRFC3164UnixDomainSocketWriter
      )
   => Eff e b
   -> Eff e b
-withRFC3164UnixDomainSocketWriter = withDevLog renderRFC3164
+withRFC3164UnixDomainSocketWriter = withUnixDomainSocketLogWriter renderRFC3164

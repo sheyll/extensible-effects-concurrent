@@ -1,5 +1,20 @@
 # Changelog for extensible-effects-concurrent
 
+## 0.21.0
+
+- Add more log message renderers
+
+    - Multiple extra time stamp formats
+    - RFC3164
+
+- Add IO log writer for unix domain sockets, e.g. `/dev/log`
+
+- Add IO log writer for UDP
+
+- Extract and simplify the async logger
+
+- Extract and simplify the file log writer
+
 ## 0.20.0
 
 - Rewrite Logging API so that usage is not as bloated

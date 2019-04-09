@@ -1,6 +1,7 @@
 -- | This module only exposes a 'LogWriter' for asynchronous logging;
-module Control.Eff.Log.Async
+module Control.Eff.LogWriter.Async
   ( withAsyncLogWriter
+  , withAsyncLogging
   ) where
 
 import Control.Concurrent.Async
@@ -13,9 +14,45 @@ import Control.Monad (unless)
 import Control.Monad.Trans.Control (MonadBaseControl, liftBaseOp)
 import Data.Foldable (traverse_)
 import Data.Kind ()
+import Data.Text as T
 
--- | Fork a new process in which the given log message writer, will listen
--- on a message queue, to which all log message will be relayed.
+
+-- | This is a wrapper around 'withAsyncLogWriter' and 'withIoLogging'.
+--
+-- Example:
+--
+-- > exampleWithAsyncLogging :: IO ()
+-- > exampleWithAsyncLogging =
+-- >     runLift
+-- >   $ withAsyncLogWriter consoleLogWriter (1000::Int) "my-app" local0 allLogMessages
+-- >   $ do logMsg "test 1"
+-- >        logMsg "test 2"
+-- >        logMsg "test 3"
+-- >
+--
+withAsyncLogging ::
+     ( LogsTo IO e
+     , Lifted IO e
+     , MonadBaseControl IO (Eff e)
+     , Integral len
+     )
+  => LogWriter IO
+  -> len -- ^ Size of the log message input queue. If the queue is full, message
+         -- are dropped silently.
+  -> Text -- ^ The default application name to put into the 'lmAppName' field.
+  -> Facility -- ^ The default RFC-5424 facility to put into the 'lmFacility' field.
+  -> LogPredicate -- ^ The inital predicate for log messages, there are some pre-defined in "Control.Eff.Log.Message#PredefinedPredicates"
+  -> Eff (Logs : LogWriterReader IO : e) a
+  -> Eff e a
+withAsyncLogging lw queueLength a f p e =
+  liftBaseOp
+    (withAsyncLogChannel queueLength (runLogWriter lw . force))
+    (\lc -> withIoLogging (makeLogChannelWriter lc) a f p e)
+
+
+-- | /Move/ the current 'LogWriter' into its own thread.
+--
+-- A bounded queue is used to forward logs to the process.
 --
 -- If an exception is received, the logging process will be killed.
 --
@@ -25,8 +62,8 @@ import Data.Kind ()
 --
 -- Example:
 --
--- > exampleAsyncLogging :: IO ()
--- > exampleAsyncLogging =
+-- > exampleAsyncLogWriter :: IO ()
+-- > exampleAsyncLogWriter =
 -- >     runLift
 -- >   $ withLogging consoleLogWriter
 -- >   $ withAsyncLogWriter (1000::Int)
