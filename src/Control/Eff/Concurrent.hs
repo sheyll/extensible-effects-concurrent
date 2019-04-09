@@ -37,6 +37,9 @@ module Control.Eff.Concurrent
     -- ** Logging Effect
     module Control.Eff.Log
   ,
+    -- *** Asynchronous Logging
+    module Control.Eff.Log.Async
+  ,
     -- ** Preventing Space Leaks
     module Control.Eff.Loop
   )
@@ -226,4 +229,5 @@ import           Control.Eff.Concurrent.Process.SingleThreadedScheduler
                                                 , defaultMainSingleThreaded
                                                 )
 import           Control.Eff.Log
+import           Control.Eff.Log.Async
 import           Control.Eff.Loop

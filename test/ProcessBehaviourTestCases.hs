@@ -19,6 +19,7 @@ import qualified Control.Eff.Concurrent.Process.SingleThreadedScheduler
 import           Control.Eff
 import           Control.Eff.Extend
 import           Control.Eff.Log
+import           Control.Eff.Log.Async
 import           Control.Eff.Loop
 import           Control.Monad
 import           Test.Tasty
@@ -35,8 +36,8 @@ test_forkIo :: TestTree
 test_forkIo = setTravisTestOptions $ withTestLogC
   (\c ->
       runLift
-    $ withSomeLogging @IO
-    $ withAsyncLogging (100 :: Int) (ioLogWriter (\m -> when (view lmSeverity m < errorSeverity) (printLogMessage m)))
+    $ withLogging (filteringLogWriter (lmSeverityIsAtLeast errorSeverity) consoleLogWriter)
+    $ withAsyncLogWriter (100 :: Int)
     $ ForkIO.schedule c)
   (\factory -> testGroup "ForkIOScheduler" [allTests factory])
 

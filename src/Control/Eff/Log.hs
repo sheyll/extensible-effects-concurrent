@@ -114,15 +114,13 @@ module Control.Eff.Log
     --
     -- The log message type corresponds to RFC-5424, including structured data.
   , module Control.Eff.Log.Message
-    -- | This module only exposes a 'LogWriter' for asynchronous logging;
-  , module Control.Eff.Log.Async
+
     -- | This module defines the 'LogWriter' type, which is used to give
     -- callback functions for log messages an explicit type.
   , module Control.Eff.Log.Writer
   )
 where
 
-import           Control.Eff.Log.Async
 import           Control.Eff.Log.Handler
 import           Control.Eff.Log.Message
 import           Control.Eff.Log.Writer

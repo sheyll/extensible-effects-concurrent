@@ -1,15 +1,13 @@
--- | Asynchronous Logging
+-- | This module only exposes a 'LogWriter' for asynchronous logging;
 module Control.Eff.Log.Async
-  ( withAsyncLogging
+  ( withAsyncLogWriter
   ) where
 
 import Control.Concurrent.Async
 import Control.Concurrent.STM
 import Control.DeepSeq
 import Control.Eff as Eff
-import Control.Eff.Log.Handler
-import Control.Eff.Log.Message
-import Control.Eff.Log.Writer
+import Control.Eff.Log
 import Control.Exception (evaluate)
 import Control.Monad (unless)
 import Control.Monad.Trans.Control (MonadBaseControl, liftBaseOp)
@@ -30,14 +28,14 @@ import Data.Kind ()
 -- > exampleAsyncLogging :: IO ()
 -- > exampleAsyncLogging =
 -- >     runLift
--- >   $ withSomeLogging @IO
--- >   $ withAsyncLogging (1000::Int) consoleLogWriter
+-- >   $ withLogging consoleLogWriter
+-- >   $ withAsyncLogWriter (1000::Int)
 -- >   $ do logMsg "test 1"
 -- >        logMsg "test 2"
 -- >        logMsg "test 3"
 -- >
 --
-withAsyncLogging ::
+withAsyncLogWriter ::
      ( LogsTo IO e
      , Lifted IO e
      , MonadBaseControl IO (Eff e)
@@ -45,10 +43,10 @@ withAsyncLogging ::
      )
   => len -- ^ Size of the log message input queue. If the queue is full, message
          -- are dropped silently.
-  -> LogWriter IO
   -> Eff e a
   -> Eff e a
-withAsyncLogging queueLength lw e =
+withAsyncLogWriter queueLength e = do
+  lw <- askLogWriter
   liftBaseOp
     (withAsyncLogChannel queueLength (runLogWriter lw . force))
     (\lc -> setLogWriter (makeLogChannelWriter lc) e)

@@ -11,6 +11,7 @@ module Control.Eff.Log.Examples
 where
 
 import           Control.Eff.Log
+import           Control.Eff.Log.Async
 import           Control.Eff
 import           Control.Lens (view, (%~), to)
 import           Data.Text    as T
@@ -141,8 +142,8 @@ exampleLogCapture = go >>= T.putStrLn
 exampleAsyncLogging :: IO ()
 exampleAsyncLogging =
     runLift
-  $ withSomeLogging @IO
-  $ withAsyncLogging (1000::Int) consoleLogWriter
+  $ withLogging consoleLogWriter
+  $ withAsyncLogWriter (1000::Int)
   $ do logInfo "test 1"
        logInfo "test 2"
        logInfo "test 3"

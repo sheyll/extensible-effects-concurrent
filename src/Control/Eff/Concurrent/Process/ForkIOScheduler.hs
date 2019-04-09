@@ -29,6 +29,7 @@ import Control.Eff.Concurrent.Process
 import qualified Control.Eff.ExceptionExtra as ExcExtra ()
 import Control.Eff.Extend
 import Control.Eff.Log
+import Control.Eff.Log.Async
 import Control.Eff.Reader.Strict as Reader
 import Control.Exception.Safe as Safe
 import Control.Lens
@@ -202,7 +203,7 @@ defaultMain = defaultMainWithLogWriter consoleLogWriter
 -- top of 'SchedulerIO' effect. All logging is sent to standard output.
 defaultMainWithLogWriter :: HasCallStack => LogWriter IO -> Eff InterruptableProcEff () -> IO ()
 defaultMainWithLogWriter lw =
-  runLift . withSomeLogging . withAsyncLogging (1024 :: Int) lw . schedule
+  runLift . withLogging lw . withAsyncLogWriter (1024 :: Int) . schedule
 
 -- ** Process Execution
 
