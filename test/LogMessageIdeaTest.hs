@@ -1,135 +1,20 @@
-{-# LANGUAGE QuantifiedConstraints #-}
--- | An RFC 5434 inspired log message and convenience functions for
--- logging them.
-module Control.Eff.Log.Message
-  ( -- * Log Message Data Type
-    LogMessage(..)
-   -- ** Field Accessors
-  , lmFacility
-  , lmSeverity
-  , lmTimestamp
-  , lmHostname
-  , lmAppName
-  , lmProcessId
-  , lmMessageId
-  , lmStructuredData
-  , lmSrcLoc
-  , lmThreadId
-  , lmMessage
-
-  -- *** IO Based 'LogMessage' Modification
-  , setCallStack
-  , prefixLogMessagesWith
-  , setLogMessageTimestamp
-  , setLogMessageThreadId
-  , setLogMessageHostname
-
-  -- ** Log Message Text Rendering
-  , renderSyslogSeverityAndFacility
-  , renderRFC5424
-  , renderRFC3164
-  , printLogMessage
-  , renderLogMessageConsoleLog
-  , renderLogMessageDevLog
-
-  -- *** Timestamp Rendering
-  , LogMessageTimeRenderer()
-  , mkLogMessageTimeRenderer
-  , suppressTimestamp
-  , rfc3164Timestamp
-  , rfc5424Timestamp
-  , rfc5424NoZTimestamp
-
-  -- ** Log Message Construction
-  , errorMessage
-  , infoMessage
-  , debugMessage
-
-  -- *** Type Class for Conversion to 'LogMessage'
-  , ToLogMessage(..)
-
-  -- *** IO Based Constructor
-  , errorMessageIO
-  , infoMessageIO
-  , debugMessageIO
-
-  -- * 'LogMessage' Predicates #PredefinedPredicates#
-  -- $PredefinedPredicates
-  , LogPredicate
-  , allLogMessages
-  , noLogMessages
-  , lmSeverityIs
-  , lmSeverityIsAtLeast
-  , lmMessageStartsWith
-  , discriminateByAppName
-
-  -- ** RFC-5424 Structured Data
-  , StructuredDataElement(..)
-  , SdParameter(..)
-  , sdName
-  , sdParamValue
-  , sdElementId
-  , sdElementParameters
-
-  -- * RFC 5424 Severity
-  , Severity(fromSeverity)
-  , emergencySeverity
-  , alertSeverity
-  , criticalSeverity
-  , errorSeverity
-  , warningSeverity
-  , noticeSeverity
-  , informationalSeverity
-  , debugSeverity
-
-  -- * RFC 5424 Facility
-  , Facility
-    ( fromFacility
-  -- ** Facility Constructors
-    )
-  , kernelMessages
-  , userLevelMessages
-  , mailSystem
-  , systemDaemons
-  , securityAuthorizationMessages4
-  , linePrinterSubsystem
-  , networkNewsSubsystem
-  , uucpSubsystem
-  , clockDaemon
-  , securityAuthorizationMessages10
-  , ftpDaemon
-  , ntpSubsystem
-  , logAuditFacility
-  , logAlertFacility
-  , clockDaemon2
-  , local0
-  , local1
-  , local2
-  , local3
-  , local4
-  , local5
-  , local6
-  , local7
-  )
-where
+module LogMessageIdeaTest where
 
 import           Control.Concurrent
 import           Control.DeepSeq
 import           Control.Lens
-import           Control.Monad                  ( (>=>) )
-import           Control.Monad.IO.Class
 import           Data.Default
 import           Data.Maybe
-import           Data.String                    (IsString(..))
 import qualified Data.Text                     as T
-import qualified Data.Text.IO                  as T
 import           Data.Time.Clock
 import           Data.Time.Format
 import           GHC.Generics            hiding ( to )
 import           GHC.Stack
-import           Network.HostName              as Network
 import           System.FilePath.Posix
 import           Text.Printf
+import           Control.Eff
+import           Control.Eff.Reader.Lazy
+
 
 -- | A message data type inspired by the RFC-5424 Syslog Protocol
 data LogMessage =
@@ -479,31 +364,89 @@ lmAppName
 instance Show LogMessage where
   show = T.unpack . T.unlines . renderLogMessageBodyTabbed
 
--- | A rendering function for the 'lmTimestamp' field.
-newtype LogMessageTimeRenderer =
-  MkLogMessageTimeRenderer { renderLogMessageTime :: UTCTime -> T.Text }
 
--- | Make a  'LogMessageTimeRenderer' using 'formatTime' in the 'defaultLocale'.
-mkLogMessageTimeRenderer
+type LogRenderer a = LogMessage -> a
+
+withRenderer :: LogRenderer a -> Eff (Reader (LogRenderer a) ': e) b -> Eff e b
+withRenderer = runReader
+
+newtype SeverityText = MkSeverityText { fromSeverityText :: T.Text }
+  deriving (Semigroup)
+
+mkSyslogSeverityText :: LogRenderer SeverityText
+mkSyslogSeverityText (MkLogMessage !f !s _ _ _ _ _ _ _ _ _)
+   = MkSeverityText $ "<" <> T.pack (show (fromSeverity s + fromFacility f * 8)) <> ">"
+
+newtype FacilityText = MkFacilityText { fromFacilityText :: T.Text }
+  deriving (Semigroup)
+
+mkSyslogFacilityText :: LogRenderer FacilityText
+mkSyslogFacilityText _ = MkFacilityText ""
+
+newtype TimestampText = MkTimestampText { fromTimestampText :: T.Text }
+  deriving (Semigroup)
+
+mkFormattedTimestampText :: LogTimestampFormat -> LogRenderer (Maybe TimestampText)
+mkFormattedTimestampText f (MkLogMessage _ _ ts _ _ _ _ _ _ _ _) =
+  MkTimestampText . formatLogTimestamp f <$> ts
+
+newtype MessageText = MkMessageText { fromMessageText :: T.Text }
+  deriving (Semigroup)
+
+mkMessageText :: LogRenderer MessageText
+mkMessageText = MkMessageText . renderLogMessageBody
+
+renderDevLogMessage :: LogRenderer T.Text
+renderDevLogMessage =
+  run
+    $ withRenderer mkSyslogSeverityText
+    $ withRenderer mkSyslogFacilityText
+    $ withRenderer mkMessageText
+    $ withRenderer (fromMaybe (MkTimestampText "-") <$> mkFormattedTimestampText rfc5424NoZTimestamp)
+    $ mkDevLogMessage
+
+mkDevLogMessage ::
+  ( '[ Reader (LogRenderer SeverityText)
+     , Reader (LogRenderer FacilityText)
+     , Reader (LogRenderer TimestampText)
+     , Reader (LogRenderer MessageText)
+     ]
+    <:: e
+  )
+  => Eff e (LogRenderer T.Text)
+mkDevLogMessage =
+  (\s ts m -> s <> pure " " <> ts <> pure " " <> m)
+    <$> (fmap fromSeverityText  <$> ask)
+    <*> (fmap fromTimestampText <$> ask)
+    <*> (fmap fromMessageText   <$> ask)
+
+
+-- | A time stamp formatting function
+newtype LogTimestampFormat =
+  MkLogTimestampFormat { formatLogTimestamp :: UTCTime -> T.Text }
+
+-- | Make a  'LogTimestampFormat' using 'formatTime' in the 'defaultLocale'.
+mkLogTimestampFormat
   :: String -- ^ The format string that is passed to 'formatTime'
-  -> LogMessageTimeRenderer
-mkLogMessageTimeRenderer s = MkLogMessageTimeRenderer (T.pack . formatTime defaultTimeLocale s)
+  -> LogTimestampFormat
+mkLogTimestampFormat s = MkLogTimestampFormat (T.pack . formatTime defaultTimeLocale s)
 
 -- | Don't render the time stamp
-suppressTimestamp :: LogMessageTimeRenderer
-suppressTimestamp = MkLogMessageTimeRenderer (const "")
+suppressTimestamp :: LogTimestampFormat
+suppressTimestamp = MkLogTimestampFormat (const "")
 
 -- | Render the time stamp using @"%h %d %H:%M:%S"@
-rfc3164Timestamp :: LogMessageTimeRenderer
-rfc3164Timestamp = mkLogMessageTimeRenderer "%h %d %H:%M:%S"
+rfc3164Timestamp :: LogTimestampFormat
+rfc3164Timestamp = mkLogTimestampFormat "%h %d %H:%M:%S"
 
 -- | Render the time stamp to @'iso8601DateFormat' (Just "%H:%M:%S%6QZ")@
-rfc5424Timestamp :: LogMessageTimeRenderer
-rfc5424Timestamp = mkLogMessageTimeRenderer (iso8601DateFormat (Just "%H:%M:%S%6QZ"))
+rfc5424Timestamp :: LogTimestampFormat
+rfc5424Timestamp = mkLogTimestampFormat (iso8601DateFormat (Just "%H:%M:%S%6QZ"))
 
 -- | Render the time stamp like 'rfc5424Timestamp' does, but omit the terminal @Z@ character.
-rfc5424NoZTimestamp :: LogMessageTimeRenderer
-rfc5424NoZTimestamp = mkLogMessageTimeRenderer (iso8601DateFormat (Just "%H:%M:%S%6Q"))
+rfc5424NoZTimestamp :: LogTimestampFormat
+rfc5424NoZTimestamp = mkLogTimestampFormat (iso8601DateFormat (Just "%H:%M:%S%6Q"))
+
 
 
 -- | Print the /body/ of a 'LogMessage'
@@ -537,263 +480,3 @@ renderLogMessageBody (MkLogMessage _f _s _ts _hn _an _pid _mi _sd ti loc msg) =
                              (srcLocStartLine sl)
           )
           loc
-
-
--- | Render a 'LogMessage' human readable, for console logging
-renderLogMessageConsoleLog :: LogMessage -> T.Text
-renderLogMessageConsoleLog l@(MkLogMessage _f s ts hn an pid mi sd _ _ _) =
-  T.unwords $ filter
-    (not . T.null)
-    ( maybe
-        ""
-        ( T.pack
-        .
-           -- formatTime defaultTimeLocale "%Y-%m-%dT%H:%M:%S%3Q%z"
-          formatTime defaultTimeLocale (iso8601DateFormat (Just "%H:%M:%S%6QZ"))
-        )
-        ts
-    : fromMaybe "" hn
-    : T.pack (show s)
-    : fromMaybe "" an
-    : fromMaybe "" pid
-    : fromMaybe "" mi
-    : (if null sd then "" else T.concat (renderSdElement <$> sd))
-    : renderLogMessageBodyTabbed l
-    )
-
-
-
--- | Render the severity and facility as described in RFC-3164
---
--- Render e.g. as @\<192\>@.
---
--- Useful as header for syslog compatible log output.
-renderSyslogSeverityAndFacility :: LogMessage -> T.Text
-renderSyslogSeverityAndFacility (MkLogMessage !f !s _ _ _ _ _ _ _ _ _)
-   = "<" <> T.pack (show (fromSeverity s + fromFacility f * 8)) <> ">"
-
--- | Render the 'LogMessage' to contain the severity, message, message-id, pid.
---
--- Omit hostname, PID and timestamp.
---
--- Render the header using 'renderSyslogSeverity'
---
--- Useful for logging to @/dev/log@
-renderLogMessageDevLog :: LogMessageTimeRenderer -> LogMessage -> T.Text
-renderLogMessageDevLog tsFmt l@(MkLogMessage _ _ ts _hn _an pid mi _sd _ _loc _msg) =
-     renderSyslogSeverityAndFacility l
-    <> T.unwords
-       [ maybe "" (renderLogMessageTime tsFmt) ts
-       , fromMaybe "" pid
-       , fromMaybe "" mi
-       , renderLogMessageBody l
-       ]
-
--- | Render a 'LogMessage' according to the rules in the RFC-5424.
-renderRFC5424 :: LogMessage -> T.Text
-renderRFC5424 l@(MkLogMessage _ _ ts hn an pid mi sd _ _ _) =
-  T.unwords [header, structuredData, msg]
-  where
-    header =
-       T.unwords
-               [renderSyslogSeverityAndFacility l <> "1" -- PRI VERSION
-               , maybe "-"
-                 (renderLogMessageTime rfc5424NoZTimestamp)
-                 ts
-               , fromMaybe "-" hn
-               , fromMaybe "-" an
-               , fromMaybe "-" pid
-               , fromMaybe "-" mi
-               ]
-    structuredData =
-      if null sd
-          then "-"
-          else
-            T.concat
-              (renderSdElement <$> sd)
-    msg = renderLogMessageBody l -- T.unwords (renderLogMessageBodyTabbed l)
-
--- | Render a 'LogMessage' according to the rules in the RFC-3164,
-renderRFC3164 :: LogMessage -> T.Text
-renderRFC3164 l@(MkLogMessage f s ts hn an pid mi _ _ _ _) =
-  T.unwords [header, msg]
-  where
-    header =
-         "<" <> T.pack (show (fromSeverity s + fromFacility f * 8)) <> ">" -- PRI
-      <> " "
-      <> T.unwords
-               [ maybe "Jan 01 00:00:01"
-                 (renderLogMessageTime rfc3164Timestamp)
-                 ts
-               , fromMaybe "localhost" hn
-               ]
-    msg =       fromMaybe "" an
-               <> fromMaybe "" pid
-               <> fromMaybe "" mi
-               <> renderLogMessageBody l
-
-
--- | Render a 'LogMessage' but set the timestamp and thread id fields.
-printLogMessage :: LogMessage -> IO ()
-printLogMessage = T.putStrLn . renderLogMessageConsoleLog
-
--- | Put the source location of the given callstack in 'lmSrcLoc'
-setCallStack :: CallStack -> LogMessage -> LogMessage
-setCallStack cs m = case getCallStack cs of
-  []              -> m
-  (_, srcLoc) : _ -> m & lmSrcLoc ?~ srcLoc
-
--- | Prefix the 'lmMessage'.
-prefixLogMessagesWith :: T.Text -> LogMessage -> LogMessage
-prefixLogMessagesWith = over lmMessage . (<>)
-
--- | An IO action that sets the current UTC time in 'lmTimestamp'.
-setLogMessageTimestamp :: LogMessage -> IO LogMessage
-setLogMessageTimestamp m = if isNothing (m ^. lmTimestamp)
-  then do
-    now <- getCurrentTime
-    return (m & lmTimestamp ?~ now)
-  else return m
-
--- | An IO action appends the the 'ThreadId' of the calling process (see 'myThreadId')
--- to 'lmMessage'.
-setLogMessageThreadId :: LogMessage -> IO LogMessage
-setLogMessageThreadId m = if isNothing (m ^. lmThreadId)
-  then do
-    t <- myThreadId
-    return (m & lmThreadId ?~ t)
-  else return m
-
--- | An IO action that sets the current hosts fully qualified hostname in 'lmHostname'.
-setLogMessageHostname :: LogMessage -> IO LogMessage
-setLogMessageHostname m = if isNothing (m ^. lmHostname)
-  then do
-    fqdn <- Network.getHostName
-    return (m & lmHostname ?~ T.pack fqdn)
-  else return m
-
--- | Construct a 'LogMessage' with 'errorSeverity'
-errorMessage :: HasCallStack => T.Text -> LogMessage
-errorMessage m = withFrozenCallStack
-  (def & lmSeverity .~ errorSeverity & lmMessage .~ m & setCallStack callStack)
-
--- | Construct a 'LogMessage' with 'informationalSeverity'
-infoMessage :: HasCallStack => T.Text -> LogMessage
-infoMessage m = withFrozenCallStack
-  (  def
-  &  lmSeverity
-  .~ informationalSeverity
-  &  lmMessage
-  .~ m
-  &  setCallStack callStack
-  )
-
--- | Construct a 'LogMessage' with 'debugSeverity'
-debugMessage :: HasCallStack => T.Text -> LogMessage
-debugMessage m = withFrozenCallStack
-  (def & lmSeverity .~ debugSeverity & lmMessage .~ m & setCallStack callStack)
-
--- | Construct a 'LogMessage' with 'errorSeverity'
-errorMessageIO :: (HasCallStack, MonadIO m) => T.Text -> m LogMessage
-errorMessageIO =
-  withFrozenCallStack
-    $ (liftIO . setLogMessageThreadId >=> liftIO . setLogMessageTimestamp)
-    . errorMessage
-
--- | Construct a 'LogMessage' with 'informationalSeverity'
-infoMessageIO :: (HasCallStack, MonadIO m) => T.Text -> m LogMessage
-infoMessageIO =
-  withFrozenCallStack
-    $ (liftIO . setLogMessageThreadId >=> liftIO . setLogMessageTimestamp)
-    . infoMessage
-
--- | Construct a 'LogMessage' with 'debugSeverity'
-debugMessageIO :: (HasCallStack, MonadIO m) => T.Text -> m LogMessage
-debugMessageIO =
-  withFrozenCallStack
-    $ (liftIO . setLogMessageThreadId >=> liftIO . setLogMessageTimestamp)
-    . debugMessage
-
--- | Things that can become a 'LogMessage'
-class ToLogMessage a where
-  -- | Convert the value to a 'LogMessage'
-  toLogMessage :: a -> LogMessage
-
-instance ToLogMessage LogMessage where
-  toLogMessage = id
-
-instance ToLogMessage T.Text where
-  toLogMessage = infoMessage
-
-instance IsString LogMessage where
-  fromString = infoMessage . T.pack
-
--- $PredefinedPredicates
--- == Log Message Predicates
---
--- These are the predefined 'LogPredicate's:
---
---  * 'allLogMessages'
---  * 'noLogMessages'
---  * 'lmSeverityIsAtLeast'
---  * 'lmSeverityIs'
---  * 'lmMessageStartsWith'
---  * 'discriminateByAppName'
---
--- To find out how to use these predicates,
--- goto "Control.Eff.Log.Handler#LogPredicate"
-
-
--- | The filter predicate for message that shall be logged.
---
--- See "Control.Eff.Log.Handler#LogPredicate"
-type LogPredicate = LogMessage -> Bool
-
--- | All messages.
---
--- See "Control.Eff.Log.Message#PredefinedPredicates" for more predicates.
-allLogMessages :: LogPredicate
-allLogMessages = const True
-
--- | No messages.
---
--- See "Control.Eff.Log.Message#PredefinedPredicates" for more predicates.
-noLogMessages :: LogPredicate
-noLogMessages = const False
-
--- | Match 'LogMessage's that have exactly the given severity.
--- See 'lmSeverityIsAtLeast'.
---
--- See "Control.Eff.Log.Message#PredefinedPredicates" for more predicates.
-lmSeverityIs :: Severity -> LogPredicate
-lmSeverityIs s = view (lmSeverity . to (== s))
-
--- | Match 'LogMessage's that have the given severity __or worse__.
--- See 'lmSeverityIs'.
---
--- See "Control.Eff.Log.Message#PredefinedPredicates" for more predicates.
-lmSeverityIsAtLeast :: Severity -> LogPredicate
-lmSeverityIsAtLeast s = view (lmSeverity . to (<= s))
-
--- | Match 'LogMessage's whose 'lmMessage' starts with the given string.
---
--- See "Control.Eff.Log.Message#PredefinedPredicates" for more predicates.
-lmMessageStartsWith :: T.Text -> LogPredicate
-lmMessageStartsWith prefix lm = case T.length prefix of
-  0         -> True
-  prefixLen -> T.take prefixLen (lm ^. lmMessage) == prefix
-
--- | Apply a 'LogPredicate' based on the 'lmAppName' and delegate
--- to one of two 'LogPredicate's.
---
--- One useful application for this is to allow info and debug message
--- from one application, e.g. the current application itself,
--- while at the same time allowing only warning and error messages
--- from third party libraries.
---
--- See "Control.Eff.Log.Message#PredefinedPredicates" for more predicates.
-discriminateByAppName :: T.Text -> LogPredicate -> LogPredicate -> LogPredicate
-discriminateByAppName appName appPredicate otherPredicate lm =
-  if view lmAppName lm == Just appName
-    then appPredicate lm
-    else otherPredicate lm

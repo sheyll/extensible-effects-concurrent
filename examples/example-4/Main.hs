@@ -20,10 +20,10 @@ firstExample = do
     (do
       logInfo "I am waiting for someone to ask me..."
       WhoAreYou replyPid <- receiveMessage
-      sendMessage replyPid "Alice"
-      logInfo (show replyPid ++ " just needed to know it.")
+      sendMessage replyPid ("Alice" :: String)
+      logInfo' (show replyPid ++ " just needed to know it.")
     )
   me <- self
   sendMessage person (WhoAreYou me)
   personName <- receiveMessage
-  logInfo ("I just met " ++ personName)
+  logInfo' ("I just met " ++ personName)

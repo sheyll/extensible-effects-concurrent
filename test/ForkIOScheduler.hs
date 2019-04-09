@@ -57,7 +57,7 @@ test_IOExceptionsIsolated = setTravisTestOptions $ testGroup
       , void (send (ReceiveSelectedMessage @SchedulerIO selectAnyMessageLazy))
       )
     , ( "sending"
-      , void (send (SendMessage @SchedulerIO 44444 (toDyn "test message")))
+      , void (send (SendMessage @SchedulerIO 44444 (toDyn ("test message" :: String))))
       )
     , ( "sending shutdown"
       , void (send (SendShutdown @SchedulerIO 44444 ExitNormally))
@@ -113,7 +113,7 @@ test_mainProcessSpawnsAChildInABusySendLoopAndExitsNormally =
       "spawn a child with a busy send loop and exit normally"
         (Scheduler.defaultMain
           (do
-            void (spawn (foreverCheap (void (sendMessage 1000 "test"))))
+            void (spawn (foreverCheap (void (sendMessage 1000 ("test" :: String)))))
             void exitNormally
             fail "This should not happen!!"
           )
@@ -128,7 +128,7 @@ test_mainProcessSpawnsAChildBothReturn = setTravisTestOptions
     (Scheduler.defaultMain
         (do
           child <- spawn (void (receiveMessage @String))
-          sendMessage child "test"
+          sendMessage child ("test" :: String)
           return ()
         )
   ))
@@ -145,7 +145,7 @@ test_mainProcessSpawnsAChildBothExitNormally = setTravisTestOptions
                   void exitNormally
                   error "This should not happen (child)!!"
                 )
-              sendMessage child "test"
+              sendMessage child ("test" :: String)
               void exitNormally
               error "This should not happen!!"
             )
@@ -161,22 +161,22 @@ test_timer =
         let n = 100
             testMsg :: Float
             testMsg   = 123
-            flushMessages = do
+            flushMessagesLoop = do
               res <- receiveSelectedAfter (selectDynamicMessageLazy Just) 0
               case res of
                 Left  _to -> return ()
-                Right _   -> flushMessages
+                Right _   -> flushMessagesLoop
         me <- self
         spawn_
           (do
-            replicateM_ n $ sendMessage me "bad message"
+            replicateM_ n $ sendMessage me ("bad message" :: String)
             replicateM_ n $ sendMessage me (3123 :: Integer)
             sendMessage me testMsg
           )
         do
           res <- receiveAfter @Float 1000000
           lift (res @?= Just testMsg)
-        flushMessages
+        flushMessagesLoop
         res <- receiveSelectedAfter (selectDynamicMessageLazy Just) 10000
         case res of
           Left  _ -> return ()

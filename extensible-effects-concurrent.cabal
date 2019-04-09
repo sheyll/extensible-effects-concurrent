@@ -250,6 +250,7 @@ test-suite extensible-effects-concurrent-test
               , LoopTests
               , ProcessBehaviourTestCases
               , SingleThreadedScheduler
+              , LogMessageIdeaTest
   ghc-options: -Wall -threaded -fno-full-laziness
   build-depends:
                 async
@@ -267,10 +268,14 @@ test-suite extensible-effects-concurrent-test
               , HUnit
               , stm
               , text
+              , time
+              , filepath
+              , hostname
   default-language: Haskell2010
   default-extensions:   AllowAmbiguousTypes
                       , BangPatterns
                       , DataKinds
+                      , DeriveGeneric
                       , FlexibleContexts
                       , FlexibleInstances
                       , FunctionalDependencies

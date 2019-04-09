@@ -202,11 +202,11 @@ instance HandleLogWriter PureLogWriter where
 noOpLogWriter :: Applicative m => LogWriter m
 noOpLogWriter = def
 
--- | A 'LogWriter' that applies 'renderLogMessage' to the log message and then
+-- | A 'LogWriter' that applies 'renderLogMessageConsoleLog' to the log message and then
 -- traces it using 'traceM'.
 -- This 'LogWriter' work with /any/ base monad.
 debugTraceLogWriter :: Monad h => LogWriter h
-debugTraceLogWriter = MkLogWriter (traceM . T.unpack . renderLogMessage)
+debugTraceLogWriter = MkLogWriter (traceM . T.unpack . renderLogMessageConsoleLog)
 
 -- ** Impure logging
 
@@ -242,10 +242,10 @@ type CapturedLogsWriter = Writer LogMessage
 ioLogWriter :: HasCallStack => (LogMessage -> IO ()) -> LogWriter IO
 ioLogWriter = MkLogWriter
 
--- | A 'LogWriter' that renders 'LogMessage's to strings via 'renderLogMessage'
+-- | A 'LogWriter' that renders 'LogMessage's to strings via 'renderLogMessageConsoleLog'
 -- and prints them to an 'IO.Handle' using 'hPutStrLn'.
 ioHandleLogWriter :: HasCallStack => IO.Handle -> LogWriter IO
-ioHandleLogWriter h = ioLogWriter (T.hPutStrLn h . renderLogMessage)
+ioHandleLogWriter h = ioLogWriter (T.hPutStrLn h . renderLogMessageConsoleLog)
 
 instance HandleLogWriter IO where
   type LogWriterEffects IO = '[Lift IO]

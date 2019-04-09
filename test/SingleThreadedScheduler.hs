@@ -61,7 +61,7 @@ test_mainProcessSpawnsAChildBothExitNormally = setTravisTestOptions
                         void exitNormally
                         error "This should not happen (child)!!"
                     )
-                sendMessage child (toDyn "test")
+                sendMessage child (toDyn ("test" :: String))
                 void exitNormally
                 error "This should not happen!!"
             )

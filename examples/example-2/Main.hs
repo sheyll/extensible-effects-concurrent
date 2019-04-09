@@ -33,7 +33,7 @@ counterExample = do
   lift (threadDelay 500000)
   cast c Inc
   lift (threadDelay 500000)
-  sendMessage cp "test 123"
+  sendMessage cp ("test 123" :: String)
   cast c Inc
   lift (threadDelay 500000)
   cast c Inc
@@ -132,7 +132,7 @@ logCounterObservations = do
   svr <- spawnApiServer
     (handleObservations
       (\msg -> do
-        logInfo ("observed: " ++ show msg)
+        logInfo' ("observed: " ++ show msg)
         return AwaitNext
       )
     )

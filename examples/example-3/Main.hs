@@ -9,9 +9,9 @@ main =
   runLift
   $  withSomeLogging @IO
   $  withLogFileAppender  "extensible-effects-concurrent-example-3.log"
-  $  addLogWriter (filteringLogWriter severeMessages (mappingLogWriter (lmMessage %~ ("traced: "++)) debugTraceLogWriter))
+  $  addLogWriter (filteringLogWriter severeMessages (mappingLogWriter (lmMessage %~ ("traced: " <>)) debugTraceLogWriter))
   $  modifyLogWriter (defaultIoLogWriter "example-3" local0)
-  $  addLogWriter (filteringLogWriter severeMessages (mappingLogWriter (lmMessage %~ ("traced without timestamp: "++)) debugTraceLogWriter))
+  $  addLogWriter (filteringLogWriter severeMessages (mappingLogWriter (lmMessage %~ ("traced without timestamp: " <>)) debugTraceLogWriter))
   $  do
         logEmergency "test emergencySeverity 1"
         logCritical "test criticalSeverity 2"

@@ -41,5 +41,4 @@ strictness =
     $ withLogging consoleLogWriter
     $ excludeLogMessages (lmSeverityIs errorSeverity)
     $ do logDebug "test"
-         logMsg (errorMessage ("test" ++ error "TEST FAILED: this log statement should not have been evaluated deeply"))
-
+         logError' ("test" <> error "TEST FAILED: this log statement should not have been evaluated deeply")

@@ -182,7 +182,7 @@ exampleLogPredicate =
 --  * 'filteringLogWriter'
 exampleLogCapture :: IO ()
 exampleLogCapture = go >>= T.putStrLn
- where go = fmap (T.unlines . Prelude.map renderLogMessage . snd)
+ where go = fmap (T.unlines . Prelude.map renderLogMessageConsoleLog . snd)
               $  runLift
               $  runCapturedLogsWriter
               $  withLogging listLogWriter
