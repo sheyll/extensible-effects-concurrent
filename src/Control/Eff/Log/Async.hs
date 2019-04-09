@@ -1,5 +1,5 @@
 -- | Asynchronous Logging
-module Control.Eff.Log.Channel
+module Control.Eff.Log.Async
   ( withAsyncLogging
   ) where
 

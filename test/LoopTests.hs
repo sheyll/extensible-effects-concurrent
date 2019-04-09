@@ -14,7 +14,6 @@ import           Test.Tasty.HUnit
 import           Common
 import           Control.Eff.Concurrent.Process.SingleThreadedScheduler
                                                as Scheduler
-import           Data.Text as T
 import           Data.Text.IO as T
 
 test_loopTests :: TestTree

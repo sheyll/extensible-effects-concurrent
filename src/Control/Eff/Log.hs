@@ -46,25 +46,83 @@
 --
 -- See "Control.Eff.Log.Handler#LogPredicate"
 module Control.Eff.Log
-  ( -- * Module Re-Exports
-    -- | This module contains the API for __sending__ log messages and for
-    -- handling the messages in the frame work of extensible effects.
-    --
-    -- It also defines the reader effect to access 'LogWriter's
-    module Control.Eff.Log.Handler
+  ( -- * Logging API
+    -- ** Sending Log Messages
+    logMsg
+  , logWithSeverity
+  , logWithSeverity'
+  , logEmergency
+  , logEmergency'
+  , logAlert
+  , logAlert'
+  , logCritical
+  , logCritical'
+  , logError
+  , logError'
+  , logWarning
+  , logWarning'
+  , logNotice
+  , logNotice'
+  , logInfo
+  , logInfo'
+  , logDebug
+  , logDebug'
+
+    -- ** Log Message Pre-Filtering #LogPredicate#
+    -- $LogPredicate
+  , includeLogMessages
+  , excludeLogMessages
+  , setLogPredicate
+  , modifyLogPredicate
+  , askLogPredicate
+
+    -- * Log Handling API
+
+    -- ** Writing Logs
+  , setLogWriter
+  , addLogWriter
+  , modifyLogWriter
+
+    -- *** Log Message Modification
+  , censorLogs
+  , censorLogsM
+
+    -- ** 'Logs' Effect Handling
+  , Logs()
+  , LogsTo
+  , withIoLogging
+  , withLogging
+  , withSomeLogging
+  , LoggingAndIo
+
+    -- ** Log Writers
+  , withConsoleLogging
+  , withLogFileAppender
+  , withUdp514
+  , withDevLog
+  , withRFC5424UnixDomainSocket
+  , withRFC3164UnixDomainSocketWriter
+
+    -- ** Low-Level API for Custom Extensions
+    -- *** Log Message Interception
+  , runLogs
+  , respondToLogMessage
+  , interceptLogMessages
+
+    -- * Module Re-Exports
     -- | The module that contains the 'LogMessage' and 'LogPredicate' definitions.
     --
     -- The log message type corresponds to RFC-5424, including structured data.
   , module Control.Eff.Log.Message
     -- | This module only exposes a 'LogWriter' for asynchronous logging;
-  , module Control.Eff.Log.Channel
+  , module Control.Eff.Log.Async
     -- | This module defines the 'LogWriter' type, which is used to give
     -- callback functions for log messages an explicit type.
   , module Control.Eff.Log.Writer
   )
 where
 
-import           Control.Eff.Log.Channel
+import           Control.Eff.Log.Async
 import           Control.Eff.Log.Handler
 import           Control.Eff.Log.Message
 import           Control.Eff.Log.Writer
