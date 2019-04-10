@@ -51,7 +51,7 @@ test_singleThreaded = setTravisTestOptions $ withTestLogC
         runEff =
             runLift
           . withLogging
-              (ioLogWriter (\m -> when (view lmSeverity m < errorSeverity) (printLogMessage m)))
+              (mkLogWriterIO (\m -> when (view lmSeverity m < errorSeverity) (printLogMessage m)))
     in  void $ SingleThreaded.scheduleM runEff yield e
   )
   (\factory -> testGroup "SingleThreadedScheduler" [allTests factory])

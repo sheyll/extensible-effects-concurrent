@@ -2,10 +2,12 @@
 module Control.Eff.LogWriter.Console
   ( withConsoleLogWriter
   , withConsoleLogging
+  , consoleLogWriter
   ) where
 
 import Control.Eff as Eff
 import Control.Eff.Log
+import Control.Eff.LogWriter.IO
 import Data.Text
 
 -- | Enable logging to @standard output@ using the 'consoleLogWriter', with some 'LogMessage' fields preset
@@ -44,3 +46,8 @@ withConsoleLogWriter
   :: (LogsTo IO e, Lifted IO e)
   => Eff e a -> Eff e a
 withConsoleLogWriter = addLogWriter consoleLogWriter
+
+
+-- | Write 'LogMessage's to standard output, formatted with 'printLogMessage'.
+consoleLogWriter :: LogWriter IO
+consoleLogWriter = mkLogWriterIO (T.putStrLn . renderLogMessageConsoleLog)

@@ -24,22 +24,6 @@ module Control.Eff.Log.Message
   , setLogMessageThreadId
   , setLogMessageHostname
 
-  -- ** Log Message Text Rendering
-  , renderSyslogSeverityAndFacility
-  , renderRFC5424
-  , renderRFC3164
-  , printLogMessage
-  , renderLogMessageConsoleLog
-  , renderLogMessageDevLog
-
-  -- *** Timestamp Rendering
-  , LogMessageTimeRenderer()
-  , mkLogMessageTimeRenderer
-  , suppressTimestamp
-  , rfc3164Timestamp
-  , rfc5424Timestamp
-  , rfc5424NoZTimestamp
-
   -- ** Log Message Construction
   , errorMessage
   , infoMessage
@@ -66,8 +50,6 @@ module Control.Eff.Log.Message
   -- ** RFC-5424 Structured Data
   , StructuredDataElement(..)
   , SdParameter(..)
-  , sdName
-  , sdParamValue
   , sdElementId
   , sdElementParameters
 
@@ -122,14 +104,10 @@ import           Data.Default
 import           Data.Maybe
 import           Data.String                    (IsString(..))
 import qualified Data.Text                     as T
-import qualified Data.Text.IO                  as T
 import           Data.Time.Clock
-import           Data.Time.Format
 import           GHC.Generics            hiding ( to )
 import           GHC.Stack
 import           Network.HostName              as Network
-import           System.FilePath.Posix
-import           Text.Printf
 
 -- | A message data type inspired by the RFC-5424 Syslog Protocol
 data LogMessage =
@@ -149,6 +127,10 @@ data LogMessage =
 instance Default LogMessage where
   def = MkLogMessage def def def def def def def def def def ""
 
+-- | This instance is __only__ supposed to be used for unit tests and debugging.
+instance Show LogMessage where
+  show = T.unpack . _lmMessage
+
 instance NFData LogMessage
 
 -- | RFC-5424 defines how structured data can be included in a log message.
@@ -157,35 +139,12 @@ data StructuredDataElement =
             , _sdElementParameters :: ![SdParameter]}
   deriving (Eq, Ord, Generic, Show)
 
-
-renderSdElement :: StructuredDataElement -> T.Text
-renderSdElement (SdElement sdId params) = "[" <> sdName sdId <> if null params
-  then ""
-  else " " <> T.unwords (renderSdParameter <$> params) <> "]"
-
 instance NFData StructuredDataElement
 
 -- | Component of an RFC-5424 'StructuredDataElement'
 data SdParameter =
   MkSdParameter !T.Text !T.Text
   deriving (Eq, Ord, Generic, Show)
-
-renderSdParameter :: SdParameter -> T.Text
-renderSdParameter (MkSdParameter k v) =
-  sdName k <> "=\"" <> sdParamValue v <> "\""
-
--- | Extract the name of an 'SdParameter' the length is cropped to 32 according to RFC 5424.
-sdName :: T.Text -> T.Text
-sdName =
-  T.take 32 . T.filter (\c -> c == '=' || c == ']' || c == ' ' || c == '"')
-
--- | Extract the value of an 'SdParameter'.
-sdParamValue :: T.Text -> T.Text
-sdParamValue = T.concatMap $ \case
-  '"'  -> "\\\""
-  '\\' -> "\\\\"
-  ']'  -> "\\]"
-  x    -> T.singleton x
 
 instance NFData SdParameter
 
@@ -475,167 +434,6 @@ lmAppName
   => (Maybe T.Text -> f (Maybe T.Text))
   -> LogMessage
   -> f LogMessage
-
-instance Show LogMessage where
-  show = T.unpack . T.unlines . renderLogMessageBodyTabbed
-
--- | A rendering function for the 'lmTimestamp' field.
-newtype LogMessageTimeRenderer =
-  MkLogMessageTimeRenderer { renderLogMessageTime :: UTCTime -> T.Text }
-
--- | Make a  'LogMessageTimeRenderer' using 'formatTime' in the 'defaultLocale'.
-mkLogMessageTimeRenderer
-  :: String -- ^ The format string that is passed to 'formatTime'
-  -> LogMessageTimeRenderer
-mkLogMessageTimeRenderer s = MkLogMessageTimeRenderer (T.pack . formatTime defaultTimeLocale s)
-
--- | Don't render the time stamp
-suppressTimestamp :: LogMessageTimeRenderer
-suppressTimestamp = MkLogMessageTimeRenderer (const "")
-
--- | Render the time stamp using @"%h %d %H:%M:%S"@
-rfc3164Timestamp :: LogMessageTimeRenderer
-rfc3164Timestamp = mkLogMessageTimeRenderer "%h %d %H:%M:%S"
-
--- | Render the time stamp to @'iso8601DateFormat' (Just "%H:%M:%S%6QZ")@
-rfc5424Timestamp :: LogMessageTimeRenderer
-rfc5424Timestamp = mkLogMessageTimeRenderer (iso8601DateFormat (Just "%H:%M:%S%6QZ"))
-
--- | Render the time stamp like 'rfc5424Timestamp' does, but omit the terminal @Z@ character.
-rfc5424NoZTimestamp :: LogMessageTimeRenderer
-rfc5424NoZTimestamp = mkLogMessageTimeRenderer (iso8601DateFormat (Just "%H:%M:%S%6Q"))
-
-
--- | Print the /body/ of a 'LogMessage'
-renderLogMessageBodyTabbed :: LogMessage -> [T.Text]
-renderLogMessageBodyTabbed (MkLogMessage _f _s _ts _hn _an _pid _mi _sd ti loc msg) =
-  if T.null msg
-    then []
-    else
-      maybe "" ((<> " -") . T.pack . show) ti
-      : (msg <> T.replicate (max 0 (60 - T.length msg)) " ")
-      : maybe
-          []
-          (\sl -> pure
-            (T.pack $ printf "% 30s line %i"
-                             (takeFileName (srcLocFile sl))
-                             (srcLocStartLine sl)
-            )
-          )
-          loc
-
--- | Print the /body/ of a 'LogMessage' without any /tab-stops/
-renderLogMessageBody :: LogMessage -> T.Text
-renderLogMessageBody (MkLogMessage _f _s _ts _hn _an _pid _mi _sd ti loc msg) =
-     maybe "" (\tis -> T.pack (show tis) <> " ") ti
-  <> msg
-  <> maybe
-          ""
-          (\sl ->
-             T.pack $ printf " at %s:%i"
-                             (takeFileName (srcLocFile sl))
-                             (srcLocStartLine sl)
-          )
-          loc
-
-
--- | Render a 'LogMessage' human readable, for console logging
-renderLogMessageConsoleLog :: LogMessage -> T.Text
-renderLogMessageConsoleLog l@(MkLogMessage _f s ts hn an pid mi sd _ _ _) =
-  T.unwords $ filter
-    (not . T.null)
-    ( maybe
-        ""
-        ( T.pack
-        .
-           -- formatTime defaultTimeLocale "%Y-%m-%dT%H:%M:%S%3Q%z"
-          formatTime defaultTimeLocale (iso8601DateFormat (Just "%H:%M:%S%6QZ"))
-        )
-        ts
-    : fromMaybe "" hn
-    : T.pack (show s)
-    : fromMaybe "" an
-    : fromMaybe "" pid
-    : fromMaybe "" mi
-    : (if null sd then "" else T.concat (renderSdElement <$> sd))
-    : renderLogMessageBodyTabbed l
-    )
-
-
-
--- | Render the severity and facility as described in RFC-3164
---
--- Render e.g. as @\<192\>@.
---
--- Useful as header for syslog compatible log output.
-renderSyslogSeverityAndFacility :: LogMessage -> T.Text
-renderSyslogSeverityAndFacility (MkLogMessage !f !s _ _ _ _ _ _ _ _ _)
-   = "<" <> T.pack (show (fromSeverity s + fromFacility f * 8)) <> ">"
-
--- | Render the 'LogMessage' to contain the severity, message, message-id, pid.
---
--- Omit hostname, PID and timestamp.
---
--- Render the header using 'renderSyslogSeverity'
---
--- Useful for logging to @/dev/log@
-renderLogMessageDevLog :: LogMessageTimeRenderer -> LogMessage -> T.Text
-renderLogMessageDevLog tsFmt l@(MkLogMessage _ _ ts _hn _an pid mi _sd _ _loc _msg) =
-     renderSyslogSeverityAndFacility l
-    <> T.unwords
-       [ maybe "" (renderLogMessageTime tsFmt) ts
-       , fromMaybe "" pid
-       , fromMaybe "" mi
-       , renderLogMessageBody l
-       ]
-
--- | Render a 'LogMessage' according to the rules in the RFC-5424.
-renderRFC5424 :: LogMessage -> T.Text
-renderRFC5424 l@(MkLogMessage _ _ ts hn an pid mi sd _ _ _) =
-  T.unwords [header, structuredData, msg]
-  where
-    header =
-       T.unwords
-               [renderSyslogSeverityAndFacility l <> "1" -- PRI VERSION
-               , maybe "-"
-                 (renderLogMessageTime rfc5424NoZTimestamp)
-                 ts
-               , fromMaybe "-" hn
-               , fromMaybe "-" an
-               , fromMaybe "-" pid
-               , fromMaybe "-" mi
-               ]
-    structuredData =
-      if null sd
-          then "-"
-          else
-            T.concat
-              (renderSdElement <$> sd)
-    msg = renderLogMessageBody l -- T.unwords (renderLogMessageBodyTabbed l)
-
--- | Render a 'LogMessage' according to the rules in the RFC-3164,
-renderRFC3164 :: LogMessage -> T.Text
-renderRFC3164 l@(MkLogMessage f s ts hn an pid mi _ _ _ _) =
-  T.unwords [header, msg]
-  where
-    header =
-         "<" <> T.pack (show (fromSeverity s + fromFacility f * 8)) <> ">" -- PRI
-      <> " "
-      <> T.unwords
-               [ maybe "Jan 01 00:00:01"
-                 (renderLogMessageTime rfc3164Timestamp)
-                 ts
-               , fromMaybe "localhost" hn
-               ]
-    msg =       fromMaybe "" an
-               <> fromMaybe "" pid
-               <> fromMaybe "" mi
-               <> renderLogMessageBody l
-
-
--- | Render a 'LogMessage' but set the timestamp and thread id fields.
-printLogMessage :: LogMessage -> IO ()
-printLogMessage = T.putStrLn . renderLogMessageConsoleLog
 
 -- | Put the source location of the given callstack in 'lmSrcLoc'
 setCallStack :: CallStack -> LogMessage -> LogMessage

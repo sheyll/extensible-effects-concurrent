@@ -24,7 +24,7 @@ import           Data.Text.IO as T
 -- | Example code for:
 --
 --  * 'withConsoleLogging'
---  * 'ioLogWriter'
+--  * 'mkLogWriterIO'
 --  * 'printLogMessage'
 --  * 'logDebug'
 --  * 'logError'

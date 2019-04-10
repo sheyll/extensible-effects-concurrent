@@ -8,30 +8,16 @@ import Control.Eff as Eff
 import Control.Eff.Log
 import GHC.Stack
 import           Data.Text                     as T
-import           Data.Text.Encoding            as T
-import qualified Data.Text.IO                  as T
 import qualified System.IO                     as IO
 import           System.Directory               ( canonicalizePath
                                                 , createDirectoryIfMissing
                                                 )
 import           System.FilePath                ( takeDirectory )
 import qualified Control.Exception.Safe        as Safe
-import           Control.Lens
-import           Control.Monad                   ( when, (>=>), void )
-import           Control.Monad.Base              ( MonadBase() )
 import qualified Control.Monad.Catch           as Catch
 import           Control.Monad.Trans.Control     ( MonadBaseControl
-                                                   ( restoreM
-                                                   , liftBaseWith
-                                                   , StM
-                                                   )
                                                    , liftBaseOp
                                                  )
-import           Data.Default
-import           Data.Function                  ( fix )
-import           Data.Text                     as T
-import           Data.Text.Encoding            as T
-import qualified Data.Text.IO                  as T
 
 -- | Enable logging to a file, with some 'LogMessage' fields preset
 -- as described in 'withIoLogging'.

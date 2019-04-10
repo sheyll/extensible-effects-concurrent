@@ -46,6 +46,9 @@ module Control.Eff.Concurrent
     -- *** File Logging
     module Control.Eff.LogWriter.File
   ,
+    -- *** Network Logging
+    module Control.Eff.LogWriter.UDP
+  ,
     -- ** Preventing Space Leaks
     module Control.Eff.Loop
   )
@@ -238,4 +241,5 @@ import           Control.Eff.Log
 import           Control.Eff.LogWriter.Async
 import           Control.Eff.LogWriter.Console
 import           Control.Eff.LogWriter.File
+import           Control.Eff.LogWriter.UDP
 import           Control.Eff.Loop

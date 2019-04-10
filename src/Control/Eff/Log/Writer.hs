@@ -25,24 +25,19 @@ module Control.Eff.Log.Writer
   , CaptureLogs(..)
   , CapturedLogsWriter
   , runCapturedLogsWriter
-  -- *** IO Writer
-  , consoleLogWriter
-  , ioHandleLogWriter
   -- ** Writer Combinator
   -- *** Pure Writer Combinator
   , filteringLogWriter
   , mappingLogWriter
   -- *** Impure Writer Combinator
   , mappingLogWriterM
-  -- *** IO Based Combinator
-  , ioLogWriter
-  , defaultIoLogWriter
   )
 where
 
 import           Control.Eff
 import           Control.Eff.Extend
 import           Control.Eff.Log.Message
+import           Control.Eff.Log.MessageRenderer
 import           Data.Default
 import           Data.Function                  ( fix )
 import           Debug.Trace
@@ -185,6 +180,10 @@ class HandleLogWriter (writerEff :: Type -> Type) where
     w <- askLogWriter
     handleLogWriterEffect (runLogWriter w m)
 
+instance HandleLogWriter IO where
+  type LogWriterEffects IO = '[Lift IO]
+  handleLogWriterEffect = send . Lift
+
 -- ** Pure Log Writers
 
 -- | A phantom type for the 'HandleLogWriter' class for /pure/ 'LogWriter's
@@ -235,46 +234,6 @@ runCapturedLogsWriter = runListWriter
 
 -- | Alias for the 'Writer' that contains the captured 'LogMessage's from 'CaptureLogs'.
 type CapturedLogsWriter = Writer LogMessage
-
--- | A 'LogWriter' that uses an 'IO' action to write the message.
---
--- Example use cases for this function are the 'consoleLogWriter' and the 'ioHandleLogWriter'.
-ioLogWriter :: HasCallStack => (LogMessage -> IO ()) -> LogWriter IO
-ioLogWriter = MkLogWriter
-
--- | A 'LogWriter' that renders 'LogMessage's to strings via 'renderLogMessageConsoleLog'
--- and prints them to an 'IO.Handle' using 'hPutStrLn'.
-ioHandleLogWriter :: HasCallStack => IO.Handle -> LogWriter IO
-ioHandleLogWriter h = ioLogWriter (T.hPutStrLn h . renderLogMessageConsoleLog)
-
-instance HandleLogWriter IO where
-  type LogWriterEffects IO = '[Lift IO]
-  handleLogWriterEffect = send . Lift
-
--- | Write 'LogMessage's to standard output, formatted with 'printLogMessage'.
-consoleLogWriter :: LogWriter IO
-consoleLogWriter = ioLogWriter printLogMessage
-
--- | Decorate an IO based 'LogWriter' to fill out these fields in 'LogMessage's:
---
--- * The messages will carry the given application name in the 'lmAppName' field.
--- * The 'lmTimestamp' field contains the UTC time of the log event
--- * The 'lmHostname' field contains the FQDN of the current host
--- * The 'lmFacility' field contains the given 'Facility'
---
--- It works by using 'mappingLogWriterM'.
-defaultIoLogWriter
-  :: Text -- ^ The default application name to put into the 'lmAppName' field.
-  -> Facility -- ^ The default RFC-5424 facility to put into the 'lmFacility' field.
-  -> LogWriter IO -- ^ The IO based writer to decorate
-  -> LogWriter IO
-defaultIoLogWriter appName facility = mappingLogWriterM
-  (   setLogMessageTimestamp
-  >=> setLogMessageHostname
-  >=> pure
-  .   set lmFacility facility
-  .   set lmAppName  (Just appName)
-  )
 
 -- | A 'LogWriter' that applies a predicate to the 'LogMessage' and delegates to
 -- to the given writer of the predicate is satisfied.

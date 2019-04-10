@@ -362,7 +362,7 @@ lmAppName
   -> f LogMessage
 
 instance Show LogMessage where
-  show = T.unpack . T.unlines . renderLogMessageBodyTabbed
+  show = T.unpack . T.unlines . renderLogMessageBodyFixWidth
 
 
 type LogRenderer a = LogMessage -> a
@@ -450,8 +450,8 @@ rfc5424NoZTimestamp = mkLogTimestampFormat (iso8601DateFormat (Just "%H:%M:%S%6Q
 
 
 -- | Print the /body/ of a 'LogMessage'
-renderLogMessageBodyTabbed :: LogMessage -> [T.Text]
-renderLogMessageBodyTabbed (MkLogMessage _f _s _ts _hn _an _pid _mi _sd ti loc msg) =
+renderLogMessageBodyFixWidth :: LogMessage -> [T.Text]
+renderLogMessageBodyFixWidth (MkLogMessage _f _s _ts _hn _an _pid _mi _sd ti loc msg) =
   if T.null msg
     then []
     else

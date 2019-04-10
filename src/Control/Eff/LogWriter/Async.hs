@@ -108,7 +108,7 @@ withAsyncLogChannel queueLen ioWriter action = do
       logLoop tq
 
 makeLogChannelWriter :: LogChannel -> LogWriter IO
-makeLogChannelWriter lc = ioLogWriter logChannelPutIO
+makeLogChannelWriter lc = mkLogWriterIO logChannelPutIO
   where
     logChannelPutIO (force -> me) = do
       !m <- evaluate me

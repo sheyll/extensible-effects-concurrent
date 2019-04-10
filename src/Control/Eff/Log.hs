@@ -96,7 +96,6 @@ module Control.Eff.Log
   , LoggingAndIo
 
     -- ** Log Writers
-  , withUDPLogWriter
   , withUnixDomainSocketLogWriter
   , withRFC5424UnixDomainSocket
   , withRFC3164UnixDomainSocketWriter
@@ -110,8 +109,12 @@ module Control.Eff.Log
     -- * Module Re-Exports
     -- | The module that contains the 'LogMessage' and 'LogPredicate' definitions.
     --
-    -- The log message type corresponds to RFC-5424, including structured data.
+    -- The log message type corresponds roughly to RFC-5424, including structured data.
   , module Control.Eff.Log.Message
+    -- | Rendering functions for 'LogMessage's
+    --
+    -- The functions have been seperated from "Control.Eff.Log.Message"
+  , module Control.Eff.Log.MessageRenderer
 
     -- | This module defines the 'LogWriter' type, which is used to give
     -- callback functions for log messages an explicit type.
@@ -121,4 +124,5 @@ where
 
 import           Control.Eff.Log.Handler
 import           Control.Eff.Log.Message
+import           Control.Eff.Log.MessageRenderer
 import           Control.Eff.Log.Writer

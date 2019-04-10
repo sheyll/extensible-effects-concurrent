@@ -49,17 +49,8 @@ module Control.Eff.Log.Handler
   -- ** 'Logs' Effect Handling
   , Logs()
   , LogsTo
-  , withIoLogging
   , withLogging
   , withSomeLogging
-  , LoggingAndIo
-
-  -- ** Log Writers
-  , withUDPLogWriter
-  , withUnixDomainSocketLogWriter
-
-  , withRFC5424UnixDomainSocket
-  , withRFC3164UnixDomainSocketWriter
 
   -- ** Low-Level API for Custom Extensions
   -- *** Log Message Interception
@@ -202,33 +193,6 @@ instance (Applicative m, LiftedBase m e, Catch.MonadMask (Eff e), LogsTo m (Logs
 --
 type LogsTo h e = (Member Logs e, HandleLogWriter h, LogWriterEffects h <:: e, SetMember LogWriterReader (LogWriterReader h) e)
 
--- | Enable logging to IO using the 'defaultIoLogWriter'.
---
--- To log to the console (standard output), one can use 'withConsoleLogging'.
---
--- Example:
---
--- > exampleWithIoLogging :: IO ()
--- > exampleWithIoLogging =
--- >     runLift
--- >   $ withIoLogging consoleLogWriter
--- >                   "my-app"
--- >                   local7
--- >                   (lmSeverityIsAtLeast informationalSeverity)
--- >   $ logInfo "Oh, hi there"
---
-withIoLogging
-  :: SetMember Lift (Lift IO) e
-  => LogWriter IO -- ^ The 'LogWriter' that will be used to write log messages.
-  -> Text -- ^ The default application name to put into the 'lmAppName' field.
-  -> Facility -- ^ The default RFC-5424 facility to put into the 'lmFacility' field.
-  -> LogPredicate -- ^ The inital predicate for log messages, there are some pre-defined in "Control.Eff.Log.Message#PredefinedPredicates"
-  -> Eff (Logs : LogWriterReader IO : e) a
-  -> Eff e a
-withIoLogging lw appName facility defaultPredicate =
-    withLogging (defaultIoLogWriter appName facility lw)
-  . setLogPredicate defaultPredicate
-
 -- | Handle the 'Logs' and 'LogWriterReader' effects.
 --
 -- It installs the given 'LogWriter', which determines the underlying
@@ -268,9 +232,6 @@ withSomeLogging ::
   => Eff (Logs ': LogWriterReader h ': e) a
   -> Eff e a
 withSomeLogging = withLogging (noOpLogWriter @h)
-
--- | The concrete list of 'Eff'ects for logging with an IO based 'LogWriter', and a 'LogWriterReader'.
-type LoggingAndIo = '[Logs, LogWriterReader IO, Lift IO]
 
 -- | Raw handling of the 'Logs' effect.
 -- Exposed for custom extensions, if in doubt use 'withLogging'.
@@ -710,104 +671,3 @@ addLogWriter :: forall h e a .
      (HasCallStack, LogsTo h e, Monad h)
   => LogWriter h -> Eff e a -> Eff e a
 addLogWriter lw2 = modifyLogWriter (\lw1 -> MkLogWriter (\m -> runLogWriter lw1 m >> runLogWriter lw2 m))
-
--- | Open a unix domain socket connected to @/dev/log@
---   provide a 'LogWriter', that writes log message to the socket,
---   after rendering them with the given function.
-withUnixDomainSocketLogWriter
-  :: ( Lifted IO e
-     , LogsTo IO e
-     , MonadBaseControl IO (Eff e)
-     )
-  => (LogMessage -> T.Text)
-  -> Eff e b
-  -> Eff e b
-withUnixDomainSocketLogWriter render e = liftBaseOp withOpenedLogFile (`addLogWriter` e)
-  where
-    withOpenedLogFile
-      :: HasCallStack
-      => (LogWriter IO -> IO a)
-      -> IO a
-    withOpenedLogFile ioE =
-      Safe.bracket
-          (
-            Socket.socket :: IO (Socket.Socket Unix Datagram Socket.Default)
-          )
-          (Safe.try @IO @Catch.SomeException . Socket.close)
-          (\s ->
-               case socketAddressUnixPath "/dev/log" of
-                  Just addr -> do
-                    Socket.connect s addr
-                    ioE (ioLogWriter (\lmStr ->
-                      void $
-                      Socket.send
-                        s
-                        (T.encodeUtf8 (render  lmStr))
-                        Socket.msgNoSignal))
-
-                  Nothing -> do
-                    putStrLn "could not open /dev/log"
-                    ioE consoleLogWriter
-            )
-
--- | Open a an inet socket, and provide a 'LogWriter', that sends log messages
---   to UDP port 514 on that host, after rendering them with the given function.
-withUDPLogWriter
-  :: ( Lifted IO e
-     , LogsTo IO e
-     , MonadBaseControl IO (Eff e)
-     )
-  => (LogMessage -> T.Text)
-  -> T.Text -- ^ Hostname
-  -> Eff e b
-  -> Eff e b
-withUDPLogWriter render hostname e = liftBaseOp withOpenedLogFile (`addLogWriter` e)
-  where
-    withOpenedLogFile
-      :: HasCallStack
-      => (LogWriter IO -> IO a)
-      -> IO a
-    withOpenedLogFile ioE =
-      Safe.bracket
-          (
-            Socket.socket :: IO (Socket.Socket Inet Datagram Socket.UDP)
-          )
-          (Safe.try @IO @Catch.SomeException . Socket.close)
-          (\s ->
-              do
-                 ai <- Socket.getAddressInfo (Just (T.encodeUtf8 hostname)) (Just "514") mempty
-                 case ai :: [Socket.AddressInfo Inet Datagram Socket.UDP] of
-                  (a:_) -> do
-                    let addr = Socket.socketAddress a
-                    Socket.connect s addr
-                    ioE (ioLogWriter (\lmStr ->
-                      void $
-                      Socket.send
-                        s
-                        (T.encodeUtf8 (render  lmStr))
-                        Socket.msgNoSignal))
-
-                  [] -> do
-                    T.putStrLn ("could not resolve UDP syslog server: " <> hostname)
-                    ioE consoleLogWriter
-            )
-
--- | Open a file and add the 'LogWriter' in the 'LogWriterReader' tha appends the log messages to it.
-withRFC5424UnixDomainSocket
-  :: ( Lifted IO e
-     , LogsTo IO e
-     , MonadBaseControl IO (Eff e)
-     )
-  => Eff e b
-  -> Eff e b
-withRFC5424UnixDomainSocket = withUnixDomainSocketLogWriter renderRFC5424
-
--- | Open a file and add the 'LogWriter' in the 'LogWriterReader' tha appends the log messages to it.
-withRFC3164UnixDomainSocketWriter
-  :: ( Lifted IO e
-     , LogsTo IO e
-     , MonadBaseControl IO (Eff e)
-     )
-  => Eff e b
-  -> Eff e b
-withRFC3164UnixDomainSocketWriter = withUnixDomainSocketLogWriter renderRFC3164
