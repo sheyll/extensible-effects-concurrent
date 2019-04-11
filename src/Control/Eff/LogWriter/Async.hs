@@ -2,19 +2,23 @@
 module Control.Eff.LogWriter.Async
   ( withAsyncLogWriter
   , withAsyncLogging
-  ) where
+  )
+where
 
-import Control.Concurrent.Async
-import Control.Concurrent.STM
-import Control.DeepSeq
-import Control.Eff as Eff
-import Control.Eff.Log
-import Control.Exception (evaluate)
-import Control.Monad (unless)
-import Control.Monad.Trans.Control (MonadBaseControl, liftBaseOp)
-import Data.Foldable (traverse_)
-import Data.Kind ()
-import Data.Text as T
+import           Control.Concurrent.Async
+import           Control.Concurrent.STM
+import           Control.DeepSeq
+import           Control.Eff                   as Eff
+import           Control.Eff.Log
+import           Control.Eff.LogWriter.IO
+import           Control.Exception              ( evaluate )
+import           Control.Monad                  ( unless )
+import           Control.Monad.Trans.Control    ( MonadBaseControl
+                                                , liftBaseOp
+                                                )
+import           Data.Foldable                  ( traverse_ )
+import           Data.Kind                      ( )
+import           Data.Text                     as T
 
 
 -- | This is a wrapper around 'withAsyncLogWriter' and 'withIoLogging'.
@@ -30,12 +34,8 @@ import Data.Text as T
 -- >        logMsg "test 3"
 -- >
 --
-withAsyncLogging ::
-     ( LogsTo IO e
-     , Lifted IO e
-     , MonadBaseControl IO (Eff e)
-     , Integral len
-     )
+withAsyncLogging
+  :: (LogsTo IO e, Lifted IO e, MonadBaseControl IO (Eff e), Integral len)
   => LogWriter IO
   -> len -- ^ Size of the log message input queue. If the queue is full, message
          -- are dropped silently.
@@ -44,10 +44,9 @@ withAsyncLogging ::
   -> LogPredicate -- ^ The inital predicate for log messages, there are some pre-defined in "Control.Eff.Log.Message#PredefinedPredicates"
   -> Eff (Logs : LogWriterReader IO : e) a
   -> Eff e a
-withAsyncLogging lw queueLength a f p e =
-  liftBaseOp
-    (withAsyncLogChannel queueLength (runLogWriter lw . force))
-    (\lc -> withIoLogging (makeLogChannelWriter lc) a f p e)
+withAsyncLogging lw queueLength a f p e = liftBaseOp
+  (withAsyncLogChannel queueLength (runLogWriter lw . force))
+  (\lc -> withIoLogging (makeLogChannelWriter lc) a f p e)
 
 
 -- | /Move/ the current 'LogWriter' into its own thread.
@@ -72,24 +71,20 @@ withAsyncLogging lw queueLength a f p e =
 -- >        logMsg "test 3"
 -- >
 --
-withAsyncLogWriter ::
-     ( LogsTo IO e
-     , Lifted IO e
-     , MonadBaseControl IO (Eff e)
-     , Integral len
-     )
+withAsyncLogWriter
+  :: (LogsTo IO e, Lifted IO e, MonadBaseControl IO (Eff e), Integral len)
   => len -- ^ Size of the log message input queue. If the queue is full, message
          -- are dropped silently.
   -> Eff e a
   -> Eff e a
 withAsyncLogWriter queueLength e = do
   lw <- askLogWriter
-  liftBaseOp
-    (withAsyncLogChannel queueLength (runLogWriter lw . force))
-    (\lc -> setLogWriter (makeLogChannelWriter lc) e)
+  liftBaseOp (withAsyncLogChannel queueLength (runLogWriter lw . force))
+             (\lc -> setLogWriter (makeLogChannelWriter lc) e)
 
-withAsyncLogChannel ::
-     forall a len. (Integral len)
+withAsyncLogChannel
+  :: forall a len
+   . (Integral len)
   => len
   -> (LogMessage -> IO ())
   -> (LogChannel -> IO a)
@@ -97,25 +92,26 @@ withAsyncLogChannel ::
 withAsyncLogChannel queueLen ioWriter action = do
   msgQ <- newTBQueueIO (fromIntegral queueLen)
   withAsync (logLoop msgQ) (action . ConcurrentLogChannel msgQ)
-  where
-    logLoop tq = do
-      ms <-
-        atomically $ do
-          h <- readTBQueue tq
-          t <- flushTBQueue tq
-          return (h : t)
-      traverse_ ioWriter ms
-      logLoop tq
+ where
+  logLoop tq = do
+    ms <- atomically $ do
+      h <- readTBQueue tq
+      t <- flushTBQueue tq
+      return (h : t)
+    traverse_ ioWriter ms
+    logLoop tq
 
 makeLogChannelWriter :: LogChannel -> LogWriter IO
 makeLogChannelWriter lc = mkLogWriterIO logChannelPutIO
-  where
-    logChannelPutIO (force -> me) = do
-      !m <- evaluate me
-      atomically
-        (do dropMessage <- isFullTBQueue logQ
-            unless dropMessage (writeTBQueue logQ m))
-    logQ = fromLogChannel lc
+ where
+  logChannelPutIO (force -> me) = do
+    !m <- evaluate me
+    atomically
+      (do
+        dropMessage <- isFullTBQueue logQ
+        unless dropMessage (writeTBQueue logQ m)
+      )
+  logQ = fromLogChannel lc
 
 data LogChannel = ConcurrentLogChannel
   { fromLogChannel :: TBQueue LogMessage

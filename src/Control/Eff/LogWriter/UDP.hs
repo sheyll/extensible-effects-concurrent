@@ -7,6 +7,8 @@ where
 
 import           Control.Eff                   as Eff
 import           Control.Eff.Log
+import           Control.Eff.LogWriter.Console
+import           Control.Eff.LogWriter.IO
 import           Data.Text                     as T
 import           Data.Text.IO                  as T
 import           Data.Text.Encoding            as T

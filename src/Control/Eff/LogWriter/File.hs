@@ -2,11 +2,13 @@
 module Control.Eff.LogWriter.File
   ( withFileLogging
   , withFileLogWriter
-  ) where
+  )
+where
 
-import Control.Eff as Eff
-import Control.Eff.Log
-import GHC.Stack
+import           Control.Eff                   as Eff
+import           Control.Eff.Log
+import           Control.Eff.LogWriter.IO
+import           GHC.Stack
 import           Data.Text                     as T
 import qualified System.IO                     as IO
 import           System.Directory               ( canonicalizePath
@@ -15,9 +17,9 @@ import           System.Directory               ( canonicalizePath
 import           System.FilePath                ( takeDirectory )
 import qualified Control.Exception.Safe        as Safe
 import qualified Control.Monad.Catch           as Catch
-import           Control.Monad.Trans.Control     ( MonadBaseControl
-                                                   , liftBaseOp
-                                                 )
+import           Control.Monad.Trans.Control    ( MonadBaseControl
+                                                , liftBaseOp
+                                                )
 
 -- | Enable logging to a file, with some 'LogMessage' fields preset
 -- as described in 'withIoLogging'.
@@ -34,9 +36,7 @@ import           Control.Monad.Trans.Control     ( MonadBaseControl
 --
 -- To vary the 'LogWriter' use 'withIoLogging'.
 withFileLogging
-  :: ( Lifted IO e
-     , MonadBaseControl IO (Eff e)
-     )
+  :: (Lifted IO e, MonadBaseControl IO (Eff e))
   => FilePath -- ^ Path to the log-file.
   -> Text -- ^ The default application name to put into the 'lmAppName' field.
   -> Facility -- ^ The default RFC-5424 facility to put into the 'lmFacility' field.
@@ -44,8 +44,7 @@ withFileLogging
   -> Eff (Logs : LogWriterReader IO : e) a
   -> Eff e a
 withFileLogging fnIn a f p e =
-  liftBaseOp (withOpenedLogFile fnIn)
-    (\lw -> withIoLogging lw a f p e)
+  liftBaseOp (withOpenedLogFile fnIn) (\lw -> withIoLogging lw a f p e)
 
 
 -- | Enable logging to a file.
@@ -60,28 +59,21 @@ withFileLogging fnIn a f p e =
 -- >   $ withFileLogWriter "test.log"
 -- >   $ logInfo "Oh, hi there"
 withFileLogWriter
-  :: ( Lifted IO e
-     , LogsTo IO e
-     , MonadBaseControl IO (Eff e)
-     )
+  :: (Lifted IO e, LogsTo IO e, MonadBaseControl IO (Eff e))
   => FilePath -- ^ Path to the log-file.
   -> Eff e b
   -> Eff e b
-withFileLogWriter fnIn e = liftBaseOp (withOpenedLogFile fnIn) (`addLogWriter` e)
+withFileLogWriter fnIn e =
+  liftBaseOp (withOpenedLogFile fnIn) (`addLogWriter` e)
 
-withOpenedLogFile
-  :: HasCallStack
-  => FilePath
-  -> (LogWriter IO -> IO a)
-  -> IO a
-withOpenedLogFile fnIn ioE =
-  Safe.bracket
-      (do
-        fnCanon <- canonicalizePath fnIn
-        createDirectoryIfMissing True (takeDirectory fnCanon)
-        h <- IO.openFile fnCanon IO.AppendMode
-        IO.hSetBuffering h (IO.BlockBuffering (Just 1024))
-        return h
-      )
-      (\h -> Safe.try @IO @Catch.SomeException (IO.hFlush h) >> IO.hClose h)
-      (\h -> ioE (ioHandleLogWriter h))
+withOpenedLogFile :: HasCallStack => FilePath -> (LogWriter IO -> IO a) -> IO a
+withOpenedLogFile fnIn ioE = Safe.bracket
+  (do
+    fnCanon <- canonicalizePath fnIn
+    createDirectoryIfMissing True (takeDirectory fnCanon)
+    h <- IO.openFile fnCanon IO.AppendMode
+    IO.hSetBuffering h (IO.BlockBuffering (Just 1024))
+    return h
+  )
+  (\h -> Safe.try @IO @Catch.SomeException (IO.hFlush h) >> IO.hClose h)
+  (\h -> ioE (ioHandleLogWriter h))

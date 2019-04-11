@@ -13,7 +13,6 @@ where
 import           Control.Eff.Log
 import           Control.Eff.LogWriter.Async
 import           Control.Eff.LogWriter.Console
-import           Control.Eff.LogWriter.File
 import           Control.Eff
 import           Control.Lens (view, (%~), to)
 import           Data.Text    as T

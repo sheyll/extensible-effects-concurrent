@@ -41,7 +41,6 @@ import           Control.Eff.Log.MessageRenderer
 import           Data.Default
 import           Data.Function                  ( fix )
 import           Debug.Trace
-import           GHC.Stack
 import           Control.Eff.Writer.Strict      ( Writer
                                                 , tell
                                                 , runListWriter
@@ -49,7 +48,6 @@ import           Control.Eff.Writer.Strict      ( Writer
 import           Data.Functor.Identity          ( Identity )
 import           Control.DeepSeq                ( force )
 import           Data.Foldable                  ( traverse_ )
-import qualified System.IO                     as IO
 import           Control.Monad                  ( (>=>)
                                                 , when
                                                 )
@@ -64,7 +62,6 @@ import           Control.Monad.Trans.Control    ( MonadBaseControl
 import           Data.Kind
 import           Control.Lens
 import           Data.Text                     as T
-import           Data.Text.IO                  as T
 
 -- | A function that takes a log message and returns an effect that
 -- /logs/ the message.

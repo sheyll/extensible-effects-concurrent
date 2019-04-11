@@ -14,6 +14,8 @@ import           Control.Eff
 import           Control.Eff.Extend
 import           Control.Eff.Concurrent.Process
 import           Control.Eff.Log
+import           Control.Eff.LogWriter.IO
+import           Control.Eff.LogWriter.Console
 import           Control.Lens            hiding ( (|>)
                                                 , Empty
                                                 )
@@ -98,7 +100,7 @@ newProcessQ parentLink sts =
 
 flushMsgs :: ProcessId -> STS m r -> ([Dynamic], STS m r)
 flushMsgs pid = State.runState $ do
-  msgs <- msgQs . at pid . _Just <<.= Empty
+  msgs <- msgQs . ix pid <<.= Empty
   return (toList msgs)
 
 receiveMsg

@@ -90,15 +90,8 @@ module Control.Eff.Log
     -- ** 'Logs' Effect Handling
   , Logs()
   , LogsTo
-  , withIoLogging
   , withLogging
   , withSomeLogging
-  , LoggingAndIo
-
-    -- ** Log Writers
-  , withUnixDomainSocketLogWriter
-  , withRFC5424UnixDomainSocket
-  , withRFC3164UnixDomainSocketWriter
 
     -- ** Low-Level API for Custom Extensions
     -- *** Log Message Interception

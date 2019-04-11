@@ -9,6 +9,7 @@ import Control.Eff as Eff
 import Control.Eff.Log
 import Control.Eff.LogWriter.IO
 import Data.Text
+import qualified Data.Text.IO                  as T
 
 -- | Enable logging to @standard output@ using the 'consoleLogWriter', with some 'LogMessage' fields preset
 -- as in 'withIoLogging'.

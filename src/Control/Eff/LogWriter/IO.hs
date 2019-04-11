@@ -8,13 +8,17 @@ module Control.Eff.LogWriter.IO
   , withIoLogging
   , LoggingAndIo
   , printLogMessage
-  ) where
+  )
+where
 
-import Control.Eff as Eff
-import Control.Eff.Log
-import Data.Text
+import           Control.Eff                   as Eff
+import           Control.Eff.Log
+import           Control.Monad                  ( (>=>) )
+import           Control.Lens                   (set)
+import           Data.Text
 import qualified System.IO                     as IO
-
+import           GHC.Stack
+import qualified Data.Text.IO                  as T
 
 -- | A 'LogWriter' that uses an 'IO' action to write the message.
 --
@@ -28,7 +32,8 @@ mkLogWriterIO = MkLogWriter
 -- | A 'LogWriter' that renders 'LogMessage's to strings via 'renderLogMessageConsoleLog'
 -- and prints them to an 'IO.Handle' using 'hPutStrLn'.
 ioHandleLogWriter :: HasCallStack => IO.Handle -> LogWriter IO
-ioHandleLogWriter h = mkLogWriterIO (T.hPutStrLn h . renderLogMessageConsoleLog)
+ioHandleLogWriter h =
+  mkLogWriterIO (T.hPutStrLn h . renderLogMessageConsoleLog)
 
 -- | Enable logging to IO using the 'defaultIoLogWriter'.
 --
@@ -52,8 +57,8 @@ withIoLogging
   -> Eff (Logs : LogWriterReader IO : e) a
   -> Eff e a
 withIoLogging lw appName facility defaultPredicate =
-    withLogging (defaultIoLogWriter appName facility lw)
-  . setLogPredicate defaultPredicate
+  withLogging (defaultIoLogWriter appName facility lw)
+    . setLogPredicate defaultPredicate
 
 -- | Decorate an IO based 'LogWriter' to fill out these fields in 'LogMessage's:
 --

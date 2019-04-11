@@ -1,4 +1,4 @@
-{-# LANGUAGE UndecidableInstances, OverloadedStrings #-}
+{-# LANGUAGE UndecidableInstances #-}
 -- | A memory efficient, streaming, logging effect with support for
 -- efficiently not logging when no logs are required.
 --
@@ -68,7 +68,7 @@ import           Control.Eff.Log.Message
 import           Control.Eff.Log.Writer
 import qualified Control.Exception.Safe        as Safe
 import           Control.Lens
-import           Control.Monad                   ( when, (>=>), void )
+import           Control.Monad                   ( when, (>=>) )
 import           Control.Monad.Base              ( MonadBase() )
 import qualified Control.Monad.Catch           as Catch
 import           Control.Monad.Trans.Control     ( MonadBaseControl
@@ -76,28 +76,14 @@ import           Control.Monad.Trans.Control     ( MonadBaseControl
                                                    , liftBaseWith
                                                    , StM
                                                    )
-                                                   , liftBaseOp
                                                  )
 import           Data.Default
 import           Data.Function                  ( fix )
 import           Data.Text                     as T
-import           Data.Text.Encoding            as T
-import qualified Data.Text.IO                  as T
 import           GHC.Stack                      ( HasCallStack
                                                 , callStack
                                                 , withFrozenCallStack
                                                 )
-import qualified System.IO                     as IO
-import           System.Directory               ( canonicalizePath
-                                                , createDirectoryIfMissing
-                                                )
-import           System.FilePath                ( takeDirectory )
-import qualified System.Socket                  as Socket
-import           System.Socket.Type.Datagram    as Socket
-import           System.Socket.Family.Unix      as Socket
-import           System.Socket.Family.Inet      as Socket
-import qualified System.Socket.Protocol.Default as Socket
-import qualified System.Socket.Protocol.UDP     as Socket
 
 
 
