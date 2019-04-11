@@ -27,15 +27,7 @@ import qualified System.Socket.Protocol.UDP    as Socket
 -- | Enable logging to a remote host via __UDP__, with some 'LogMessage' fields preset
 -- as in 'withIoLogging'.
 --
--- Example:
---
--- > exampleWithUDPLogging :: IO ()
--- > exampleWithUDPLogging =
--- >     runLift
--- >   $ withUDPLogging "127.0.0.1" "514" "my-app" local7 allLogMessages
--- >   $ logInfo "Oh, hi there"
---
--- To vary the 'LogWriter' use 'withIoLogging'.
+-- See 'Control.Eff.Log.Examples.exampleUdpRFC3164Logging'
 withUDPLogging
   :: (HasCallStack, MonadBaseControl IO (Eff e), Lifted IO e)
   => (LogMessage -> Text) -- ^ 'LogMessage' rendering function
@@ -53,14 +45,7 @@ withUDPLogging render hostname port a f p e = liftBaseOp
 
 -- | Enable logging to a (remote-) host via UDP.
 --
--- Example:
---
--- > exampleWithUDPLogWriter :: IO ()
--- > exampleWithUDPLogWriter =
--- >     runLift
--- >   $ withSomeLogging @IO
--- >   $ withUDPLogWriter
--- >   $ logInfo "Oh, hi there"
+-- See 'Control.Eff.Log.Examples.exampleUdpRFC3164Logging'
 withUDPLogWriter
   :: (Lifted IO e, LogsTo IO e, MonadBaseControl IO (Eff e), HasCallStack)
   => (LogMessage -> Text) -- ^ 'LogMessage' rendering function
@@ -89,11 +74,10 @@ withUDPSocket render hostname port ioE = Safe.bracket
     case ai :: [Socket.AddressInfo Inet Datagram Socket.UDP] of
       (a : _) -> do
         let addr = Socket.socketAddress a
-        Socket.connect s addr
         ioE
           (mkLogWriterIO
             (\lmStr -> void
-              $ Socket.send s (T.encodeUtf8 (render lmStr)) Socket.msgNoSignal
+              $ Socket.sendTo s (T.encodeUtf8 (render lmStr)) Socket.msgNoSignal addr
             )
           )
 

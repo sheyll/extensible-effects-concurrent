@@ -20,6 +20,8 @@ import           Control.Eff
 import           Control.Eff.Extend
 import           Control.Eff.Log
 import           Control.Eff.LogWriter.Async
+import           Control.Eff.LogWriter.Console
+import           Control.Eff.LogWriter.IO
 import           Control.Eff.Loop
 import           Control.Monad
 import           Test.Tasty

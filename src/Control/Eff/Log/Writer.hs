@@ -15,16 +15,8 @@ module Control.Eff.Log.Writer
   , runLogWriterReader
   -- * LogWriter Handler Class
   , HandleLogWriter(..)
-  -- ** 'LogWriter' Handler Instance Zoo
-  -- *** Pure Writer
   , noOpLogWriter
-  , debugTraceLogWriter
   , PureLogWriter(..)
-  -- *** List Writer
-  , listLogWriter
-  , CaptureLogs(..)
-  , CapturedLogsWriter
-  , runCapturedLogsWriter
   -- ** Writer Combinator
   -- *** Pure Writer Combinator
   , filteringLogWriter
@@ -37,17 +29,10 @@ where
 import           Control.Eff
 import           Control.Eff.Extend
 import           Control.Eff.Log.Message
-import           Control.Eff.Log.MessageRenderer
 import           Data.Default
 import           Data.Function                  ( fix )
-import           Debug.Trace
-import           Control.Eff.Writer.Strict      ( Writer
-                                                , tell
-                                                , runListWriter
-                                                )
 import           Data.Functor.Identity          ( Identity )
 import           Control.DeepSeq                ( force )
-import           Data.Foldable                  ( traverse_ )
 import           Control.Monad                  ( (>=>)
                                                 , when
                                                 )
@@ -61,7 +46,6 @@ import           Control.Monad.Trans.Control    ( MonadBaseControl
                                                 )
 import           Data.Kind
 import           Control.Lens
-import           Data.Text                     as T
 
 -- | A function that takes a log message and returns an effect that
 -- /logs/ the message.
@@ -197,40 +181,6 @@ instance HandleLogWriter PureLogWriter where
 -- NOTE: This is just an alias for 'def'
 noOpLogWriter :: Applicative m => LogWriter m
 noOpLogWriter = def
-
--- | A 'LogWriter' that applies 'renderLogMessageConsoleLog' to the log message and then
--- traces it using 'traceM'.
--- This 'LogWriter' work with /any/ base monad.
-debugTraceLogWriter :: Monad h => LogWriter h
-debugTraceLogWriter = MkLogWriter (traceM . T.unpack . renderLogMessageConsoleLog)
-
--- ** Impure logging
-
--- | A 'LogWriter' monad that provides pure logging by capturing via the 'Writer' effect.
-listLogWriter :: LogWriter CaptureLogs
-listLogWriter = MkLogWriter (MkCaptureLogs . tell)
-
--- | A 'LogWriter' monad that provides pure logging by capturing via the 'Writer' effect.
-newtype CaptureLogs a = MkCaptureLogs { unCaptureLogs :: Eff '[CapturedLogsWriter] a }
-  deriving (Functor, Applicative, Monad)
-
--- | A 'LogWriter' monad for pure logging.
---
--- The 'HandleLogWriter' instance for this type assumes a 'Writer' effect.
-instance HandleLogWriter CaptureLogs where
-  type LogWriterEffects CaptureLogs = '[CapturedLogsWriter]
-  handleLogWriterEffect =
-    traverse_ (tell @LogMessage) . snd . run . runListWriter . unCaptureLogs
-
--- | Run a 'Writer' for 'LogMessage's.
---
--- Such a 'Writer' is needed for 'CaptureLogs'
-runCapturedLogsWriter
-  :: Eff (CapturedLogsWriter ': e) a -> Eff e (a, [LogMessage])
-runCapturedLogsWriter = runListWriter
-
--- | Alias for the 'Writer' that contains the captured 'LogMessage's from 'CaptureLogs'.
-type CapturedLogsWriter = Writer LogMessage
 
 -- | A 'LogWriter' that applies a predicate to the 'LogMessage' and delegates to
 -- to the given writer of the predicate is satisfied.

@@ -13,7 +13,7 @@
 
 - Extract and simplify the async logger
 
-- Extract and simplify the file log writer
+- Extract and simplify the file log writers
 
 ## 0.20.0
 

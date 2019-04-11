@@ -638,9 +638,9 @@ censorLogsM = modifyLogWriter . mappingLogWriterM
 -- > exampleAddLogWriter = go >>= T.putStrLn
 -- >  where go = fmap (unlines . map renderLogMessageConsoleLog . snd)
 -- >               $  runLift
--- >               $  runCapturedLogsWriter
--- >               $  withLogging listLogWriter
--- >               $  addLogWriter (mappingLogWriter (lmMessage %~ ("CAPTURED "++)) listLogWriter)
+-- >               $  runCaptureLogWriter
+-- >               $  withLogging captureLogWriter
+-- >               $  addLogWriter (mappingLogWriter (lmMessage %~ ("CAPTURED "++)) captureLogWriter)
 -- >               $  addLogWriter (filteringLogWriter severeMessages (mappingLogWriter (lmMessage %~ ("TRACED "++)) debugTraceLogWriter))
 -- >               $  do
 -- >                     logEmergency "test emergencySeverity 1"

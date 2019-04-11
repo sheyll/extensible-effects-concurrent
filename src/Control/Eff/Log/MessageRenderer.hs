@@ -8,6 +8,8 @@ module Control.Eff.Log.MessageRenderer
   , renderLogMessageSyslog
   , renderLogMessageConsoleLog
   , renderRFC3164
+  , renderRFC3164WithRFC5424Timestamps
+  , renderRFC3164WithTimestamp
   , renderRFC5424
 
 
@@ -136,34 +138,44 @@ renderSyslogSeverityAndFacility (MkLogMessage !f !s _ _ _ _ _ _ _ _ _) =
 --
 -- Useful for logging to @/dev/log@
 renderLogMessageSyslog :: LogMessageRenderer T.Text
-renderLogMessageSyslog l@(MkLogMessage _ _ ts _ an _ mi _ _ _ _)
-  = T.unwords
+renderLogMessageSyslog l@(MkLogMessage _ _ _ _ an _ mi _ _ _ _)
+  = renderSyslogSeverityAndFacility l <> (T.unwords
     . filter (not . T.null)
-    $ [ renderSyslogSeverityAndFacility l
-      , maybe "" (renderLogMessageTime rfc5424Timestamp) ts
-      , fromMaybe "" an
+    $ [ fromMaybe "" an
       , fromMaybe "" mi
       , renderLogMessageBody l
-      ]
+      ])
 
 -- | Render a 'LogMessage' human readable, for console logging
 renderLogMessageConsoleLog :: LogMessageRenderer T.Text
-renderLogMessageConsoleLog l@(MkLogMessage _ _ _ _ _ _ _ sd _ _ _) =
+renderLogMessageConsoleLog l@(MkLogMessage _ _ ts _ _ _ _ sd _ _ _) =
   T.unwords $ filter
     (not . T.null)
-    [ renderRFC3164 l
+    [ view (lmSeverity . to (T.pack . show)) l
+    , maybe "" (renderLogMessageTime rfc5424Timestamp) ts
+    , renderLogMessageBodyFixWidth l
     , if null sd then "" else T.concat (renderSdElement <$> sd)
     ]
 
-
--- | Render a 'LogMessage' according to the rules in the RFC-3164,
+-- | Render a 'LogMessage' according to the rules in the RFC-3164.
 renderRFC3164 :: LogMessageRenderer T.Text
-renderRFC3164 l@(MkLogMessage _ _ ts hn an pid mi _ _ _ _) =
+renderRFC3164 = renderRFC3164WithTimestamp rfc3164Timestamp
+
+-- | Render a 'LogMessage' according to the rules in the RFC-3164 but use
+-- RFC5424 time stamps.
+renderRFC3164WithRFC5424Timestamps :: LogMessageRenderer T.Text
+renderRFC3164WithRFC5424Timestamps =
+  renderRFC3164WithTimestamp rfc5424Timestamp
+
+-- | Render a 'LogMessage' according to the rules in the RFC-3164 but use the custom
+-- 'LogMessageTimeRenderer'.
+renderRFC3164WithTimestamp :: LogMessageTimeRenderer -> LogMessageRenderer T.Text
+renderRFC3164WithTimestamp renderTime l@(MkLogMessage _ _ ts hn an pid mi _ _ _ _) =
   T.unwords
     . filter (not . T.null)
     $ [ renderSyslogSeverityAndFacility l -- PRI
       , maybe "1979-05-29T00:17:17.000001Z"
-              (renderLogMessageTime rfc3164Timestamp)
+              (renderLogMessageTime renderTime)
               ts
       , fromMaybe "localhost" hn
       , fromMaybe "haskell" an <> maybe "" (("[" <>) . (<> "]")) pid <> ":"

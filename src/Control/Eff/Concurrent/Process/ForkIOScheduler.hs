@@ -97,8 +97,8 @@ makeLenses ''ProcessInfo
 
 -- * Scheduler Types
 
--- | Contains all process info'elements, as well as the state needed to
--- implement inter process communication.
+-- | Contains all process info'elements, as well as the state needed to implement
+-- inter-process communication.
 data SchedulerState = SchedulerState
   { _nextPid :: TVar ProcessId
   , _processTable :: TVar (Map ProcessId ProcessInfo)

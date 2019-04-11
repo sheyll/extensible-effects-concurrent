@@ -3,6 +3,7 @@ module Control.Eff.LogWriter.Console
   ( withConsoleLogWriter
   , withConsoleLogging
   , consoleLogWriter
+  , stdoutLogWriter
   ) where
 
 import Control.Eff as Eff
@@ -13,6 +14,8 @@ import qualified Data.Text.IO                  as T
 
 -- | Enable logging to @standard output@ using the 'consoleLogWriter', with some 'LogMessage' fields preset
 -- as in 'withIoLogging'.
+--
+-- Log messages are rendered using 'renderLogMessageConsoleLog'.
 --
 -- Example:
 --
@@ -35,6 +38,8 @@ withConsoleLogging = withIoLogging consoleLogWriter
 
 -- | Enable logging to @standard output@ using the 'consoleLogWriter'.
 --
+-- Log messages are rendered using 'renderLogMessageConsoleLog'.
+--
 -- Example:
 --
 -- > exampleWithConsoleLogWriter :: IO ()
@@ -48,7 +53,12 @@ withConsoleLogWriter
   => Eff e a -> Eff e a
 withConsoleLogWriter = addLogWriter consoleLogWriter
 
-
 -- | Write 'LogMessage's to standard output, formatted with 'printLogMessage'.
+--
+-- It uses 'stdoutLogWriter' with 'renderLogMessageConsoleLog'.
 consoleLogWriter :: LogWriter IO
 consoleLogWriter = mkLogWriterIO (T.putStrLn . renderLogMessageConsoleLog)
+
+-- | A 'LogWriter' that uses a 'LogMessageRenderer' to render, and 'T.putStrLn' to print it.
+stdoutLogWriter :: LogMessageRenderer Text -> LogWriter IO
+stdoutLogWriter render = mkLogWriterIO (T.putStrLn . render)

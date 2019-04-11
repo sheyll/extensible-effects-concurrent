@@ -37,17 +37,30 @@ module Control.Eff.Concurrent
     -- ** Logging Effect
     module Control.Eff.Log
   ,
-    -- *** Asynchronous Logging
+    -- ** Log Writer
+    -- *** Asynchronous
     module Control.Eff.LogWriter.Async
   ,
-    -- *** Console Logging
+    -- *** Console
     module Control.Eff.LogWriter.Console
   ,
-    -- *** File Logging
+    -- *** File
     module Control.Eff.LogWriter.File
   ,
-    -- *** Network Logging
+    -- *** UDP
     module Control.Eff.LogWriter.UDP
+
+  , -- *** Non-IO Log Message Capturing
+    module Control.Eff.LogWriter.Capture
+
+  , -- *** "Debug.Trace"
+    module Control.Eff.LogWriter.DebugTrace
+
+  , -- *** Generic IO
+    module Control.Eff.LogWriter.IO
+
+  , -- *** Unix Domain Socket
+    module Control.Eff.LogWriter.UnixSocket
   ,
     -- ** Preventing Space Leaks
     module Control.Eff.Loop
@@ -239,7 +252,11 @@ import           Control.Eff.Concurrent.Process.SingleThreadedScheduler
                                                 )
 import           Control.Eff.Log
 import           Control.Eff.LogWriter.Async
+import           Control.Eff.LogWriter.Capture
 import           Control.Eff.LogWriter.Console
+import           Control.Eff.LogWriter.DebugTrace
 import           Control.Eff.LogWriter.File
+import           Control.Eff.LogWriter.IO
 import           Control.Eff.LogWriter.UDP
+import           Control.Eff.LogWriter.UnixSocket
 import           Control.Eff.Loop

@@ -1,7 +1,7 @@
 module LoggingTests where
 
 import           Control.Eff
-import           Control.Eff.Log
+import           Control.Eff.Concurrent
 import           Test.Tasty
 import           Test.Tasty.HUnit
 import           Common
@@ -26,12 +26,12 @@ basics =
       logInfo "jo"
       logDebug "oh"
 
-    pureLogs :: Eff '[Logs, LogWriterReader CaptureLogs, CapturedLogsWriter] a -> [LogMessage]
+    pureLogs :: Eff '[Logs, LogWriterReader CaptureLogs, CaptureLogWriter] a -> [LogMessage]
     pureLogs =
         snd
       . run
-      . runCapturedLogsWriter
-      . withLogging listLogWriter
+      . runCaptureLogWriter
+      . withLogging captureLogWriter
       . censorLogs @CaptureLogs (lmSrcLoc .~ Nothing)
 
 strictness :: HasCallStack => TestTree

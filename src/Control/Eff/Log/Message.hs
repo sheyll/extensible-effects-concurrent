@@ -65,10 +65,8 @@ module Control.Eff.Log.Message
   , debugSeverity
 
   -- * RFC 5424 Facility
-  , Facility
-    ( fromFacility
+  , Facility (..)
   -- ** Facility Constructors
-    )
   , kernelMessages
   , userLevelMessages
   , mailSystem
