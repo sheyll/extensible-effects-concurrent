@@ -537,12 +537,12 @@ instance IsString LogMessage where
 --  * 'discriminateByAppName'
 --
 -- To find out how to use these predicates,
--- goto "Control.Eff.Log.Handler#LogPredicate"
+-- goto "Control.Eff.Log#LogPredicate"
 
 
 -- | The filter predicate for message that shall be logged.
 --
--- See "Control.Eff.Log.Handler#LogPredicate"
+-- See "Control.Eff.Log#LogPredicate"
 type LogPredicate = LogMessage -> Bool
 
 -- | All messages.

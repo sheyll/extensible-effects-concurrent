@@ -1,25 +1,15 @@
--- | A logging effect.
+-- | Logging via @extensible-effects@
 --
--- There is just one log message type: 'LogMessage' and it is written using 'logMsg' and
--- the functions built on top of it.
+-- Logging consist of __two__ effects:
 --
--- The 'Logs' effect is tightly coupled with the 'LogWriterReader' effect.
--- When using the 'Control.Monad.Trans.ControlMonadBaseControl' instance, the underlying monad of the 'LogWriter',
--- that is expected to be present through the respective 'LogWriterReader', is
--- constrained to be the base monad itself, e.g. 'IO'.
+-- * __Receiving__ log messages sent by the code using e.g. 'logInfo'; this also include deep evaluation and
+--    dropping messages not satisfying the current 'LogPredicate'.
 --
--- The log message type is fixed to 'LogMessage', and there is a type class for
--- converting to that, call 'ToLogMessage'.
+-- * __Writing__ log message to disk, network, ... etc; this also includes rendering log messages and setting
+--     fields like the hostname, timestamp, etc
 --
--- There is a single global 'LogPredicate' that can be used to suppress logs directly
--- at the point where they are sent, in the 'logMsg' function.
+-- == Example
 --
--- Note that all logging is eventually done via 'logMsg'; 'logMsg' is the __only__ place where
--- log filtering should happen.
---
--- Also, 'LogMessage's are evaluated using 'Control.DeepSeq.deepseq', __after__ they pass the 'LogPredicate', also inside 'logMsg'.
---
--- Example:
 --
 -- > exampleLogging :: IO ()
 -- > exampleLogging =
@@ -38,16 +28,47 @@
 -- >             logWarning "test 2.2"
 -- >       logCritical "test 1.3"
 --
--- == Asynchronous Logging
+-- == Log Message Data Type
 --
--- Logging in a 'Control.Concurrent.Async.withAsync' spawned thread is done using 'withAsyncLogging'.
+-- A singular /logging event/  is contained in a __'LogMessage's__ value.
 --
--- == 'LogPredicate's
+-- The 'LogMessage' is modelled along RFC-5424.
 --
--- See "Control.Eff.Log.Handler#LogPredicate"
+-- There is the 'ToLogMessage' class for converting to 'LogMessage'.
+--  /Although the author is not clear on how to pursue the approach./
+--
+-- == Receiving and Filtering
+--
+-- 'LogMessage's are sent using 'logMsg' and friends, see "Control.Eff.Log#SendingLogs"
+--
+-- === Log Message Predicates
+--
+-- There is a single global 'LogPredicate' that can be used to suppress logs before
+-- they are passed to any 'LogWriter'.
+--
+-- This is done by the 'logMsg' function.
+--
+-- Also, 'LogMessage's are evaluated using 'Control.DeepSeq.deepseq', __after__ they pass the 'LogPredicate',
+-- also inside 'logMsg'.
+--
+-- See "Control.Eff.Log#LogPredicate"
+--
+-- == Writing and Rendering
+--
+-- Writing is done through a 'LogWriter'; the current 'LogWriter' value to use is held by the
+-- 'LogWriterReader' effect.
+--
+-- === Log Message Rendering
+--
+-- Message are rendered by 'LogMessageRenderer's found in the "Control.Eff.Log.MessageRenderer".
+--
+-- === 'LogWriter's
+--
+-- * Logging in a 'Control.Concurrent.Async.withAsync' spawned thread is done using 'withAsyncLogging'.
+
 module Control.Eff.Log
   ( -- * Logging API
-    -- ** Sending Log Messages
+    -- ** Sending Log Messages #SendingLogs#
     logMsg
   , logWithSeverity
   , logWithSeverity'
@@ -119,3 +140,16 @@ import           Control.Eff.Log.Handler
 import           Control.Eff.Log.Message
 import           Control.Eff.Log.MessageRenderer
 import           Control.Eff.Log.Writer
+
+-- $LogPredicate
+--
+-- Ways to change the 'LogPredicate' are:
+--
+--  * 'setLogPredicate'.
+--  * 'modifyLogPredicate'.
+--  * 'includeLogMessages'
+--  * 'excludeLogMessages'
+--
+-- The current predicate is retrieved via 'askLogPredicate'.
+--
+-- Some pre-defined 'LogPredicate's can be found here: "Control.Eff.Log.Message#PredefinedPredicates"

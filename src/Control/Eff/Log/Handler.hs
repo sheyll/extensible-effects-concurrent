@@ -28,7 +28,6 @@ module Control.Eff.Log.Handler
   , logDebug'
 
   -- ** Log Message Pre-Filtering #LogPredicate#
-  -- $LogPredicate
   , includeLogMessages
   , excludeLogMessages
   , setLogPredicate
@@ -90,7 +89,7 @@ import           GHC.Stack                      ( HasCallStack
 -- | This effect sends 'LogMessage's and is a reader for a 'LogPredicate'.
 --
 -- Logs are sent via 'logMsg';
--- for more information about log predicates, see "Control.Eff.Log.Handler#LogPredicate"
+-- for more information about log predicates, see "Control.Eff.Log#LogPredicate"
 --
 -- This effect is handled via 'withLogging'.
 data Logs v where
@@ -434,22 +433,9 @@ logDebug'
   -> Eff e ()
 logDebug' = withFrozenCallStack (logWithSeverity' debugSeverity)
 
--- $LogPredicate
---
--- Ways to change the 'LogPredicate' are:
---
---  * 'setLogPredicate'.
---  * 'modifyLogPredicate'.
---  * 'includeLogMessages'
---  * 'excludeLogMessages'
---
--- The current predicate is retrieved via 'askLogPredicate'.
---
--- Some pre-defined 'LogPredicate's can be found here: "Control.Eff.Log.Message#PredefinedPredicates"
-
 -- | Get the current 'Logs' filter/transformer function.
 --
--- See "Control.Eff.Log.Handler#LogPredicate"
+-- See "Control.Eff.Log#LogPredicate"
 askLogPredicate :: forall e . (Member Logs e) => Eff e LogPredicate
 askLogPredicate = send @Logs AskLogFilter
 
@@ -471,7 +457,7 @@ askLogPredicate = send @Logs AskLogFilter
 --
 -- In order to also delegate to the previous predicate, use 'modifyLogPredicate'
 --
--- See "Control.Eff.Log.Handler#LogPredicate"
+-- See "Control.Eff.Log#LogPredicate"
 setLogPredicate
   :: forall r b
    . (Member Logs r, HasCallStack)
@@ -493,7 +479,7 @@ setLogPredicate = modifyLogPredicate . const
 --                        logMsg "this message might be logged")
 -- @
 --
--- See "Control.Eff.Log.Handler#LogPredicate"
+-- See "Control.Eff.Log#LogPredicate"
 modifyLogPredicate
   :: forall e b
    . (Member Logs e, HasCallStack)
@@ -516,7 +502,7 @@ modifyLogPredicate lpIn e = askLogPredicate >>= fix step e . lpIn
 -- Although it is enough if the previous predicate holds.
 -- See 'excludeLogMessages' and 'modifyLogPredicate'.
 --
--- See "Control.Eff.Log.Handler#LogPredicate"
+-- See "Control.Eff.Log#LogPredicate"
 includeLogMessages
   :: forall e a . (Member Logs e)
   => LogPredicate -> Eff e a -> Eff e a
@@ -530,7 +516,7 @@ includeLogMessages p = modifyLogPredicate (\p' m -> p' m || p m)
 -- message to be logged.
 -- See 'excludeLogMessages' and 'modifyLogPredicate'.
 --
--- See "Control.Eff.Log.Handler#LogPredicate"
+-- See "Control.Eff.Log#LogPredicate"
 excludeLogMessages
   :: forall e a . (Member Logs e)
   => LogPredicate -> Eff e a -> Eff e a
