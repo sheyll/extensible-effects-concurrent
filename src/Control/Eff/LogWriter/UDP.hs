@@ -19,10 +19,9 @@ import           Control.Monad.Trans.Control    ( MonadBaseControl
                                                 , liftBaseOp
                                                 )
 import           GHC.Stack
-import qualified System.Socket                 as Socket
-import           System.Socket.Type.Datagram   as Socket
-import           System.Socket.Family.Inet     as Socket
-import qualified System.Socket.Protocol.UDP    as Socket
+
+import           Network.Socket          hiding ( sendTo )
+import           Network.Socket.ByteString
 
 -- | Enable logging to a remote host via __UDP__, with some 'LogMessage' fields preset
 -- as in 'withIoLogging'.
@@ -31,8 +30,8 @@ import qualified System.Socket.Protocol.UDP    as Socket
 withUDPLogging
   :: (HasCallStack, MonadBaseControl IO (Eff e), Lifted IO e)
   => (LogMessage -> Text) -- ^ 'LogMessage' rendering function
-  -> Text -- ^ Hostname or IP
-  -> Text -- ^ Port e.g. @"514"@
+  -> String -- ^ Hostname or IP
+  -> String -- ^ Port e.g. @"514"@
   -> Text -- ^ The default application name to put into the 'lmAppName' field.
   -> Facility -- ^ The default RFC-5424 facility to put into the 'lmFacility' field.
   -> LogPredicate -- ^ The inital predicate for log messages, there are some pre-defined in "Control.Eff.Log.Message#PredefinedPredicates"
@@ -49,8 +48,8 @@ withUDPLogging render hostname port a f p e = liftBaseOp
 withUDPLogWriter
   :: (Lifted IO e, LogsTo IO e, MonadBaseControl IO (Eff e), HasCallStack)
   => (LogMessage -> Text) -- ^ 'LogMessage' rendering function
-  -> Text -- ^ Hostname or IP
-  -> Text -- ^ Port e.g. @"514"@
+  -> String -- ^ Hostname or IP
+  -> String -- ^ Port e.g. @"514"@
   -> Eff e b
   -> Eff e b
 withUDPLogWriter render hostname port e =
@@ -60,28 +59,25 @@ withUDPLogWriter render hostname port e =
 withUDPSocket
   :: HasCallStack
   => (LogMessage -> Text) -- ^ 'LogMessage' rendering function
-  -> Text -- ^ Hostname or IP
-  -> Text -- ^ Port e.g. @"514"@
+  -> String -- ^ Hostname or IP
+  -> String -- ^ Port e.g. @"514"@
   -> (LogWriter IO -> IO a)
   -> IO a
 withUDPSocket render hostname port ioE = Safe.bracket
-  (Socket.socket :: IO (Socket.Socket Inet Datagram Socket.UDP))
-  (Safe.try @IO @Catch.SomeException . Socket.close)
-  (\s -> do
-    ai <- Socket.getAddressInfo (Just (T.encodeUtf8 hostname))
-                                (Just (T.encodeUtf8 port))
-                                mempty
-    case ai :: [Socket.AddressInfo Inet Datagram Socket.UDP] of
-      (a : _) -> do
-        let addr = Socket.socketAddress a
+  (do
+    let hints = defaultHints { addrSocketType = Datagram }
+    addr : _ <- getAddrInfo (Just hints) (Just hostname) (Just port)
+    s <- socket (addrFamily addr) (addrSocketType addr) (addrProtocol addr)
+    return (addr, s)
+  )
+  (Safe.try @IO @Catch.SomeException . close . snd)
+  (\(a, s) ->
+      let addr = addrAddress a
+      in
         ioE
           (mkLogWriterIO
-            (\lmStr -> void
-              $ Socket.sendTo s (T.encodeUtf8 (render lmStr)) Socket.msgNoSignal addr
+            (\lmStr ->
+              void $ sendTo s (T.encodeUtf8 (render lmStr)) addr
             )
           )
-
-      [] -> do
-        T.putStrLn ("could not resolve UDP syslog server: " <> hostname)
-        ioE consoleLogWriter
   )
