@@ -35,7 +35,7 @@ import           Data.Text                     as T
 -- >
 --
 withAsyncLogging
-  :: (LogsTo IO e, Lifted IO e, MonadBaseControl IO (Eff e), Integral len)
+  :: (Lifted IO e, MonadBaseControl IO (Eff e), Integral len)
   => LogWriter IO
   -> len -- ^ Size of the log message input queue. If the queue is full, message
          -- are dropped silently.

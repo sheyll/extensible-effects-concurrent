@@ -1,5 +1,9 @@
 # Changelog for extensible-effects-concurrent
 
+## 0.21.2
+
+- Fix copy-paste error: Remove the `LogsTo` constraint from `withAsyncLogWriter`
+
 ## 0.21.1
 
 - Remove dependency to the `socket` and `socket-unix` packages

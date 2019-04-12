@@ -70,19 +70,3 @@ withUnixSocketSocket render socketPath ioE = Safe.bracket
             )
           )
   )
-  -- (Socket.socket :: IO (Socket.Socket Unix Datagram Socket.Default))
-  -- (Safe.try @IO @Catch.SomeException . Socket.close)
-  -- (\s -> case socketAddressUnixPath (T.encodeUtf8 (T.pack socketPath)) of
-  --   Just addr -> do
-  --     Socket.connect s addr
-  --     ioE
-  --       (mkLogWriterIO
-  --         (\lmStr -> void
-  --           $ Socket.send s (T.encodeUtf8 (render lmStr)) Socket.msgNoSignal
-  --         )
-  --       )
-
-  --   Nothing -> do
-  --     T.putStrLn $ "could not open unix domain socket: " <> T.pack socketPath
-  --     ioE consoleLogWriter
-  -- )
