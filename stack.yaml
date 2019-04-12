@@ -41,8 +41,6 @@ packages:
   # (e.g., acme-missiles-0.3)
 extra-deps:
   - extensible-effects-5.0.0.1
-  - socket-unix-0.2.0.0
-  - socket-0.8.2.0
 
   # Override default flag values for local packages and extra-deps
   # flags: {}

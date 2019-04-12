@@ -1,5 +1,15 @@
 # Changelog for extensible-effects-concurrent
 
+## 0.21.1
+
+- Remove dependency to the `socket` and `socket-unix` packages
+  - they are marked as *broken* by in NixOS
+  - the code based on `network` is much shorter
+
+- Rewrite the UDP log writer to use `network`
+
+- Rewrite the UnixSocket log writer to use `network`
+
 ## 0.21.0
 
 - Add more log message renderers

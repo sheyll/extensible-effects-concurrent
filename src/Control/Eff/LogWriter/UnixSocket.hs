@@ -19,11 +19,8 @@ import           Control.Monad.Trans.Control    ( MonadBaseControl
                                                 , liftBaseOp
                                                 )
 import           GHC.Stack
-import qualified System.Socket                 as Socket
-import           System.Socket.Type.Datagram   as Socket
-import           System.Socket.Family.Unix     as Socket
-import qualified System.Socket.Protocol.Default
-                                               as Socket
+import           Network.Socket          hiding ( sendTo )
+import           Network.Socket.ByteString
 
 -- | Enable logging to a /unix domain socket/, with some 'LogMessage' fields preset
 -- as in 'withIoLogging'.
@@ -61,19 +58,31 @@ withUnixSocketSocket
   -> (LogWriter IO -> IO a)
   -> IO a
 withUnixSocketSocket render socketPath ioE = Safe.bracket
-  (Socket.socket :: IO (Socket.Socket Unix Datagram Socket.Default))
-  (Safe.try @IO @Catch.SomeException . Socket.close)
-  (\s -> case socketAddressUnixPath (T.encodeUtf8 (T.pack socketPath)) of
-    Just addr -> do
-      Socket.connect s addr
-      ioE
-        (mkLogWriterIO
-          (\lmStr -> void
-            $ Socket.send s (T.encodeUtf8 (render lmStr)) Socket.msgNoSignal
+  (socket AF_UNIX Datagram defaultProtocol)
+  (Safe.try @IO @Catch.SomeException . close)
+  (\s ->
+      let addr = SockAddrUnix socketPath
+      in
+        ioE
+          (mkLogWriterIO
+            (\lmStr ->
+              void $ sendTo s (T.encodeUtf8 (render lmStr)) addr
+            )
           )
-        )
-
-    Nothing -> do
-      T.putStrLn $ "could not open unix domain socket: " <> T.pack socketPath
-      ioE consoleLogWriter
   )
+  -- (Socket.socket :: IO (Socket.Socket Unix Datagram Socket.Default))
+  -- (Safe.try @IO @Catch.SomeException . Socket.close)
+  -- (\s -> case socketAddressUnixPath (T.encodeUtf8 (T.pack socketPath)) of
+  --   Just addr -> do
+  --     Socket.connect s addr
+  --     ioE
+  --       (mkLogWriterIO
+  --         (\lmStr -> void
+  --           $ Socket.send s (T.encodeUtf8 (render lmStr)) Socket.msgNoSignal
+  --         )
+  --       )
+
+  --   Nothing -> do
+  --     T.putStrLn $ "could not open unix domain socket: " <> T.pack socketPath
+  --     ioE consoleLogWriter
+  -- )
