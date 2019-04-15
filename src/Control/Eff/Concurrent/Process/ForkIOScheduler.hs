@@ -109,6 +109,25 @@ data SchedulerState = SchedulerState
 
 makeLenses ''SchedulerState
 
+logSchedulerState :: (HasCallStack, Member Logs e, Lifted IO e) => SchedulerState -> Eff e ()
+logSchedulerState s = do
+  (np, pt, pct, pm, nm) <- lift $ atomically $ do
+    np  <- T.pack . show <$> readTVar (s ^. nextPid)
+    pt  <- fmap (T.pack . show) <$> readTVar (s ^. processTable)
+    pct <- fmap (T.pack . show) . Map.keys <$> readTVar (s ^. processCancellationTable)
+    pm  <- fmap (T.pack . show) . Set.toList <$> readTVar (s ^. processMonitors)
+    nm  <- T.pack . show <$> readTVar (s ^. nextMonitorIndex)
+    return (np, pt, pct, pm, nm)
+  logDebug "ForkIO Scheduler info"
+  logDebug $ "nextPid: " <> np
+  logDebug $ "process table:"
+  traverse_ logDebug pt
+  logDebug $ "process cancellation table:"
+  traverse_ logDebug pct
+  logDebug $ "process monitors:"
+  traverse_ logDebug pm
+  logDebug $ "nextMonitorIndex: " <> nm
+
 -- | Add monitor: If the process is dead, enqueue a 'ProcessDown' message into the
 -- owners message queue
 addMonitoring
@@ -462,6 +481,8 @@ handleProcess myProcessInfo actionToRun = fix
     interpretGetProcessState !toPid = do
       setMyProcessState ProcessBusy
       schedulerState <- getSchedulerState
+      when (toPid == 1) $
+        logSchedulerState schedulerState
       let procInfoVar = schedulerState ^. processTable
       lift $ atomically $ do
         procInfoTable <- readTVar procInfoVar

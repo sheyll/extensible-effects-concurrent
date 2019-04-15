@@ -26,12 +26,15 @@ import           Control.Eff.Concurrent.Api
 import           Control.Eff.Concurrent.Api.Client
 import           Control.Eff.Concurrent.Api.Server
 import           Control.Eff.State.Strict
+import           Control.Eff.Log
 import           Control.Lens
+import           Data.Data                     (typeOf)
 import           Data.Dynamic
 import           Data.Foldable
 import           Data.Proxy
 import           Data.Set                       ( Set )
 import qualified Data.Set                      as Set
+import           Data.Text                      (Text, pack)
 import           Data.Typeable                  ( typeRep )
 import           GHC.Stack
 
@@ -175,20 +178,27 @@ handleObserverRegistration
      , Typeable o
      , SetMember Process (Process q) r
      , Member (ObserverState o) r
+     , Member Logs r
      )
   => MessageCallback (ObserverRegistry o) r
 handleObserverRegistration = handleCasts
   (\case
-    RegisterObserver ob ->
-      get @(Observers o)
-        >>= put
-        .   over observers (Set.insert ob)
-        >>  pure AwaitNext
-    ForgetObserver ob ->
-      get @(Observers o)
-        >>= put
-        .   over observers (Set.delete ob)
-        >>  pure AwaitNext
+    RegisterObserver ob -> do
+      os <- get @(Observers o)
+      logDebug ("registering "
+               <> pack (show (typeOf ob))
+               <> " current number of observers: "
+               <> pack (show (Set.size (view observers os))))
+      put (over observers (Set.insert ob)os)
+      pure AwaitNext
+    ForgetObserver ob -> do
+      os <- get @(Observers o)
+      logDebug ("forgetting "
+               <> pack (show (typeOf ob))
+               <> " current number of observers: "
+               <> pack (show (Set.size (view observers os))))
+      put (over observers (Set.delete ob) os)
+      pure AwaitNext
   )
 
 
