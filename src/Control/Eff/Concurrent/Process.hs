@@ -20,9 +20,6 @@ module Control.Eff.Concurrent.Process
   , fromProcessId
   , ConsProcess
   , ResumeProcess(..)
-  -- ** Scheduler Effect Identification
-  , SchedulerProxy(..)
-  , thisSchedulerProxy
   -- ** Process State
   , ProcessState(..)
   -- ** Yielding
@@ -46,8 +43,6 @@ module Control.Eff.Concurrent.Process
   , MessageSelector(runMessageSelector)
   , selectMessage
   , selectMessageLazy
-  , selectMessageProxy
-  , selectMessageProxyLazy
   , filterMessage
   , filterMessageLazy
   , selectMessageWith
@@ -316,7 +311,7 @@ selectMessage = selectDynamicMessage fromDynamic
 -- It will also 'force' the result.
 --
 -- @since 0.9.1
-selectMessageLazy :: Typeable t => MessageSelector t
+selectMessageLazy :: (NFData t, Typeable t) => MessageSelector t
 selectMessageLazy = selectDynamicMessageLazy fromDynamic
 
 -- | Create a message selector from a predicate. It will 'force' the result.
@@ -375,40 +370,8 @@ selectDynamicMessageLazy = MessageSelector
 selectAnyMessageLazy :: MessageSelector Dynamic
 selectAnyMessageLazy = MessageSelector Just
 
--- | Create a message selector for a value that can be obtained by 'fromDynamic'
--- with a proxy argument. It will also 'force' the result.
---
--- @since 0.9.1
-selectMessageProxy
-  :: forall proxy t . (NFData t, Typeable t) => proxy t -> MessageSelector t
-selectMessageProxy _ = selectDynamicMessage fromDynamic
-
--- | Create a message selector for a value that can be obtained by 'fromDynamic'
--- with a proxy argument. It will also 'force' the result.
---
--- @since 0.9.1
-selectMessageProxyLazy
-  :: forall proxy t . (Typeable t) => proxy t -> MessageSelector t
-selectMessageProxyLazy _ = selectDynamicMessageLazy fromDynamic
-
--- | Every function for 'Process' things needs such a proxy value
--- for the low-level effect list, i.e. the effects identified by
--- @__r__@ in @'Process' r : r@, this might be dependent on the
--- scheduler implementation.
-data SchedulerProxy :: [Type -> Type] -> Type where
-  -- | Tell the type checker what effects we have below 'Process'
-  SchedulerProxy ::SchedulerProxy q
-  -- | Like 'SchedulerProxy' but shorter
-  SP ::SchedulerProxy q
-  -- | Like 'SP' but different
-  Scheduler ::SchedulerProxy q
-
 -- | /Cons/ 'Process' onto a list of effects.
 type ConsProcess r = Process r ': r
-
--- | Return a 'SchedulerProxy' for a 'Process' effect.
-thisSchedulerProxy :: Eff (Process r ': r) (SchedulerProxy r)
-thisSchedulerProxy = return SchedulerProxy
 
 -- | The state that a 'Process' is currently in.
 data ProcessState =
@@ -986,7 +949,7 @@ receiveAnyLoop = receiveSelectedLoop selectAnyMessageLazy
 -- using 'selectMessageLazy'.
 receiveLoop
   :: forall r q a endOfLoopResult
-   . (SetMember Process (Process q) r, HasCallStack, Typeable a)
+   . (SetMember Process (Process q) r, HasCallStack, NFData a, Typeable a)
   => (Either InterruptReason a -> Eff r (Maybe endOfLoopResult))
   -> Eff r endOfLoopResult
 receiveLoop = receiveSelectedLoop selectMessageLazy

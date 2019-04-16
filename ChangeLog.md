@@ -1,5 +1,28 @@
 # Changelog for extensible-effects-concurrent
 
+## Plan for future 0.23.0
+
+- Add `gen_server` behaviour clone:    
+    - Disallow non-`Api`-messages
+    - Add `Api AnyMsg 'Asynchronous` 
+    - Add `Api GetInfo ('Synchronous Text)`  
+         
+    - Every `Api` type instance now **must** be an `NFData` 
+      and a `ToLogText` instance
+    - `call` will always require a `Timeout`
+    - `call` now monitors the caller
+    - `call` now monitors the called process
+    - `call` now returns `Either TimeoutError a`   
+
+## 0.22.0    
+
+- Logging improvements:
+    - Introduce `ToLogText`
+    - Remove `ToLogMessage`
+    - Remove `logXXX'` users have to use `logXXX` and `ToLogText` 
+    
+- Forbid to return something from `receiveLoop`
+          
 ## 0.21.2
 
 - Fix copy-paste error: Remove the `LogsTo` constraint from `withAsyncLogWriter`

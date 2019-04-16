@@ -30,6 +30,7 @@ import           Data.Kind
 import           Data.Typeable                  ( Typeable
                                                 , typeRep
                                                 )
+import Control.DeepSeq (NFData)
 
 -- | This data family defines an API, a communication interface description
 -- between at least two processes. The processes act as __servers__ or
@@ -57,7 +58,6 @@ import           Data.Typeable                  ( Typeable
 -- >
 data family Api (api :: Type) (reply :: Synchronicity)
 
-
 -- | The (promoted) constructors of this type specify (at the type level) the
 -- reply behavior of a specific constructor of an @Api@ instance.
 data Synchronicity =
@@ -70,8 +70,7 @@ data Synchronicity =
 -- | This is a tag-type that wraps around a 'ProcessId' and holds an 'Api' index
 -- type.
 newtype Server api = Server { _fromServer :: ProcessId }
-  deriving (Eq,Ord,Typeable)
-
+  deriving (Eq,Ord,Typeable, NFData)
 
 instance Typeable api => Show (Server api) where
   showsPrec d s@(Server c) =

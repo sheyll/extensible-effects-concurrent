@@ -72,8 +72,6 @@ import           Control.Eff.Concurrent.Process ( Process(..)
                                                 , fromProcessId
                                                 , ConsProcess
                                                 , ResumeProcess(..)
-                                                , SchedulerProxy(..)
-                                                , thisSchedulerProxy
                                                 , ProcessState(..)
                                                 , yieldProcess
                                                 , sendMessage
@@ -93,8 +91,6 @@ import           Control.Eff.Concurrent.Process ( Process(..)
                                                   )
                                                 , selectMessage
                                                 , selectMessageLazy
-                                                , selectMessageProxy
-                                                , selectMessageProxyLazy
                                                 , filterMessage
                                                 , filterMessageLazy
                                                 , selectMessageWith
@@ -156,6 +152,7 @@ import           Control.Eff.Concurrent.Process.Timer
                                                 , sendAfter
                                                 , startTimer
                                                 , selectTimerElapsed
+                                                , cancelTimer
                                                 , receiveAfter
                                                 , receiveSelectedAfter
                                                 )

@@ -55,6 +55,7 @@ import           Data.Proxy
 import           Data.Text as T
 import           GHC.Stack
 
+
 -- | /Serve/ an 'Api' in a newly spawned process.
 --
 -- @since 0.13.2
@@ -201,7 +202,7 @@ data CallbackResult where
 -- | An existential wrapper around  a 'MessageSelector' and a function that
 -- handles the selected message. The @api@ type parameter is a phantom type.
 --
--- The return value if the handler function is a 'CallbackResult'.
+-- The return value of the handler function is a 'CallbackResult'.
 --
 -- @since 0.13.2
 data MessageCallback api eff where
