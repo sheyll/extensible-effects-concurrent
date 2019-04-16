@@ -68,6 +68,10 @@ module Control.Eff.Concurrent
 where
 
 import           Control.Eff.Concurrent.Process ( Process(..)
+                                                , StrictDynamic()
+                                                , toStrictDynamic
+                                                , fromStrictDynamic
+                                                , unwrapStrictDynamic
                                                 , ProcessId(..)
                                                 , fromProcessId
                                                 , ConsProcess
@@ -90,14 +94,14 @@ import           Control.Eff.Concurrent.Process ( Process(..)
                                                   ( runMessageSelector
                                                   )
                                                 , selectMessage
-                                                , selectMessageLazy
+                                                , selectMessage
                                                 , filterMessage
-                                                , filterMessageLazy
+                                                , filterMessage
                                                 , selectMessageWith
-                                                , selectMessageWithLazy
+                                                , selectMessageWith
                                                 , selectDynamicMessage
-                                                , selectDynamicMessageLazy
-                                                , selectAnyMessageLazy
+                                                , selectDynamicMessage
+                                                , selectAnyMessage
                                                 , self
                                                 , isProcessAlive
                                                 , spawn

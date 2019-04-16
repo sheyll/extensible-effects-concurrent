@@ -135,11 +135,13 @@ executable extensible-effects-concurrent-example-1
               , extensible-effects
               , lens
               , text
+              , deepseq
   ghc-options: -Wall -threaded -fno-full-laziness
   default-language: Haskell2010
   default-extensions:   AllowAmbiguousTypes
                       , BangPatterns
                       , DataKinds
+                      , DeriveGeneric
                       , FlexibleContexts
                       , FlexibleInstances
                       , FunctionalDependencies
@@ -165,6 +167,7 @@ executable extensible-effects-concurrent-example-2
               , extensible-effects
               , lens
               , text
+              , deepseq
   ghc-options: -Wall -threaded -fno-full-laziness
   default-language: Haskell2010
   default-extensions:   AllowAmbiguousTypes
@@ -226,6 +229,7 @@ executable extensible-effects-concurrent-example-4
               , extensible-effects
               , deepseq
               , text
+              , deepseq
   ghc-options: -Wall -threaded -fno-full-laziness
   default-language: Haskell2010
   default-extensions:   AllowAmbiguousTypes
@@ -265,13 +269,13 @@ test-suite extensible-effects-concurrent-test
                 async
               , base
               , data-default
+              , deepseq
               , extensible-effects-concurrent
               , extensible-effects
               , tasty
               , tasty-discover
               , tasty-hunit
               , containers
-              , deepseq
               , QuickCheck
               , lens
               , HUnit

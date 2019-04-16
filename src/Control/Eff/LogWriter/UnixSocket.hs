@@ -8,9 +8,7 @@ where
 import           Control.Eff                   as Eff
 import           Control.Eff.Log
 import           Control.Eff.LogWriter.IO
-import           Control.Eff.LogWriter.Console
 import           Data.Text                     as T
-import           Data.Text.IO                  as T
 import           Data.Text.Encoding            as T
 import qualified Control.Exception.Safe        as Safe
 import           Control.Monad                  ( void )

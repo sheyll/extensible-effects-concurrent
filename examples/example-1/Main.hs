@@ -8,6 +8,7 @@ import           Data.Dynamic
 import           Control.Eff.Concurrent
 import qualified Control.Exception             as Exc
 import qualified Data.Text as T
+import           Control.DeepSeq
 
 data TestApi
   deriving Typeable
@@ -18,6 +19,13 @@ data instance Api TestApi x where
   Terminate :: Api TestApi ('Synchronous ())
   TerminateError :: String -> Api TestApi ('Synchronous ())
   deriving (Typeable)
+
+instance NFData (Api TestApi x) where
+  rnf (SayHello s) = rnf s
+  rnf (Shout s) = rnf s
+  rnf Terminate = ()
+  rnf (TerminateError s) = rnf s
+
 
 data MyException = MyException
     deriving Show

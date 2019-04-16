@@ -28,6 +28,8 @@ import           GHC.Stack
 -- possible. The type signature enforces that the corresponding 'Api' clause is
 -- 'Asynchronous'. The operation never fails, if it is important to know if the
 -- message was delivered, use 'call' instead.
+--
+-- The message will be reduced to normal form ('rnf') in the caller process.
 cast
   :: forall r q o
    . ( HasCallStack
@@ -35,11 +37,12 @@ cast
      , Member Interrupts r
      , Typeable o
      , Typeable (Api o 'Asynchronous)
+     , NFData (Api o 'Asynchronous)
      )
   => Server o
   -> Api o 'Asynchronous
   -> Eff r ()
-cast (Server pid) castMsg = sendMessage pid (Cast $! castMsg)
+cast (Server pid) castMsg = sendMessage pid (Cast castMsg)
 
 -- | Send an 'Api' request and wait for the server to return a result value.
 --
@@ -51,10 +54,11 @@ call
      , Member Interrupts r
      , Typeable api
      , Typeable (Api api ( 'Synchronous result))
+     , NFData (Api api ( 'Synchronous result))
      , Typeable result
-     , HasCallStack
      , NFData result
      , Show result
+     , HasCallStack
      )
   => Server api
   -> Api api ( 'Synchronous result)
@@ -106,6 +110,7 @@ callRegistered
      , HasCallStack
      , NFData reply
      , Show reply
+     , NFData (Api o ( 'Synchronous reply))
      , Member Interrupts r
      )
   => Api o ( 'Synchronous reply)
@@ -117,7 +122,7 @@ callRegistered method = do
 -- | Like 'cast' but take the 'Server' from the reader provided by
 -- 'registerServer'.
 castRegistered
-  :: (Typeable o, ServesApi o r q, HasCallStack, Member Interrupts r)
+  :: (Typeable o, ServesApi o r q, HasCallStack, Member Interrupts r, NFData (Api o 'Asynchronous))
   => Api o 'Asynchronous
   -> Eff r ()
 castRegistered method = do

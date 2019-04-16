@@ -44,7 +44,6 @@ import           Control.Monad.Trans.Control    ( MonadBaseControl(..)
                                                 , control
                                                 )
 import           Data.Default
-import           Data.Dynamic
 import           Data.Foldable
 import           Data.Function                  ( fix )
 import           Data.Kind                      ( )
@@ -63,9 +62,9 @@ import           Text.Printf
 -- * Process Types
 
 -- | A message queue of a process, contains the actual queue and maybe an
--- exit reason. The message queue is backed by a 'Seq' sequence with 'Dynamic' values.
+-- exit reason. The message queue is backed by a 'Seq' sequence with 'StrictDynamic' values.
 data MessageQ = MessageQ
-  { _incomingMessages :: Seq Dynamic
+  { _incomingMessages :: Seq StrictDynamic
   , _shutdownRequests :: Maybe SomeExitReason
   }
 
@@ -145,7 +144,7 @@ addMonitoring target owner schedulerState = do
         let processDownMessage =
               ProcessDown monitorRef (SomeExitReason (ProcessNotRunning target))
         in  enqueueMessageOtherProcess owner
-                                       (toDyn processDownMessage)
+                                       (toStrictDynamic processDownMessage)
                                        schedulerState
   return monitorRef
 
@@ -164,7 +163,7 @@ triggerAndRemoveMonitor downPid reason schedulerState = do
     (monitoredProcess mr == downPid)
     (do
       let processDownMessage = ProcessDown mr reason
-      enqueueMessageOtherProcess owner (toDyn processDownMessage) schedulerState
+      enqueueMessageOtherProcess owner (toStrictDynamic processDownMessage) schedulerState
       removeMonitoring mr schedulerState
     )
 
@@ -516,7 +515,7 @@ handleProcess myProcessInfo actionToRun = fix
         >>= lift
         .   atomically
         .   enqueueShutdownRequest toPid msg
-    interpretFlush :: Eff SchedulerIO (ResumeProcess [Dynamic])
+    interpretFlush :: Eff SchedulerIO (ResumeProcess [StrictDynamic])
     interpretFlush = do
       setMyProcessState ProcessBusyReceiving
       lift $ atomically $ do
@@ -710,7 +709,7 @@ getSchedulerState :: HasSchedulerIO r => Eff r SchedulerState
 getSchedulerState = ask
 
 enqueueMessageOtherProcess
-  :: HasCallStack => ProcessId -> Dynamic -> SchedulerState -> STM ()
+  :: HasCallStack => ProcessId -> StrictDynamic -> SchedulerState -> STM ()
 enqueueMessageOtherProcess toPid msg schedulerState =
   view (at toPid) <$> readTVar (schedulerState ^. processTable) >>= maybe
     (return ())

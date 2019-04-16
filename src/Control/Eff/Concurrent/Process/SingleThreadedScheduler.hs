@@ -30,11 +30,11 @@ import qualified Data.Map.Strict               as Map
 import qualified Data.Set                      as Set
 import           GHC.Stack
 import           Data.Kind                      ( )
-import           Data.Dynamic
 import           Data.Foldable
 import           Data.Monoid
 import qualified Control.Monad.State.Strict    as State
 import Data.Function (fix)
+import Data.Dynamic (dynTypeRep)
 
 -- -----------------------------------------------------------------------------
 --  STS
@@ -43,7 +43,7 @@ import Data.Function (fix)
 data STS r m = STS
   { _nextPid :: !ProcessId
   , _nextRef :: !Int
-  , _msgQs :: !(Map.Map ProcessId (Seq Dynamic))
+  , _msgQs :: !(Map.Map ProcessId (Seq StrictDynamic))
   , _monitors :: !(Set.Set (MonitorReference, ProcessId))
   , _processLinks :: !(Set.Set (ProcessId, ProcessId))
   , _runEff :: forall a . Eff r a -> m a
@@ -66,7 +66,7 @@ instance Show (STS r m) where
         (foldMap
           (\(pid, msgs) ->
             Endo (showString "  " . shows pid . showString ": ")
-              <> foldMap (Endo . shows . dynTypeRep) (toList msgs)
+              <> foldMap (Endo . shows . dynTypeRep . unwrapStrictDynamic) (toList msgs)
           )
           (sts ^.. msgQs . itraversed . withIndex)
         )
@@ -84,7 +84,7 @@ getProcessState pid sts = toPS <$> sts ^. msgQs . at pid
 incRef :: STS r m -> (Int, STS r m)
 incRef sts = (sts ^. nextRef, sts & nextRef %~ (+ 1))
 
-enqueueMsg :: ProcessId -> Dynamic -> STS r m -> STS r m
+enqueueMsg :: ProcessId -> StrictDynamic -> STS r m -> STS r m
 enqueueMsg toPid msg = msgQs . ix toPid %~ (:|> msg)
 
 newProcessQ :: Maybe ProcessId -> STS r m -> (ProcessId, STS r m)
@@ -98,7 +98,7 @@ newProcessQ parentLink sts =
             let (Nothing, stsQL) = addLink pid (sts ^. nextPid) stsQ in stsQL
   )
 
-flushMsgs :: ProcessId -> STS m r -> ([Dynamic], STS m r)
+flushMsgs :: ProcessId -> STS m r -> ([StrictDynamic], STS m r)
 flushMsgs pid = State.runState $ do
   msgs <- msgQs . ix pid <<.= Empty
   return (toList msgs)
@@ -134,7 +134,7 @@ addMonitoring owner target =
       if Map.member target pt
         then monitors %= Set.insert (mref, owner)
         else let pdown = ProcessDown mref (SomeExitReason (ProcessNotRunning target))
-              in State.modify' (enqueueMsg owner (toDyn pdown))
+              in State.modify' (enqueueMsg owner (toStrictDynamic pdown))
     return mref
 
 removeMonitoring :: MonitorReference -> STS m r -> STS m r
@@ -148,7 +148,7 @@ triggerAndRemoveMonitor downPid reason = State.execState $ do
   go (mr, owner) = when
     (monitoredProcess mr == downPid)
     (let pdown = ProcessDown mr reason
-     in  State.modify' (enqueueMsg owner (toDyn pdown) . removeMonitoring mr)
+     in  State.modify' (enqueueMsg owner (toStrictDynamic pdown) . removeMonitoring mr)
     )
 
 addLink :: ProcessId -> ProcessId -> STS m r -> (Maybe InterruptReason, STS m r)
@@ -258,7 +258,7 @@ scheduleM r y e = do
 -- | Internal data structure that is part of the coroutine based scheduler
 -- implementation.
 data OnYield r a where
-  OnFlushMessages :: (ResumeProcess [Dynamic] -> Eff r (OnYield r a))
+  OnFlushMessages :: (ResumeProcess [StrictDynamic] -> Eff r (OnYield r a))
                   -> OnYield r a
   OnYield :: (ResumeProcess () -> Eff r (OnYield r a))
          -> OnYield r a
@@ -273,7 +273,7 @@ data OnYield r a where
   OnInterrupt :: ExitReason 'Recoverable
                 -> (ResumeProcess b -> Eff r (OnYield r a))
                 -> OnYield r a
-  OnSend :: !ProcessId -> !Dynamic
+  OnSend :: !ProcessId -> !StrictDynamic
          -> (ResumeProcess () -> Eff r (OnYield r a))
          -> OnYield r a
   OnRecv :: MessageSelector b -> (ResumeProcess b -> Eff r (OnYield r a))

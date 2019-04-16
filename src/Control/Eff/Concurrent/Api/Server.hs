@@ -214,7 +214,7 @@ instance Semigroup (MessageCallback api eff) where
 
 instance Monoid (MessageCallback api eff) where
   mappend = (<>)
-  mempty  = MessageCallback selectAnyMessageLazy (const (pure AwaitNext))
+  mempty  = MessageCallback selectAnyMessage (const (pure AwaitNext))
 
 instance Default (MessageCallback api eff) where
   def = mempty
@@ -246,20 +246,21 @@ handleSelectedMessages = MessageCallback
 handleAnyMessages
   :: forall eff
    . HasCallStack
-  => (Dynamic -> Eff eff CallbackResult)
+  => (StrictDynamic -> Eff eff CallbackResult)
   -> MessageCallback '[] eff
-handleAnyMessages = MessageCallback selectAnyMessageLazy
+handleAnyMessages = MessageCallback selectAnyMessage
 
 -- | A smart constructor for 'MessageCallback's
 --
 -- @since 0.13.2
 handleCasts
   :: forall api eff
-   . (HasCallStack, Typeable api, Typeable (Api api 'Asynchronous))
+   . ( HasCallStack, Typeable api, Typeable (Api api 'Asynchronous)
+     , NFData (Request api))
   => (Api api 'Asynchronous -> Eff eff CallbackResult)
   -> MessageCallback api eff
 handleCasts h = MessageCallback
-  (selectMessageWithLazy
+  (selectMessageWith
     (\case
       cr@(Cast _ :: Request api) -> Just cr
       _callReq                   -> Nothing
@@ -292,14 +293,14 @@ handleCalls
      , Member Interrupts eff
      )
   => (  forall secret reply
-      . (Typeable reply, Typeable (Api api ( 'Synchronous reply)))
+      . (NFData reply, Typeable reply, Typeable (Api api ( 'Synchronous reply)))
      => Api api ( 'Synchronous reply)
      -> (Eff eff (Maybe reply, CallbackResult) -> secret)
      -> secret
      )
   -> MessageCallback api eff
 handleCalls h = MessageCallback
-  (selectMessageWithLazy
+  (selectMessageWith
     (\case
       (Cast _ :: Request api) -> Nothing
       callReq                 -> Just callReq
@@ -323,6 +324,7 @@ handleCastsAndCalls
    . ( HasCallStack
      , Typeable api
      , Typeable (Api api 'Asynchronous)
+     , NFData (Request api)
      , SetMember Process (Process effScheduler) eff
      , Member Interrupts eff
      )
@@ -355,7 +357,7 @@ handleCallsDeferred
      )
   -> MessageCallback api eff
 handleCallsDeferred h = MessageCallback
-  (selectMessageWithLazy
+  (selectMessageWith
     (\case
       (Cast _ :: Request api) -> Nothing
       callReq                 -> Just callReq
@@ -411,13 +413,13 @@ fallbackHandler (MessageCallback s r) = MessageCallback s r
 -- @since 0.13.2
 dropUnhandledMessages :: forall eff . HasCallStack => MessageCallback '[] eff
 dropUnhandledMessages =
-  MessageCallback selectAnyMessageLazy (const (return AwaitNext))
+  MessageCallback selectAnyMessage (const (return AwaitNext))
 
 -- | A 'fallbackHandler' that terminates if there are unhandled messages.
 --
 -- @since 0.13.2
 exitOnUnhandled :: forall eff . HasCallStack => MessageCallback '[] eff
-exitOnUnhandled = MessageCallback selectAnyMessageLazy $ \msg ->
+exitOnUnhandled = MessageCallback selectAnyMessage $ \msg ->
   return (StopServer (ProcessError ("unhandled message " <> show msg)))
 
 -- | A 'fallbackHandler' that drops the left-over messages.
@@ -427,7 +429,7 @@ logUnhandledMessages
   :: forall eff
    . (Member Logs eff, HasCallStack)
   => MessageCallback '[] eff
-logUnhandledMessages = MessageCallback selectAnyMessageLazy $ \msg -> do
+logUnhandledMessages = MessageCallback selectAnyMessage $ \msg -> do
   logWarning ("ignoring unhandled message " <> T.pack (show msg))
   return AwaitNext
 

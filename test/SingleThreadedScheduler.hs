@@ -7,7 +7,6 @@ import           Control.Eff.Concurrent.Process.SingleThreadedScheduler
 import           Control.Monad
 import           Test.Tasty
 import           Test.Tasty.HUnit
-import           Data.Dynamic
 import           Common
 
 test_pureScheduler :: TestTree
@@ -61,7 +60,7 @@ test_mainProcessSpawnsAChildBothExitNormally = setTravisTestOptions
                         void exitNormally
                         error "This should not happen (child)!!"
                     )
-                sendMessage child (toDyn ("test" :: String))
+                sendMessage child ("test" :: String)
                 void exitNormally
                 error "This should not happen!!"
             )

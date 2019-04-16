@@ -15,7 +15,6 @@ import           Control.Monad                  ( void
                                                 )
 import           Test.Tasty
 import           Test.Tasty.HUnit
-import           Data.Dynamic
 import           Common
 
 test_IOExceptionsIsolated :: TestTree
@@ -54,10 +53,10 @@ test_IOExceptionsIsolated = setTravisTestOptions $ testGroup
           assertBool "the other process was still running" wasStillRunningP1
   | (busyWith , busyEffect) <-
     [ ( "receiving"
-      , void (send (ReceiveSelectedMessage @SchedulerIO selectAnyMessageLazy))
+      , void (send (ReceiveSelectedMessage @SchedulerIO selectAnyMessage))
       )
     , ( "sending"
-      , void (send (SendMessage @SchedulerIO 44444 (toDyn ("test message" :: String))))
+      , void (send (SendMessage @SchedulerIO 44444 (toStrictDynamic ("test message" :: String))))
       )
     , ( "sending shutdown"
       , void (send (SendShutdown @SchedulerIO 44444 ExitNormally))
@@ -68,7 +67,7 @@ test_IOExceptionsIsolated = setTravisTestOptions $ testGroup
         (send
           (Spawn @SchedulerIO
             (void
-              (send (ReceiveSelectedMessage @SchedulerIO selectAnyMessageLazy))
+              (send (ReceiveSelectedMessage @SchedulerIO selectAnyMessage))
             )
           )
         )
@@ -162,7 +161,7 @@ test_timer =
             testMsg :: Float
             testMsg   = 123
             flushMessagesLoop = do
-              res <- receiveSelectedAfter (selectDynamicMessageLazy Just) 0
+              res <- receiveSelectedAfter (selectDynamicMessage Just) 0
               case res of
                 Left  _to -> return ()
                 Right _   -> flushMessagesLoop
@@ -177,7 +176,7 @@ test_timer =
           res <- receiveAfter @Float 1000000
           lift (res @?= Just testMsg)
         flushMessagesLoop
-        res <- receiveSelectedAfter (selectDynamicMessageLazy Just) 10000
+        res <- receiveSelectedAfter (selectDynamicMessage Just) 10000
         case res of
           Left  _ -> return ()
           Right x -> lift (False @? "unexpected message in queue " ++ show x)

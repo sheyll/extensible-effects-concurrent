@@ -2,7 +2,6 @@ module ProcessBehaviourTestCases where
 
 import           Data.List                      ( sort )
 import           Data.Foldable                  ( traverse_ )
-import qualified Data.Dynamic                  as Dynamic
 import           Data.Typeable
 import           Control.Exception
 import           Control.Concurrent
@@ -29,7 +28,9 @@ import           Test.Tasty.HUnit
 import           Common
 import           Control.Applicative
 import           Data.Void
-import Control.Lens (view)
+import           Control.Lens (view)
+import           Control.DeepSeq
+import GHC.Generics (Generic)
 
 testInterruptReason :: InterruptReason
 testInterruptReason = ProcessError "test interrupt"
@@ -86,6 +87,10 @@ data ReturnToSender
 data instance Api ReturnToSender r where
   ReturnToSender :: ProcessId -> String -> Api ReturnToSender ('Synchronous Bool)
   StopReturnToSender :: Api ReturnToSender ('Synchronous ())
+
+instance NFData (Api ReturnToSender r) where
+  rnf (ReturnToSender p s) = rnf p `seq` rnf s
+  rnf StopReturnToSender = ()
 
 deriving instance Show (Api ReturnToSender x)
 
@@ -214,11 +219,13 @@ yieldLoopTests schedulerFactory =
         )
 
 
-data Ping = Ping ProcessId
-  deriving (Eq, Show)
+newtype Ping = Ping ProcessId
+  deriving (Eq, Show, Typeable, NFData)
 
 data Pong = Pong
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
+
+instance NFData Pong
 
 pingPongTests
   :: forall r
@@ -360,7 +367,7 @@ concurrencyTests schedulerFactory =
               (spawn
                 (do
                   m <- receiveAnyMessage
-                  void (sendMessage me m)
+                  void (sendAnyMessage me m)
                 )
               )
             )
@@ -492,7 +499,7 @@ exitTests schedulerFactory =
               )
             )
           , ( "sending"
-            , void (send (SendMessage @r 44444 (Dynamic.toDyn ("test message" :: String))))
+            , void (send (SendMessage @r 44444 (toStrictDynamic ("test message" :: String))))
             )
           , ( "sending shutdown"
             , void (send (SendShutdown @r 44444 ExitNormally))
@@ -502,7 +509,7 @@ exitTests schedulerFactory =
             , void
               (send
                 (Spawn @r
-                  (void (send (ReceiveSelectedMessage @r selectAnyMessageLazy)))
+                  (void (send (ReceiveSelectedMessage @r selectAnyMessage)))
                 )
               )
             )
@@ -524,7 +531,7 @@ exitTests schedulerFactory =
               )
             )
           , ( "sending"
-            , void (send (SendMessage @r 44444 (Dynamic.toDyn ("test message"::String))))
+            , void (send (SendMessage @r 44444 (toStrictDynamic ("test message"::String))))
             )
           , ( "sending shutdown"
             , void (send (SendShutdown @r 44444 ExitNormally))
@@ -534,7 +541,7 @@ exitTests schedulerFactory =
             , void
               (send
                 (Spawn @r
-                  (void (send (ReceiveSelectedMessage @r selectAnyMessageLazy)))
+                  (void (send (ReceiveSelectedMessage @r selectAnyMessage)))
                 )
               )
             )
@@ -570,7 +577,7 @@ exitTests schedulerFactory =
               )
             )
           , ( "sending"
-            , void (send (SendMessage @r 44444 (Dynamic.toDyn ("test message"::String))))
+            , void (send (SendMessage @r 44444 (toStrictDynamic ("test message"::String))))
             )
           , ( "sending shutdown"
             , void (send (SendShutdown @r 44444 ExitNormally))
@@ -580,7 +587,7 @@ exitTests schedulerFactory =
             , void
               (send
                 (Spawn @r
-                  (void (send (ReceiveSelectedMessage @r selectAnyMessageLazy)))
+                  (void (send (ReceiveSelectedMessage @r selectAnyMessage)))
                 )
               )
             )
@@ -630,7 +637,7 @@ sendShutdownTests schedulerFactory = testGroup
         me    <- self
         other <- spawn
           (do
-            untilInterrupted (SendMessage @r 666666 (Dynamic.toDyn ("test"::String)))
+            untilInterrupted (SendMessage @r 666666 (toStrictDynamic ("test"::String)))
             void (sendMessage me ("OK"::String))
           )
         void (sendInterrupt other testInterruptReason)
@@ -642,7 +649,7 @@ sendShutdownTests schedulerFactory = testGroup
         me    <- self
         other <- spawn
           (do
-            untilInterrupted (ReceiveSelectedMessage @r selectAnyMessageLazy)
+            untilInterrupted (ReceiveSelectedMessage @r selectAnyMessage)
             void (sendMessage me ("OK" :: String))
           )
         void (sendInterrupt other testInterruptReason)

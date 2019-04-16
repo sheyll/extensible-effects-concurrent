@@ -11,12 +11,14 @@ module Control.Eff.Concurrent.Api.Observer.Queue
 where
 
 import           Control.Concurrent.STM
+import           Control.DeepSeq (NFData)
 import           Control.Eff
-import           Control.Eff.ExceptionExtra     ( )
-import           Control.Eff.Concurrent.Process
-import           Control.Eff.Log
+import           Control.Eff.Concurrent.Api
 import           Control.Eff.Concurrent.Api.Observer
 import           Control.Eff.Concurrent.Api.Server
+import           Control.Eff.Concurrent.Process
+import           Control.Eff.ExceptionExtra     ( )
+import           Control.Eff.Log
 import           Control.Eff.Reader.Strict
 import           Control.Exception.Safe        as Safe
 import           Control.Monad.IO.Class
@@ -134,7 +136,13 @@ withObservationQueue queueLimit e = do
 -- @since 0.18.0
 spawnLinkObservationQueueWriter
   :: forall o q
-   . (Typeable o, Show o, Member Logs q, Lifted IO q, HasCallStack)
+   . ( Typeable o
+     , Show o
+     , NFData o
+     , NFData (Api (Observer o) 'Asynchronous)
+     , Member Logs q
+     , Lifted IO q
+     , HasCallStack)
   => ObservationQueue o
   -> Eff (InterruptableProcess q) (Observer o)
 spawnLinkObservationQueueWriter (ObservationQueue q) = do

@@ -14,14 +14,29 @@
     - `call` now monitors the called process
     - `call` now returns `Either TimeoutError a`   
 
-## 0.22.0    
-
 - Logging improvements:
     - Introduce `ToLogText`
     - Remove `ToLogMessage`
     - Remove `logXXX'` users have to use `logXXX` and `ToLogText` 
+
+## 0.22.0    
+
+- Remove `SchedulerProxy` ruins 
+
+- Make message sending strict:
+
+  Ensure that every message sent from one process to another
+  is reduced to normal form by the sender. 
+
+    - Remove *all* lazy message selectors
+    - Introduce a newtype wrapper `StrictDynamic` around `Dynamic`
+      and export only a constructor that deeply evaluates the
+      value to *rnf* before converting it to a `Dynamic` 
+
+- Change the `Server` API for better system *vitality*:
+
+    - Every `call` **must** have a `Timeout` parameter
     
-- Forbid to return something from `receiveLoop`
           
 ## 0.21.2
 

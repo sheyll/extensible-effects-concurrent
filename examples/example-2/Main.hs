@@ -8,6 +8,7 @@ import           Control.Eff.State.Strict
 import           Control.Monad
 import           Data.Foldable
 import           Control.Concurrent
+import           Control.DeepSeq
 
 main :: IO ()
 main = defaultMain (void counterExample)
@@ -20,6 +21,10 @@ data instance Api Counter x where
   Inc :: Api Counter 'Asynchronous
   Cnt :: Api Counter ('Synchronous Integer)
   deriving Typeable
+
+instance NFData (Api Counter x) where
+  rnf Inc = ()
+  rnf Cnt = ()
 
 counterExample
   :: (Member Logs q, Lifted IO q)
@@ -57,8 +62,11 @@ data instance Api SupiDupi r where
   Whoopediedoo :: Bool -> Api SupiDupi ('Synchronous (Maybe ()))
   deriving Typeable
 
-data CounterChanged = CounterChanged Integer
-  deriving (Show, Typeable)
+instance NFData (Api SupiDupi r) where
+  rnf (Whoopediedoo b) = rnf b
+
+newtype CounterChanged = CounterChanged Integer
+  deriving (Show, Typeable, NFData)
 
 spawnCounter
   :: (Member Logs q)

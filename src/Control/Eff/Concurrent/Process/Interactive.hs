@@ -132,7 +132,7 @@ submit (SchedulerSession qVar) theAction = do
 -- | Combination of 'submit' and 'cast'.
 submitCast
   :: forall o r
-   . (SetMember Lift (Lift IO) r, Typeable o, Member Interrupts r)
+   . (SetMember Lift (Lift IO) r, Typeable o, NFData (Api o 'Asynchronous), Member Interrupts r)
   => SchedulerSession r
   -> Server o
   -> Api o 'Asynchronous
@@ -148,6 +148,7 @@ submitCall
      , NFData q
      , Show q
      , Member Interrupts r
+     , NFData (Api o ('Synchronous q))
      )
   => SchedulerSession r
   -> Server o

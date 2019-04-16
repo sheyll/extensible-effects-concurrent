@@ -34,9 +34,10 @@ import           Data.Foldable
 import           Data.Proxy
 import           Data.Set                       ( Set )
 import qualified Data.Set                      as Set
-import           Data.Text                      (Text, pack)
+import           Data.Text                      ( pack )
 import           Data.Typeable                  ( typeRep )
 import           GHC.Stack
+import Control.DeepSeq (NFData(rnf))
 
 -- * Observers
 
@@ -48,8 +49,11 @@ import           GHC.Stack
 -- @since 0.16.0
 data Observer o where
   Observer
-    :: (Show (Server p), Typeable p, Typeable o)
+    :: (Show (Server p), Typeable p, Typeable o, NFData o, NFData (Api p 'Asynchronous))
     => (o -> Maybe (Api p 'Asynchronous)) -> Server p -> Observer o
+
+instance (NFData o) => NFData (Observer o) where
+  rnf (Observer k s) = rnf k `seq` rnf s
 
 instance Show (Observer o) where
   showsPrec d (Observer _ p) = showParen
@@ -75,6 +79,7 @@ registerObserver
      , HasCallStack
      , Member Interrupts r
      , Typeable o
+     , NFData o
      )
   => Observer o
   -> Server (ObserverRegistry o)
@@ -90,6 +95,7 @@ forgetObserver
      , HasCallStack
      , Member Interrupts r
      , Typeable o
+     , NFData o
      )
   => Observer o
   -> Server (ObserverRegistry o)
@@ -109,6 +115,10 @@ data instance Api (Observer o) r where
   --
   -- @since 0.16.1
   Observed :: o -> Api (Observer o) 'Asynchronous
+  deriving Typeable
+
+instance NFData o => NFData (Api (Observer o) 'Asynchronous) where
+  rnf (Observed o) = rnf o
 
 -- | Based on the 'Api' instance for 'Observer' this simplified writing
 -- a callback handler for observations. In order to register to
@@ -116,7 +126,7 @@ data instance Api (Observer o) r where
 --
 -- @since 0.16.0
 handleObservations
-  :: (HasCallStack, Typeable o, SetMember Process (Process q) r)
+  :: (HasCallStack, Typeable o, SetMember Process (Process q) r, NFData (Observer o))
   => (o -> Eff r CallbackResult)
   -> MessageCallback (Observer o) r
 handleObservations k = handleCasts
@@ -127,7 +137,7 @@ handleObservations k = handleCasts
 -- | Use a 'Server' as an 'Observer' for 'handleObservations'.
 --
 -- @since 0.16.0
-toObserver :: Typeable o => Server (Observer o) -> Observer o
+toObserver :: (NFData o, Typeable o, NFData (Api (Observer o) 'Asynchronous)) => Server (Observer o) -> Observer o
 toObserver = toObserverFor Observed
 
 -- | Create an 'Observer' that conditionally accepts all observations of the
@@ -136,7 +146,7 @@ toObserver = toObserverFor Observed
 --
 -- @since 0.16.0
 toObserverFor
-  :: (Typeable a, Typeable o)
+  :: (Typeable a, NFData (Api a 'Asynchronous), Typeable o, NFData o)
   => (o -> Api a 'Asynchronous)
   -> Server a
   -> Observer o
@@ -159,12 +169,16 @@ data instance Api (ObserverRegistry o) r where
   --   received.
   --
   -- @since 0.16.1
-  RegisterObserver :: Observer o -> Api (ObserverRegistry o) 'Asynchronous
+  RegisterObserver :: NFData o => Observer o -> Api (ObserverRegistry o) 'Asynchronous
   -- | This message denotes that the given 'Observer' should not receive observations anymore.
   --
   -- @since 0.16.1
-  ForgetObserver :: Observer o -> Api (ObserverRegistry o) 'Asynchronous
+  ForgetObserver :: NFData o => Observer o -> Api (ObserverRegistry o) 'Asynchronous
+  deriving Typeable
 
+instance NFData (Api (ObserverRegistry o) r) where
+  rnf (RegisterObserver o) = rnf o
+  rnf (ForgetObserver o) = rnf o
 
 -- ** Api for integrating 'ObserverRegistry' into processes.
 
@@ -211,7 +225,7 @@ manageObservers :: Eff (ObserverState o ': r) a -> Eff r a
 manageObservers = evalState (Observers Set.empty)
 
 -- | Internal state for 'manageObservers'
-data Observers o =
+newtype Observers o =
   Observers { _observers :: Set (Observer o) }
 
 -- | Alias for the effect that contains the observers managed by 'manageObservers'
@@ -229,6 +243,7 @@ observed
    . ( SetMember Process (Process q) r
      , Member (ObserverState o) r
      , Member Interrupts r
+   --  , NFData (Api o 'Asynchronous)
      )
   => o
   -> Eff r ()

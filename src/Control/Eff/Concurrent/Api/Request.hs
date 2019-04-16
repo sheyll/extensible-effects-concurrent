@@ -24,19 +24,28 @@ import           GHC.Generics
 --
 -- @since 0.15.0
 data Request api where
-  Call :: forall api reply . (Typeable api, Typeable reply, Typeable (Api api ('Synchronous reply)))
+  Call :: forall api reply . (Typeable api, Typeable reply, NFData reply, Typeable (Api api ('Synchronous reply)), NFData (Api api ('Synchronous reply)))
          => Int -> ProcessId -> Api api ('Synchronous reply) -> Request api
 
-  Cast :: forall api . (Typeable api, Typeable (Api api 'Asynchronous))
+  Cast :: forall api . (Typeable api, Typeable (Api api 'Asynchronous), NFData (Api api 'Asynchronous ))
          => Api api 'Asynchronous -> Request api
   deriving Typeable
+
+instance NFData (Request api) where
+  rnf (Call i p req) = rnf i `seq` rnf p `seq` rnf req
+  rnf (Cast req)     = rnf req
 
 -- | The wrapper around replies to 'Call's.
 --
 -- @since 0.15.0
 data Reply request where
-  Reply :: (Typeable api, Typeable reply) => Proxy (Api api ('Synchronous reply)) -> Int -> reply -> Reply (Api api ('Synchronous reply))
+  Reply :: (Typeable api, Typeable reply, NFData reply)
+        => Proxy (Api api ('Synchronous reply)) -> Int -> reply -> Reply (Api api ('Synchronous reply))
   deriving Typeable
+
+instance NFData (Reply request) where
+  rnf (Reply _ i r) = rnf i `seq` rnf r
+
 
 -- | Get the @reply@ of an @Api foo ('Synchronous reply)@.
 --
@@ -61,11 +70,17 @@ mkRequestOrigin _ = RequestOrigin
 -- @since 0.15.0
 data RequestOrigin request =
   RequestOrigin { _requestOriginPid :: !ProcessId, _requestOriginCallRef :: !Int}
-  deriving (Eq, Ord, Typeable, Show, Generic)
+  deriving (Eq, Ord, Typeable, Generic)
+
+instance Show (RequestOrigin r) where
+  showsPrec d (RequestOrigin o r) =
+    showParen (d >= 10) (showString "caller: " . shows o . showChar ' ' . shows r)
 
 instance NFData (RequestOrigin request) where
 
 -- | Send a 'Reply' to a 'Call'.
+--
+-- The reply will be deeply evaluated to 'rnf'.
 --
 -- @since 0.15.0
 sendReply
@@ -77,10 +92,11 @@ sendReply
      , ReplyType request ~ reply
      , request ~ Api api ( 'Synchronous reply)
      , Typeable reply
+     , NFData reply
      )
   => RequestOrigin request
   -> reply
   -> Eff eff ()
 sendReply origin reply = sendMessage
   (_requestOriginPid origin)
-  (Reply (Proxy @request) (_requestOriginCallRef origin) $! reply)
+  (Reply (Proxy @request) (_requestOriginCallRef origin) $! force reply)

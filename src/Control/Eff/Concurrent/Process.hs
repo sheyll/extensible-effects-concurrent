@@ -15,6 +15,11 @@ module Control.Eff.Concurrent.Process
   ( -- * Process Effect
     -- ** Effect Type Handling
     Process(..)
+  , -- ** Message Data
+    StrictDynamic()
+  , toStrictDynamic
+  , fromStrictDynamic
+  , unwrapStrictDynamic
     -- ** ProcessId Type
   , ProcessId(..)
   , fromProcessId
@@ -42,14 +47,10 @@ module Control.Eff.Concurrent.Process
   -- ** Selecting Messages to Receive
   , MessageSelector(runMessageSelector)
   , selectMessage
-  , selectMessageLazy
   , filterMessage
-  , filterMessageLazy
   , selectMessageWith
-  , selectMessageWithLazy
   , selectDynamicMessage
-  , selectDynamicMessageLazy
-  , selectAnyMessageLazy
+  , selectAnyMessage
   -- ** Process Life Cycle Management
   , self
   , isProcessAlive
@@ -130,6 +131,7 @@ import           Data.String                    (fromString)
 import qualified Data.Text                     as T
 import qualified Control.Exception             as Exc
 
+
 -- | The process effect is the basis for message passing concurrency. This
 -- effect describes an interface for concurrent, communicating isolated
 -- processes identified uniquely by a process-id.
@@ -155,7 +157,7 @@ import qualified Control.Exception             as Exc
 -- * when the first process exists, all process should be killed immediately
 data Process (r :: [Type -> Type]) b where
   -- | Remove all messages from the process' message queue
-  FlushMessages ::Process r (ResumeProcess [Dynamic])
+  FlushMessages ::Process r (ResumeProcess [StrictDynamic])
   -- | In cooperative schedulers, this will give processing time to the
   -- scheduler. Every other operation implicitly serves the same purpose.
   --
@@ -185,7 +187,7 @@ data Process (r :: [Type -> Type]) b where
   -- message should __always succeed__ and return __immediately__, even if the
   -- destination process does not exist, or does not accept messages of the
   -- given type.
-  SendMessage ::ProcessId -> Dynamic -> Process r (ResumeProcess ())
+  SendMessage :: ProcessId -> StrictDynamic -> Process r (ResumeProcess ())
   -- | Receive a message that matches a criteria.
   -- This should block until an a message was received. The message is returned
   -- as a 'ResumeProcess' value. The function should also return if an exception
@@ -256,6 +258,40 @@ instance Show (Process r b) where
     Link      l                -> showString "link " . shows l
     Unlink    l                -> showString "unlink " . shows l
 
+-- | Data flows between 'Process'es via these messages.
+--
+-- This is just a newtype wrapper around 'Dynamic'.
+-- The reason this type exists is to force construction through the code in this
+-- module, which always evaluates a message to /normal form/ __before__
+-- sending it to another process.
+--
+-- @since 0.22.0
+newtype StrictDynamic where
+  MkDynamicMessage :: Dynamic -> StrictDynamic
+  deriving Typeable
+
+instance Show StrictDynamic where
+  show (MkDynamicMessage d) = show d
+
+-- | Deeply evaluate the given value and wrap it into a 'StrictDynamic'.
+--
+-- @since 0.22.0
+toStrictDynamic :: (Typeable a, NFData a) => a -> StrictDynamic
+toStrictDynamic x = force x `seq` toDyn (force x) `seq` MkDynamicMessage (toDyn (force x))
+
+-- | Convert a 'StrictDynamic' back to a value.
+--
+-- @since 0.22.0
+fromStrictDynamic :: Typeable a => StrictDynamic -> Maybe a
+fromStrictDynamic (MkDynamicMessage d) = fromDynamic d
+
+
+-- | Convert a 'StrictDynamic' back to an unwrapped 'Dynamic'.
+--
+-- @since 0.22.0
+unwrapStrictDynamic :: StrictDynamic -> Dynamic
+unwrapStrictDynamic (MkDynamicMessage d) = d
+
 -- | Every 'Process' action returns it's actual result wrapped in this type. It
 -- will allow to signal errors as well as pass on normal results such as
 -- incoming messages.
@@ -287,7 +323,7 @@ instance NFData1 ResumeProcess
 -- >   Left <$> selectTimeout<|> Right <$> selectString
 --
 newtype MessageSelector a =
-  MessageSelector {runMessageSelector :: Dynamic -> Maybe a }
+  MessageSelector {runMessageSelector :: StrictDynamic -> Maybe a }
   deriving (Semigroup, Monoid, Functor)
 
 instance Applicative MessageSelector where
@@ -300,75 +336,43 @@ instance Alternative MessageSelector where
   (MessageSelector l) <|> (MessageSelector r) =
     MessageSelector (\dyn -> l dyn <|> r dyn)
 
--- | Create a message selector for a value that can be obtained by 'fromDynamic'.
--- It will also 'force' the result.
+-- | Create a message selector for a value that can be obtained by 'fromStrictDynamic'.
 --
 -- @since 0.9.1
-selectMessage :: (NFData t, Typeable t) => MessageSelector t
-selectMessage = selectDynamicMessage fromDynamic
+selectMessage :: Typeable t => MessageSelector t
+selectMessage = selectDynamicMessage fromStrictDynamic
 
--- | Create a message selector for a value that can be obtained by 'fromDynamic'.
--- It will also 'force' the result.
+-- | Create a message selector from a predicate.
 --
 -- @since 0.9.1
-selectMessageLazy :: (NFData t, Typeable t) => MessageSelector t
-selectMessageLazy = selectDynamicMessageLazy fromDynamic
-
--- | Create a message selector from a predicate. It will 'force' the result.
---
--- @since 0.9.1
-filterMessage :: (Typeable a, NFData a) => (a -> Bool) -> MessageSelector a
+filterMessage :: Typeable a => (a -> Bool) -> MessageSelector a
 filterMessage predicate = selectDynamicMessage
-  (\d -> case fromDynamic d of
-    Just a | predicate a -> Just a
-    _                    -> Nothing
-  )
-
--- | Create a message selector from a predicate. It will 'force' the result.
---
--- @since 0.9.1
-filterMessageLazy :: Typeable a => (a -> Bool) -> MessageSelector a
-filterMessageLazy predicate = selectDynamicMessageLazy
-  (\d -> case fromDynamic d of
+  (\d -> case fromStrictDynamic d of
     Just a | predicate a -> Just a
     _                    -> Nothing
   )
 
 -- | Select a message of type @a@ and apply the given function to it.
 -- If the function returns 'Just' The 'ReceiveSelectedMessage' function will
--- return the result (sans @Maybe@). It will 'force' the result.
+-- return the result (sans @Maybe@).
 --
 -- @since 0.9.1
 selectMessageWith
-  :: (Typeable a, NFData b) => (a -> Maybe b) -> MessageSelector b
-selectMessageWith f = selectDynamicMessage (fromDynamic >=> f)
-
--- | Select a message of type @a@ and apply the given function to it.
--- If the function returns 'Just' The 'ReceiveSelectedMessage' function will
--- return the result (sans @Maybe@). It will 'force' the result.
---
--- @since 0.9.1
-selectMessageWithLazy :: Typeable a => (a -> Maybe b) -> MessageSelector b
-selectMessageWithLazy f = selectDynamicMessageLazy (fromDynamic >=> f)
-
--- | Create a message selector. It will 'force' the result.
---
--- @since 0.9.1
-selectDynamicMessage :: NFData a => (Dynamic -> Maybe a) -> MessageSelector a
-selectDynamicMessage = MessageSelector . (force .)
+  :: Typeable a => (a -> Maybe b) -> MessageSelector b
+selectMessageWith f = selectDynamicMessage (fromStrictDynamic >=> f)
 
 -- | Create a message selector.
 --
 -- @since 0.9.1
-selectDynamicMessageLazy :: (Dynamic -> Maybe a) -> MessageSelector a
-selectDynamicMessageLazy = MessageSelector
+selectDynamicMessage :: (StrictDynamic -> Maybe a) -> MessageSelector a
+selectDynamicMessage = MessageSelector
 
 -- | Create a message selector that will match every message. This is /lazy/
 -- because the result is not 'force'ed.
 --
 -- @since 0.9.1
-selectAnyMessageLazy :: MessageSelector Dynamic
-selectAnyMessageLazy = MessageSelector Just
+selectAnyMessage :: MessageSelector StrictDynamic
+selectAnyMessage = MessageSelector Just
 
 -- | /Cons/ 'Process' onto a list of effects.
 type ConsProcess r = Process r ': r
@@ -510,7 +514,7 @@ instance NFData (ExitReason x) where
   rnf (ProcessError         !l)     = rnf l
   rnf ExitNormally                  = rnf ()
   rnf (NotRecovered !l            ) = rnf l
-  rnf (UnexpectedException !l1 !l2) = rnf l1 `seq` rnf l2 `seq` ()
+  rnf (UnexpectedException !l1 !l2) = rnf l1 `seq` rnf l2
   rnf Killed                        = rnf ()
 
 instance Ord (ExitReason x) where
@@ -759,18 +763,21 @@ yieldProcess = executeAndResumeOrThrow YieldProcess
 -- | Send a message to a process addressed by the 'ProcessId'.
 -- See 'SendMessage'.
 --
+-- The message will be reduced to normal form ('rnf') by/in the caller process.
 sendMessage
   :: forall r q o
    . ( SetMember Process (Process q) r
      , HasCallStack
      , Member Interrupts r
      , Typeable o
+     , NFData o
      )
   => ProcessId
   -> o
   -> Eff r ()
 sendMessage pid message =
-  executeAndResumeOrThrow (SendMessage pid $! toDyn $! message)
+  rnf pid `seq` toStrictDynamic message
+          `seq` executeAndResumeOrThrow (SendMessage pid (toStrictDynamic message))
 
 -- | Send a 'Dynamic' value to a process addressed by the 'ProcessId'.
 -- See 'SendMessage'.
@@ -778,10 +785,10 @@ sendAnyMessage
   :: forall r q
    . (SetMember Process (Process q) r, HasCallStack, Member Interrupts r)
   => ProcessId
-  -> Dynamic
+  -> StrictDynamic
   -> Eff r ()
 sendAnyMessage pid message =
-  rnf pid `seq` executeAndResumeOrThrow (SendMessage pid $! message)
+  executeAndResumeOrThrow (SendMessage pid message)
 
 -- | Exit a process addressed by the 'ProcessId'. The process will exit,
 -- it might do some cleanup, but is ultimately unrecoverable.
@@ -873,9 +880,9 @@ isProcessAlive pid = isJust <$> executeAndResumeOrThrow (GetProcessState pid)
 receiveAnyMessage
   :: forall r q
    . (HasCallStack, SetMember Process (Process q) r, Member Interrupts r)
-  => Eff r Dynamic
+  => Eff r StrictDynamic
 receiveAnyMessage =
-  executeAndResumeOrThrow (ReceiveSelectedMessage selectAnyMessageLazy)
+  executeAndResumeOrThrow (ReceiveSelectedMessage selectAnyMessage)
 
 -- | Block until a message was received, that is not 'Nothing' after applying
 -- a callback to it.
@@ -898,12 +905,13 @@ receiveMessage
   :: forall a r q
    . ( HasCallStack
      , Typeable a
+     , NFData a
      , Show a
      , SetMember Process (Process q) r
      , Member Interrupts r
      )
   => Eff r a
-receiveMessage = receiveSelectedMessage (MessageSelector fromDynamic)
+receiveMessage = receiveSelectedMessage (MessageSelector fromStrictDynamic)
 
 -- | Remove and return all messages currently enqueued in the process message
 -- queue.
@@ -912,7 +920,7 @@ receiveMessage = receiveSelectedMessage (MessageSelector fromDynamic)
 flushMessages
   :: forall r q
    . (HasCallStack, SetMember Process (Process q) r, Member Interrupts r)
-  => Eff r [Dynamic]
+  => Eff r [StrictDynamic]
 flushMessages = executeAndResumeOrThrow @q FlushMessages
 
 -- | Enter a loop to receive messages and pass them to a callback, until the
@@ -937,22 +945,22 @@ receiveSelectedLoop selector handlers = do
   maybe (receiveSelectedLoop selector handlers) return mRes
 
 -- | Like 'receiveSelectedLoop' but /not selective/.
--- See also 'selectAnyMessageLazy', 'receiveSelectedLoop'.
+-- See also 'selectAnyMessage', 'receiveSelectedLoop'.
 receiveAnyLoop
   :: forall r q endOfLoopResult
    . (SetMember Process (Process q) r, HasCallStack)
-  => (Either InterruptReason Dynamic -> Eff r (Maybe endOfLoopResult))
+  => (Either InterruptReason StrictDynamic -> Eff r (Maybe endOfLoopResult))
   -> Eff r endOfLoopResult
-receiveAnyLoop = receiveSelectedLoop selectAnyMessageLazy
+receiveAnyLoop = receiveSelectedLoop selectAnyMessage
 
 -- | Like 'receiveSelectedLoop' but refined to casting to a specific 'Typeable'
--- using 'selectMessageLazy'.
+-- using 'selectMessage'.
 receiveLoop
   :: forall r q a endOfLoopResult
    . (SetMember Process (Process q) r, HasCallStack, NFData a, Typeable a)
   => (Either InterruptReason a -> Eff r (Maybe endOfLoopResult))
   -> Eff r endOfLoopResult
-receiveLoop = receiveSelectedLoop selectMessageLazy
+receiveLoop = receiveSelectedLoop selectMessage
 
 -- | Returns the 'ProcessId' of the current process.
 self :: (HasCallStack, SetMember Process (Process q) r) => Eff r ProcessId
@@ -1084,7 +1092,7 @@ instance Show ProcessDown where
 -- @since 0.12.0
 selectProcessDown :: MonitorReference -> MessageSelector ProcessDown
 selectProcessDown ref0 =
-  filterMessageLazy (\(ProcessDown ref _reason) -> ref0 == ref)
+  filterMessage (\(ProcessDown ref _reason) -> ref0 == ref)
 
 -- | Connect the calling process to another process, such that
 -- if one of the processes crashes (i.e. 'isCrash' returns 'True'), the other
