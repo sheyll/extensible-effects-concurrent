@@ -223,11 +223,9 @@ renderRFC5424Header l@(MkLogMessage _ _ ts hn an pid mi sd _ _ _) =
       , fromMaybe "-" pid
       , fromMaybe "-" mi
       , structuredData
-      , msg
       ]
  where
   structuredData = if null sd then "-" else T.concat (renderSdElement <$> sd)
-  msg            = renderLogMessageBody l -- T.unwords (renderLogMessageBodyFixWidth l)
 
 renderSdElement :: StructuredDataElement -> T.Text
 renderSdElement (SdElement sdId params) = "[" <> sdName sdId <> if null params

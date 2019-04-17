@@ -19,6 +19,10 @@
     - Remove `ToLogMessage`
     - Remove `logXXX'` users have to use `logXXX` and `ToLogText` 
 
+## 0.22.1
+
+- Fix duplicated content in RFC-5424 log message renderer
+
 ## 0.22.0    
 
 - Remove `SchedulerProxy` ruins 
