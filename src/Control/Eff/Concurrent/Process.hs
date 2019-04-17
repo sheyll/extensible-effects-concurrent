@@ -465,7 +465,7 @@ data ExitReason (t :: ExitRecovery) where
     -- | A process that should be running was not running.
     ProcessNotRunning
       :: ProcessId -> ExitReason 'Recoverable
-    -- | A 'Recoverable' timeout has occured.
+    -- | A 'Recoverable' timeout has occurred.
     ProcessTimeout
       :: String -> ExitReason 'Recoverable
     -- | A linked process is down
@@ -688,10 +688,11 @@ fromSomeExitReason
 fromSomeExitReason (SomeExitReason e) = case e of
   recoverable@ProcessFinished          -> Right recoverable
   recoverable@(ProcessNotRunning    _) -> Right recoverable
+  recoverable@(ProcessTimeout       _) -> Right recoverable
   recoverable@(LinkedProcessCrashed _) -> Right recoverable
   recoverable@(ProcessError         _) -> Right recoverable
   noRecovery@ExitNormally              -> Left noRecovery
-  noRecovery@(NotRecovered _         ) -> Left noRecovery
+  noRecovery@(NotRecovered          _) -> Left noRecovery
   noRecovery@(UnexpectedException _ _) -> Left noRecovery
   noRecovery@Killed                    -> Left noRecovery
 

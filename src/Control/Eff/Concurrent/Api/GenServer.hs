@@ -2,8 +2,8 @@
 -- **PLANNED TODO**
 -- @since 0.23.0
 module Control.Eff.Concurrent.Api.GenServer
-  (
-  ) where
+
+   where
 
 import Control.DeepSeq
 import Control.Eff
