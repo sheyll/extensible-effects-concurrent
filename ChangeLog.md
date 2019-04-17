@@ -36,7 +36,10 @@
 - Change the `Server` API for better system *vitality*:
 
 - Add `callWithTimeout`: A `call` over `IO` with a `Timeout` parameter
-    
+
+- Add more efficient log renderer:
+    - `renderLogMessageBodyNoLocation`
+    - `renderRFC5424NoLocation`     
           
 ## 0.21.2
 

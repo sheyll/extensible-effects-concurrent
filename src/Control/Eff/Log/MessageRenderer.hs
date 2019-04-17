@@ -11,12 +11,14 @@ module Control.Eff.Log.MessageRenderer
   , renderRFC3164WithRFC5424Timestamps
   , renderRFC3164WithTimestamp
   , renderRFC5424
-
+  , renderRFC5424Header
+  , renderRFC5424NoLocation
 
   -- ** Partial Log Message Text Rendering
   , renderSyslogSeverityAndFacility
   , renderLogMessageSrcLoc
   , renderMaybeLogMessageLens
+  , renderLogMessageBodyNoLocation
   , renderLogMessageBody
   , renderLogMessageBodyFixWidth
 
@@ -76,9 +78,15 @@ rfc5424NoZTimestamp =
 -- | Print the thread id, the message and the source file location, seperated by simple white space.
 renderLogMessageBody :: LogMessageRenderer T.Text
 renderLogMessageBody = T.unwords . filter (not . T.null) <$> sequence
+  [ renderLogMessageBodyNoLocation
+  , fromMaybe "" <$> renderLogMessageSrcLoc
+  ]
+
+-- | Print the thread id, the message and the source file location, seperated by simple white space.
+renderLogMessageBodyNoLocation :: LogMessageRenderer T.Text
+renderLogMessageBodyNoLocation = T.unwords . filter (not . T.null) <$> sequence
   [ renderShowMaybeLogMessageLens "" lmThreadId
   , view lmMessage
-  , fromMaybe "" <$> renderLogMessageSrcLoc
   ]
 
 -- | Print the /body/ of a 'LogMessage' with fix size fields (60) for the message itself
@@ -184,8 +192,28 @@ renderRFC3164WithTimestamp renderTime l@(MkLogMessage _ _ ts hn an pid mi _ _ _ 
       ]
 
 -- | Render a 'LogMessage' according to the rules in the RFC-5424.
+--
+-- Equivalent to @'renderRFC5424Header' <> const " " <> 'renderLogMessageBody'@.
+--
+-- @since 0.21.0
 renderRFC5424 :: LogMessageRenderer T.Text
-renderRFC5424 l@(MkLogMessage _ _ ts hn an pid mi sd _ _ _) =
+renderRFC5424  = renderRFC5424Header <> const " " <> renderLogMessageBody
+
+-- | Render a 'LogMessage' according to the rules in the RFC-5424, like 'renderRFC5424' but
+-- suppress the source location information.
+--
+-- Equivalent to @'renderRFC5424Header' <> const " " <> 'renderLogMessageBodyNoLocation'@.
+--
+-- @since 0.21.0
+renderRFC5424NoLocation :: LogMessageRenderer T.Text
+renderRFC5424NoLocation  = renderRFC5424Header <> const " " <> renderLogMessageBodyNoLocation
+
+-- | Render the header and strucuted data of  a 'LogMessage' according to the rules in the RFC-5424, but do not
+-- render the 'lmMessage'.
+--
+-- @since 0.22.0
+renderRFC5424Header :: LogMessageRenderer T.Text
+renderRFC5424Header l@(MkLogMessage _ _ ts hn an pid mi sd _ _ _) =
   T.unwords
     . filter (not . T.null)
     $ [ renderSyslogSeverityAndFacility l <> "1" -- PRI VERSION
