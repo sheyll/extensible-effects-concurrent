@@ -14,6 +14,7 @@ module Control.Eff.Concurrent.Process.Timer
   , selectTimerElapsed
   , receiveAfter
   , receiveSelectedAfter
+  , receiveSelectedWithMonitorAfter
   )
    -- , receiveSelectedAfter, receiveAnyAfter, sendMessageAfter)
 where
@@ -68,6 +69,32 @@ receiveSelectedAfter sel t = do
   timerRef <- startTimer t
   res      <- receiveSelectedMessage
     (Left <$> selectTimerElapsed timerRef <|> Right <$> sel)
+  cancelTimer timerRef
+  return res
+
+-- | Like 'receiveWithMonitor' combined with 'receiveSelectedAfter'.
+--
+-- @since 0.22.0
+receiveSelectedWithMonitorAfter
+  :: forall a r q
+   . ( Lifted IO q
+     , HasCallStack
+     , SetMember Process (Process q) r
+     , Member Interrupts r
+     , Show a
+     )
+  => ProcessId
+  -> MessageSelector a
+  -> Timeout
+  -> Eff r (Either (Either ProcessDown TimerElapsed) a)
+receiveSelectedWithMonitorAfter pid sel t = do
+  timerRef <- startTimer t
+  res      <- withMonitor pid $ \pidMon -> do
+                receiveSelectedMessage
+                  (   Left . Left  <$> selectProcessDown pidMon
+                  <|> Left . Right <$> selectTimerElapsed timerRef
+                  <|> Right        <$> sel
+                  )
   cancelTimer timerRef
   return res
 

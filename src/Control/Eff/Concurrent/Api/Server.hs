@@ -41,7 +41,7 @@ import           Control.Applicative
 import           Control.Eff
 import           Control.Eff.Extend
 import           Control.Eff.Log
-import           Control.Eff.State.Lazy
+import           Control.Eff.State.Strict
 import           Control.Eff.Concurrent.Api
 import           Control.Eff.Concurrent.Api.Request
 import           Control.Eff.Concurrent.Process
@@ -86,7 +86,7 @@ spawnLinkApiServer scb (InterruptCallback icb) = toServerPids (Proxy @api)
 -- @since 0.13.2
 spawnApiServerStateful
   :: forall api eff state
-   . (HasCallStack, ToServerPids api)
+   . (HasCallStack, ToServerPids api, NFData state)
   => Eff (InterruptableProcess eff) state
   -> MessageCallback api (State state ': InterruptableProcess eff)
   -> InterruptCallback (State state ': ConsProcess eff)
@@ -97,12 +97,15 @@ spawnApiServerStateful initEffect (MessageCallback sel cb) (InterruptCallback in
     evalState state $ receiveSelectedLoop sel $ \msg -> case msg of
       Left  m -> invokeIntCb m
       Right m -> do
-        s <- get
-        r <- raise (provideInterrupts (evalState s (cb m)))
+        r <- do s <- force <$> get
+                raise (provideInterrupts (runState s (cb m)))
         case r of
-          Left  i              -> invokeIntCb i
-          Right (StopServer i) -> invokeIntCb i
-          Right AwaitNext      -> return Nothing
+          Left  i                  -> invokeIntCb i
+          Right (x , s')           -> do
+            put (force s')
+            case x of
+              (StopServer i) -> invokeIntCb i
+              AwaitNext      -> return Nothing
  where
   invokeIntCb j = do
     l <- intCb j
@@ -330,7 +333,7 @@ handleCastsAndCalls
      )
   => (Api api 'Asynchronous -> Eff eff CallbackResult)
   -> (  forall secret reply
-      . (Typeable reply, Typeable (Api api ( 'Synchronous reply)))
+      . (Typeable reply, Typeable (Api api ( 'Synchronous reply)), NFData reply)
      => Api api ( 'Synchronous reply)
      -> (Eff eff (Maybe reply, CallbackResult) -> secret)
      -> secret
@@ -350,7 +353,7 @@ handleCallsDeferred
      , Member Interrupts eff
      )
   => (  forall reply
-      . (Typeable reply, Typeable (Api api ( 'Synchronous reply)))
+      . (Typeable reply, NFData reply, Typeable (Api api ( 'Synchronous reply)))
      => RequestOrigin (Api api ( 'Synchronous reply))
      -> Api api ( 'Synchronous reply)
      -> Eff eff CallbackResult

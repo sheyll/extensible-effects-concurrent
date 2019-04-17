@@ -159,6 +159,7 @@ import           Control.Eff.Concurrent.Process.Timer
                                                 , cancelTimer
                                                 , receiveAfter
                                                 , receiveSelectedAfter
+                                                , receiveSelectedWithMonitorAfter
                                                 )
 
 import           Control.Eff.Concurrent.Api     ( Api
@@ -171,6 +172,7 @@ import           Control.Eff.Concurrent.Api     ( Api
 import           Control.Eff.Concurrent.Api.Client
                                                 ( cast
                                                 , call
+                                                , callWithTimeout
                                                 , castRegistered
                                                 , callRegistered
                                                 , ServesApi

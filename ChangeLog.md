@@ -35,7 +35,7 @@
 
 - Change the `Server` API for better system *vitality*:
 
-    - Every `call` **must** have a `Timeout` parameter
+- Add `callWithTimeout`: A `call` over `IO` with a `Timeout` parameter
     
           
 ## 0.21.2

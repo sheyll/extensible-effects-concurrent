@@ -260,10 +260,11 @@ test-suite extensible-effects-concurrent-test
               , ForkIOScheduler
               , Interactive
               , LoggingTests
+              , LogMessageIdeaTest
               , LoopTests
               , ProcessBehaviourTestCases
+              , ServerForkIO
               , SingleThreadedScheduler
-              , LogMessageIdeaTest
   ghc-options: -Wall -threaded -fno-full-laziness
   build-depends:
                 async
@@ -275,6 +276,7 @@ test-suite extensible-effects-concurrent-test
               , tasty
               , tasty-discover
               , tasty-hunit
+              , text
               , containers
               , QuickCheck
               , lens

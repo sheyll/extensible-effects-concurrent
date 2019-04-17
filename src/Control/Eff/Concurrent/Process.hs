@@ -420,6 +420,7 @@ toExitRecovery :: ExitReason r -> ExitRecovery
 toExitRecovery = \case
   ProcessFinished           -> Recoverable
   (ProcessNotRunning    _)  -> Recoverable
+  (ProcessTimeout       _)  -> Recoverable
   (LinkedProcessCrashed _)  -> Recoverable
   (ProcessError         _)  -> Recoverable
   ExitNormally              -> NoRecovery
@@ -460,42 +461,46 @@ data ExitReason (t :: ExitRecovery) where
     --
     -- @since 0.13.2
     ProcessFinished
-      ::ExitReason 'Recoverable
+      :: ExitReason 'Recoverable
     -- | A process that should be running was not running.
     ProcessNotRunning
-      ::ProcessId -> ExitReason 'Recoverable
+      :: ProcessId -> ExitReason 'Recoverable
+    -- | A 'Recoverable' timeout has occured.
+    ProcessTimeout
+      :: String -> ExitReason 'Recoverable
     -- | A linked process is down
     LinkedProcessCrashed
-      ::ProcessId -> ExitReason 'Recoverable
-    -- | An exit reason that has an error message but isn't 'Recoverable'.
+      :: ProcessId -> ExitReason 'Recoverable
+    -- | An exit reason that has an error message and is 'Recoverable'.
     ProcessError
-      ::String -> ExitReason 'Recoverable
+      :: String -> ExitReason 'Recoverable
     -- | A process function returned or exited without any error.
     ExitNormally
-      ::ExitReason 'NoRecovery
+      :: ExitReason 'NoRecovery
     -- | An unhandled 'Recoverable' allows 'NoRecovery'.
     NotRecovered
-      ::(ExitReason 'Recoverable) -> ExitReason 'NoRecovery
+      :: (ExitReason 'Recoverable) -> ExitReason 'NoRecovery
     -- | An unexpected runtime exception was thrown, i.e. an exception
     --    derived from 'Control.Exception.Safe.SomeException'
     UnexpectedException
-      ::String -> String -> ExitReason 'NoRecovery
+      :: String -> String -> ExitReason 'NoRecovery
     -- | A process was cancelled (e.g. killed, in 'Async.cancel')
     Killed
-      ::ExitReason 'NoRecovery
+      :: ExitReason 'NoRecovery
   deriving Typeable
 
 instance Show (ExitReason x) where
   showsPrec d =
     showParen (d >= 10)
       . (\case
-          ProcessFinished     -> showString "process finished"
-          ProcessNotRunning p -> showString "process not running: " . shows p
+          ProcessFinished        -> showString "process finished"
+          ProcessNotRunning p    -> showString "process not running: " . shows p
+          ProcessTimeout reason -> showString "timeout: " . showString reason
           LinkedProcessCrashed m ->
             showString "linked process " . shows m . showString " crashed"
-          ProcessError reason -> showString "error: " . showString reason
-          ExitNormally        -> showString "exit normally"
-          NotRecovered e      -> showString "not recovered from: " . shows e
+          ProcessError reason   -> showString "error: " . showString reason
+          ExitNormally          -> showString "exit normally"
+          NotRecovered e        -> showString "not recovered from: " . shows e
           UnexpectedException w m ->
             showString "unhandled runtime exception: "
               . showString m
@@ -510,6 +515,7 @@ instance Exc.Exception (ExitReason 'NoRecovery )
 instance NFData (ExitReason x) where
   rnf ProcessFinished               = rnf ()
   rnf (ProcessNotRunning    !l)     = rnf l
+  rnf (ProcessTimeout       !l)     = rnf l
   rnf (LinkedProcessCrashed !l)     = rnf l
   rnf (ProcessError         !l)     = rnf l
   rnf ExitNormally                  = rnf ()
@@ -524,6 +530,9 @@ instance Ord (ExitReason x) where
   compare (ProcessNotRunning l)    (ProcessNotRunning r)    = compare l r
   compare (ProcessNotRunning _)    _                        = LT
   compare _                        (ProcessNotRunning    _) = GT
+  compare (ProcessTimeout l)       (ProcessTimeout r)       = compare l r
+  compare (ProcessTimeout _) _                              = LT
+  compare _                        (ProcessTimeout _)       = GT
   compare (LinkedProcessCrashed l) (LinkedProcessCrashed r) = compare l r
   compare (LinkedProcessCrashed _) _                        = LT
   compare _                        (LinkedProcessCrashed _) = GT
@@ -544,6 +553,7 @@ instance Eq (ExitReason x) where
   (==) ProcessFinished          ProcessFinished          = True
   (==) (ProcessNotRunning l)    (ProcessNotRunning r)    = (==) l r
   (==) ExitNormally             ExitNormally             = True
+  (==) (ProcessTimeout l)       (ProcessTimeout r)       = l == r
   (==) (LinkedProcessCrashed l) (LinkedProcessCrashed r) = l == r
   (==) (ProcessError         l) (ProcessError         r) = (==) l r
   (==) (NotRecovered         l) (NotRecovered         r) = (==) l r
@@ -557,6 +567,7 @@ isBecauseDown :: Maybe ProcessId -> ExitReason r -> Bool
 isBecauseDown mp = \case
   ProcessFinished         -> False
   ProcessNotRunning    _  -> False
+  ProcessTimeout       _  -> False
   LinkedProcessCrashed p  -> maybe True (== p) mp
   ProcessError         _  -> False
   ExitNormally            -> False
