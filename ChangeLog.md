@@ -1,6 +1,6 @@
 # Changelog for extensible-effects-concurrent
 
-## Plan for future 0.23.0
+## Plan for future 0.24.0
 
 - Add `gen_server` behaviour clone:    
     - Disallow non-`Api`-messages
@@ -18,6 +18,13 @@
     - Introduce `ToLogText`
     - Remove `ToLogMessage`
     - Remove `logXXX'` users have to use `logXXX` and `ToLogText` 
+
+## 0.23.0
+
+- Include the process id in the console and trace log renderer
+- Add a process supervisor similar to Erlang/OTPs simple_one_for_one supervisor.
+- Fix `SingleThreadedScheduler` process linking bug: A process shall not be interrupted
+  when a linked process exits normally. 
 
 ## 0.22.1
 

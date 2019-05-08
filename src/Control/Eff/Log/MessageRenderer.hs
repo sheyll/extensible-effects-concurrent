@@ -118,14 +118,13 @@ renderShowMaybeLogMessageLens x l =
 renderLogMessageSrcLoc :: LogMessageRenderer (Maybe T.Text)
 renderLogMessageSrcLoc = view
   ( lmSrcLoc
-  . (to
+  . to
       (fmap
         (\sl -> T.pack $ printf "at %s:%i"
                                 (takeFileName (srcLocFile sl))
                                 (srcLocStartLine sl)
         )
       )
-    )
   )
 
 
@@ -156,10 +155,11 @@ renderLogMessageSyslog l@(MkLogMessage _ _ _ _ an _ mi _ _ _ _)
 
 -- | Render a 'LogMessage' human readable, for console logging
 renderLogMessageConsoleLog :: LogMessageRenderer T.Text
-renderLogMessageConsoleLog l@(MkLogMessage _ _ ts _ _ _ _ sd _ _ _) =
+renderLogMessageConsoleLog l@(MkLogMessage _ _ ts _ _ pd _ sd _ _ _) =
   T.unwords $ filter
     (not . T.null)
     [ view (lmSeverity . to (T.pack . show)) l
+    , fromMaybe " no proc " pd
     , maybe "" (renderLogMessageTime rfc5424Timestamp) ts
     , renderLogMessageBodyFixWidth l
     , if null sd then "" else T.concat (renderSdElement <$> sd)

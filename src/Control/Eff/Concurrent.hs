@@ -187,31 +187,6 @@ import           Control.Eff.Concurrent.Api.Request
                                                 , RequestOrigin(..)
                                                 , sendReply
                                                 )
-import           Control.Eff.Concurrent.Api.Server
-                                                ( spawnApiServer
-                                                , spawnLinkApiServer
-                                                , spawnApiServerStateful
-                                                , spawnApiServerEffectful
-                                                , spawnLinkApiServerEffectful
-                                                , CallbackResult(..)
-                                                , MessageCallback(..)
-                                                , handleCasts
-                                                , handleCalls
-                                                , handleCastsAndCalls
-                                                , handleCallsDeferred
-                                                , handleMessages
-                                                , handleSelectedMessages
-                                                , handleAnyMessages
-                                                , handleProcessDowns
-                                                , dropUnhandledMessages
-                                                , exitOnUnhandled
-                                                , logUnhandledMessages
-                                                , (^:)
-                                                , fallbackHandler
-                                                , ToServerPids(..)
-                                                , InterruptCallback(..)
-                                                , stopServerOnInterrupt
-                                                )
 import           Control.Eff.Concurrent.Api.Observer
                                                 ( Observer(..)
                                                 , Api
@@ -239,6 +214,33 @@ import           Control.Eff.Concurrent.Api.Observer.Queue
                                                 , withObservationQueue
                                                 , spawnLinkObservationQueueWriter
                                                 )
+import           Control.Eff.Concurrent.Api.Server
+                                                ( spawnApiServer
+                                                , spawnLinkApiServer
+                                                , spawnApiServerStateful
+                                                , spawnApiServerEffectful
+                                                , spawnLinkApiServerEffectful
+                                                , CallbackResult(..)
+                                                , MessageCallback(..)
+                                                , handleCasts
+                                                , handleCalls
+                                                , handleCastsAndCalls
+                                                , handleCallsDeferred
+                                                , handleMessages
+                                                , handleSelectedMessages
+                                                , handleAnyMessages
+                                                , handleProcessDowns
+                                                , dropUnhandledMessages
+                                                , exitOnUnhandled
+                                                , logUnhandledMessages
+                                                , (^:)
+                                                , fallbackHandler
+                                                , ToServerPids(..)
+                                                , InterruptCallback(..)
+                                                , stopServerOnInterrupt
+                                                )
+import           Control.Eff.Concurrent.Api.Supervisor
+                                                ( )
 import           Control.Eff.Concurrent.Process.ForkIOScheduler
                                                 ( schedule
                                                 , defaultMain

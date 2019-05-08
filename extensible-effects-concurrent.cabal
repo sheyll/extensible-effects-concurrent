@@ -1,6 +1,6 @@
 cabal-version:  2.0
 name:           extensible-effects-concurrent
-version:        0.22.1
+version:        0.23.0
 description:    Please see the README on GitHub at <https://github.com/sheyll/extensible-effects-concurrent#readme>
 synopsis:       Message passing concurrency as extensible-effect
 homepage:       https://github.com/sheyll/extensible-effects-concurrent#readme
@@ -82,8 +82,9 @@ library
                   Control.Eff.Concurrent,
                   Control.Eff.Concurrent.Api,
                   Control.Eff.Concurrent.Api.Client,
-                  Control.Eff.Concurrent.Api.Server,
                   Control.Eff.Concurrent.Api.GenServer,
+                  Control.Eff.Concurrent.Api.Server,
+                  Control.Eff.Concurrent.Api.Supervisor,
                   Control.Eff.Concurrent.Process,
                   Control.Eff.Concurrent.Process.Timer,
                   Control.Eff.Concurrent.Process.ForkIOScheduler,
@@ -263,6 +264,7 @@ test-suite extensible-effects-concurrent-test
               , LogMessageIdeaTest
               , LoopTests
               , ProcessBehaviourTestCases
+              , SupervisorTests
               , ServerForkIO
               , SingleThreadedScheduler
   ghc-options: -Wall -threaded -fno-full-laziness

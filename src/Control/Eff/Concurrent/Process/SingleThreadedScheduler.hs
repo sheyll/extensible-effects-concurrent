@@ -375,12 +375,11 @@ handleProcess sts allProcs@((!processState, !pid) :<| rest) =
                   where
                     sendInterruptOrNot ps' dPid =
                       case res of
-                        Right _ ->
-                          return ps'
-                        Left ExitNormally ->
-                          return ps'
-                        Left _ ->
-                          sendInterruptToOtherPid dPid reason ps'
+                        Right _ -> return ps'
+                        Left er ->
+                          case toExitSeverity er of
+                            NormalExit -> return ps'
+                            Crash      -> sendInterruptToOtherPid dPid reason ps'
 
             let allButMe = Seq.filter (\(_, p) -> p /= pid) rest
             nextTargets <- unlinkLoop linkedPids allButMe

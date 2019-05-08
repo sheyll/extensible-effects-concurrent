@@ -1,6 +1,6 @@
 -- | A better, more safe implementation of the Erlang/OTP gen_server behaviour.
 -- **PLANNED TODO**
--- @since 0.23.0
+-- @since 0.24.0
 module Control.Eff.Concurrent.Api.GenServer
 
    where

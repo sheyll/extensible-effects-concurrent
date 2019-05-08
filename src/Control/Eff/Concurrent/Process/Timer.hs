@@ -5,7 +5,7 @@
 --
 -- @since 0.12.0
 module Control.Eff.Concurrent.Process.Timer
-  ( Timeout(fromTimeoutMicros)
+  ( Timeout(TimeoutMicros, fromTimeoutMicros)
   , TimerReference()
   , TimerElapsed(fromTimerElapsed)
   , sendAfter
