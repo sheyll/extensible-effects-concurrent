@@ -371,9 +371,19 @@ handleProcess sts allProcs@((!processState, !pid) :<| rest) =
             let (downPids, stsNew) = removeLinksTo pid sts
                 linkedPids = filter (/= pid) downPids
                 reason = LinkedProcessCrashed pid
-                unlinkLoop dPidRest ps = foldM (\ps' dPid -> sendInterruptToOtherPid dPid reason ps') ps dPidRest
-            let allProcsWithoutPid = Seq.filter (\(_, p) -> p /= pid) rest
-            nextTargets <- unlinkLoop linkedPids allProcsWithoutPid
+                unlinkLoop dPidRest ps = foldM sendInterruptOrNot ps dPidRest
+                  where
+                    sendInterruptOrNot ps' dPid =
+                      case res of
+                        Right _ ->
+                          return ps'
+                        Left ExitNormally ->
+                          return ps'
+                        Left _ ->
+                          sendInterruptToOtherPid dPid reason ps'
+
+            let allButMe = Seq.filter (\(_, p) -> p /= pid) rest
+            nextTargets <- unlinkLoop linkedPids allButMe
             handleProcess
               (dropMsgQ
                  pid

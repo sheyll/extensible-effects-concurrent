@@ -792,6 +792,30 @@ linkingTests schedulerFactory = setTravisTestOptions
         x <- spawnLink foo
         sendShutdown x Killed
         void (receiveMessage @Void)
+    , testCase "spawnLink and child exits by returning from spawn" $ applySchedulerFactory schedulerFactory $ do
+        me <- self
+        u <- spawn $ do
+          logCritical "unlinked child started"
+          l <- spawnLink $ do
+            logCritical "linked child started"
+            () <- receiveMessage
+            logCritical "linked child done"
+          sendMessage me l
+          x <- receiveAnyMessage
+          logCritical' ("got: " <> show x)
+        l <- receiveMessage
+        _ <- monitor l
+        sendMessage l ()
+        pL@(ProcessDown _ _) <- receiveMessage
+        logCritical' ("linked process down: " <> show pL)
+        _ <- monitor u
+        mpU <- receiveAfter (TimeoutMicros 1000)
+        case mpU of
+          Just (pU@(ProcessDown _ _)) ->
+            error ("unlinked process down: " <> show pU)
+          Nothing ->  logInfo "passed"
+
+
     , testCase "ignore normal exit"
     $ applySchedulerFactory schedulerFactory
     $ do

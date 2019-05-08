@@ -583,12 +583,6 @@ spawnNewProcess mLinkedParent mfa = do
   procAsync <- doForkProc procInfo schedulerState
   return (procInfo ^. processId, procAsync)
  where
-  linkToParent toProcInfo parent = do
-    let toPid     = toProcInfo ^. processId
-        parentPid = parent ^. processId
-    lift $ atomically $ do
-      modifyTVar' (toProcInfo ^. processLinks) (Set.insert parentPid)
-      modifyTVar' (parent ^. processLinks)     (Set.insert toPid)
   allocateProcInfo schedulerState = lift
     (atomically
       (do
@@ -601,6 +595,13 @@ spawnNewProcess mLinkedParent mfa = do
         return procInfo
       )
     )
+  linkToParent toProcInfo parent = do
+    let toPid     = toProcInfo ^. processId
+        parentPid = parent ^. processId
+    logDebug' ("linked to new child: " <> show toPid)
+    lift $ atomically $ do
+      modifyTVar' (toProcInfo ^. processLinks) (Set.insert parentPid)
+      modifyTVar' (parent ^. processLinks)     (Set.insert toPid)
   logAppendProcInfo pid =
     let addProcessId = over
           lmProcessId
@@ -630,12 +631,12 @@ spawnNewProcess mLinkedParent mfa = do
                         then do
                           writeTVar linkedLinkSetVar
                                     (Set.delete pid linkedLinkSet)
-                          when
-                            (exitSeverity == Crash)
-                            (modifyTVar' linkedMsgQVar
+                          if exitSeverity == Crash then do
+                             modifyTVar' linkedMsgQVar
                                          (shutdownRequests ?~ msg)
-                            )
-                          return (Right linkedPid)
+                             return (Right (Left linkedPid))
+                          else
+                             return (Right (Right linkedPid))
                         else return (Left linkedPid)
     linkedPids <- lift
       (atomically
@@ -649,7 +650,10 @@ spawnNewProcess mLinkedParent mfa = do
     traverse_
       (logDebug . either
         (("linked process no found: " <>) . T.pack . show)
-        (("sent shutdown to linked process: " <>) . T.pack . show)
+        (either
+              (("linked process crashed, interrupting linked process: " <>) . T.pack . show)
+              (("linked process exited peacefully, not sending shutdown to linked process: " <>) . T.pack . show)
+        )
       )
       res
   doForkProc
