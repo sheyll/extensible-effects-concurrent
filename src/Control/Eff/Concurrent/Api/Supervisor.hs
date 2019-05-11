@@ -19,6 +19,7 @@ module Control.Eff.Concurrent.Api.Supervisor
   , SpawnErr
   , startLink
   , getDiagnosticInfo
+  , spawnChild
   ) where
 
 import Control.DeepSeq (NFData(rnf), NFData2)
@@ -26,7 +27,9 @@ import Control.Eff as Eff
 import Control.Eff.Concurrent.Api
 import Control.Eff.Concurrent.Api.Client
 import Control.Eff.Concurrent.Api.Server
+import Control.Eff.Concurrent.Api.Supervisor.InternalState
 import Control.Eff.Concurrent.Process
+import Control.Eff.Extend (raise)
 import Control.Eff.Log
 import Control.Eff.Reader.Strict as Eff
 import Control.Eff.State.Strict as Eff
@@ -114,7 +117,7 @@ instance (NFData i, NFData o) => NFData (SpawnErr i o)
 --
 -- @since 0.23.0
 startLink ::
-     forall i e o q0. (HasCallStack, Member Logs e, NFData i, NFData o, Typeable i, Typeable o, Show i, Show o)
+     forall i e o q0. (HasCallStack, Member Logs e, Ord i, NFData i, NFData o, Typeable i, Typeable o, Show i, Show o)
   => SpawnFun i (InterruptableProcess e) o
   -> Eff (InterruptableProcess e) (Server (Sup i o))
 startLink childSpawner = do
@@ -123,24 +126,31 @@ startLink childSpawner = do
   where
     initChildren :: Eff (InterruptableProcess e) (Children i o)
     initChildren = return def
-
     onRequest :: MessageCallback (Sup i o) (State (Children i o) ': InterruptableProcess e)
     onRequest = handleCalls onCall
       where
-        onCall :: Api (Sup i o) ('Synchronous reply) -> (Eff (State (Children i o) ': InterruptableProcess e) (Maybe reply, CallbackResult) -> st) -> st
+        onCall ::
+             Api (Sup i o) ('Synchronous reply)
+          -> (Eff (State (Children i o) ': InterruptableProcess e) (Maybe reply, CallbackResult) -> st)
+          -> st
         onCall GetDiagnosticInfo k = k ((, AwaitNext) . Just . pack . show <$> getChildren)
-
+        onCall (LookupC i) k = k ((, AwaitNext) . Just <$> lookupChildById i)
+        onCall (StartC i) k =
+          k $ do
+            (o, cPid) <- raise (childSpawner i)
+            putChild i o
+            return (Just (Right o), AwaitNext)
     onMessage :: MessageCallback '[] (State (Children i o) ': InterruptableProcess e)
     onMessage = handleAnyMessages onInfo
       where
         onInfo d = do
           logInfo (pack (show d))
           return AwaitNext
-
     onInterrupt :: InterruptCallback (State (Children i o) ': ConsProcess e)
-    onInterrupt = InterruptCallback $ \e -> do
-      logWarning ("supervisor interrupted: " <> pack (show e))
-      pure (StopServer (ProcessError ("supervisor interrupted: " <> show e)))
+    onInterrupt =
+      InterruptCallback $ \e -> do
+        logWarning ("supervisor interrupted: " <> pack (show e))
+        pure (StopServer (ProcessError ("supervisor interrupted: " <> show e)))
 
 -- | Start, link and monitor a new child process using the 'SpawnFun' passed
 -- to 'startLink'.
@@ -191,7 +201,7 @@ lookupChild svr cId = call svr (LookupC cId)
 --
 -- @since 0.23.0
 withChild ::
-     forall i e o q0 a .
+     forall i e o q0 a.
      ( HasCallStack
      , Member Interrupts e
      , Member Logs e
@@ -233,19 +243,3 @@ getDiagnosticInfo ::
   => Server (Sup i o)
   -> Eff e Text
 getDiagnosticInfo supervisor = call supervisor GetDiagnosticInfo
-
--- | Internal state.
-data Children i o = MkChildren
-  { _childrenIdToOutput :: Map i (o, ProcessId)
-  , _childrenPidToId :: Map ProcessId i
-  , _childrenMonitorRefs :: Map MonitorReference (i, (o, ProcessId))
-  } deriving (Show, Generic)
-
-instance Default (Children i o) where
-  def = MkChildren def def def
-
-instance (NFData i, NFData o) => NFData (Children i o)
-
--- | Internal helper
-getChildren :: Eff (State (Children i o) ': e) (Children i o)
-getChildren = Eff.get

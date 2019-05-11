@@ -275,7 +275,7 @@ handleProcess
   -> Eff ProcEff (ExitReason 'NoRecovery)
   -> Eff SchedulerIO (ExitReason 'NoRecovery)
 handleProcess myProcessInfo actionToRun = fix
-  (handle_relay' singleStep (const . const (return ExitNormally)))
+  (handle_relay' singleStep (\er _nextRef -> return er))
   actionToRun
   0
  where
@@ -336,13 +336,11 @@ handleProcess myProcessInfo actionToRun = fix
     tryTakeNextShutdownRequest =
       lift (atomically (tryTakeNextShutdownRequestSTM myMessageQVar))
     onShutdownRequested shutdownRequest = do
-      logDebug ("shutdown requested: " <> T.pack (show shutdownRequest))
       setMyProcessState ProcessShuttingDown
       interpretRequestAfterShutdownRequest (diskontinueWith diskontinue)
                                            shutdownRequest
                                            request
     onInterruptRequested interruptRequest = do
-      logDebug ("interrupt requested: " <> T.pack (show interruptRequest))
       setMyProcessState ProcessShuttingDown
       interpretRequestAfterInterruptRequest (kontinueWith kontinue nextRef)
                                             (diskontinueWith diskontinue)
@@ -441,8 +439,9 @@ handleProcess myProcessInfo actionToRun = fix
         >>= kontinue nextRef
         .   ResumeWith
         .   fst
-    ReceiveSelectedMessage f ->
-      interpretReceive f >>= either diskontinue (kontinue nextRef)
+    ReceiveSelectedMessage f -> do
+      recvRes <- interpretReceive f
+      either diskontinue (kontinue nextRef) recvRes
     FlushMessages -> interpretFlush >>= kontinue nextRef
     SelfPid       -> kontinue nextRef (ResumeWith myPid)
     MakeReference -> kontinue (nextRef + 1) (ResumeWith nextRef)
@@ -505,7 +504,7 @@ handleProcess myProcessInfo actionToRun = fix
         >>= lift
         .   atomically
         .   enqueueMessageOtherProcess toPid msg
-    interpretSendShutdownOrInterrupt !toPid !msg =
+    interpretSendShutdownOrInterrupt !toPid !msg = do
       setMyProcessState
           (either (const ProcessBusySendingShutdown)
                   (const ProcessBusySendingInterrupt)

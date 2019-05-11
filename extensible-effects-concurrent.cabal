@@ -94,6 +94,7 @@ library
                   Control.Eff.Concurrent.Api.Observer.Queue
   other-modules:
                 Control.Eff.Concurrent.Api.Request,
+                Control.Eff.Concurrent.Api.Supervisor.InternalState,
                 Paths_extensible_effects_concurrent
   default-extensions:
                      AllowAmbiguousTypes,
