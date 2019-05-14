@@ -25,37 +25,37 @@ test_Supervisor =
         outerSelf <- self
         testWorker <-
           spawn $ do
-            sup <- Sup.startLink spawnTestApiProcess
+            sup <- Sup.startSupervisor spawnTestApiProcess
             logInfo ("started: " <> pack (show sup))
-            sendMessage outerSelf (_fromServer sup)
+            sendMessage outerSelf sup
             () <- receiveMessage
             diag <- Sup.getDiagnosticInfo sup
             sendMessage outerSelf diag
             () <- receiveMessage
-            sendInterrupt (_fromServer sup) NormalExitRequested
+            Sup.stopSupervisor sup
         unlinkProcess testWorker
-        sup <- receiveMessage
-        supAliveAfterStart <- isProcessAlive sup
+        sup <- receiveMessage :: Eff InterruptableProcEff (Sup.Sup Int (Server TestApi))
+        supAliveAfterStart <- isSupervisorAlive sup
         logInfo ("still alive after start: " <> pack (show supAliveAfterStart))
         lift (supAliveAfterStart @=? True)
         sendMessage testWorker ()
         diag <- receiveMessage
         logInfo ("got diagnostics: " <> diag)
-        supAliveAfterDiag <- isProcessAlive sup
+        supAliveAfterDiag <- isSupervisorAlive sup
         logInfo ("still alive after diag: " <> pack (show supAliveAfterDiag))
         lift (supAliveAfterDiag @=? True)
         sendMessage testWorker ()
         _ <- monitor testWorker
         d1@(ProcessDown _ _) <- receiveMessage
         logInfo ("got test worker down: " <> pack (show d1))
-        _ <- monitor sup
+        _ <- monitorSupervisor sup
         d2@(ProcessDown _ _) <- receiveMessage
         logInfo ("got supervisor down: " <> pack (show d2))
-        supAliveAfterOwnerExited <- isProcessAlive sup
+        supAliveAfterOwnerExited <- isSupervisorAlive sup
         logInfo ("still alive after owner exited: " <> pack (show supAliveAfterOwnerExited))
         lift (supAliveAfterOwnerExited @=? False)
     , runTestCase "When a supervisor starts a child and is shut down, the child then exits, too" $ do
-        sup <- Sup.startLink spawnTestApiProcess
+        sup <- Sup.startSupervisor spawnTestApiProcess
         logInfo ("started: " <> pack (show sup))
         diag1 <- Sup.getDiagnosticInfo sup
         logInfo ("got diagnostics: " <> diag1)
@@ -64,17 +64,13 @@ test_Supervisor =
         diag2 <- Sup.getDiagnosticInfo sup
         logInfo ("got diagnostics: " <> diag2)
         lift $ assertBool ("diagnostics should differ: " ++ show (diag1, diag2)) (diag1 /= diag2)
-        let supPid = _fromServer sup
-            childPid = _fromServer child
-        supMon <- monitor supPid
+        let childPid = _fromServer child
+        supMon <- monitorSupervisor sup
         childMon <- monitor childPid
         isProcessAlive childPid >>= lift . assertBool "child process not running"
-        isProcessAlive supPid >>= lift . assertBool "supervisor process not running"
+        isSupervisorAlive sup >>= lift . assertBool "supervisor process not running"
         call child (TestGetStringLength "123") >>= lift . assertEqual "child not working" 3
-        sendShutdown supPid ExitNormally
-         -- TODO discuss: Add stopSupervisor API, hide the supervisor pid in a newtype?
-         -- TODO discuss: Let the linked processes die even when the exit is "ExitNormally"?
-         -- TODO discuss: Add another process to monitor the supervisor process, to kill the children when the supervisor dies?
+        stopSupervisor sup
         d1@(ProcessDown mon1 er1) <- fromMaybe (error "receive timeout 1") <$> receiveAfter (TimeoutMicros 1000000)
         logInfo ("got process down: " <> pack (show d1))
         d2@(ProcessDown mon2 er2) <- fromMaybe (error "receive timeout 2") <$> receiveAfter (TimeoutMicros 1000000)
@@ -92,7 +88,7 @@ test_Supervisor =
                               show childMon) of
           Right (supER, childER) -> do
             lift (assertEqual "bad supervisor exit reason" supER (SomeExitReason ExitNormally))
-            lift (assertEqual "bad child exit reason" childER (SomeExitReason (LinkedProcessCrashed supPid)))
+            lift (assertEqual "bad child exit reason" childER (SomeExitReason ExitNormally))
           Left x -> lift (assertFailure x)
     ]
 

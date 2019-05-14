@@ -1,30 +1,34 @@
 module Control.Eff.Concurrent.Api.Supervisor.InternalState where
 
-import Control.DeepSeq (NFData(rnf))
+import Control.DeepSeq
 import Control.Eff as Eff
-import Control.Eff.Concurrent.Api
-import Control.Eff.Concurrent.Api.Client
-import Control.Eff.Concurrent.Api.Server
 import Control.Eff.Concurrent.Process
-import Control.Eff.Log
-import Control.Eff.Reader.Strict as Eff
 import Control.Eff.State.Strict as Eff
 import Control.Lens hiding ((.=), use)
-import Control.Monad
 import Data.Default
 import Data.Dynamic
-import Data.Foldable
 import Data.Map (Map)
-import Data.Maybe
-import Data.Text (Text, pack)
 import GHC.Generics (Generic)
+
+
+data Child o = MkChild
+  { _childOutput :: o
+  , _childProcessId :: ProcessId
+  , _childMonitoring :: MonitorReference
+  }
+  deriving (Show, Generic, Typeable, Eq, Ord)
+
+instance (NFData o) => NFData (Child o)
+
+makeLenses ''Child
+
 
 -- | Internal state.
 data Children i o = MkChildren
-  { _childrenIdToOutput :: Map i o -- (o, ProcessId)
- -- , _childrenPidToId :: Map ProcessId i
- -- , _childrenMonitorRefs :: Map MonitorReference (i, (o, ProcessId))
-  } deriving (Show, Generic)
+  { _childrenById :: Map i (Child o)
+  -- , _childrenPidToId :: Map ProcessId i
+  -- , _childrenMonitorRefs :: Map MonitorReference (i, (o, ProcessId))
+  } deriving (Show, Generic, Typeable)
 
 instance Default (Children i o) where
   def = MkChildren def -- def def
@@ -40,15 +44,19 @@ getChildren = Eff.get
 putChild
   :: (Ord i, Member (State (Children i o)) e)
   => i
-  -> o
+  -> Child o
   -> Eff e ()
-putChild cId cOut = modify go
-  where
-    go = childrenIdToOutput . at cId .~ Just cOut -- (cOut, cPid)
-      --- . childrenPidToId    . at cPid
+putChild cId c = modify (childrenById . at cId .~ Just c)
 
 lookupChildById
   :: (Ord i, Member (State (Children i o)) e)
   => i
-  -> Eff e (Maybe o)
-lookupChildById i = view (childrenIdToOutput . at i) <$> get
+  -> Eff e (Maybe (Child o))
+lookupChildById i = view (childrenById . at i) <$> get
+
+lookupAndRemove
+  :: forall i o e. (Ord i, Member (State (Children i o)) e)
+  => i
+  -> Eff e (Maybe (Child o))
+lookupAndRemove i =
+  lookupChildById i <* modify @(Children i o) (childrenById . at i .~ Nothing)
