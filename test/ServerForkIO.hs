@@ -65,7 +65,7 @@ spawnRelay callTimeout target = spawnApiServer hm hi
     hm :: MessageCallback TestServer InterruptableProcEff
     hm = handleCastsAndCalls onCast onCall
       where
-        onCast :: Api TestServer 'Asynchronous -> Eff InterruptableProcEff CallbackResult
+        onCast :: Api TestServer 'Asynchronous -> Eff InterruptableProcEff (CallbackResult 'Recoverable)
         onCast (TestSetNextDelay x) = do
           logDebug "relaying delay"
           cast target (TestSetNextDelay x)
@@ -73,7 +73,7 @@ spawnRelay callTimeout target = spawnApiServer hm hi
 
         onCall :: (NFData l, Typeable l)
                => Api TestServer ('Synchronous l)
-               -> (Eff InterruptableProcEff (Maybe l, CallbackResult) -> k)
+               -> (Eff InterruptableProcEff (Maybe l, CallbackResult 'Recoverable) -> k)
                -> k
         onCall (TestGetStringLength s) runHandler = runHandler $ do
           logDebug "relaying get string length"
@@ -91,7 +91,7 @@ spawnBackend = spawnApiServerStateful (return (1000000 :: Timeout)) hm hi
     hm :: MessageCallback TestServer (State Timeout ': InterruptableProcEff)
     hm = handleCastsAndCalls onCast onCall
       where
-        onCast :: Api TestServer 'Asynchronous -> Eff (State Timeout ': InterruptableProcEff) CallbackResult
+        onCast :: Api TestServer 'Asynchronous -> Eff (State Timeout ': InterruptableProcEff) (CallbackResult 'Recoverable)
         onCast (TestSetNextDelay x) = do
           logDebug' ("setting delay: " ++ show x)
           put x
@@ -99,7 +99,7 @@ spawnBackend = spawnApiServerStateful (return (1000000 :: Timeout)) hm hi
 
         onCall :: (NFData l, Typeable l)
                => Api TestServer ('Synchronous l)
-               -> (Eff (State Timeout ': InterruptableProcEff) (Maybe l, CallbackResult) -> k)
+               -> (Eff (State Timeout ': InterruptableProcEff) (Maybe l, CallbackResult 'Recoverable) -> k)
                -> k
         onCall (TestGetStringLength s) runHandler = runHandler $ do
           logDebug' ("calculating string length: " ++ show s)

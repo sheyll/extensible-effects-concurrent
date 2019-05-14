@@ -9,10 +9,9 @@ import Control.Eff.Concurrent
 import Control.Eff.Concurrent.Api.Supervisor as Sup
 import Control.Eff.Concurrent.Process.ForkIOScheduler as Scheduler
 import Control.Eff.Concurrent.Process.Timer
-import Control.Monad
 import Data.Either (fromRight)
 import Data.Maybe (fromMaybe)
-import Data.Text (Text, pack)
+import Data.Text ( pack)
 import Data.Typeable (Typeable)
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -33,7 +32,7 @@ test_Supervisor =
             diag <- Sup.getDiagnosticInfo sup
             sendMessage outerSelf diag
             () <- receiveMessage
-            sendInterrupt (_fromServer sup) ExitNormally
+            sendInterrupt (_fromServer sup) NormalExitRequested
         unlinkProcess testWorker
         sup <- receiveMessage
         supAliveAfterStart <- isProcessAlive sup
@@ -76,10 +75,10 @@ test_Supervisor =
          -- TODO discuss: Add stopSupervisor API, hide the supervisor pid in a newtype?
          -- TODO discuss: Let the linked processes die even when the exit is "ExitNormally"?
          -- TODO discuss: Add another process to monitor the supervisor process, to kill the children when the supervisor dies?
-        d@(ProcessDown mon1 er1) <- fromMaybe (error "receive timeout 1") <$> receiveAfter (TimeoutMicros 1000000)
-        logInfo ("got process down: " <> pack (show d))
-        d@(ProcessDown mon2 er2) <- fromMaybe (error "receive timeout 2") <$> receiveAfter (TimeoutMicros 1000000)
-        logInfo ("got process down: " <> pack (show d))
+        d1@(ProcessDown mon1 er1) <- fromMaybe (error "receive timeout 1") <$> receiveAfter (TimeoutMicros 1000000)
+        logInfo ("got process down: " <> pack (show d1))
+        d2@(ProcessDown mon2 er2) <- fromMaybe (error "receive timeout 2") <$> receiveAfter (TimeoutMicros 1000000)
+        logInfo ("got process down: " <> pack (show d2))
         case if mon1 == supMon && mon2 == childMon
                then Right (er1, er2)
                else if mon1 == childMon && mon2 == supMon
@@ -108,12 +107,12 @@ spawnTestApiProcess :: Sup.SpawnFun Int InterruptableProcEff (Server TestApi)
 spawnTestApiProcess tId =
   spawnApiServer (handleCalls onCall ^: handleAnyMessages onInfo) (InterruptCallback onInterrupt)
   where
-    onCall :: Api TestApi ('Synchronous r) -> (Eff InterruptableProcEff (Maybe r, CallbackResult) -> x) -> x
+    onCall :: Api TestApi ('Synchronous r) -> (Eff InterruptableProcEff (Maybe r, CallbackResult 'Recoverable) -> x) -> x
     onCall (TestGetStringLength str) runMe =
       runMe $ do
         logInfo (pack (show tId) <> ": calculating length of: " <> pack str)
         pure (Just (length str), AwaitNext)
-    onInfo :: StrictDynamic -> Eff InterruptableProcEff CallbackResult
+    onInfo :: StrictDynamic -> Eff InterruptableProcEff (CallbackResult 'Recoverable)
     onInfo sd = do
       logDebug (pack (show tId) <> ": got some info: " <> pack (show sd))
       pure AwaitNext

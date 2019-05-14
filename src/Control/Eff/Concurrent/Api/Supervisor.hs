@@ -153,7 +153,7 @@ startLink childSpawner = do
                 NormalExitRequested ->
                   (debugSeverity, ExitNormally)
                 _ ->
-                  (warningSeverity, NotRecovered (ErrorInterrupt ("supervisor interrupted: " <> show e)))
+                  (warningSeverity, ExitUnhandledInterrupt (ErrorInterrupt ("supervisor interrupted: " <> show e)))
         logWithSeverity logSev ("supervisor stopping: " <> pack (show e))
         pure (StopServer exitReason)
 

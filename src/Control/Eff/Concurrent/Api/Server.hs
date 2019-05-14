@@ -47,7 +47,6 @@ import           Control.Eff.Concurrent.Api.Request
 import           Control.Eff.Concurrent.Process
 import           Control.DeepSeq
 import           Control.Monad                  ( (>=>) )
-import qualified Data.Bifunctor                 as Bifunctor
 import           Data.Default
 import           Data.Dynamic
 import           Data.Foldable
@@ -482,4 +481,4 @@ instance Default (InterruptCallback eff) where
 --
 -- @since 0.13.2
 stopServerOnInterrupt :: forall eff . HasCallStack => InterruptCallback eff
-stopServerOnInterrupt = InterruptCallback (pure . StopServer . NotRecovered)
+stopServerOnInterrupt = InterruptCallback (pure . StopServer . ExitUnhandledInterrupt)

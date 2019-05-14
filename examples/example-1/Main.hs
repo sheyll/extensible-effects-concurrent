@@ -118,4 +118,4 @@ testServerLoop = spawnApiServer
     me <- self
     logInfo (T.pack (show me ++ " is exiting: " ++ show msg))
     logProcessExit msg
-    pure (StopServer (NotRecovered msg))
+    pure (StopServer (ExitUnhandledInterrupt msg))

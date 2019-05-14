@@ -424,9 +424,9 @@ toExitRecovery = \case
   (LinkedProcessCrashed _)  -> Recoverable
   (ErrorInterrupt         _)  -> Recoverable
   ExitNormally              -> NoRecovery
-  (NotRecovered _         ) -> NoRecovery
-  (UnexpectedException _ _) -> NoRecovery
-  ImmediateExitRequested                    -> NoRecovery
+  (ExitUnhandledInterrupt _         ) -> NoRecovery
+  (ExitUnhandledException _ _) -> NoRecovery
+  ExitProcessCancelled                    -> NoRecovery
 
 -- | This value indicates whether a process exited in way consistent with
 -- the planned behaviour or not.
@@ -448,7 +448,7 @@ toExitSeverity :: Interrupt e -> ExitSeverity
 toExitSeverity = \case
   ExitNormally                     -> NormalExit
   NormalExitRequested              -> NormalExit
-  NotRecovered NormalExitRequested -> NormalExit
+  ExitUnhandledInterrupt NormalExitRequested -> NormalExit
   _                                -> Crash
 
 -- | A sum-type with reasons for why a process operation, such as receiving messages,
@@ -482,14 +482,14 @@ data Interrupt (t :: ExitRecovery) where
     ExitNormally
       :: Interrupt 'NoRecovery
     -- | An unhandled 'Recoverable' allows 'NoRecovery'.
-    NotRecovered
+    ExitUnhandledInterrupt
       :: Interrupt 'Recoverable -> Interrupt 'NoRecovery
     -- | An unexpected runtime exception was thrown, i.e. an exception
     --    derived from 'Control.Exception.Safe.SomeException'
-    UnexpectedException
+    ExitUnhandledException
       :: String -> String -> Interrupt 'NoRecovery
-    -- | A process was cancelled (e.g. killed, in 'Async.cancel')
-    ImmediateExitRequested
+    -- | A process shall exit immediately, without any cleanup was cancelled (e.g. killed, in 'Async.cancel')
+    ExitProcessCancelled
       :: Interrupt 'NoRecovery
   deriving Typeable
 
@@ -504,13 +504,13 @@ instance Show (Interrupt x) where
             showString "linked process " . shows m . showString " crashed"
           ErrorInterrupt reason   -> showString "error: " . showString reason
           ExitNormally          -> showString "exit normally"
-          NotRecovered e        -> showString "not recovered from: " . shows e
-          UnexpectedException w m ->
+          ExitUnhandledInterrupt e        -> showString "not recovered from: " . shows e
+          ExitUnhandledException w m ->
             showString "unhandled runtime exception: "
               . showString m
               . showString " caught here: "
               . showString w
-          ImmediateExitRequested -> showString "killed"
+          ExitProcessCancelled -> showString "killed"
         )
 
 instance Exc.Exception (Interrupt 'Recoverable)
@@ -523,9 +523,9 @@ instance NFData (Interrupt x) where
   rnf (LinkedProcessCrashed !l)     = rnf l
   rnf (ErrorInterrupt         !l)     = rnf l
   rnf ExitNormally                  = rnf ()
-  rnf (NotRecovered !l            ) = rnf l
-  rnf (UnexpectedException !l1 !l2) = rnf l1 `seq` rnf l2
-  rnf ImmediateExitRequested                        = rnf ()
+  rnf (ExitUnhandledInterrupt !l            ) = rnf l
+  rnf (ExitUnhandledException !l1 !l2) = rnf l1 `seq` rnf l2
+  rnf ExitProcessCancelled                        = rnf ()
 
 instance Ord (Interrupt x) where
   compare NormalExitRequested          NormalExitRequested          = EQ
@@ -544,14 +544,14 @@ instance Ord (Interrupt x) where
   compare ExitNormally             ExitNormally             = EQ
   compare ExitNormally             _                        = LT
   compare _                        ExitNormally             = GT
-  compare (NotRecovered l)         (NotRecovered r)         = compare l r
-  compare (NotRecovered _)         _                        = LT
-  compare _                        (NotRecovered _)         = GT
-  compare (UnexpectedException l1 l2) (UnexpectedException r1 r2) =
+  compare (ExitUnhandledInterrupt l)         (ExitUnhandledInterrupt r)         = compare l r
+  compare (ExitUnhandledInterrupt _)         _                        = LT
+  compare _                        (ExitUnhandledInterrupt _)         = GT
+  compare (ExitUnhandledException l1 l2) (ExitUnhandledException r1 r2) =
     compare l1 r1 <> compare l2 r2
-  compare (UnexpectedException _ _) _                         = LT
-  compare _                         (UnexpectedException _ _) = GT
-  compare ImmediateExitRequested                    ImmediateExitRequested                    = EQ
+  compare (ExitUnhandledException _ _) _                         = LT
+  compare _                         (ExitUnhandledException _ _) = GT
+  compare ExitProcessCancelled                    ExitProcessCancelled                    = EQ
 
 instance Eq (Interrupt x) where
   (==) NormalExitRequested          NormalExitRequested          = True
@@ -560,10 +560,10 @@ instance Eq (Interrupt x) where
   (==) (TimeoutInterrupt l)       (TimeoutInterrupt r)       = l == r
   (==) (LinkedProcessCrashed l) (LinkedProcessCrashed r) = l == r
   (==) (ErrorInterrupt         l) (ErrorInterrupt         r) = (==) l r
-  (==) (NotRecovered         l) (NotRecovered         r) = (==) l r
-  (==) (UnexpectedException l1 l2) (UnexpectedException r1 r2) =
+  (==) (ExitUnhandledInterrupt         l) (ExitUnhandledInterrupt         r) = (==) l r
+  (==) (ExitUnhandledException l1 l2) (ExitUnhandledException r1 r2) =
     (==) l1 r1 && (==) l2 r2
-  (==) ImmediateExitRequested ImmediateExitRequested = True
+  (==) ExitProcessCancelled ExitProcessCancelled = True
   (==) _      _      = False
 
 -- | A predicate for linked process __crashes__.
@@ -575,9 +575,9 @@ isProcessDownInterrupt mOtherProcess = \case
   LinkedProcessCrashed p  -> maybe True (== p) mOtherProcess
   ErrorInterrupt         _  -> False
   ExitNormally            -> False
-  NotRecovered e          -> isProcessDownInterrupt mOtherProcess e
-  UnexpectedException _ _ -> False
-  ImmediateExitRequested                  -> False
+  ExitUnhandledInterrupt e          -> isProcessDownInterrupt mOtherProcess e
+  ExitUnhandledException _ _ -> False
+  ExitProcessCancelled                  -> False
 
 -- | 'Interrupt's which are 'Recoverable'.
 type RecoverableInterrupt = Interrupt 'Recoverable
@@ -590,13 +590,13 @@ type Interrupts = Exc (Interrupt 'Recoverable)
 type InterruptableProcess e = Interrupts ': ConsProcess e
 
 -- | Handle all 'Interrupt's of an 'InterruptableProcess' by
--- wrapping them up in 'NotRecovered' and then do a process 'Shutdown'.
+-- wrapping them up in 'ExitUnhandledInterrupt' and then do a process 'Shutdown'.
 provideInterruptsShutdown
   :: forall e a . Eff (InterruptableProcess e) a -> Eff (ConsProcess e) a
 provideInterruptsShutdown e = do
   res <- provideInterrupts e
   case res of
-    Left  ex -> send (Shutdown @e (NotRecovered ex))
+    Left  ex -> send (Shutdown @e (ExitUnhandledInterrupt ex))
     Right a  -> return a
 
 -- | Handle 'Interrupt's arising during process operations, e.g.
@@ -635,7 +635,7 @@ exitOnInterrupt
   :: (HasCallStack, Member Interrupts r, SetMember Process (Process q) r)
   => Eff r a
   -> Eff r a
-exitOnInterrupt = handleInterrupts (exitBecause . NotRecovered)
+exitOnInterrupt = handleInterrupts (exitBecause . ExitUnhandledInterrupt)
 
 -- | Handle 'Interrupt's arising during process operations, e.g.
 -- when a linked process crashes while we wait in a 'receiveSelectedMessage'
@@ -645,11 +645,11 @@ provideInterrupts
 provideInterrupts = runError
 
 
--- | Wrap all (left) 'Interrupt's into 'NotRecovered' and
+-- | Wrap all (left) 'Interrupt's into 'ExitUnhandledInterrupt' and
 -- return the (right) 'NoRecovery' 'Interrupt's as is.
 mergeEitherInterruptAndExitReason
   :: Either (Interrupt 'Recoverable) (Interrupt 'NoRecovery) -> Interrupt 'NoRecovery
-mergeEitherInterruptAndExitReason = either NotRecovered id
+mergeEitherInterruptAndExitReason = either ExitUnhandledInterrupt id
 
 -- | Throw an 'Interrupt', can be handled by 'handleInterrupts' or
 --   'exitOnInterrupt' or 'provideInterrupts'.
@@ -659,7 +659,7 @@ interrupt = throwError
 -- | A predicate for crashes. A /crash/ happens when a process exits
 -- with an 'Interrupt' other than 'ExitNormally'
 isCrash :: Interrupt x -> Bool
-isCrash (NotRecovered !x) = isCrash x
+isCrash (ExitUnhandledInterrupt !x) = isCrash x
 isCrash ExitNormally      = False
 isCrash _                 = True
 
@@ -696,9 +696,9 @@ fromSomeExitReason (SomeExitReason e) = case e of
   recoverable@(LinkedProcessCrashed _) -> Right recoverable
   recoverable@(ErrorInterrupt         _) -> Right recoverable
   noRecovery@ExitNormally              -> Left noRecovery
-  noRecovery@(NotRecovered          _) -> Left noRecovery
-  noRecovery@(UnexpectedException _ _) -> Left noRecovery
-  noRecovery@ImmediateExitRequested                    -> Left noRecovery
+  noRecovery@(ExitUnhandledInterrupt          _) -> Left noRecovery
+  noRecovery@(ExitUnhandledException _ _) -> Left noRecovery
+  noRecovery@ExitProcessCancelled                    -> Left noRecovery
 
 -- | Print a 'Interrupt' to 'Just' a formatted 'String' when 'isCrash'
 -- is 'True'.
@@ -750,7 +750,7 @@ executeAndResumeOrExit processAction = do
   result <- send processAction
   case result of
     ResumeWith  !value -> return value
-    Interrupted r      -> send (Shutdown @q (NotRecovered r))
+    Interrupted r      -> send (Shutdown @q (ExitUnhandledInterrupt r))
 
 -- | Execute a 'Process' action and resume the process, exit
 -- the process when an 'Interrupts' was raised. Use 'executeAndResume' to catch
@@ -833,7 +833,7 @@ sendInterrupt pid s =
 -- | Start a new process, the new process will execute an effect, the function
 -- will return immediately with a 'ProcessId'. If the new process is
 -- interrupted, the process will 'Shutdown' with the 'Interrupt'
--- wrapped in 'NotRecovered'. For specific use cases it might be better to use
+-- wrapped in 'ExitUnhandledInterrupt'. For specific use cases it might be better to use
 -- 'spawnRaw'.
 spawn
   :: forall r q
@@ -1151,7 +1151,7 @@ exitWithError
    . (HasCallStack, SetMember Process (Process q) r)
   => String
   -> Eff r a
-exitWithError = exitBecause . NotRecovered . ErrorInterrupt
+exitWithError = exitBecause . ExitUnhandledInterrupt . ErrorInterrupt
 
 -- | Each process is identified by a single process id, that stays constant
 -- throughout the life cycle of a process. Also, message sending relies on these

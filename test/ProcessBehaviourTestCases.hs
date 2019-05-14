@@ -32,7 +32,7 @@ import           Control.Lens (view)
 import           Control.DeepSeq
 import GHC.Generics (Generic)
 
-testInterruptReason :: Interrupt
+testInterruptReason :: Interrupt 'Recoverable
 testInterruptReason = ErrorInterrupt "test interrupt"
 
 test_forkIo :: TestTree
@@ -747,7 +747,7 @@ linkingTests schedulerFactory = setTravisTestOptions
           (lift . (@?= LinkedProcessCrashed foo))
           (do
             linkProcess foo
-            sendShutdown foo ImmediateExitRequested
+            sendShutdown foo ExitProcessCancelled
             void (receiveMessage @Void)
           )
     , testCase "link multiple times"
@@ -764,7 +764,7 @@ linkingTests schedulerFactory = setTravisTestOptions
             linkProcess foo
             linkProcess foo
             linkProcess foo
-            sendShutdown foo ImmediateExitRequested
+            sendShutdown foo ExitProcessCancelled
             void (receiveMessage @Void)
           )
     , testCase "unlink multiple times"
@@ -783,14 +783,14 @@ linkingTests schedulerFactory = setTravisTestOptions
             unlinkProcess foo
             unlinkProcess foo
             withMonitor foo $ \ref -> do
-              sendShutdown foo ImmediateExitRequested
+              sendShutdown foo ExitProcessCancelled
               void (receiveSelectedMessage (selectProcessDown ref))
           )
     , testCase "spawnLink" $ applySchedulerFactory schedulerFactory $ do
       let foo = void (receiveMessage @Void)
       handleInterrupts (\er -> lift (isProcessDownInterrupt Nothing er @? show er)) $ do
         x <- spawnLink foo
-        sendShutdown x ImmediateExitRequested
+        sendShutdown x ExitProcessCancelled
         void (receiveMessage @Void)
     , testCase "spawnLink and child exits by returning from spawn" $ applySchedulerFactory schedulerFactory $ do
         me <- self
@@ -866,7 +866,7 @@ linkingTests schedulerFactory = setTravisTestOptions
             sendShutdown x ExitNormally
             void (receiveSelectedMessage (selectProcessDown xRef))
         handleInterrupts (lift . (LinkedProcessCrashed linker @=?)) $ do
-          sendShutdown linker ImmediateExitRequested
+          sendShutdown linker ExitProcessCancelled
           void (receiveMessage @Void)
     , testCase "unlink" $ applySchedulerFactory schedulerFactory $ do
       let
@@ -889,7 +889,7 @@ linkingTests schedulerFactory = setTravisTestOptions
             (const (return ()))
             (do
               linkProcess foo1Pid
-              sendShutdown foo1Pid ImmediateExitRequested
+              sendShutdown foo1Pid ExitProcessCancelled
               void (receiveMessage @Void)
             )
           handleInterrupts
@@ -963,9 +963,9 @@ monitoringTests schedulerFactory = setTravisTestOptions
     $ do
         target <- spawn (receiveMessage >>= exitBecause)
         ref    <- monitor target
-        sendMessage target ImmediateExitRequested
+        sendMessage target ExitProcessCancelled
         pd <- receiveSelectedMessage (selectProcessDown ref)
-        lift (downReason pd @?= SomeExitReason ImmediateExitRequested)
+        lift (downReason pd @?= SomeExitReason ExitProcessCancelled)
         lift (threadDelay 10000)
     , testCase "demonitored process killed"
     $ applySchedulerFactory schedulerFactory
@@ -973,7 +973,7 @@ monitoringTests schedulerFactory = setTravisTestOptions
         target <- spawn (receiveMessage >>= exitBecause)
         ref    <- monitor target
         demonitor ref
-        sendMessage target ImmediateExitRequested
+        sendMessage target ExitProcessCancelled
         me <- self
         spawn_ (lift (threadDelay 10000) >> sendMessage me ())
         pd <- receiveSelectedMessage

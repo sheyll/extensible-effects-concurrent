@@ -361,7 +361,7 @@ handleProcess
   -> Seq (OnYield r finalResult, ProcessId)
   -> m (Either (Interrupt 'NoRecovery) finalResult)
 handleProcess _sts Empty =
-  return $ Left (NotRecovered (ErrorInterrupt "no main process"))
+  return $ Left (ExitUnhandledInterrupt (ErrorInterrupt "no main process"))
 
 handleProcess sts allProcs@((!processState, !pid) :<| rest) =
   let handleExit res =

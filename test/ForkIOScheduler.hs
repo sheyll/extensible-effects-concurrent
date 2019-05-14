@@ -43,7 +43,7 @@ test_IOExceptionsIsolated = setTravisTestOptions $ testGroup
                 case resultOrError of
                   Left  _down -> lift (atomically (putTMVar aVar False))
                   Right ()    -> withMonitor p1 $ \ref -> do
-                    sendShutdown p1 (NotRecovered (ErrorInterrupt "test 123"))
+                    sendShutdown p1 (ExitUnhandledInterrupt (ErrorInterrupt "test 123"))
                     _down <- receiveSelectedMessage (selectProcessDown ref)
                     lift (atomically (putTMVar aVar True))
               )
