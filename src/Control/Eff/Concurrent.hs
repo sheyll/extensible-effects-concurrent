@@ -134,6 +134,7 @@ import           Control.Eff.Concurrent.Process ( Process(..)
                                                 , executeAndResumeOrExit
                                                 , executeAndResumeOrThrow
                                                 , Interrupt(..)
+                                                , interruptToExit
                                                 , ExitRecovery(..)
                                                 , RecoverableInterrupt
                                                 , Interrupts

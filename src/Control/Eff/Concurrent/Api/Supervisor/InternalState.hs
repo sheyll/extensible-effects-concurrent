@@ -38,7 +38,9 @@ instance (NFData i, NFData o) => NFData (Children i o)
 makeLenses ''Children
 
 -- | State accessor
-getChildren :: Eff (State (Children i o) ': e) (Children i o)
+getChildren
+  ::  (Ord i, Member (State (Children i o)) e)
+  => Eff e (Children i o)
 getChildren = Eff.get
 
 putChild
@@ -60,3 +62,11 @@ lookupAndRemove
   -> Eff e (Maybe (Child o))
 lookupAndRemove i =
   lookupChildById i <* modify @(Children i o) (childrenById . at i .~ Nothing)
+
+removeAllChildren
+  :: forall i o e. (Ord i, Member (State (Children i o)) e)
+  => Eff e (Map i (Child o))
+removeAllChildren = do
+  cm <- view childrenById <$> getChildren @i
+  modify @(Children i o) (childrenById .~ mempty)
+  return cm

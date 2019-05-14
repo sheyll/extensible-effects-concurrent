@@ -11,7 +11,7 @@ import Control.Eff.Concurrent.Process.ForkIOScheduler as Scheduler
 import Control.Eff.Concurrent.Process.Timer
 import Data.Either (fromRight)
 import Data.Maybe (fromMaybe)
-import Data.Text ( pack)
+import Data.Text (pack)
 import Data.Typeable (Typeable)
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -25,7 +25,7 @@ test_Supervisor =
         outerSelf <- self
         testWorker <-
           spawn $ do
-            sup <- Sup.startSupervisor spawnTestApiProcess
+            sup <- Sup.startSupervisor (spawnTestApiProcess IgnoreNormalExitRequest)
             logInfo ("started: " <> pack (show sup))
             sendMessage outerSelf sup
             () <- receiveMessage
@@ -55,7 +55,7 @@ test_Supervisor =
         logInfo ("still alive after owner exited: " <> pack (show supAliveAfterOwnerExited))
         lift (supAliveAfterOwnerExited @=? False)
     , runTestCase "When a supervisor starts a child and is shut down, the child then exits, too" $ do
-        sup <- Sup.startSupervisor spawnTestApiProcess
+        sup <- Sup.startSupervisor (spawnTestApiProcess ExitWhenRequested)
         logInfo ("started: " <> pack (show sup))
         diag1 <- Sup.getDiagnosticInfo sup
         logInfo ("got diagnostics: " <> diag1)
@@ -87,8 +87,8 @@ test_Supervisor =
                               ", childMon: " <>
                               show childMon) of
           Right (supER, childER) -> do
-            lift (assertEqual "bad supervisor exit reason" supER (SomeExitReason ExitNormally))
-            lift (assertEqual "bad child exit reason" childER (SomeExitReason ExitNormally))
+            lift (assertEqual "bad supervisor exit reason" (SomeExitReason ExitNormally) supER)
+            lift (assertEqual "bad child exit reason" (SomeExitReason ExitNormally) childER)
           Left x -> lift (assertFailure x)
     ]
 
@@ -96,14 +96,20 @@ runTestCase :: TestName -> Eff InterruptableProcEff () -> TestTree
 runTestCase msg =
   testCase msg .
   runLift . withTraceLogging "supervisor-test" local0 allLogMessages . Scheduler.schedule . handleInterrupts onInt
- where
-  onInt = lift . assertFailure . show
+  where
+    onInt = lift . assertFailure . show
 
-spawnTestApiProcess :: Sup.SpawnFun Int InterruptableProcEff (Server TestApi)
-spawnTestApiProcess tId =
+data TestApiServerMode
+  = IgnoreNormalExitRequest
+  | ExitWhenRequested
+  deriving (Eq)
+
+spawnTestApiProcess :: TestApiServerMode -> Sup.SpawnFun Int InterruptableProcEff (Server TestApi)
+spawnTestApiProcess testMode tId =
   spawnApiServer (handleCalls onCall ^: handleAnyMessages onInfo) (InterruptCallback onInterrupt)
   where
-    onCall :: Api TestApi ('Synchronous r) -> (Eff InterruptableProcEff (Maybe r, CallbackResult 'Recoverable) -> x) -> x
+    onCall ::
+         Api TestApi ('Synchronous r) -> (Eff InterruptableProcEff (Maybe r, CallbackResult 'Recoverable) -> x) -> x
     onCall (TestGetStringLength str) runMe =
       runMe $ do
         logInfo (pack (show tId) <> ": calculating length of: " <> pack str)
@@ -113,8 +119,11 @@ spawnTestApiProcess tId =
       logDebug (pack (show tId) <> ": got some info: " <> pack (show sd))
       pure AwaitNext
     onInterrupt x = do
-      logWarning (pack (show tId) <> ": interrupted: " <> pack (show x))
-      pure AwaitNext
+      logWarning (pack (show tId) <> " " <> pack (show x))
+      pure $
+        if testMode == IgnoreNormalExitRequest
+          then AwaitNext
+          else StopServer (interruptToExit x)
 
 data TestApi
   deriving (Typeable)

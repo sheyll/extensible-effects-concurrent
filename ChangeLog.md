@@ -22,9 +22,11 @@
 ## 0.23.0
 
 - Include the process id in the console and trace log renderer
-- Add a process supervisor similar to Erlang/OTPs simple_one_for_one supervisor.
+- Add a **process supervisor** similar to Erlang/OTPs simple_one_for_one supervisor.
 - Fix `SingleThreadedScheduler` process linking bug: A process shall not be interrupted
   when a linked process exits normally. 
+- Rename **ExitReason** to **Interrupt** and make the interrupt and exit handling 
+  API more robust. 
 
 ## 0.22.1
 

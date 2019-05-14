@@ -700,8 +700,11 @@ spawnNewProcess mLinkedParent mfa = do
    where
     exitReasonFromException exc = case Safe.fromException exc of
       Just Async.AsyncCancelled -> ExitProcessCancelled
-      Nothing -> ExitUnhandledException (prettyCallStack callStack)
-                                     (Safe.displayException exc)
+      Nothing -> ExitUnhandledError (  "at: "
+                                    <> T.pack (prettyCallStack callStack)
+                                    <> " "
+                                    <> T.pack (Safe.displayException exc)
+                                    )
     logExitAndTriggerLinksAndMonitors reason pid = do
       triggerProcessLinksAndMonitors pid reason (procInfo ^. processLinks)
       logProcessExit reason

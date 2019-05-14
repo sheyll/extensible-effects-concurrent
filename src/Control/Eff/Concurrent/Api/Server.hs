@@ -481,4 +481,4 @@ instance Default (InterruptCallback eff) where
 --
 -- @since 0.13.2
 stopServerOnInterrupt :: forall eff . HasCallStack => InterruptCallback eff
-stopServerOnInterrupt = InterruptCallback (pure . StopServer . ExitUnhandledInterrupt)
+stopServerOnInterrupt = InterruptCallback (pure . StopServer . interruptToExit)

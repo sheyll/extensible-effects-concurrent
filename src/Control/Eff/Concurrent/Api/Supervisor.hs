@@ -59,8 +59,10 @@ import Data.Default
 import Data.Dynamic
 import Data.Foldable
 import Data.Map (Map)
+import qualified Data.Map as Map
 import Data.Maybe
 import Data.Text (Text, pack)
+import Data.Typeable
 import GHC.Generics (Generic)
 import GHC.Stack
 import Control.Applicative ((<|>))
@@ -85,7 +87,19 @@ import Control.Applicative ((<|>))
 -- @since 0.23.0
 newtype Sup childId spawnResult =
   MkSup (Server (Sup childId spawnResult))
-  deriving (Show, Typeable, NFData)
+  deriving (Ord, Eq, Typeable, NFData)
+
+instance (Typeable childId, Typeable spawnResult) => Show (Sup childId spawnResult) where
+  showsPrec d (MkSup svr) =
+    showParen (d >= 10)
+      ( showString "supervisor "
+      . showsTypeRep (typeRep (Proxy @childId))
+      . showChar ' '
+      . showsTypeRep (typeRep (Proxy @spawnResult))
+      . showChar ' '
+      . showsPrec 8 (_fromServer svr)
+      )
+
 
 -- | Spawn and monitor a new child process with the given id.
 --
@@ -142,7 +156,7 @@ instance (NFData i, NFData o) => NFData (SpawnErr i o)
 --
 -- @since 0.23.0
 startSupervisor ::
-     forall i e o . (HasCallStack, Member Logs e, Ord i, NFData i, NFData o, Typeable i, Typeable o, Show i, Show o)
+     forall i e o . (HasCallStack, Member Logs e, Ord i, NFData i, NFData o, Typeable i, Typeable o, Show i, Show o, Lifted IO e)
   => SpawnFun i (InterruptableProcess e) o
   -> Eff (InterruptableProcess e) (Sup i o)
 startSupervisor childSpawner = do
@@ -158,7 +172,7 @@ startSupervisor childSpawner = do
              Api (Sup i o) ('Synchronous reply)
           -> (Eff (State (Children i o) ': InterruptableProcess e) (Maybe reply, CallbackResult 'Recoverable) -> st)
           -> st
-        onCall GetDiagnosticInfo k = k ((, AwaitNext) . Just . pack . show <$> getChildren)
+        onCall GetDiagnosticInfo k = k ((, AwaitNext) . Just . pack . show <$> getChildren @i @o)
         onCall (LookupC i) k = k ((, AwaitNext) . Just . fmap _childOutput <$> lookupChildById @i @o i)
         onCall (StartC i) k =
           k $ do
@@ -180,7 +194,8 @@ startSupervisor childSpawner = do
                 NormalExitRequested ->
                   (debugSeverity, ExitNormally)
                 _ ->
-                  (warningSeverity, ExitUnhandledInterrupt (ErrorInterrupt ("supervisor interrupted: " <> show e)))
+                  (warningSeverity, interruptToExit (ErrorInterrupt ("supervisor interrupted: " <> show e)))
+        stopAllChildren @i @o
         logWithSeverity logSev ("supervisor stopping: " <> pack (show e))
 
         pure (StopServer exitReason)
@@ -351,21 +366,59 @@ stopChild
      , Show o
      , NFData i
      , NFData o
-     , Typeable e
      , HasCallStack
-     , Member Interrupts e
      , SetMember Process (Process q0) e
+     , Member Interrupts e
+     , Lifted IO e
+     , Lifted IO q0
+     , Member Logs e
+     , Member (State (Children i o)) e
      )
   => i
-  -> Timeout
-  -> Eff (State (Children i o) ': e) ()
-stopChild cId timeout = traverse_ go . lookupAndRemove @i @o cId
+  -> Child o
+  -> Eff e ()
+stopChild cId c =
+      do
+        sup <- MkSup . asServer @(Sup i o) <$> self
+        t <- startTimer stopChildTimeout
+        sendInterrupt (c^.childProcessId) NormalExitRequested
+        r1 <- receiveSelectedMessage (   Right <$> selectProcessDown (c^.childMonitoring)
+                                     <|> Left  <$> selectTimerElapsed t )
+        case r1 of
+          Left timerElapsed -> do
+            logWarning (pack (show timerElapsed) <> ", child did not shutdown in time: " <> pack (show (c^.childOutput)))
+            sendShutdown
+              (c^.childProcessId)
+              (interruptToExit
+                (TimeoutInterrupt
+                  ("child did not shut down in time and was terminated by the "
+                    ++ show sup)))
+          Right downMsg ->
+            logInfo ("child "<>pack(show (c^.childOutput)) <>" terminated: " <> pack (show (downReason downMsg)))
+
+stopAllChildren
+  :: forall i o e q0 .
+     ( Typeable i
+     , Typeable o
+     , Ord i
+     , Show i
+     , Show o
+     , NFData i
+     , NFData o
+     , HasCallStack
+     , SetMember Process (Process q0) e
+     , Lifted IO e
+     , Lifted IO q0
+     , Member Logs e
+     , Member (State (Children i o)) e
+     )
+  => Eff e ()
+stopAllChildren = removeAllChildren @i @o >>= pure . Map.assocs >>= traverse_ xxx
   where
-    go :: Child o -> Eff (State (Children i o) ': e) ()
-    go c = do
-              t <- startTimer timeout
-              sendInterrupt (c^.childProcessId) NormalExitRequested
-              r1 <- receiveSelectedMessage (   Right <$> selectProcessDown (c^.childMonitoring)
-                                           <|> Left  <$> selectTimerElapsed t )
-              case r1 of
-                Left timerElapsed ->
+    xxx (cId, c) = provideInterrupts (stopChild cId c) >>= either crash return
+      where
+        crash e = do
+          logError (pack (show e) <> " while stopping child: " <> pack (show cId) <> " " <> pack (show c))
+
+stopChildTimeout :: Timeout
+stopChildTimeout = TimeoutMicros 5000000
