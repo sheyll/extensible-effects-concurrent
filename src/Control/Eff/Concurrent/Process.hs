@@ -495,22 +495,22 @@ data Interrupt (t :: ExitRecovery) where
 
 instance Show (Interrupt x) where
   showsPrec d =
-    showParen (d >= 10)
+    showParen (d >= 9)
       . (\case
-          NormalExitRequested        -> showString "process finished"
-          OtherProcessNotRunning p    -> showString "process not running: " . shows p
-          TimeoutInterrupt reason -> showString "timeout: " . showString reason
+          NormalExitRequested        -> showString "interrupt: A normal exit was requested"
+          OtherProcessNotRunning p    -> showString "interrupt: Another process is not running: " . showsPrec 10 p
+          TimeoutInterrupt reason -> showString "interrupt: A timeout occured: " . showString reason
           LinkedProcessCrashed m ->
-            showString "linked process " . shows m . showString " crashed"
-          ErrorInterrupt reason   -> showString "error: " . showString reason
-          ExitNormally          -> showString "exit normally"
-          ExitUnhandledInterrupt e        -> showString "not recovered from: " . shows e
+            showString "interrupt: A linked process " . showsPrec 10 m . showString " crashed"
+          ErrorInterrupt reason   -> showString "interrupt: An error occured: " . showString reason
+          ExitNormally          -> showString "exit: Process finished successfully"
+          ExitUnhandledInterrupt e   -> showString "exit: Unhandled " . showsPrec 10 e
           ExitUnhandledException w m ->
-            showString "unhandled runtime exception: "
+            showString "exit: Unhandled runtime exception: "
               . showString m
               . showString " caught here: "
               . showString w
-          ExitProcessCancelled -> showString "killed"
+          ExitProcessCancelled -> showString "exit: The process was cancelled"
         )
 
 instance Exc.Exception (Interrupt 'Recoverable)
