@@ -127,7 +127,7 @@ instance NFData o => NFData (Api (Observer o) 'Asynchronous) where
 -- @since 0.16.0
 handleObservations
   :: (HasCallStack, Typeable o, SetMember Process (Process q) r, NFData (Observer o))
-  => (o -> Eff r CallbackResult)
+  => (o -> Eff r (CallbackResult 'Recoverable))
   -> MessageCallback (Observer o) r
 handleObservations k = handleCasts
   (\case

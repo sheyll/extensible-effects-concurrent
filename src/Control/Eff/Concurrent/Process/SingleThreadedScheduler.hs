@@ -133,7 +133,7 @@ addMonitoring owner target =
       pt <- use msgQs
       if Map.member target pt
         then monitors %= Set.insert (mref, owner)
-        else let pdown = ProcessDown mref (SomeExitReason (ProcessNotRunning target))
+        else let pdown = ProcessDown mref (SomeExitReason (OtherProcessNotRunning target))
               in State.modify' (enqueueMsg owner (toStrictDynamic pdown))
     return mref
 
@@ -151,7 +151,7 @@ triggerAndRemoveMonitor downPid reason = State.execState $ do
      in  State.modify' (enqueueMsg owner (toStrictDynamic pdown) . removeMonitoring mr)
     )
 
-addLink :: ProcessId -> ProcessId -> STS m r -> (Maybe InterruptReason, STS m r)
+addLink :: ProcessId -> ProcessId -> STS m r -> (Maybe (Interrupt 'Recoverable), STS m r)
 addLink fromPid toPid = State.runState $ do
   hasToPid <- use (msgQs . to (Map.member toPid))
   if hasToPid
@@ -173,7 +173,7 @@ removeLinksTo pid sts = flip State.runState sts $ do
 kontinue :: STS r m -> (ResumeProcess a -> Eff r a1) -> a -> m a1
 kontinue sts k x = (sts ^. runEff) (k (ResumeWith x))
 
-diskontinue :: STS r m -> (ResumeProcess v -> Eff r a) -> InterruptReason -> m a
+diskontinue :: STS r m -> (ResumeProcess v -> Eff r a) -> Interrupt 'Recoverable -> m a
 diskontinue sts k e = (sts ^. runEff) (k (Interrupted e))
 
 -- -----------------------------------------------------------------------------
@@ -186,7 +186,7 @@ diskontinue sts k e = (sts ^. runEff) (k (Interrupted e))
 -- @since 0.3.0.2
 schedulePure
   :: Eff (InterruptableProcess '[Logs, LogWriterReader PureLogWriter]) a
-  -> Either (ExitReason 'NoRecovery) a
+  -> Either (Interrupt 'NoRecovery) a
 schedulePure e = run (scheduleM (withSomeLogging @PureLogWriter) (return ()) e)
 
 -- | Invoke 'scheduleM' with @lift 'Control.Concurrent.yield'@ as yield effect.
@@ -197,7 +197,7 @@ scheduleIO
   :: MonadIO m
   => (forall b . Eff r b -> Eff '[Lift m] b)
   -> Eff (InterruptableProcess r) a
-  -> m (Either (ExitReason 'NoRecovery) a)
+  -> m (Either (Interrupt 'NoRecovery) a)
 scheduleIO r = scheduleM (runLift . r) (liftIO yield)
 
 -- | Invoke 'scheduleM' with @lift 'Control.Concurrent.yield'@ as yield effect.
@@ -207,7 +207,7 @@ scheduleIO r = scheduleM (runLift . r) (liftIO yield)
 scheduleMonadIOEff
   :: MonadIO (Eff r)
   => Eff (InterruptableProcess r) a
-  -> Eff r (Either (ExitReason 'NoRecovery) a)
+  -> Eff r (Either (Interrupt 'NoRecovery) a)
 scheduleMonadIOEff = -- schedule (lift yield)
   scheduleM id (liftIO yield)
 
@@ -223,7 +223,7 @@ scheduleIOWithLogging
   :: HasCallStack
   => LogWriter IO
   -> Eff (InterruptableProcess LoggingAndIo) a
-  -> IO (Either (ExitReason 'NoRecovery) a)
+  -> IO (Either (Interrupt 'NoRecovery) a)
 scheduleIOWithLogging h = scheduleIO (withLogging h)
 
 -- | Handle the 'Process' effect, as well as all lower effects using an effect handler function.
@@ -250,7 +250,7 @@ scheduleM
   --  @r@. E.g. if @Lift IO@ is present, this might be:
   --  @lift 'Control.Concurrent.yield'.
   -> Eff (InterruptableProcess r) a
-  -> m (Either (ExitReason 'NoRecovery) a)
+  -> m (Either (Interrupt 'NoRecovery) a)
 scheduleM r y e = do
   c <- runAsCoroutinePure r (provideInterruptsShutdown e)
   handleProcess (initStsMainProcess r y) (Seq.singleton (c, 0))
@@ -269,8 +269,8 @@ data OnYield r a where
           -> (ResumeProcess ProcessId -> Eff r (OnYield r a))
           -> OnYield r a
   OnDone :: !a -> OnYield r a
-  OnShutdown :: ExitReason 'NoRecovery -> OnYield r a
-  OnInterrupt :: ExitReason 'Recoverable
+  OnShutdown :: Interrupt 'NoRecovery -> OnYield r a
+  OnInterrupt :: Interrupt 'Recoverable
                 -> (ResumeProcess b -> Eff r (OnYield r a))
                 -> OnYield r a
   OnSend :: !ProcessId -> !StrictDynamic
@@ -282,9 +282,9 @@ data OnYield r a where
          :: ProcessId
          -> (ResumeProcess (Maybe ProcessState) -> Eff r (OnYield r a))
          -> OnYield r a
-  OnSendShutdown :: !ProcessId -> ExitReason 'NoRecovery
+  OnSendShutdown :: !ProcessId -> Interrupt 'NoRecovery
                     -> (ResumeProcess () -> Eff r (OnYield r a)) -> OnYield r a
-  OnSendInterrupt :: !ProcessId -> ExitReason 'Recoverable
+  OnSendInterrupt :: !ProcessId -> Interrupt 'Recoverable
                     -> (ResumeProcess () -> Eff r (OnYield r a)) -> OnYield r a
   OnMakeReference :: (ResumeProcess Int -> Eff r (OnYield r a)) -> OnYield r a
   OnMonitor
@@ -359,9 +359,9 @@ handleProcess
   :: Monad m
   => STS r m
   -> Seq (OnYield r finalResult, ProcessId)
-  -> m (Either (ExitReason 'NoRecovery) finalResult)
+  -> m (Either (Interrupt 'NoRecovery) finalResult)
 handleProcess _sts Empty =
-  return $ Left (NotRecovered (ProcessError "no main process"))
+  return $ Left (NotRecovered (ErrorInterrupt "no main process"))
 
 handleProcess sts allProcs@((!processState, !pid) :<| rest) =
   let handleExit res =
@@ -460,12 +460,12 @@ handleProcess sts allProcs@((!processState, !pid) :<| rest) =
         recv@(OnRecv messageSelector k) ->
           case receiveMsg pid messageSelector sts of
             Nothing -> do
-              nextK <- diskontinue sts k (ProcessError (show pid ++ " has no message queue"))
+              nextK <- diskontinue sts k (ErrorInterrupt (show pid ++ " has no message queue"))
               handleProcess sts (rest :|> (nextK, pid))
             Just Nothing ->
               if Seq.length rest == 0
                 then do
-                  nextK <- diskontinue sts k (ProcessError (show pid ++ " deadlocked"))
+                  nextK <- diskontinue sts k (ErrorInterrupt (show pid ++ " deadlocked"))
                   handleProcess sts (rest :|> (nextK, pid))
                 else handleProcess sts (rest :|> (recv, pid))
             Just (Just (result, newSts)) -> do

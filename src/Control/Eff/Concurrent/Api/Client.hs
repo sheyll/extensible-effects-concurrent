@@ -92,7 +92,7 @@ call (Server pidInternal) req = do
 -- If the server that was called dies, this function interrupts the
 -- process with 'ProcessDown'.
 -- If the server takes longer to reply than the given timeout, this
--- function interrupts the process with 'ProcessTimeout'.
+-- function interrupts the process with 'TimeoutInterrupt'.
 --
 -- __Always prefer this function over 'call'__
 --
@@ -135,7 +135,7 @@ callWithTimeout serverP@(Server pidInternal) req timeOut = do
                   ++ show fromPid ++ " "
                   ++ show timerRef
         logWarning' msg
-        interrupt (ProcessTimeout msg)
+        interrupt (TimeoutInterrupt msg)
       onProcDown p = do
         logWarning' ("call to dead server: "++ show serverP ++ " from " ++ show fromPid)
         interrupt (becauseProcessIsDown p)

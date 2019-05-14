@@ -22,7 +22,7 @@ module Control.Eff.Concurrent.Api.Supervisor
   , spawnChild
   ) where
 
-import Control.DeepSeq (NFData(rnf), NFData2)
+import Control.DeepSeq (NFData(rnf))
 import Control.Eff as Eff
 import Control.Eff.Concurrent.Api
 import Control.Eff.Concurrent.Api.Client
@@ -31,7 +31,6 @@ import Control.Eff.Concurrent.Api.Supervisor.InternalState
 import Control.Eff.Concurrent.Process
 import Control.Eff.Extend (raise)
 import Control.Eff.Log
-import Control.Eff.Reader.Strict as Eff
 import Control.Eff.State.Strict as Eff
 import Control.Lens hiding ((.=), use)
 import Control.Monad
@@ -131,13 +130,13 @@ startLink childSpawner = do
       where
         onCall ::
              Api (Sup i o) ('Synchronous reply)
-          -> (Eff (State (Children i o) ': InterruptableProcess e) (Maybe reply, CallbackResult) -> st)
+          -> (Eff (State (Children i o) ': InterruptableProcess e) (Maybe reply, CallbackResult 'Recoverable) -> st)
           -> st
         onCall GetDiagnosticInfo k = k ((, AwaitNext) . Just . pack . show <$> getChildren)
         onCall (LookupC i) k = k ((, AwaitNext) . Just <$> lookupChildById i)
         onCall (StartC i) k =
           k $ do
-            (o, cPid) <- raise (childSpawner i)
+            (o, _cPid) <- raise (childSpawner i)
             putChild i o
             return (Just (Right o), AwaitNext)
     onMessage :: MessageCallback '[] (State (Children i o) ': InterruptableProcess e)
@@ -149,8 +148,14 @@ startLink childSpawner = do
     onInterrupt :: InterruptCallback (State (Children i o) ': ConsProcess e)
     onInterrupt =
       InterruptCallback $ \e -> do
-        logWarning ("supervisor interrupted: " <> pack (show e))
-        pure (StopServer (ProcessError ("supervisor interrupted: " <> show e)))
+        let (logSev, exitReason) =
+              case e of
+                NormalExitRequested ->
+                  (debugSeverity, ExitNormally)
+                _ ->
+                  (warningSeverity, NotRecovered (ErrorInterrupt ("supervisor interrupted: " <> show e)))
+        logWithSeverity logSev ("supervisor stopping: " <> pack (show e))
+        pure (StopServer exitReason)
 
 -- | Start, link and monitor a new child process using the 'SpawnFun' passed
 -- to 'startLink'.

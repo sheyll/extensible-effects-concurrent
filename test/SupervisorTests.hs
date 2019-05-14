@@ -33,7 +33,7 @@ test_Supervisor =
             diag <- Sup.getDiagnosticInfo sup
             sendMessage outerSelf diag
             () <- receiveMessage
-            sendShutdown (_fromServer sup) ExitNormally
+            sendInterrupt (_fromServer sup) ExitNormally
         unlinkProcess testWorker
         sup <- receiveMessage
         supAliveAfterStart <- isProcessAlive sup

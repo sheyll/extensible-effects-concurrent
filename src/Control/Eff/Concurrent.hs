@@ -133,9 +133,9 @@ import           Control.Eff.Concurrent.Process ( Process(..)
                                                 , executeAndResume
                                                 , executeAndResumeOrExit
                                                 , executeAndResumeOrThrow
-                                                , ExitReason(..)
+                                                , Interrupt(..)
                                                 , ExitRecovery(..)
-                                                , InterruptReason
+                                                , RecoverableInterrupt
                                                 , Interrupts
                                                 , InterruptableProcess
                                                 , ExitSeverity(..)
@@ -143,7 +143,7 @@ import           Control.Eff.Concurrent.Process ( Process(..)
                                                 , toExitRecovery
                                                 , isRecoverable
                                                 , toExitSeverity
-                                                , isBecauseDown
+                                                , isProcessDownInterrupt
                                                 , isCrash
                                                 , toCrashReason
                                                 , fromSomeExitReason

@@ -101,7 +101,7 @@ makeLenses ''ProcessInfo
 data SchedulerState = SchedulerState
   { _nextPid :: TVar ProcessId
   , _processTable :: TVar (Map ProcessId ProcessInfo)
-  , _processCancellationTable :: TVar (Map ProcessId (Async (ExitReason 'NoRecovery)))
+  , _processCancellationTable :: TVar (Map ProcessId (Async (Interrupt 'NoRecovery)))
   , _processMonitors :: TVar (Set (MonitorReference, ProcessId))  -- ^ Set of monitors and monitor owners
   , _nextMonitorIndex :: TVar Int
   }
@@ -142,7 +142,7 @@ addMonitoring target owner schedulerState = do
                        (Set.insert (monitorRef, owner))
       else
         let processDownMessage =
-              ProcessDown monitorRef (SomeExitReason (ProcessNotRunning target))
+              ProcessDown monitorRef (SomeExitReason (OtherProcessNotRunning target))
         in  enqueueMessageOtherProcess owner
                                        (toStrictDynamic processDownMessage)
                                        schedulerState
@@ -272,18 +272,18 @@ defaultMainWithLogWriter lw =
 handleProcess
   :: (HasCallStack)
   => ProcessInfo
-  -> Eff ProcEff (ExitReason 'NoRecovery)
-  -> Eff SchedulerIO (ExitReason 'NoRecovery)
+  -> Eff ProcEff (Interrupt 'NoRecovery)
+  -> Eff SchedulerIO (Interrupt 'NoRecovery)
 handleProcess myProcessInfo actionToRun = fix
   (handle_relay' singleStep (\er _nextRef -> return er))
   actionToRun
   0
  where
   singleStep
-    :: (Eff ProcEff xx -> (Int -> Eff SchedulerIO (ExitReason 'NoRecovery)))
+    :: (Eff ProcEff xx -> (Int -> Eff SchedulerIO (Interrupt 'NoRecovery)))
     -> Arrs ProcEff x xx
     -> Process SchedulerIO x
-    -> (Int -> Eff SchedulerIO (ExitReason 'NoRecovery))
+    -> (Int -> Eff SchedulerIO (Interrupt 'NoRecovery))
   singleStep k q p !nextRef = stepProcessInterpreter
     nextRef
     p
@@ -310,8 +310,8 @@ handleProcess myProcessInfo actionToRun = fix
   diskontinueWith
     :: forall a
      . HasCallStack
-    => Arr SchedulerIO (ExitReason 'NoRecovery) a
-    -> Arr SchedulerIO (ExitReason 'NoRecovery) a
+    => Arr SchedulerIO (Interrupt 'NoRecovery) a
+    -> Arr SchedulerIO (Interrupt 'NoRecovery) a
   diskontinueWith diskontinue !reason = do
     setMyProcessState ProcessShuttingDown
     diskontinue reason
@@ -321,7 +321,7 @@ handleProcess myProcessInfo actionToRun = fix
     => Int
     -> Process SchedulerIO v
     -> (Int -> Arr SchedulerIO v a)
-    -> Arr SchedulerIO (ExitReason 'NoRecovery) a
+    -> Arr SchedulerIO (Interrupt 'NoRecovery) a
     -> Eff SchedulerIO a
   stepProcessInterpreter !nextRef !request kontinue diskontinue =
     tryTakeNextShutdownRequest >>= maybe
@@ -359,8 +359,8 @@ handleProcess myProcessInfo actionToRun = fix
   interpretRequestAfterShutdownRequest
     :: forall v a
      . HasCallStack
-    => Arr SchedulerIO (ExitReason 'NoRecovery) a
-    -> ExitReason 'NoRecovery
+    => Arr SchedulerIO (Interrupt 'NoRecovery) a
+    -> Interrupt 'NoRecovery
     -> Process SchedulerIO v
     -> Eff SchedulerIO a
   interpretRequestAfterShutdownRequest diskontinue shutdownRequest = \case
@@ -385,8 +385,8 @@ handleProcess myProcessInfo actionToRun = fix
     :: forall v a
      . HasCallStack
     => Arr SchedulerIO v a
-    -> Arr SchedulerIO (ExitReason 'NoRecovery) a
-    -> ExitReason 'Recoverable
+    -> Arr SchedulerIO (Interrupt 'NoRecovery) a
+    -> Interrupt 'Recoverable
     -> Process SchedulerIO v
     -> Eff SchedulerIO a
   interpretRequestAfterInterruptRequest kontinue diskontinue interruptRequest =
@@ -413,7 +413,7 @@ handleProcess myProcessInfo actionToRun = fix
     :: forall v a
      . HasCallStack
     => (Int -> Arr SchedulerIO v a)
-    -> Arr SchedulerIO (ExitReason 'NoRecovery) a
+    -> Arr SchedulerIO (Interrupt 'NoRecovery) a
     -> Int
     -> Process SchedulerIO v
     -> Eff SchedulerIO a
@@ -523,7 +523,7 @@ handleProcess myProcessInfo actionToRun = fix
         return (ResumeWith (toList (myMessageQ ^. incomingMessages)))
     interpretReceive
       :: MessageSelector b
-      -> Eff SchedulerIO (Either (ExitReason 'NoRecovery) (ResumeProcess b))
+      -> Eff SchedulerIO (Either (Interrupt 'NoRecovery) (ResumeProcess b))
     interpretReceive f = do
       setMyProcessState ProcessBusyReceiving
       lift $ atomically $ do
@@ -574,7 +574,7 @@ spawnNewProcess
   :: (HasCallStack)
   => Maybe ProcessInfo
   -> Eff ProcEff ()
-  -> Eff SchedulerIO (ProcessId, Async (ExitReason 'NoRecovery))
+  -> Eff SchedulerIO (ProcessId, Async (Interrupt 'NoRecovery))
 spawnNewProcess mLinkedParent mfa = do
   schedulerState <- getSchedulerState
   procInfo       <- allocateProcInfo schedulerState
@@ -607,7 +607,7 @@ spawnNewProcess mLinkedParent mfa = do
           (maybe (Just (T.pack (printf "% 9s" (show pid)))) Just)
     in  censorLogs @IO addProcessId
   triggerProcessLinksAndMonitors
-    :: ProcessId -> ExitReason e -> TVar (Set ProcessId) -> Eff SchedulerIO ()
+    :: ProcessId -> Interrupt e -> TVar (Set ProcessId) -> Eff SchedulerIO ()
   triggerProcessLinksAndMonitors !pid !reason !linkSetVar = do
     schedulerState <- getSchedulerState
     lift $ atomically $ triggerAndRemoveMonitor pid
@@ -658,7 +658,7 @@ spawnNewProcess mLinkedParent mfa = do
   doForkProc
     :: ProcessInfo
     -> SchedulerState
-    -> Eff SchedulerIO (Async (ExitReason 'NoRecovery))
+    -> Eff SchedulerIO (Async (Interrupt 'NoRecovery))
   doForkProc procInfo schedulerState = control
     (\inScheduler -> do
       let cancellationsVar = schedulerState ^. processCancellationTable
@@ -699,7 +699,7 @@ spawnNewProcess mLinkedParent mfa = do
     )
    where
     exitReasonFromException exc = case Safe.fromException exc of
-      Just Async.AsyncCancelled -> Killed
+      Just Async.AsyncCancelled -> ImmediateExitRequested
       Nothing -> UnexpectedException (prettyCallStack callStack)
                                      (Safe.displayException exc)
     logExitAndTriggerLinksAndMonitors reason pid = do

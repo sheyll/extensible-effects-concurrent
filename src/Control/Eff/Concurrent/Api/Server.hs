@@ -31,7 +31,7 @@ module Control.Eff.Concurrent.Api.Server
   , (^:)
   , fallbackHandler
   , ToServerPids(..)
-  -- ** Interrupt handler
+  -- ** RecoverableInterrupt handler
   , InterruptCallback(..)
   , stopServerOnInterrupt
   )
@@ -47,6 +47,7 @@ import           Control.Eff.Concurrent.Api.Request
 import           Control.Eff.Concurrent.Process
 import           Control.DeepSeq
 import           Control.Monad                  ( (>=>) )
+import qualified Data.Bifunctor                 as Bifunctor
 import           Data.Default
 import           Data.Dynamic
 import           Data.Foldable
@@ -110,9 +111,9 @@ spawnApiServerStateful initEffect (MessageCallback sel cb) (InterruptCallback in
   invokeIntCb j = do
     l <- intCb j
     case l of
-      AwaitNext                  -> return Nothing
-      StopServer ProcessFinished -> return (Just ())
-      StopServer k               -> exitBecause (NotRecovered k)
+      AwaitNext               -> return Nothing
+      StopServer ExitNormally -> return (Just ())
+      StopServer k            -> exitBecause k
 
 -- | /Server/ an 'Api' in a newly spawned process; The caller provides an
 -- effect handler for arbitrary effects used by the server callbacks.
@@ -172,15 +173,17 @@ apiServerLoop
 apiServerLoop (MessageCallback sel cb) (InterruptCallback intCb) =
   receiveSelectedLoop
     sel
-    (   either (fmap Left . intCb) (fmap Right . tryUninterrupted . cb)
-    >=> handleCallbackResult
+    ( ( either
+              (fmap Left  . intCb)
+              (fmap Right . tryUninterrupted . cb))
+      >=> handleCallbackResult
     )
  where
   handleCallbackResult
-    :: Either CallbackResult (Either InterruptReason CallbackResult)
+    :: Either (CallbackResult 'NoRecovery) (Either (Interrupt 'Recoverable) (CallbackResult 'Recoverable))
     -> Eff serverEff (Maybe ())
   handleCallbackResult (Left AwaitNext) = return Nothing
-  handleCallbackResult (Left (StopServer r)) = exitBecause (NotRecovered r)
+  handleCallbackResult (Left (StopServer r)) = exitBecause r
   handleCallbackResult (Right (Right AwaitNext)) = return Nothing
   handleCallbackResult (Right (Right (StopServer r))) =
     intCb r >>= handleCallbackResult . Left
@@ -192,12 +195,12 @@ apiServerLoop (MessageCallback sel cb) (InterruptCallback intCb) =
 -- should continue or stop.
 --
 -- @since 0.13.2
-data CallbackResult where
+data CallbackResult (r :: ExitRecovery) where
   -- | Tell the server to keep the server loop running
-  AwaitNext :: CallbackResult
+  AwaitNext :: CallbackResult r
   -- | Tell the server to exit, this will cause 'apiServerLoop' to stop handling requests without
   -- exiting the process.
-  StopServer :: InterruptReason -> CallbackResult
+  StopServer :: Interrupt r -> CallbackResult r
   --  SendReply :: reply -> CallbackResult () -> CallbackResult (reply -> Eff eff ())
   deriving ( Typeable )
 
@@ -209,7 +212,7 @@ data CallbackResult where
 --
 -- @since 0.13.2
 data MessageCallback api eff where
-   MessageCallback :: MessageSelector a -> (a -> Eff eff CallbackResult) -> MessageCallback api eff
+   MessageCallback :: MessageSelector a -> (a -> Eff eff (CallbackResult 'Recoverable)) -> MessageCallback api eff
 
 instance Semigroup (MessageCallback api eff) where
   (MessageCallback selL runL) <> (MessageCallback selR runR) =
@@ -228,7 +231,7 @@ instance Default (MessageCallback api eff) where
 handleMessages
   :: forall eff a
    . (HasCallStack, NFData a, Typeable a)
-  => (a -> Eff eff CallbackResult)
+  => (a -> Eff eff (CallbackResult 'Recoverable))
   -> MessageCallback '[] eff
 handleMessages = MessageCallback selectMessage
 
@@ -239,7 +242,7 @@ handleSelectedMessages
   :: forall eff a
    . HasCallStack
   => MessageSelector a
-  -> (a -> Eff eff CallbackResult)
+  -> (a -> Eff eff (CallbackResult 'Recoverable))
   -> MessageCallback '[] eff
 handleSelectedMessages = MessageCallback
 
@@ -249,7 +252,7 @@ handleSelectedMessages = MessageCallback
 handleAnyMessages
   :: forall eff
    . HasCallStack
-  => (StrictDynamic -> Eff eff CallbackResult)
+  => (StrictDynamic -> Eff eff (CallbackResult 'Recoverable))
   -> MessageCallback '[] eff
 handleAnyMessages = MessageCallback selectAnyMessage
 
@@ -260,7 +263,7 @@ handleCasts
   :: forall api eff
    . ( HasCallStack, Typeable api, Typeable (Api api 'Asynchronous)
      , NFData (Request api))
-  => (Api api 'Asynchronous -> Eff eff CallbackResult)
+  => (Api api 'Asynchronous -> Eff eff (CallbackResult 'Recoverable))
   -> MessageCallback api eff
 handleCasts h = MessageCallback
   (selectMessageWith
@@ -298,7 +301,7 @@ handleCalls
   => (  forall secret reply
       . (NFData reply, Typeable reply, Typeable (Api api ( 'Synchronous reply)))
      => Api api ( 'Synchronous reply)
-     -> (Eff eff (Maybe reply, CallbackResult) -> secret)
+     -> (Eff eff (Maybe reply, CallbackResult 'Recoverable) -> secret)
      -> secret
      )
   -> MessageCallback api eff
@@ -331,11 +334,11 @@ handleCastsAndCalls
      , SetMember Process (Process effScheduler) eff
      , Member Interrupts eff
      )
-  => (Api api 'Asynchronous -> Eff eff CallbackResult)
+  => (Api api 'Asynchronous -> Eff eff (CallbackResult 'Recoverable))
   -> (  forall secret reply
       . (Typeable reply, Typeable (Api api ( 'Synchronous reply)), NFData reply)
      => Api api ( 'Synchronous reply)
-     -> (Eff eff (Maybe reply, CallbackResult) -> secret)
+     -> (Eff eff (Maybe reply, CallbackResult 'Recoverable) -> secret)
      -> secret
      )
   -> MessageCallback api eff
@@ -356,7 +359,7 @@ handleCallsDeferred
       . (Typeable reply, NFData reply, Typeable (Api api ( 'Synchronous reply)))
      => RequestOrigin (Api api ( 'Synchronous reply))
      -> Api api ( 'Synchronous reply)
-     -> Eff eff CallbackResult
+     -> Eff eff (CallbackResult 'Recoverable)
      )
   -> MessageCallback api eff
 handleCallsDeferred h = MessageCallback
@@ -380,7 +383,7 @@ type family ResponseType request where
 handleProcessDowns
   :: forall eff
    . HasCallStack
-  => (MonitorReference -> Eff eff CallbackResult)
+  => (MonitorReference -> Eff eff (CallbackResult 'Recoverable))
   -> MessageCallback '[] eff
 handleProcessDowns k = MessageCallback selectMessage (k . downReference)
 
@@ -423,7 +426,7 @@ dropUnhandledMessages =
 -- @since 0.13.2
 exitOnUnhandled :: forall eff . HasCallStack => MessageCallback '[] eff
 exitOnUnhandled = MessageCallback selectAnyMessage $ \msg ->
-  return (StopServer (ProcessError ("unhandled message " <> show msg)))
+  return (StopServer (ErrorInterrupt ("unhandled message " <> show msg)))
 
 -- | A 'fallbackHandler' that drops the left-over messages.
 --
@@ -464,13 +467,13 @@ instance
   toServerPids _ = asServer
 
 -- | Just a wrapper around a function that will be applied to the result of
--- a 'MessageCallback's 'StopServer' clause, or an 'InterruptReason' caught during
+-- a 'MessageCallback's 'StopServer' clause, or an 'Interrupt' caught during
 -- the execution of @receive@ or a 'MessageCallback'
 --
 -- @since 0.13.2
 data InterruptCallback eff where
    InterruptCallback ::
-     (InterruptReason -> Eff eff CallbackResult) -> InterruptCallback eff
+     (Interrupt 'Recoverable -> Eff eff (CallbackResult 'NoRecovery)) -> InterruptCallback eff
 
 instance Default (InterruptCallback eff) where
   def = stopServerOnInterrupt
@@ -479,4 +482,4 @@ instance Default (InterruptCallback eff) where
 --
 -- @since 0.13.2
 stopServerOnInterrupt :: forall eff . HasCallStack => InterruptCallback eff
-stopServerOnInterrupt = InterruptCallback (pure . StopServer)
+stopServerOnInterrupt = InterruptCallback (pure . StopServer . NotRecovered)

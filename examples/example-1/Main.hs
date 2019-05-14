@@ -83,11 +83,11 @@ testServerLoop = spawnApiServer
     me <- self
     logInfo (T.pack (show me ++ " Shouting: " ++ x))
     return AwaitNext
-  handleCallTest :: Api TestApi ('Synchronous r) -> (Eff (InterruptableProcess q) (Maybe r, CallbackResult) -> xxx) -> xxx
+  handleCallTest :: Api TestApi ('Synchronous r) -> (Eff (InterruptableProcess q) (Maybe r, CallbackResult 'Recoverable) -> xxx) -> xxx
   handleCallTest (SayHello "e1") k = k $ do
     me <- self
     logInfo (T.pack (show me ++ " raising an error"))
-    interrupt (ProcessError "No body loves me... :,(")
+    interrupt (ErrorInterrupt "No body loves me... :,(")
   handleCallTest (SayHello "e2") k = k $ do
     me <- self
     logInfo (T.pack (show me ++ " throwing a MyException "))
@@ -101,7 +101,7 @@ testServerLoop = spawnApiServer
   handleCallTest (SayHello "stop") k = k $ do
     me <- self
     logInfo (T.pack (show me ++ " stopping me"))
-    return (Just False, StopServer (ProcessError "test error"))
+    return (Just False, StopServer (ErrorInterrupt "test error"))
   handleCallTest (SayHello x) k = k $ do
     me <- self
     logInfo (T.pack (show me ++ " Got Hello: " ++ x))
@@ -109,13 +109,13 @@ testServerLoop = spawnApiServer
   handleCallTest Terminate k = k $ do
     me <- self
     logInfo (T.pack (show me ++ " exiting"))
-    pure (Just (), StopServer ProcessFinished)
+    pure (Just (), StopServer NormalExitRequested)
   handleCallTest (TerminateError msg) k = k $ do
     me <- self
     logInfo (T.pack (show me ++ " exiting with error: " ++ msg))
-    pure (Just (), StopServer (ProcessError msg))
+    pure (Just (), StopServer (ErrorInterrupt msg))
   handleTerminateTest = InterruptCallback $ \msg -> do
     me <- self
     logInfo (T.pack (show me ++ " is exiting: " ++ show msg))
     logProcessExit msg
-    pure (StopServer msg)
+    pure (StopServer (NotRecovered msg))

@@ -28,7 +28,7 @@ class (Typeable (GenServerState a), NFData (GenServerState a)) =>
     -> Eff (State (GenServerState a) ': eff) (ApiReply v)
   genServerInterrupt ::
        ('[Interrupts, Logs] <:: eff, SetMember Process (Process q) eff)
-    => InterruptReason
+    => Interrupt 'Recoverable
     -> Eff (State (GenServerState a) ': eff) ()
   genServerInfoCommand :: Api a ('Synchronous Text)
 
