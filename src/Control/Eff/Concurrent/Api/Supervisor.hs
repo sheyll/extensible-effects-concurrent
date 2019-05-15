@@ -208,8 +208,13 @@ startSupervisor supConfig = do
           k $ do
             (o, cPid) <- raise ((supConfig ^. supConfigSpawnFun) i)
             cMon <- monitor cPid
-            putChild i (MkChild o cPid cMon)
-            return (Just (Right o), AwaitNext)
+            mExisting <- lookupChildById i
+            case mExisting of
+              Nothing -> do
+                putChild i (MkChild o cPid cMon)
+                return (Just (Right o), AwaitNext)
+              Just existingChild ->
+                return (Just (Left (AlreadyStarted i (existingChild ^. childOutput))), AwaitNext)
     onMessage :: MessageCallback '[] (State (Children i o) ': InterruptableProcess e)
     onMessage = handleAnyMessages onInfo
       where
