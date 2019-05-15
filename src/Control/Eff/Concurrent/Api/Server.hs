@@ -1,3 +1,4 @@
+{-# LANGUAGE UndecidableInstances #-}
 -- | Support code to implement 'Api' _server_ processes.
 --
 -- @since 0.16.0
@@ -53,6 +54,7 @@ import           Data.Foldable
 import           Data.Kind
 import           Data.Proxy
 import           Data.Text as T
+import           Data.Type.Pretty
 import           GHC.Stack
 
 
@@ -61,7 +63,11 @@ import           GHC.Stack
 -- @since 0.13.2
 spawnApiServer
   :: forall api eff
-   . (ToServerPids api, HasCallStack)
+   . ( ToServerPids api
+     , HasCallStack
+     , Member Logs eff
+     , PrettyTypeShow (PrettyServerPids api)
+     )
   => MessageCallback api (InterruptableProcess eff)
   -> InterruptCallback (ConsProcess eff)
   -> Eff (InterruptableProcess eff) (ServerPids api)
@@ -73,7 +79,12 @@ spawnApiServer scb (InterruptCallback icb) = toServerPids (Proxy @api)
 -- @since 0.14.2
 spawnLinkApiServer
   :: forall api eff
-   . (ToServerPids api, HasCallStack)
+   . ( ToServerPids api
+     , HasCallStack
+     , Member Logs eff
+     , Typeable api
+     , PrettyTypeShow (PrettyServerPids api)
+     )
   => MessageCallback api (InterruptableProcess eff)
   -> InterruptCallback (ConsProcess eff)
   -> Eff (InterruptableProcess eff) (ServerPids api)
@@ -86,7 +97,11 @@ spawnLinkApiServer scb (InterruptCallback icb) = toServerPids (Proxy @api)
 -- @since 0.13.2
 spawnApiServerStateful
   :: forall api eff state
-   . (HasCallStack, ToServerPids api, NFData state)
+   . ( HasCallStack
+     , ToServerPids api
+     , NFData state
+     , PrettyTypeShow (PrettyServerPids api)
+     )
   => Eff (InterruptableProcess eff) state
   -> MessageCallback api (State state ': InterruptableProcess eff)
   -> InterruptCallback (State state ': ConsProcess eff)
@@ -124,6 +139,8 @@ spawnApiServerEffectful
      , ToServerPids api
      , Member Interrupts serverEff
      , SetMember Process (Process eff) serverEff
+     , Member Logs serverEff
+     , PrettyTypeShow (PrettyServerPids api)
      )
   => (forall b . Eff serverEff b -> Eff (InterruptableProcess eff) b)
   -> MessageCallback api serverEff
@@ -145,6 +162,8 @@ spawnLinkApiServerEffectful
      , ToServerPids api
      , Member Interrupts serverEff
      , SetMember Process (Process eff) serverEff
+     , Member Logs serverEff
+     , PrettyTypeShow (PrettyServerPids api)
      )
   => (forall b . Eff serverEff b -> Eff (InterruptableProcess eff) b)
   -> MessageCallback api serverEff
@@ -165,11 +184,14 @@ apiServerLoop
      , ToServerPids api
      , Member Interrupts serverEff
      , SetMember Process (Process eff) serverEff
+     , Member Logs serverEff
+     , PrettyTypeShow (PrettyServerPids api)
      )
   => MessageCallback api serverEff
   -> InterruptCallback serverEff
   -> Eff serverEff ()
-apiServerLoop (MessageCallback sel cb) (InterruptCallback intCb) =
+apiServerLoop (MessageCallback sel cb) (InterruptCallback intCb) = do
+  logInfo ("enter server loop: " <> pack (showPretty (Proxy @(PrettyServerPids api))))
   receiveSelectedLoop
     sel
     ( ( either
@@ -443,10 +465,12 @@ logUnhandledMessages = MessageCallback selectAnyMessage $ \msg -> do
 --
 -- @since 0.13.2
 class ToServerPids (t :: k) where
+  type PrettyServerPids t :: PrettyType
   type ServerPids t
   toServerPids :: proxy t -> ProcessId -> ServerPids t
 
 instance ToServerPids '[] where
+  type PrettyServerPids '[] = PutStr "*"
   type ServerPids '[] = ProcessId
   toServerPids _ = id
 
@@ -454,6 +478,7 @@ instance
   forall (api1 :: Type) (api2 :: [Type])
   . (ToServerPids api1, ToServerPids api2)
   => ToServerPids (api1 ': api2) where
+  type PrettyServerPids (api1 ': api2) = PrettyServerPids api1 <+> PrettyServerPids api2
   type ServerPids (api1 ': api2) = (ServerPids api1, ServerPids api2)
   toServerPids _ p =
     (toServerPids (Proxy @api1) p, toServerPids (Proxy @api2) p)
@@ -462,6 +487,7 @@ instance
   forall (api1 :: Type)
   . (ToServerPids api1)
   => ToServerPids api1 where
+  type PrettyServerPids api1 = ToPretty api1
   type ServerPids api1 = Server api1
   toServerPids _ = asServer
 

@@ -33,7 +33,10 @@
 module Control.Eff.Concurrent.Api.Supervisor
   ( Sup()
   , SpawnFun
-  , SpawnErr
+  , SupConfig(MkSupConfig)
+  , supConfigChildStopTimeout
+  , supConfigSpawnFun
+  , SpawnErr(AlreadyStarted)
   , startSupervisor
   , stopSupervisor
   , isSupervisorAlive
@@ -63,12 +66,42 @@ import qualified Data.Map as Map
 import Data.Maybe
 import Data.Text (Text, pack)
 import Data.Typeable
+import Data.Type.Pretty
 import GHC.Generics (Generic)
 import GHC.Stack
 import Control.Applicative ((<|>))
 
 -- * Supervisor Server API
 -- ** Types
+
+
+-- | A function that will spawn a child process.
+--
+-- The process-id returned from this function is kept private, but
+-- it is possible to return '(ProcessId, ProcessId)' for example.
+--
+-- The function is expected to return a value - usually a tuple of 'Server' values for
+-- the different aspects of a process, such as sending API requests, managing
+-- observers and receiving other auxiliary API messages.
+--
+-- @since 0.23.0
+type SpawnFun i e o = i -> Eff e (o, ProcessId)
+
+-- | Options that control the 'Sup i o' process.
+--
+-- This contains:
+--
+-- * a 'SpawnFun'
+-- * the 'Timeout' after requesting a normal child exit before brutally killing the child.
+--
+-- @since 0.23.0
+data SupConfig i e o =
+  MkSupConfig
+    { _supConfigSpawnFun         :: SpawnFun i e o
+    , _supConfigChildStopTimeout :: Timeout
+    }
+
+makeLenses ''SupConfig
 
 -- | 'Api' type for supervisor processes.
 --
@@ -100,21 +133,6 @@ instance (Typeable childId, Typeable spawnResult) => Show (Sup childId spawnResu
       . showsPrec 8 (_fromServer svr)
       )
 
-
--- | Spawn and monitor a new child process with the given id.
---
--- If another process with this ID already exists
---
--- The process-id returned from this function is kept private, but
--- it is possible to return '(ProcessId, ProcessId)' for example.
---
--- The function is expected to return a value - usually a tuple of 'Server' values for
--- the different aspects of a process, such as sending API requests, managing
--- observers and receiving other auxiliary API messages.
---
--- @since 0.23.0
-type SpawnFun i e o = i -> Eff e (o, ProcessId)
-
 -- | The 'Api' instance contains methods to start, stop and lookup a child
 -- process, as well as a diagnostic callback.
 --
@@ -125,6 +143,9 @@ data instance  Api (Sup i o) r where
         LookupC :: i -> Api (Sup i o) ('Synchronous (Maybe o))
         GetDiagnosticInfo :: Api (Sup i o) ('Synchronous Text)
     deriving Typeable
+
+type instance ToPretty (Sup i o) =
+  PrettySurrounded (PutStr "(") (PutStr ")") ("supervising" <:> ToPretty i <+> ToPretty o)
 
 instance (Show i) => Show (Api (Sup i o) ('Synchronous r)) where
   showsPrec d (StartC c) = showParen (d >= 10) (showString "StartC " . showsPrec 10 c)
@@ -144,10 +165,10 @@ instance (NFData i) => NFData (Api (Sup i o) ('Synchronous r)) where
 data SpawnErr i o
   = AlreadyStarted i
                    o
-  | StartFailed i
   deriving (Eq, Ord, Show, Typeable, Generic)
 
 instance (NFData i, NFData o) => NFData (SpawnErr i o)
+
 
 -- ** Functions
 -- | Start and link a new supervisor process with the given 'SpawnFun'unction.
@@ -155,11 +176,18 @@ instance (NFData i, NFData o) => NFData (SpawnErr i o)
 -- To spawn new child processes use 'spawnChild'.
 --
 -- @since 0.23.0
-startSupervisor ::
-     forall i e o . (HasCallStack, Member Logs e, Ord i, NFData i, NFData o, Typeable i, Typeable o, Show i, Show o, Lifted IO e)
-  => SpawnFun i (InterruptableProcess e) o
+startSupervisor
+  :: forall i e o
+  . ( HasCallStack
+    , Member Logs e
+    , Lifted IO e
+    , Ord i
+    , Tangible i
+    , Tangible o
+    )
+  => SupConfig i (InterruptableProcess e) o
   -> Eff (InterruptableProcess e) (Sup i o)
-startSupervisor childSpawner = do
+startSupervisor supConfig = do
   (sup, _supPid) <- spawnApiServerStateful initChildren (onRequest ^: onMessage) onInterrupt
   return (MkSup sup)
   where
@@ -176,7 +204,7 @@ startSupervisor childSpawner = do
         onCall (LookupC i) k = k ((, AwaitNext) . Just . fmap _childOutput <$> lookupChildById @i @o i)
         onCall (StartC i) k =
           k $ do
-            (o, cPid) <- raise (childSpawner i)
+            (o, cPid) <- raise ((supConfig ^. supConfigSpawnFun) i)
             cMon <- monitor cPid
             putChild i (MkChild o cPid cMon)
             return (Just (Right o), AwaitNext)
@@ -195,7 +223,7 @@ startSupervisor childSpawner = do
                   (debugSeverity, ExitNormally)
                 _ ->
                   (warningSeverity, interruptToExit (ErrorInterrupt ("supervisor interrupted: " <> show e)))
-        stopAllChildren @i @o
+        stopAllChildren @i @o (supConfig ^. supConfigChildStopTimeout)
         logWithSeverity logSev ("supervisor stopping: " <> pack (show e))
 
         pure (StopServer exitReason)
@@ -208,14 +236,12 @@ startSupervisor childSpawner = do
 stopSupervisor
   :: ( HasCallStack
      , Member Interrupts e
-     , Member Logs e
-     , Typeable i
-     , Typeable o
-     , NFData i
-     , NFData o
-     , Show i
-     , Show o
      , SetMember Process (Process q0) e
+     , Member Logs e
+     , Lifted IO e
+     , Ord i
+     , Tangible i
+     , Tangible o
      )
   => Sup i o
   -> Eff e ()
@@ -272,12 +298,9 @@ spawnChild ::
      ( HasCallStack
      , Member Interrupts e
      , Member Logs e
-     , Typeable i
-     , Typeable o
-     , NFData i
-     , NFData o
-     , Show i
-     , Show o
+     , Ord i
+     , Tangible i
+     , Tangible o
      , SetMember Process (Process q0) e
      )
   => Sup i o
@@ -293,12 +316,9 @@ lookupChild ::
      ( HasCallStack
      , Member Interrupts e
      , Member Logs e
-     , Typeable i
-     , Typeable o
-     , NFData i
-     , NFData o
-     , Show i
-     , Show o
+     , Ord i
+     , Tangible i
+     , Tangible o
      , SetMember Process (Process q0) e
      )
   => Sup i o
@@ -318,13 +338,10 @@ withChild ::
      , Member Interrupts e
      , Member Logs e
      , SetMember Process (Process q0) e
-     , Typeable o
-     , NFData o
-     , Show o
      , Typeable e
-     , Typeable i
-     , NFData i
-     , Show i
+     , Ord i
+     , Tangible i
+     , Tangible o
      )
   => Sup i o
   -> i
@@ -341,12 +358,9 @@ withChild (MkSup svr) i f =
 --
 -- @since 0.23.0
 getDiagnosticInfo
-  :: ( Typeable i
-     , Typeable o
-     , Show i
-     , Show o
-     , NFData i
-     , NFData o
+  :: ( Ord i
+     , Tangible i
+     , Tangible o
      , Typeable e
      , HasCallStack
      , Member Interrupts e
@@ -360,12 +374,9 @@ getDiagnosticInfo (MkSup s) = call s GetDiagnosticInfo
 
 stopChild
   :: forall i o e q0 .
-     ( Typeable i
-     , Typeable o
-     , Show i
-     , Show o
-     , NFData i
-     , NFData o
+     ( Ord i
+     , Tangible i
+     , Tangible o
      , HasCallStack
      , SetMember Process (Process q0) e
      , Member Interrupts e
@@ -376,11 +387,12 @@ stopChild
      )
   => i
   -> Child o
+  -> Timeout
   -> Eff e ()
-stopChild cId c =
+stopChild cId c stopTimeout =
       do
         sup <- MkSup . asServer @(Sup i o) <$> self
-        t <- startTimer stopChildTimeout
+        t <- startTimer stopTimeout
         sendInterrupt (c^.childProcessId) NormalExitRequested
         r1 <- receiveSelectedMessage (   Right <$> selectProcessDown (c^.childMonitoring)
                                      <|> Left  <$> selectTimerElapsed t )
@@ -398,13 +410,9 @@ stopChild cId c =
 
 stopAllChildren
   :: forall i o e q0 .
-     ( Typeable i
-     , Typeable o
-     , Ord i
-     , Show i
-     , Show o
-     , NFData i
-     , NFData o
+     ( Ord i
+     , Tangible i
+     , Tangible o
      , HasCallStack
      , SetMember Process (Process q0) e
      , Lifted IO e
@@ -412,13 +420,10 @@ stopAllChildren
      , Member Logs e
      , Member (State (Children i o)) e
      )
-  => Eff e ()
-stopAllChildren = removeAllChildren @i @o >>= pure . Map.assocs >>= traverse_ xxx
+  => Timeout -> Eff e ()
+stopAllChildren stopTimeout = removeAllChildren @i @o >>= pure . Map.assocs >>= traverse_ xxx
   where
-    xxx (cId, c) = provideInterrupts (stopChild cId c) >>= either crash return
+    xxx (cId, c) = provideInterrupts (stopChild cId c stopTimeout) >>= either crash return
       where
         crash e = do
           logError (pack (show e) <> " while stopping child: " <> pack (show cId) <> " " <> pack (show c))
-
-stopChildTimeout :: Timeout
-stopChildTimeout = TimeoutMicros 5000000

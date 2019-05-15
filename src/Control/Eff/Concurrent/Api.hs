@@ -1,3 +1,4 @@
+{-# LANGUAGE UndecidableInstances #-}
 -- | This module contains a mechanism to specify what kind of messages (aka
 -- /requests/) a 'Server' ('Process') can handle, and if the caller blocks and
 -- waits for an answer, which the server process provides.
@@ -17,6 +18,7 @@
 module Control.Eff.Concurrent.Api
   ( Api
   , Synchronicity(..)
+  , Tangible
   , Server(..)
   , fromServer
   , proxyAsServer
@@ -24,13 +26,12 @@ module Control.Eff.Concurrent.Api
   )
 where
 
+import           Control.DeepSeq                ( NFData )
 import           Control.Eff.Concurrent.Process
 import           Control.Lens
 import           Data.Kind
-import           Data.Typeable                  ( Typeable
-                                                , typeRep
-                                                )
-import Control.DeepSeq (NFData)
+import           Data.Typeable                  ( Typeable )
+import           Data.Type.Pretty
 
 -- | This data family defines an API, a communication interface description
 -- between at least two processes. The processes act as __servers__ or
@@ -43,6 +44,9 @@ import Control.DeepSeq (NFData)
 -- @Api@ instance is 'Synchronous', i.e. returns a result and blocks the caller
 -- or if it is 'Asynchronous'
 --
+-- Also, for better logging, the an instance of 'ToPretty' for the 'Api' index
+-- type must be given.
+--
 -- Example:
 --
 -- >
@@ -52,11 +56,25 @@ import Control.DeepSeq (NFData)
 -- >   RentBook  :: BookId   -> Api BookShop ('Synchronous (Either RentalError RentalId))
 -- >   BringBack :: RentalId -> Api BookShop 'Asynchronous
 -- >
+-- > type instance ToPretty BookShop = PutStr "book shop"
+-- >
 -- > type BookId = Int
 -- > type RentalId = Int
 -- > type RentalError = String
 -- >
 data family Api (api :: Type) (reply :: Synchronicity)
+
+type instance ToPretty (Api x y) = PrettySurrounded (PutStr "<") (PutStr ">") ("API" <:> ToPretty x <+> ToPretty y)
+
+-- | A set of constraints for types that can evaluated via 'NFData', compared via 'Ord' and presented
+-- dynamically via 'Typeable', and represented both as values
+-- via 'Show', as well as on the type level via 'ToPretty'.
+type Tangible i =
+  ( NFData i
+  , Typeable i
+  , Show i
+  , PrettyTypeShow (ToPretty i)
+  )
 
 -- | The (promoted) constructors of this type specify (at the type level) the
 -- reply behavior of a specific constructor of an @Api@ instance.
@@ -72,9 +90,9 @@ data Synchronicity =
 newtype Server api = Server { _fromServer :: ProcessId }
   deriving (Eq,Ord,Typeable, NFData)
 
-instance Typeable api => Show (Server api) where
+instance (PrettyTypeShow (ToPretty api)) => Show (Server api) where
   showsPrec d s@(Server c) =
-    showParen (d >= 10) (showsPrec 11 (typeRep s) . showsPrec 11 c)
+    showParen (d >= 10) (showsPrec 11 (showPretty s) . showsPrec 11 c)
 
 makeLenses ''Server
 

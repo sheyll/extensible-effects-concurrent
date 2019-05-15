@@ -44,6 +44,7 @@ import           Control.Eff.Concurrent.Process
 import           Control.Monad
 import           Data.Foldable
 import           Data.Typeable                  ( Typeable )
+import           Data.Type.Pretty
 import           Control.DeepSeq
 import           System.Timeout
 
@@ -132,7 +133,11 @@ submit (SchedulerSession qVar) theAction = do
 -- | Combination of 'submit' and 'cast'.
 submitCast
   :: forall o r
-   . (SetMember Lift (Lift IO) r, Typeable o, NFData (Api o 'Asynchronous), Member Interrupts r)
+   . ( SetMember Lift (Lift IO) r
+     , Typeable o
+     , PrettyTypeShow (ToPretty o)
+     , NFData (Api o 'Asynchronous)
+     , Member Interrupts r)
   => SchedulerSession r
   -> Server o
   -> Api o 'Asynchronous
@@ -144,6 +149,7 @@ submitCall
   :: forall o q r
    . ( SetMember Lift (Lift IO) r
      , Typeable o
+     , PrettyTypeShow (ToPretty o)
      , Typeable q
      , NFData q
      , Show q

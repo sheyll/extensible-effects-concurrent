@@ -24,6 +24,7 @@ import           Control.Eff.Concurrent.Process
 import           Control.Eff.Concurrent.Process.Timer
 import           Control.Eff.Log
 import           Data.Typeable                  ( Typeable )
+import           Data.Type.Pretty
 import           Control.DeepSeq
 import           GHC.Stack
 
@@ -37,6 +38,7 @@ cast
   :: forall r q o
    . ( HasCallStack
      , SetMember Process (Process q) r
+     , PrettyTypeShow (ToPretty o)
      , Member Interrupts r
      , Typeable o
      , Typeable (Api o 'Asynchronous)
@@ -58,6 +60,7 @@ call
    . ( SetMember Process (Process q) r
      , Member Interrupts r
      , Typeable api
+     , PrettyTypeShow (ToPretty api)
      , Typeable (Api api ( 'Synchronous result))
      , NFData (Api api ( 'Synchronous result))
      , Typeable result
@@ -111,6 +114,7 @@ callWithTimeout
      , Lifted IO q
      , Lifted IO r
      , HasCallStack
+     , PrettyTypeShow (ToPretty api)
      )
   => Server api
   -> Api api ( 'Synchronous result)
@@ -148,6 +152,7 @@ callWithTimeout serverP@(Server pidInternal) req timeOut = do
 -- 'Server'.
 type ServesApi o r q =
   ( Typeable o
+  , PrettyTypeShow (ToPretty o)
   , SetMember Process (Process q) r
   , Member (ServerReader o) r
   )

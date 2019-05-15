@@ -166,6 +166,7 @@ import           Control.Eff.Concurrent.Process.Timer
 import           Control.Eff.Concurrent.Api     ( Api
                                                 , Synchronicity(..)
                                                 , Server(..)
+                                                , Tangible
                                                 , fromServer
                                                 , proxyAsServer
                                                 , asServer

@@ -9,6 +9,7 @@ import           Control.Eff.Concurrent
 import qualified Control.Exception             as Exc
 import qualified Data.Text as T
 import           Control.DeepSeq
+import           Data.Type.Pretty
 
 data TestApi
   deriving Typeable

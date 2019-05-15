@@ -20,6 +20,7 @@ module Control.Eff.Concurrent.Api.Observer
   )
 where
 
+import           Control.DeepSeq               (NFData(rnf))
 import           Control.Eff
 import           Control.Eff.Concurrent.Process
 import           Control.Eff.Concurrent.Api
@@ -36,8 +37,8 @@ import           Data.Set                       ( Set )
 import qualified Data.Set                      as Set
 import           Data.Text                      ( pack )
 import           Data.Typeable                  ( typeRep )
+import           Data.Type.Pretty
 import           GHC.Stack
-import Control.DeepSeq (NFData(rnf))
 
 -- * Observers
 
@@ -49,8 +50,11 @@ import Control.DeepSeq (NFData(rnf))
 -- @since 0.16.0
 data Observer o where
   Observer
-    :: (Show (Server p), Typeable p, Typeable o, NFData o, NFData (Api p 'Asynchronous))
+    :: (PrettyTypeShow (ToPretty p), Show (Server p), Typeable p, Typeable o, NFData o, NFData (Api p 'Asynchronous))
     => (o -> Maybe (Api p 'Asynchronous)) -> Server p -> Observer o
+
+type instance ToPretty (Observer o) =
+  PrettyParens ("observing" <:> ToPretty o)
 
 instance (NFData o) => NFData (Observer o) where
   rnf (Observer k s) = rnf k `seq` rnf s
@@ -80,6 +84,7 @@ registerObserver
      , Member Interrupts r
      , Typeable o
      , NFData o
+     , PrettyTypeShow (ToPretty o)
      )
   => Observer o
   -> Server (ObserverRegistry o)
@@ -96,6 +101,7 @@ forgetObserver
      , Member Interrupts r
      , Typeable o
      , NFData o
+     , PrettyTypeShow (ToPretty o)
      )
   => Observer o
   -> Server (ObserverRegistry o)
@@ -137,7 +143,9 @@ handleObservations k = handleCasts
 -- | Use a 'Server' as an 'Observer' for 'handleObservations'.
 --
 -- @since 0.16.0
-toObserver :: (NFData o, Typeable o, NFData (Api (Observer o) 'Asynchronous)) => Server (Observer o) -> Observer o
+toObserver
+  :: (NFData o, Typeable o, NFData (Api (Observer o) 'Asynchronous), PrettyTypeShow (ToPretty o))
+  => Server (Observer o) -> Observer o
 toObserver = toObserverFor Observed
 
 -- | Create an 'Observer' that conditionally accepts all observations of the
@@ -146,7 +154,7 @@ toObserver = toObserverFor Observed
 --
 -- @since 0.16.0
 toObserverFor
-  :: (Typeable a, NFData (Api a 'Asynchronous), Typeable o, NFData o)
+  :: (Typeable a, PrettyTypeShow (ToPretty a), NFData (Api a 'Asynchronous), Typeable o, NFData o)
   => (o -> Api a 'Asynchronous)
   -> Server a
   -> Observer o
@@ -159,6 +167,9 @@ toObserverFor wrapper = Observer (Just . wrapper)
 --
 -- @since 0.16.0
 data ObserverRegistry o
+
+type instance ToPretty (ObserverRegistry o) =
+  PrettyParens ("observer registry" <:> ToPretty o)
 
 -- | Api for managing observers. This can be added to any server for any number of different observation types.
 -- The functions 'manageObservers' and 'handleObserverRegistration' are used to include observer handling;
@@ -241,6 +252,7 @@ observers = iso _observers Observers
 observed
   :: forall o r q
    . ( SetMember Process (Process q) r
+     , PrettyTypeShow (ToPretty o)
      , Member (ObserverState o) r
      , Member Interrupts r
    --  , NFData (Api o 'Asynchronous)

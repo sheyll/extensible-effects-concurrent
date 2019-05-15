@@ -700,7 +700,7 @@ spawnNewProcess mLinkedParent mfa = do
    where
     exitReasonFromException exc = case Safe.fromException exc of
       Just Async.AsyncCancelled -> ExitProcessCancelled
-      Nothing -> ExitUnhandledError (  "at: "
+      Nothing -> ExitUnhandledError (  "runtime exception: "
                                     <> T.pack (prettyCallStack callStack)
                                     <> " "
                                     <> T.pack (Safe.displayException exc)

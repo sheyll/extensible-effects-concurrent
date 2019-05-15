@@ -23,8 +23,8 @@ import           Control.Eff.Reader.Strict
 import           Control.Exception.Safe        as Safe
 import           Control.Monad.IO.Class
 import           Control.Monad                  ( unless )
-import           Data.Typeable
 import qualified Data.Text                     as T
+import           Data.Typeable
 import           GHC.Stack
 
 -- | Contains a 'TBQueue' capturing observations.
@@ -136,9 +136,7 @@ withObservationQueue queueLimit e = do
 -- @since 0.18.0
 spawnLinkObservationQueueWriter
   :: forall o q
-   . ( Typeable o
-     , Show o
-     , NFData o
+   . ( Tangible o
      , NFData (Api (Observer o) 'Asynchronous)
      , Member Logs q
      , Lifted IO q
