@@ -481,7 +481,7 @@ instance
   forall (api1 :: Type) (api2 :: [Type])
   . (ToServerPids api1, ToServerPids api2)
   => ToServerPids (api1 ': api2) where
-  type PrettyServerPids (api1 ': api2) = PrettyServerPids api1 <+> PrettyServerPids api2
+  type PrettyServerPids (api1 ': api2) = PrettyServerPids api1 <++> PutStr ", " <++> PrettyServerPids api2
   type ServerPids (api1 ': api2) = (ServerPids api1, ServerPids api2)
   toServerPids _ p =
     (toServerPids (Proxy @api1) p, toServerPids (Proxy @api2) p)

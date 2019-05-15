@@ -125,15 +125,15 @@ newtype Sup childId spawnResult =
 
 instance (PrettyTypeShow (ToPretty childId), PrettyTypeShow (ToPretty spawnResult))
   => Show (Sup childId spawnResult) where
-  showsPrec d (MkSup svr) =
-    showParen (d >= 10)
-      ( showString "supervisor "
-      . showString (showPretty (Proxy @childId))
-      . showChar ' '
-      . showString (showPretty (Proxy @spawnResult))
-      . showChar ' '
-      . showsPrec 8 (_fromServer svr)
-      )
+  showsPrec d (MkSup svr) = showsPrec d svr
+--    showParen (d >= 10)
+--      ( showString "supervisor "
+--      . showString (showPretty (Proxy @childId))
+--      . showString " => "
+--      . showString (showPretty (Proxy @spawnResult))
+--      . showChar ' '
+--      . showsPrec 8 (_fromServer svr)
+--      )
 
 -- | The 'Api' instance contains methods to start, stop and lookup a child
 -- process, as well as a diagnostic callback.
@@ -147,7 +147,7 @@ data instance  Api (Sup i o) r where
     deriving Typeable
 
 type instance ToPretty (Sup i o) =
-  PrettySurrounded (PutStr "(") (PutStr ")") ("supervising" <:> ToPretty i <+> PutStr "=>" <+> ToPretty o)
+  PrettySurrounded (PutStr "(") (PutStr ")") ("supervisor for children with id" <:> ToPretty i <+> PutStr "and result:" <+> ToPretty o)
 
 instance (Show i) => Show (Api (Sup i o) ('Synchronous r)) where
   showsPrec d (StartC c) = showParen (d >= 10) (showString "StartC " . showsPrec 10 c)
