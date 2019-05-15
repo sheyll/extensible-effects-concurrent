@@ -1,8 +1,6 @@
 module ProcessBehaviourTestCases where
 
-import           Data.List                      ( sort )
-import           Data.Foldable                  ( traverse_ )
-import           Data.Typeable
+import           Common
 import           Control.Exception
 import           Control.Concurrent
 import           Control.Concurrent.STM
@@ -23,13 +21,16 @@ import           Control.Eff.LogWriter.Console
 import           Control.Eff.LogWriter.IO
 import           Control.Eff.Loop
 import           Control.Monad
-import           Test.Tasty
-import           Test.Tasty.HUnit
-import           Common
 import           Control.Applicative
-import           Data.Void
 import           Control.Lens (view)
 import           Control.DeepSeq
+import           Data.List                      ( sort )
+import           Data.Foldable                  ( traverse_ )
+import           Data.Typeable
+import           Data.Type.Pretty
+import           Data.Void
+import           Test.Tasty
+import           Test.Tasty.HUnit
 import GHC.Generics (Generic)
 
 
@@ -84,6 +85,8 @@ allTests schedulerFactory = localOption
 
 data ReturnToSender
   deriving Typeable
+
+type instance ToPretty ReturnToSender = PutStr "ReturnToSender"
 
 data instance Api ReturnToSender r where
   ReturnToSender :: ProcessId -> String -> Api ReturnToSender ('Synchronous Bool)

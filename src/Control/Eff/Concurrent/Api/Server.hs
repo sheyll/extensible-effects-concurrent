@@ -191,7 +191,10 @@ apiServerLoop
   -> InterruptCallback serverEff
   -> Eff serverEff ()
 apiServerLoop (MessageCallback sel cb) (InterruptCallback intCb) = do
-  logInfo ("enter server loop: " <> pack (showPretty (Proxy @(PrettyServerPids api))))
+  logInfo ( "enter server loop: "
+          <> pack (showPretty (Proxy @(PrettySurrounded (PutStr "[") (PutStr "]")
+                                (PrettyServerPids api))))
+          )
   receiveSelectedLoop
     sel
     ( ( either
@@ -470,7 +473,7 @@ class ToServerPids (t :: k) where
   toServerPids :: proxy t -> ProcessId -> ServerPids t
 
 instance ToServerPids '[] where
-  type PrettyServerPids '[] = PutStr "*"
+  type PrettyServerPids '[] = PutStr "any message"
   type ServerPids '[] = ProcessId
   toServerPids _ = id
 

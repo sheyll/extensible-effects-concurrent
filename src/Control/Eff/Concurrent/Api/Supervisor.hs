@@ -1,3 +1,4 @@
+{-# LANGUAGE UndecidableInstances #-}
 -- | A process supervisor spawns and monitors child processes.
 --
 -- The child processes are mapped to symbolic identifier values: Child-IDs.
@@ -122,13 +123,14 @@ newtype Sup childId spawnResult =
   MkSup (Server (Sup childId spawnResult))
   deriving (Ord, Eq, Typeable, NFData)
 
-instance (Typeable childId, Typeable spawnResult) => Show (Sup childId spawnResult) where
+instance (PrettyTypeShow (ToPretty childId), PrettyTypeShow (ToPretty spawnResult))
+  => Show (Sup childId spawnResult) where
   showsPrec d (MkSup svr) =
     showParen (d >= 10)
       ( showString "supervisor "
-      . showsTypeRep (typeRep (Proxy @childId))
+      . showString (showPretty (Proxy @childId))
       . showChar ' '
-      . showsTypeRep (typeRep (Proxy @spawnResult))
+      . showString (showPretty (Proxy @spawnResult))
       . showChar ' '
       . showsPrec 8 (_fromServer svr)
       )
@@ -145,7 +147,7 @@ data instance  Api (Sup i o) r where
     deriving Typeable
 
 type instance ToPretty (Sup i o) =
-  PrettySurrounded (PutStr "(") (PutStr ")") ("supervising" <:> ToPretty i <+> ToPretty o)
+  PrettySurrounded (PutStr "(") (PutStr ")") ("supervising" <:> ToPretty i <+> PutStr "=>" <+> ToPretty o)
 
 instance (Show i) => Show (Api (Sup i o) ('Synchronous r)) where
   showsPrec d (StartC c) = showParen (d >= 10) (showString "StartC " . showsPrec 10 c)
@@ -406,7 +408,7 @@ stopChild cId c stopTimeout =
                   ("child did not shut down in time and was terminated by the "
                     ++ show sup)))
           Right downMsg ->
-            logInfo ("child "<>pack(show (c^.childOutput)) <>" terminated: " <> pack (show (downReason downMsg)))
+            logInfo ("child "<> pack(show (c^.childOutput)) <>" terminated: " <> pack (show (downReason downMsg)))
 
 stopAllChildren
   :: forall i o e q0 .

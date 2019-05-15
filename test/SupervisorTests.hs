@@ -9,7 +9,7 @@ import Control.Eff.Concurrent
 import Control.Eff.Concurrent.Api.Supervisor as Sup
 import Control.Eff.Concurrent.Process.ForkIOScheduler as Scheduler
 import Control.Eff.Concurrent.Process.Timer
-import Data.Either (fromRight)
+import Data.Either (fromRight, isLeft)
 import Data.Maybe (fromMaybe)
 import Data.Text (pack)
 import Data.Typeable (Typeable)
@@ -125,7 +125,7 @@ test_Supervisor =
                               show childMon) of
           Right (supER, childER) -> do
             lift (assertEqual "bad supervisor exit reason" (SomeExitReason ExitNormally) supER)
-            lift (assertEqual "bad child exit reason" (SomeExitReason ExitNormally) childER)
+            lift (assertBool "bad child exit reason" (isLeft (fromSomeExitReason childER)))
           Left x -> lift (assertFailure x)
     , runTestCase "When a supervisor is requested to start two children with the same id, an already started error is returned" $ do
         sup <- Sup.startSupervisor (MkSupConfig (spawnTestApiProcess ExitWhenRequested) (TimeoutMicros 50000))

@@ -91,8 +91,10 @@ newtype Server api = Server { _fromServer :: ProcessId }
   deriving (Eq,Ord,Typeable, NFData)
 
 instance (PrettyTypeShow (ToPretty api)) => Show (Server api) where
-  showsPrec d s@(Server c) =
-    showParen (d >= 10) (showsPrec 11 (showPretty s) . showsPrec 11 c)
+  showsPrec _ s@(Server c) =
+    showParen True (showString (showPretty s) .  showsPrec 10 c)
+
+type instance ToPretty (Server a) = PrettyParens ("server" <:> ToPretty a)
 
 makeLenses ''Server
 

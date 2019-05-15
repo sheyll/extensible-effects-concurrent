@@ -11,9 +11,11 @@ import           Test.Tasty                    hiding (Timeout)
 import           Test.Tasty.HUnit
 import           Common
 import           Data.Typeable                 hiding ( cast )
+import           Data.Type.Pretty
 import           Control.DeepSeq
 
 data TestServer deriving Typeable
+type instance ToPretty TestServer = PutStr "test"
 
 data instance Api TestServer x where
   TestGetStringLength :: String -> Api TestServer ('Synchronous Int)
