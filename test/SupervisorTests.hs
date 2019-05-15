@@ -13,6 +13,7 @@ import Data.Either (fromRight)
 import Data.Maybe (fromMaybe)
 import Data.Text (pack)
 import Data.Typeable (Typeable)
+import Data.Type.Pretty
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -202,6 +203,8 @@ spawnTestApiProcess testMode tId =
 
 data TestApi
   deriving (Typeable)
+
+type instance ToPretty TestApi = PutStr "test"
 
 data instance  Api TestApi x where
         TestGetStringLength :: String -> Api TestApi ('Synchronous Int)

@@ -9,6 +9,7 @@ import           Control.Monad
 import           Data.Foldable
 import           Control.Concurrent
 import           Control.DeepSeq
+import           Data.Type.Pretty
 
 main :: IO ()
 main = defaultMain (void counterExample)
@@ -16,6 +17,8 @@ main = defaultMain (void counterExample)
 -- * First API
 
 data Counter deriving Typeable
+
+type instance ToPretty Counter = PutStr "counter"
 
 data instance Api Counter x where
   Inc :: Api Counter 'Asynchronous
@@ -58,6 +61,8 @@ counterExample = do
 
 data SupiDupi deriving Typeable
 
+type instance ToPretty SupiDupi = PutStr "supi dupi"
+
 data instance Api SupiDupi r where
   Whoopediedoo :: Bool -> Api SupiDupi ('Synchronous (Maybe ()))
   deriving Typeable
@@ -67,6 +72,8 @@ instance NFData (Api SupiDupi r) where
 
 newtype CounterChanged = CounterChanged Integer
   deriving (Show, Typeable, NFData)
+
+type instance ToPretty CounterChanged = PutStr "counter changed"
 
 spawnCounter
   :: (Member Logs q)

@@ -14,6 +14,8 @@ import           Data.Type.Pretty
 data TestApi
   deriving Typeable
 
+type instance ToPretty TestApi = PutStr "test"
+
 data instance Api TestApi x where
   SayHello :: String -> Api TestApi ('Synchronous Bool)
   Shout :: String -> Api TestApi 'Asynchronous

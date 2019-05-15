@@ -32,6 +32,7 @@ import           Control.Lens (view)
 import           Control.DeepSeq
 import GHC.Generics (Generic)
 
+
 testInterruptReason :: Interrupt 'Recoverable
 testInterruptReason = ErrorInterrupt "test interrupt"
 
