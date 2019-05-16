@@ -64,7 +64,8 @@ import           Data.Type.Pretty
 -- >
 data family Api (api :: Type) (reply :: Synchronicity)
 
-type instance ToPretty (Api x y) = PrettySurrounded (PutStr "<") (PutStr ">") ("API" <:> ToPretty x <+> ToPretty y)
+type instance ToPretty (Api x y) =
+  PrettySurrounded (PutStr "<") (PutStr ">") ("API" <:> ToPretty x <+> ToPretty y)
 
 -- | A set of constraints for types that can evaluated via 'NFData', compared via 'Ord' and presented
 -- dynamically via 'Typeable', and represented both as values
@@ -91,10 +92,9 @@ newtype Server api = Server { _fromServer :: ProcessId }
   deriving (Eq,Ord,Typeable, NFData)
 
 instance (PrettyTypeShow (ToPretty api)) => Show (Server api) where
-  showsPrec _ s@(Server c) =
-    showParen True (showString (showPretty s) .  showsPrec 10 c)
+  showsPrec _ s@(Server c) = showString (showPretty s) . showsPrec 10 c
 
-type instance ToPretty (Server a) = PrettyParens ("server" <:> ToPretty a)
+type instance ToPretty (Server a) = ToPretty a <+> PutStr "server"
 
 makeLenses ''Server
 

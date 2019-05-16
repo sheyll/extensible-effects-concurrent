@@ -44,6 +44,8 @@ module Control.Eff.Concurrent.Api.Supervisor
   , monitorSupervisor
   , getDiagnosticInfo
   , spawnChild
+  , lookupChild
+  , stopChild
   ) where
 
 import Control.DeepSeq (NFData(rnf))
@@ -126,14 +128,6 @@ newtype Sup childId spawnResult =
 instance (PrettyTypeShow (ToPretty childId), PrettyTypeShow (ToPretty spawnResult))
   => Show (Sup childId spawnResult) where
   showsPrec d (MkSup svr) = showsPrec d svr
---    showParen (d >= 10)
---      ( showString "supervisor "
---      . showString (showPretty (Proxy @childId))
---      . showString " => "
---      . showString (showPretty (Proxy @spawnResult))
---      . showChar ' '
---      . showsPrec 8 (_fromServer svr)
---      )
 
 -- | The 'Api' instance contains methods to start, stop and lookup a child
 -- process, as well as a diagnostic callback.
@@ -141,23 +135,23 @@ instance (PrettyTypeShow (ToPretty childId), PrettyTypeShow (ToPretty spawnResul
 -- @since 0.23.0
 data instance  Api (Sup i o) r where
         StartC :: i -> Api (Sup i o) ('Synchronous (Either (SpawnErr i o) o))
-        StopC :: i -> Api (Sup i o) ('Synchronous (Maybe ()))
+        StopC :: i -> Timeout -> Api (Sup i o) ('Synchronous Bool)
         LookupC :: i -> Api (Sup i o) ('Synchronous (Maybe o))
         GetDiagnosticInfo :: Api (Sup i o) ('Synchronous Text)
     deriving Typeable
 
 type instance ToPretty (Sup i o) =
-  PrettySurrounded (PutStr "(") (PutStr ")") ("supervisor for children with id" <:> ToPretty i <+> PutStr "and result:" <+> ToPretty o)
+    PutStr "supervisor{" <++> ToPretty i <+> PutStr "=>" <+> ToPretty o <++> PutStr "}"
 
 instance (Show i) => Show (Api (Sup i o) ('Synchronous r)) where
   showsPrec d (StartC c) = showParen (d >= 10) (showString "StartC " . showsPrec 10 c)
-  showsPrec d (StopC c) = showParen (d >= 10) (showString "StopC " . showsPrec 10 c)
+  showsPrec d (StopC c t) = showParen (d >= 10) (showString "StopC " . showsPrec 10 c . showChar ' ' . showsPrec 10 t)
   showsPrec d (LookupC c) = showParen (d >= 10) (showString "LookupC " . showsPrec 10 c)
   showsPrec _ GetDiagnosticInfo = showString "GetDiagnosticInfo"
 
 instance (NFData i) => NFData (Api (Sup i o) ('Synchronous r)) where
   rnf (StartC ci) = rnf ci
-  rnf (StopC ci) = rnf ci
+  rnf (StopC ci t) = rnf ci `seq` rnf t
   rnf (LookupC ci) = rnf ci
   rnf GetDiagnosticInfo = ()
 
@@ -204,6 +198,16 @@ startSupervisor supConfig = do
           -> st
         onCall GetDiagnosticInfo k = k ((, AwaitNext) . Just . pack . show <$> getChildren @i @o)
         onCall (LookupC i) k = k ((, AwaitNext) . Just . fmap _childOutput <$> lookupChildById @i @o i)
+        onCall (StopC i t) k =
+          k $ do
+            mExisting <- lookupAndRemove @i @o i
+            case mExisting of
+              Nothing -> do
+                return (Just False, AwaitNext)
+              Just existingChild -> do
+                stopAndRemoveChild i existingChild t
+                return (Just True, AwaitNext)
+
         onCall (StartC i) k =
           k $ do
             (o, cPid) <- raise ((supConfig ^. supConfigSpawnFun) i)
@@ -361,6 +365,26 @@ withChild (MkSup svr) i f =
         pure Nothing)
     (fmap Just . f)
 
+-- | Stop a child process, and block until the child has exited.
+--
+-- Return 'True' if a process with that ID was found, 'False' if no process
+-- with the given ID was running.
+--
+-- @since 0.23.0
+stopChild ::
+     ( HasCallStack
+     , Member Interrupts e
+     , Member Logs e
+     , Ord i
+     , Tangible i
+     , Tangible o
+     , SetMember Process (Process q0) e
+     )
+  => Sup i o
+  -> i
+  -> Eff e Bool
+stopChild (MkSup svr) cId = call svr (StopC cId (TimeoutMicros 4000000))
+
 -- | Return a 'Text' describing the current state of the supervisor.
 --
 -- @since 0.23.0
@@ -379,7 +403,7 @@ getDiagnosticInfo (MkSup s) = call s GetDiagnosticInfo
 
 -- Internal Functions
 
-stopChild
+stopAndRemoveChild
   :: forall i o e q0 .
      ( Ord i
      , Tangible i
@@ -396,7 +420,7 @@ stopChild
   -> Child o
   -> Timeout
   -> Eff e ()
-stopChild cId c stopTimeout =
+stopAndRemoveChild cId c stopTimeout =
       do
         sup <- MkSup . asServer @(Sup i o) <$> self
         t <- startTimer stopTimeout
@@ -430,7 +454,7 @@ stopAllChildren
   => Timeout -> Eff e ()
 stopAllChildren stopTimeout = removeAllChildren @i @o >>= pure . Map.assocs >>= traverse_ xxx
   where
-    xxx (cId, c) = provideInterrupts (stopChild cId c stopTimeout) >>= either crash return
+    xxx (cId, c) = provideInterrupts (stopAndRemoveChild cId c stopTimeout) >>= either crash return
       where
         crash e = do
           logError (pack (show e) <> " while stopping child: " <> pack (show cId) <> " " <> pack (show c))
