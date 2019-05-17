@@ -3,32 +3,48 @@
 --
 -- The child processes are mapped to symbolic identifier values: Child-IDs.
 --
--- Opposed to /'ProcessId's/ these child IDs remain consistent between child
--- restarts.
+-- This is the barest, most minimal version of a supervisor. Children
+-- can be started, but not restarted.
 --
--- A supervisor only knows how to spawn a single kind of child process.
+-- Children can efficiently be looked-up by an id-value, and when
+-- the supervisor is shutdown, all children will be shutdown these
+-- are actually all the features of this supervisor implementation.
 --
--- A supervisor is stopped and will exit through 'stopSupervisor'.
--- When a supervisor exists, all child processes are exited, too.
+-- Also, this minimalist supervisor only knows how to spawn a
+-- single kind of child process.
 --
--- When a supervisor spawns a new child process, it expects the child process
--- to return a 'ProcessId'.
--- The supervisor will 'monitor' the child process, and react when the child exits.
+-- When a supervisor spawns a new child process, it expects the
+-- child process to return a 'ProcessId'. The supervisor will
+-- 'monitor' the child process.
 --
--- This is in stark contrast to how Erlang/OTP handles this; In the OTP Supervisor, the child
--- has to link to the parent. This allows the child spec to be more flexible in that no @pid@ has
--- to be passed from the child start function to the supervisor process, and also, a child may
--- break free from the supervisor by unlinking.
+-- This is in stark contrast to how Erlang/OTP handles things;
+-- In the OTP Supervisor, the child has to link to the parent.
+-- This allows the child spec to be more flexible in that no
+-- @pid@ has to be passed from the child start function to the
+-- supervisor process, and also, a child may break free from
+-- the supervisor by unlinking.
 --
--- Now while this seems nice at first, this might actually cause surprising results, since
--- it is usually expected that stopping a supervisor also stops the children, or that a child exit
--- shows up in the logging originating from the former supervisor.
---
--- The approach here is to allow any child to link to the supervisor to realize when the supervisor was
--- violently killed, and otherwise give the child no chance to unlink itself from its supervisor.
---
--- This module is far simpler than the Erlang/OTP counter part, of a @simple_one_for_one@
+-- Now while this seems nice at first, this might actually
+-- cause surprising results, since it is usually expected that
+-- stopping a supervisor also stops the children, or that a child
+-- exit shows up in the logging originating from the former
 -- supervisor.
+--
+-- The approach here is to allow any child to link to the
+-- supervisor to realize when the supervisor was violently killed,
+-- and otherwise give the child no chance to unlink itself from
+-- its supervisor.
+--
+-- This module is far simpler than the Erlang/OTP counter part,
+-- of a @simple_one_for_one@ supervisor.
+--
+-- The future of this supervisor might not be a-lot more than
+-- it currently is. The ability to restart processes might be
+-- implemented outside of this supervisor module.
+--
+-- One way to do that is to implement the restart logic in
+-- a seperate module, since the child-id can be reused when a child
+-- exits.
 --
 -- @since 0.23.0
 module Control.Eff.Concurrent.Api.Supervisor
@@ -60,15 +76,11 @@ import Control.Eff.Extend (raise)
 import Control.Eff.Log
 import Control.Eff.State.Strict as Eff
 import Control.Lens hiding ((.=), use)
-import Control.Monad
 import Data.Default
 import Data.Dynamic
 import Data.Foldable
-import Data.Map (Map)
 import qualified Data.Map as Map
-import Data.Maybe
 import Data.Text (Text, pack)
-import Data.Typeable
 import Data.Type.Pretty
 import GHC.Generics (Generic)
 import GHC.Stack
@@ -78,7 +90,7 @@ import Control.Applicative ((<|>))
 -- ** Types
 
 
--- | A function that will spawn a child process.
+-- | A function that will initialize the child process.
 --
 -- The process-id returned from this function is kept private, but
 -- it is possible to return '(ProcessId, ProcessId)' for example.
@@ -184,9 +196,10 @@ startSupervisor
   => SupConfig i (InterruptableProcess e) o
   -> Eff (InterruptableProcess e) (Sup i o)
 startSupervisor supConfig = do
-  (sup, _supPid) <- spawnApiServerStateful initChildren (onRequest ^: onMessage) onInterrupt
-  return (MkSup sup)
+  (_sup, supPid) <- spawnApiServerStateful initChildren (onRequest ^: onMessage) onInterrupt
+  return (mkSup supPid)
   where
+    mkSup supPid = MkSup (asServer supPid)
     initChildren :: Eff (InterruptableProcess e) (Children i o)
     initChildren = return def
     onRequest :: MessageCallback (Sup i o) (State (Children i o) ': InterruptableProcess e)
@@ -200,12 +213,12 @@ startSupervisor supConfig = do
         onCall (LookupC i) k = k ((, AwaitNext) . Just . fmap _childOutput <$> lookupChildById @i @o i)
         onCall (StopC i t) k =
           k $ do
-            mExisting <- lookupAndRemove @i @o i
+            mExisting <- lookupAndRemoveChildById @i @o i
             case mExisting of
               Nothing -> do
                 return (Just False, AwaitNext)
               Just existingChild -> do
-                stopAndRemoveChild i existingChild t
+                stopOrKillChild i existingChild t
                 return (Just True, AwaitNext)
 
         onCall (StartC i) k =
@@ -220,10 +233,25 @@ startSupervisor supConfig = do
               Just existingChild ->
                 return (Just (Left (AlreadyStarted i (existingChild ^. childOutput))), AwaitNext)
     onMessage :: MessageCallback '[] (State (Children i o) ': InterruptableProcess e)
-    onMessage = handleAnyMessages onInfo
+    onMessage = handleProcessDowns onDown <> handleAnyMessages onInfo
       where
+        onDown mrChild = do
+          oldEntry <- lookupAndRemoveChildByMonitor @i @o mrChild
+          case oldEntry of
+            Nothing ->
+              logWarning ("unexpected process down: " <> pack (show mrChild))
+            Just (i, c) -> do
+              logInfo (  "process down: "
+                      <> pack (show mrChild)
+                      <> " for child "
+                      <> pack (show i)
+                      <> " => "
+                      <> pack (show (_childOutput c))
+                      )
+          return AwaitNext
+
         onInfo d = do
-          logInfo (pack (show d))
+          logInfo ("unexpected message received: " <> pack (show d))
           return AwaitNext
     onInterrupt :: InterruptCallback (State (Children i o) ': ConsProcess e)
     onInterrupt =
@@ -337,34 +365,6 @@ lookupChild ::
   -> Eff e (Maybe o)
 lookupChild (MkSup svr) cId = call svr (LookupC cId)
 
--- | Apply the given function to child process.
---
--- Like 'lookupChild' this will lookup the child and if it does not exist
--- 'Nothing' is returned, and the given function is not applied to anything.
---
--- @since 0.23.0
-withChild ::
-     forall i e o q0 a.
-     ( HasCallStack
-     , Member Interrupts e
-     , Member Logs e
-     , SetMember Process (Process q0) e
-     , Typeable e
-     , Ord i
-     , Tangible i
-     , Tangible o
-     )
-  => Sup i o
-  -> i
-  -> (o -> Eff e a)
-  -> Eff e (Maybe a)
-withChild (MkSup svr) i f =
-  call svr (LookupC i) >>=
-  maybe
-    (do logError ("no process found for: " <> pack (show i))
-        pure Nothing)
-    (fmap Just . f)
-
 -- | Stop a child process, and block until the child has exited.
 --
 -- Return 'True' if a process with that ID was found, 'False' if no process
@@ -403,7 +403,7 @@ getDiagnosticInfo (MkSup s) = call s GetDiagnosticInfo
 
 -- Internal Functions
 
-stopAndRemoveChild
+stopOrKillChild
   :: forall i o e q0 .
      ( Ord i
      , Tangible i
@@ -420,7 +420,7 @@ stopAndRemoveChild
   -> Child o
   -> Timeout
   -> Eff e ()
-stopAndRemoveChild cId c stopTimeout =
+stopOrKillChild cId c stopTimeout =
       do
         sup <- MkSup . asServer @(Sup i o) <$> self
         t <- startTimer stopTimeout
@@ -429,7 +429,7 @@ stopAndRemoveChild cId c stopTimeout =
                                      <|> Left  <$> selectTimerElapsed t )
         case r1 of
           Left timerElapsed -> do
-            logWarning (pack (show timerElapsed) <> ", child did not shutdown in time: " <> pack (show (c^.childOutput)))
+            logWarning (pack (show timerElapsed) <> ": child "<> pack (show cId) <>" => " <> pack(show (c^.childOutput)) <>" did not shutdown in time")
             sendShutdown
               (c^.childProcessId)
               (interruptToExit
@@ -437,7 +437,7 @@ stopAndRemoveChild cId c stopTimeout =
                   ("child did not shut down in time and was terminated by the "
                     ++ show sup)))
           Right downMsg ->
-            logInfo ("child "<> pack(show (c^.childOutput)) <>" terminated: " <> pack (show (downReason downMsg)))
+            logInfo ("child "<> pack (show cId) <>" => " <> pack(show (c^.childOutput)) <>" terminated: " <> pack (show (downReason downMsg)))
 
 stopAllChildren
   :: forall i o e q0 .
@@ -454,7 +454,7 @@ stopAllChildren
   => Timeout -> Eff e ()
 stopAllChildren stopTimeout = removeAllChildren @i @o >>= pure . Map.assocs >>= traverse_ xxx
   where
-    xxx (cId, c) = provideInterrupts (stopAndRemoveChild cId c stopTimeout) >>= either crash return
+    xxx (cId, c) = provideInterrupts (stopOrKillChild cId c stopTimeout) >>= either crash return
       where
         crash e = do
           logError (pack (show e) <> " while stopping child: " <> pack (show cId) <> " " <> pack (show c))
