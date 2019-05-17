@@ -242,7 +242,21 @@ import           Control.Eff.Concurrent.Api.Server
                                                 , stopServerOnInterrupt
                                                 )
 import           Control.Eff.Concurrent.Api.Supervisor
-                                                ( )
+                                                ( Sup()
+                                                , SpawnFun
+                                                , SupConfig(MkSupConfig)
+                                                , supConfigChildStopTimeout
+                                                , supConfigSpawnFun
+                                                , SpawnErr(AlreadyStarted)
+                                                , startSupervisor
+                                                , stopSupervisor
+                                                , isSupervisorAlive
+                                                , monitorSupervisor
+                                                , getDiagnosticInfo
+                                                , spawnChild
+                                                , lookupChild
+                                                , stopChild
+                                                )
 import           Control.Eff.Concurrent.Process.ForkIOScheduler
                                                 ( schedule
                                                 , defaultMain

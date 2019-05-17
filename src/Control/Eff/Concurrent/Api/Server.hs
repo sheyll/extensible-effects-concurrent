@@ -92,7 +92,10 @@ spawnLinkApiServer scb (InterruptCallback icb) = toServerPids (Proxy @api)
   <$> spawnLink (apiServerLoop scb (InterruptCallback (raise . icb)))
 
 -- | /Server/ an 'Api' in a newly spawned process; the callbacks have access
--- to some state initialed by the function in the first parameter.
+-- to a state value.
+--
+-- The initial state value is returned by the action given as parameter, from
+-- within the new process.
 --
 -- @since 0.13.2
 spawnApiServerStateful
@@ -493,6 +496,7 @@ instance
   type PrettyServerPids api1 = ToPretty api1
   type ServerPids api1 = Server api1
   toServerPids _ = asServer
+
 
 -- | Just a wrapper around a function that will be applied to the result of
 -- a 'MessageCallback's 'StopServer' clause, or an 'Interrupt' caught during

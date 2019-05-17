@@ -26,12 +26,11 @@ makeLenses ''Child
 -- | Internal state.
 data Children i o = MkChildren
   { _childrenById :: Map i (Child o)
-  -- , _childrenPidToId :: Map ProcessId i
-  -- , _childrenMonitorRefs :: Map MonitorReference (i, (o, ProcessId))
+  , _childrenByMonitor :: Map MonitorReference (i, Child o)
   } deriving (Show, Generic, Typeable)
 
 instance Default (Children i o) where
-  def = MkChildren def -- def def
+  def = MkChildren def def
 
 instance (NFData i, NFData o) => NFData (Children i o)
 
@@ -48,7 +47,9 @@ putChild
   => i
   -> Child o
   -> Eff e ()
-putChild cId c = modify (childrenById . at cId .~ Just c)
+putChild cId c = modify ( (childrenById . at cId .~ Just c)
+                        . (childrenByMonitor . at (_childMonitoring c) .~ Just (cId, c))
+                        )
 
 lookupChildById
   :: (Ord i, Member (State (Children i o)) e)
@@ -56,12 +57,39 @@ lookupChildById
   -> Eff e (Maybe (Child o))
 lookupChildById i = view (childrenById . at i) <$> get
 
-lookupAndRemove
+lookupChildByMonitor
+  :: (Ord i, Member (State (Children i o)) e)
+  => MonitorReference
+  -> Eff e (Maybe (i, Child o))
+lookupChildByMonitor m = view (childrenByMonitor . at m) <$> get
+
+lookupAndRemoveChildById
   :: forall i o e. (Ord i, Member (State (Children i o)) e)
   => i
   -> Eff e (Maybe (Child o))
-lookupAndRemove i =
-  lookupChildById i <* modify @(Children i o) (childrenById . at i .~ Nothing)
+lookupAndRemoveChildById i =
+  traverse go =<< lookupChildById i
+  where
+    go c = pure c <* removeChild i c
+
+removeChild
+  :: forall i o e. (Ord i, Member (State (Children i o)) e)
+  => i
+  -> Child o
+  -> Eff e ()
+removeChild i c = do
+  modify @(Children i o) ( (childrenById . at i .~ Nothing)
+                         . (childrenByMonitor . at (_childMonitoring c) .~ Nothing)
+                         )
+
+lookupAndRemoveChildByMonitor
+  :: forall i o e. (Ord i, Member (State (Children i o)) e)
+  => MonitorReference
+  -> Eff e (Maybe (i, Child o))
+lookupAndRemoveChildByMonitor r = do
+  traverse go =<< lookupChildByMonitor r
+  where
+    go (i, c) = pure (i, c) <* removeChild i c
 
 removeAllChildren
   :: forall i o e. (Ord i, Member (State (Children i o)) e)
@@ -69,4 +97,5 @@ removeAllChildren
 removeAllChildren = do
   cm <- view childrenById <$> getChildren @i
   modify @(Children i o) (childrenById .~ mempty)
+  modify @(Children i o) (childrenByMonitor .~ mempty)
   return cm

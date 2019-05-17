@@ -184,7 +184,7 @@ test_Supervisor =
                              lift (assertEqual "bad exit reason" (SomeExitReason ExitNormally) r)
                          , runTestCase
                              "When a child is stopped but doesn't exit voluntarily, it is kill after some time" $ do
-                             sup <- startTestSupWith IgnoreNormalExitRequest (TimeoutMicros 5000000)
+                             sup <- startTestSupWith IgnoreNormalExitRequest (TimeoutMicros 5000)
                              c <- spawnTestChild sup i
                              cm <- monitor (_fromServer c)
                              Sup.stopChild sup i >>= lift . assertBool "child not found"
@@ -205,6 +205,39 @@ test_Supervisor =
                              Sup.stopChild sup i >>= lift . assertBool "child not found"
                              Sup.spawnChild sup i >>= lift . assertBool "id could not be reused" . isRight
                          ]
+                 , let startTestSupAndChild = do
+                         sup <- startTestSup
+                         c <- spawnTestChild sup i
+                         cm <- monitor (_fromServer c)
+                         return (sup, c, cm)
+                    in testGroup
+                         "Child exit handling"
+                         [ runTestCase "When a child exits normally, lookupChild will not find it" $ do
+                             (sup, c, cm) <- startTestSupAndChild
+                             cast c (TestInterruptWith NormalExitRequested)
+                             (ProcessDown _ r) <- receiveSelectedMessage (selectProcessDown cm)
+                             lift (assertEqual "bad exit reason" (SomeExitReason ExitNormally) r)
+                             x <- Sup.lookupChild sup i
+                             lift (assertEqual "lookup should not find a child" Nothing x)
+                         , runTestCase "When a child exits with an error, lookupChild will not find it" $ do
+                             (sup, c, cm) <- startTestSupAndChild
+                             cast c (TestInterruptWith (ErrorInterrupt "test error reason"))
+                             (ProcessDown _ _) <- receiveSelectedMessage (selectProcessDown cm)
+                             x <- Sup.lookupChild sup i
+                             lift (assertEqual "lookup should not find a child" Nothing x)
+                         , runTestCase "When a child is interrupted from another process and dies, lookupChild will not find it" $ do
+                             (sup, c, cm) <- startTestSupAndChild
+                             sendInterrupt (_fromServer c) NormalExitRequested
+                             (ProcessDown _ _) <- receiveSelectedMessage (selectProcessDown cm)
+                             x <- Sup.lookupChild sup i
+                             lift (assertEqual "lookup should not find a child" Nothing x)
+                         , runTestCase "When a child is shutdown from another process and dies, lookupChild will not find it" $ do
+                             (sup, c, cm) <- startTestSupAndChild
+                             sendShutdown (_fromServer c) ExitProcessCancelled
+                             (ProcessDown _ _) <- receiveSelectedMessage (selectProcessDown cm)
+                             x <- Sup.lookupChild sup i
+                             lift (assertEqual "lookup should not find a child" Nothing x)
+                         ]
                  ]
          ])
 
@@ -222,8 +255,13 @@ data TestApiServerMode
 
 spawnTestApiProcess :: TestApiServerMode -> Sup.SpawnFun Int InterruptableProcEff (Server TestApi)
 spawnTestApiProcess testMode tId =
-  spawnApiServer (handleCalls onCall ^: handleAnyMessages onInfo) (InterruptCallback onInterrupt)
+  spawnApiServer (handleCasts onCast <> handleCalls onCall ^: handleAnyMessages onInfo) (InterruptCallback onInterrupt)
   where
+    onCast ::
+         Api TestApi 'Asynchronous -> Eff InterruptableProcEff (CallbackResult 'Recoverable)
+    onCast (TestInterruptWith i) = do
+      logInfo (pack (show tId) <> ": stopping with: " <> pack (show i))
+      pure (StopServer i)
     onCall ::
          Api TestApi ('Synchronous r) -> (Eff InterruptableProcEff (Maybe r, CallbackResult 'Recoverable) -> x) -> x
     onCall (TestGetStringLength str) runMe =
@@ -235,13 +273,13 @@ spawnTestApiProcess testMode tId =
       logDebug (pack (show tId) <> ": got some info: " <> pack (show sd))
       pure AwaitNext
     onInterrupt x = do
-      logNotice (pack (show tId) <> " " <> pack (show x))
+      logNotice (pack (show tId) <> ": " <> pack (show x))
       if testMode == IgnoreNormalExitRequest
         then do
-          logNotice "ignoring normal exit request"
+          logNotice $ pack (show tId) <> ": ignoring normal exit request"
           pure AwaitNext
         else do
-          logNotice "exitting normally"
+          logNotice $ pack (show tId) <> ": exitting normally"
           pure (StopServer (interruptToExit x))
 
 data TestApi
@@ -251,7 +289,9 @@ type instance ToPretty TestApi = PutStr "test"
 
 data instance  Api TestApi x where
         TestGetStringLength :: String -> Api TestApi ('Synchronous Int)
+        TestInterruptWith :: Interrupt 'Recoverable -> Api TestApi 'Asynchronous
     deriving Typeable
 
 instance NFData (Api TestApi x) where
   rnf (TestGetStringLength x) = rnf x
+  rnf (TestInterruptWith x) = rnf x
