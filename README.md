@@ -18,11 +18,13 @@ I know about cloud-haskell and transient, but I wanted something based on
 ### Modeling an Application with Processes
 
 The fundamental approach to modelling applications in Erlang is
-based on the concept of concurrent, communicating processes, without
-shared state. 
+based on the concept of concurrent, communicating processes.
+
+The mental model of the programming framework regards objects as **processes**
+with an isolated internal state. 
 
 **`Processes`** are at the center of that contraption. All *actions*
-happens in processes, and all *interactions* happen via messages sent
+happen in processes, and all *interactions* happen via messages sent
 between processes. 
 
 This is called **Message Passing Concurrency**;
@@ -40,34 +42,34 @@ There are two schedulers, that *interpret* the `Process` effect:
 All processes except the first process are **`spawned`** by existing 
 processes.
 
-When a process **`spawns`** a new process, both are mutually **linked**, and
-the former is called *parent* and the other *child*.
+When a process **`spawns`** a new process they are independent apart from the fact that
+the parent knows the process-id of the spawend child process.
+ 
+Processes can **monitor** each other to be notified when a communication partner exits, 
+potentially in unforseen ways.
 
-Process links form a trees.
+Similarily processes may choose to mutually **link** each other.
 
-When a parent process dies, the child processes dies as well.
-
-If on the other hand a child dies, the parent will not die unless the
-child *crashed*. 
-
-A parent might also react by *restarting* the child from a defined starting
-state.
+That allows to model **trees** in which processes watch and start or
+restart each other.
 
 Because processes never share memory, the internal - possibly broken - state of 
 a process is gone, when a process exits; hence restarting a process will not
 be bothered by left-over, possibly inconsistent, state. 
 
-Erlang such parent processes are call *supervisor* processes in Erlang.
+### Higher Level Abstractions
 
-In order to build **supervision trees** the `Process` effect allows:
+Processes can receive only message of type `Dynamic`.
 
-- Interrupting and killing Processes
-- Process Monitoring
-- Process Linking
-- Timers and Timeouts
+In order to leverage Haskells type-safety, a bit of support code is available.
+
+There is a **data family** called **`Api`** allowing to model **calls** and 
+**casts**, as well as event management and process supervision.
 
 These facilities are very important to build **non-defensive**, **let-it-crash**
 applications, resilient to runtime errors.   
+
+### Additional services
 
 Currently a custom **logging effect** is also part of the code base.
 
