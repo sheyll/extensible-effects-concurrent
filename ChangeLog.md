@@ -1,23 +1,32 @@
 # Changelog for extensible-effects-concurrent
 
-## Plan for future 0.24.0
+## Plan for future Versions
 
-- Add `gen_server` behaviour clone:    
-    - Disallow non-`Api`-messages
-    - Add `Api AnyMsg 'Asynchronous` 
-    - Add `Api GetInfo ('Synchronous Text)`  
-         
-    - Every `Api` type instance now **must** be an `NFData` 
-      and a `ToLogText` instance
-    - `call` will always require a `Timeout`
-    - `call` now monitors the caller
-    - `call` now monitors the called process
-    - `call` now returns `Either TimeoutError a`   
+- Every `Api` type instance now **must** be an `NFData` 
+  and a `ToLogText` instance
+- `call` will always require a `Timeout`
+- `call` now monitors the caller
+- `call` now monitors the called process
+- `call` now returns `Either TimeoutError a`   
 
 - Logging improvements:
     - Introduce `ToLogText`
     - Remove `ToLogMessage`
     - Remove `logXXX'` users have to use `logXXX` and `ToLogText` 
+
+## 0.24.0
+
+- Add `GenServer` module for `Api` handling: 
+       
+    - Reduce the server to handle a single `Api` instance
+        - Instances of `GenServer` must provide `lenses` and `prisms`
+          for accessing the *other* Api instances like `Observer`
+          and `ServerCallback` 
+    - Add `ServerCallback`, an internal API for interacting with these
+      `GenServer` instances
+        - `Api AnyMsg 'Asynchronous` 
+        - `Api GetInfo ('Synchronous Text)`  
+         
 
 ## 0.23.0
 

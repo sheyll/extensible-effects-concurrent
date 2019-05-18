@@ -18,6 +18,7 @@
 module Control.Eff.Concurrent.Api
   ( Api
   , Synchronicity(..)
+  , ApiReply
   , Tangible
   , Server(..)
   , fromServer
@@ -85,6 +86,15 @@ data Synchronicity =
                    -- RentalError RentalId))@
   | Asynchronous -- ^ Non-blocking, asynchronous, request handling
     deriving (Typeable)
+
+-- | This type function takes an 'Api' and analysis the reply type, i.e. the 'Synchronicity'
+-- and evaluates to either @t@ for an
+-- @Api x ('Synchronous' t)@ or to '()' for an @Api x 'Asynchronous'@.
+--
+-- @since 0.24.0
+type family ApiReply (s :: Synchronicity) where
+  ApiReply ('Synchronous t) = t
+  ApiReply 'Asynchronous = ()
 
 -- | This is a tag-type that wraps around a 'ProcessId' and holds an 'Api' index
 -- type.

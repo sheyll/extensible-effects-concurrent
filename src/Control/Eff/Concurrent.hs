@@ -14,17 +14,23 @@ module Control.Eff.Concurrent
     -- ** /Client/ Functions for Consuming APIs
     module Control.Eff.Concurrent.Api.Client
   ,
-    -- ** /Server/ Functions for Providing APIs
-    module Control.Eff.Concurrent.Api.Server
-  ,
-    -- ** Encapsulate 'Api's 'Cast's as well as 'Call's and their 'Reply's
-    module Control.Eff.Concurrent.Api.Request
+    -- ** /GenServer/ Functions for Providing APIs
+    module Control.Eff.Concurrent.Api.GenServer
   ,
     -- ** /Observer/ Functions for Events and Event Listener
     module Control.Eff.Concurrent.Api.Observer
   ,
     -- *** Capture /Observation/ in a FIFO Queue
     module Control.Eff.Concurrent.Api.Observer.Queue
+  ,
+    -- ** /Server/ Functions for Providing APIs
+    module Control.Eff.Concurrent.Api.Server
+  ,
+    -- ** Encapsulate 'Api's 'Cast's as well as 'Call's and their 'Reply's
+    module Control.Eff.Concurrent.Api.Request
+  ,
+    -- ** Encapsulate 'Api's 'Cast's as well as 'Call's and their 'Reply's
+    module Control.Eff.Concurrent.Api.Supervisor
   ,
     -- * /Scheduler/ Process Effect Handler
     -- ** Concurrent Scheduler
@@ -166,6 +172,7 @@ import           Control.Eff.Concurrent.Process.Timer
 import           Control.Eff.Concurrent.Api     ( Api
                                                 , Synchronicity(..)
                                                 , Server(..)
+                                                , ApiReply
                                                 , Tangible
                                                 , fromServer
                                                 , proxyAsServer
@@ -181,6 +188,10 @@ import           Control.Eff.Concurrent.Api.Client
                                                 , registerServer
                                                 , whereIsServer
                                                 , ServerReader
+                                                )
+import           Control.Eff.Concurrent.Api.GenServer
+                                                ( GenServer(..)
+                                                , runGenServer
                                                 )
 import           Control.Eff.Concurrent.Api.Request
                                                 ( Request(..)
