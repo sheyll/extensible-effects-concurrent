@@ -1,4 +1,4 @@
-module GenServerTests
+module ServerTests
   ( test_genServer
   ) where
 
@@ -7,9 +7,9 @@ import Control.Concurrent (threadDelay)
 import Control.DeepSeq
 import Control.Eff
 import Control.Eff.Concurrent
-import Control.Eff.Concurrent.Api.Supervisor as Sup
 import Control.Eff.Concurrent.Process.ForkIOScheduler as Scheduler
 import Control.Eff.Concurrent.Process.Timer
+import Control.Eff.Concurrent.Protocol.Supervisor as Sup
 import Control.Lens
 import Data.Either (fromRight, isLeft, isRight)
 import Data.Maybe (fromMaybe)
@@ -19,102 +19,43 @@ import Data.Typeable (Typeable)
 import Test.Tasty
 import Test.Tasty.HUnit
 
--- | A class for 'Api' instances that can 'Lens' and 'Prism' /into/ and /out of/
--- 'Api' instances.
-class WrapsApi api subApi where
-  apiPrism :: Prism' (Api api result) (Api subApi result)
-  apiPrism = prism' wrapApi unwrapApi
-  wrapApi :: Api subApi r -> Api api r
-  wrapApi = review apiPrism
-  unwrapApi :: Api api r -> Maybe (Api subApi r)
-  unwrapApi = preview apiPrism
-
-instance WrapsApi a a where
-  apiPrism = prism' id Just
-  wrapApi = id
-  unwrapApi = Just
-
-data instance  Api (Either a1 a2) x where
-        LeftApi :: Api a1 r -> Api (Either a1 a2) r
-        RightApi :: Api a2 r -> Api (Either a1 a2) r
-
-instance WrapsApi (Either a1 a2) a1 where
-  wrapApi = LeftApi
-  unwrapApi (LeftApi l) = Just l
-  unwrapApi _ = Nothing
-
-instance WrapsApi (Either a1 a2) a2 where
-  apiPrism =
-    prism' RightApi $ \case
-      RightApi r -> Just r
-      LeftApi _ -> Nothing
-
-callWrapped ::
-     ( WrapsApi api subApi
-     , '[Interrupts, Logs] <:: eff
-     , SetMember Process (Process q) eff
-     , Tangible result
-     , Typeable api
-     , Tangible (Api api ('Synchronous result))
-     , PrettyTypeShow (ToPretty api)
-     )
-  => Server api
-  -> Api subApi ('Synchronous result)
-  -> Eff eff result
-callWrapped svr = call svr . wrapApi
-
-castWrapped ::
-     ( WrapsApi api apiPrism
-     , '[Interrupts, Logs] <:: eff
-     , SetMember Process (Process q) eff
-     , Tangible result
-     , Typeable api
-     , Tangible (Api api 'Asynchronous)
-     , PrettyTypeShow (ToPretty api)
-     )
-  => Server api
-  -> Api apiPrism 'Asynchronous
-  -> Eff eff ()
-castWrapped svr = cast svr . wrapApi
-
 -- ------------------------------
-
-data Big
+data Big = MkBig
   deriving (Typeable)
 
 type instance ToPretty Big = PutStr "big"
 
-data instance  Api Big r where
-        BigCall :: String -> Api Big ('Synchronous String)
-        BigCast :: String -> Api Big 'Asynchronous
-        BigSmall :: Api Small r -> Api Big r
+data instance  Pdu Big r where
+        BigCall :: Bool -> Protocol Big ('Synchronous Bool)
+        BigCast :: String -> Protocol Big 'Asynchronous
+        BigSmall :: Protocol Small r -> Protocol Big r
     deriving (Typeable)
 
-instance Show (Api Big r) where
+instance Show (Protocol Big r) where
   showsPrec d (BigCast x) = showParen (d > 10) (showString "BigCast " . showString x)
   showsPrec d (BigCall x) = showParen (d > 10) (showString "BigCall " . showString x)
   showsPrec d (BigSmall x) = showParen (d > 10) (showString "BigSmall " . showsPrec 11 x)
 
-data Small
+data Small = MkSmall
   deriving (Typeable)
 
 type instance ToPretty Small = PutStr "small"
 
-data instance  Api Small r where
-        SmallCall :: String -> Api Small ('Synchronous String)
-        SmallCast :: String -> Api Small 'Asynchronous
+data instance  Protocol Small r where
+        SmallCall :: Bool -> Protocol Small ('Synchronous Bool)
+        SmallCast :: String -> Protocol Small 'Asynchronous
     deriving (Typeable)
 
-instance NFData (Api Small r) where
+instance NFData (Protocol Small r) where
   rnf (SmallCall x) = rnf x
   rnf (SmallCast x) = rnf x
 
-instance Show (Api Small r) where
+instance Show (Protocol Small r) where
   showsPrec d (SmallCast x) = showParen (d > 10) (showString "SmallCast " . showString x)
   showsPrec d (SmallCall x) = showParen (d > 10) (showString "SmallCall " . showString x)
 
-instance WrapsApi Big Small where
-  apiPrism =
+instance HasProtocol Big Small where
+  embeddedPdu =
     prism'
       BigSmall
       (\case
@@ -122,6 +63,24 @@ instance WrapsApi Big Small where
          _ -> Nothing)
 
 -- ----------------------------------------------------------------------------
+instance Server Big e where
+  serverInit MkBig = return ((), ())
+  handlePde MkBig = \case
+    Call orig req ->
+      case req of
+        BigCall o -> sendReply orig o
+        BigSmall (SmallCall x) -> error "TODO BigSmall call"
+    Cast req ->
+      case req of
+        BigCast o -> sendReply orig o
+        BigSmall (SmallCast x) -> error "TODO BigSmall cast"
+  recoverFromInterrupt MkBig NormalExitRequested = exitNormally
+
+-- ----------------------------------------------------------------------------
 
 test_genServer :: HasCallStack => TestTree
-test_genServer = setTravisTestOptions $ testGroup "GenServer" []
+test_genServer = setTravisTestOptions $ testGroup "Server" [
+  runTestCase "When a server is started it handles call Pdus" $ do
+    big <- spawnProtocolServer MkBig
+    call big (BigCall True) >>=  left . assertBool "invalid result"
+  ]

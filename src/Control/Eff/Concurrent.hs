@@ -5,39 +5,39 @@ module Control.Eff.Concurrent
     -- * Concurrent Processes with Message Passing Concurrency
     module Control.Eff.Concurrent.Process
   ,
-    -- * Timers and Timeouts
-    module Control.Eff.Concurrent.Process.Timer
-  ,
-    -- * Data Types and Functions for APIs (aka Protocols)
-    module Control.Eff.Concurrent.Api
-  ,
-    -- ** /Client/ Functions for Consuming APIs
-    module Control.Eff.Concurrent.Api.Client
-  ,
-    -- ** /GenServer/ Functions for Providing APIs
-    module Control.Eff.Concurrent.Api.GenServer
-  ,
-    -- ** /Observer/ Functions for Events and Event Listener
-    module Control.Eff.Concurrent.Api.Observer
-  ,
-    -- *** Capture /Observation/ in a FIFO Queue
-    module Control.Eff.Concurrent.Api.Observer.Queue
-  ,
-    -- ** /Server/ Functions for Providing APIs
-    module Control.Eff.Concurrent.Api.Server
-  ,
-    -- ** Encapsulate 'Api's 'Cast's as well as 'Call's and their 'Reply's
-    module Control.Eff.Concurrent.Api.Request
-  ,
-    -- ** Encapsulate 'Api's 'Cast's as well as 'Call's and their 'Reply's
-    module Control.Eff.Concurrent.Api.Supervisor
-  ,
     -- * /Scheduler/ Process Effect Handler
     -- ** Concurrent Scheduler
     module Control.Eff.Concurrent.Process.ForkIOScheduler
   ,
     -- ** Single Threaded Scheduler
     module Control.Eff.Concurrent.Process.SingleThreadedScheduler
+  ,
+    -- * Timers and Timeouts
+    module Control.Eff.Concurrent.Process.Timer
+  ,
+    -- * Data Types and Functions for APIs (aka Protocols)
+    module Control.Eff.Concurrent.Protocol
+  ,
+    -- ** /Client/ Functions for Consuming APIs
+    module Control.Eff.Concurrent.Protocol.Client
+  ,
+    -- ** /Server/ Functions for Providing APIs
+    module Control.Eff.Concurrent.Protocol.Request
+  ,
+    -- ** /Observer/ Functions for Events and Event Listener
+    module Control.Eff.Concurrent.Protocol.Observer
+  ,
+    -- *** Capture /Observation/ in a FIFO Queue
+    module Control.Eff.Concurrent.Protocol.Observer.Queue
+  ,
+    -- ** Encapsulate 'Cast' 'Pdu's as well as 'Call's and their 'Reply's
+    module Control.Eff.Concurrent.Protocol.Request
+  ,
+    -- ** /Server/ Functions for Providing APIs
+    module Control.Eff.Concurrent.Protocol.Server
+  ,
+    -- ** Encapsulate Process Supervision
+    module Control.Eff.Concurrent.Protocol.Supervisor
   ,
     -- * Utilities
     -- ** Logging Effect
@@ -169,40 +169,44 @@ import           Control.Eff.Concurrent.Process.Timer
                                                 , receiveSelectedWithMonitorAfter
                                                 )
 
-import           Control.Eff.Concurrent.Api     ( Api
+import           Control.Eff.Concurrent.Protocol
+                                                ( Pdu
                                                 , Synchronicity(..)
-                                                , Server(..)
-                                                , ApiReply
+                                                , Endpoint(..)
+                                                , ProtocolReply
                                                 , Tangible
-                                                , fromServer
-                                                , proxyAsServer
-                                                , asServer
+                                                , fromEndpoint
+                                                , proxyAsEndpoint
+                                                , asEndpoint
                                                 )
-import           Control.Eff.Concurrent.Api.Client
+import           Control.Eff.Concurrent.Protocol.Client
                                                 ( cast
                                                 , call
                                                 , callWithTimeout
-                                                , castRegistered
-                                                , callRegistered
-                                                , ServesApi
-                                                , registerServer
-                                                , whereIsServer
-                                                , ServerReader
+                                                , castEndpointReader
+                                                , callEndpointReader
+                                                , ServesProtocol
+                                                , runEndpointReader
+                                                , askEndpoint
+                                                , EndpointReader
                                                 )
-import           Control.Eff.Concurrent.Api.GenServer
-                                                ( GenServer(..)
-                                                , runGenServer
+import           Control.Eff.Concurrent.Protocol.Server
+                                                ( Server(..)
+                                                , ServerLoopEvent(..)
+                                                , spawnProtocolServer
+                                                , spawnLinkProtocolServer
+                                                , protocolServerLoop
                                                 )
-import           Control.Eff.Concurrent.Api.Request
+import           Control.Eff.Concurrent.Protocol.Request
                                                 ( Request(..)
                                                 , Reply(..)
-                                                , mkRequestOrigin
+                                                , makeRequestOrigin
                                                 , RequestOrigin(..)
                                                 , sendReply
                                                 )
-import           Control.Eff.Concurrent.Api.Observer
+import           Control.Eff.Concurrent.Protocol.Observer
                                                 ( Observer(..)
-                                                , Api
+                                                , Pdu
                                                   ( RegisterObserver
                                                   , ForgetObserver
                                                   , Observed
@@ -218,7 +222,7 @@ import           Control.Eff.Concurrent.Api.Observer
                                                 , manageObservers
                                                 , observed
                                                 )
-import           Control.Eff.Concurrent.Api.Observer.Queue
+import           Control.Eff.Concurrent.Protocol.Observer.Queue
                                                 ( ObservationQueue()
                                                 , ObservationQueueReader
                                                 , readObservationQueue
@@ -227,32 +231,7 @@ import           Control.Eff.Concurrent.Api.Observer.Queue
                                                 , withObservationQueue
                                                 , spawnLinkObservationQueueWriter
                                                 )
-import           Control.Eff.Concurrent.Api.Server
-                                                ( spawnApiServer
-                                                , spawnLinkApiServer
-                                                , spawnApiServerStateful
-                                                , spawnApiServerEffectful
-                                                , spawnLinkApiServerEffectful
-                                                , CallbackResult(..)
-                                                , MessageCallback(..)
-                                                , handleCasts
-                                                , handleCalls
-                                                , handleCastsAndCalls
-                                                , handleCallsDeferred
-                                                , handleMessages
-                                                , handleSelectedMessages
-                                                , handleAnyMessages
-                                                , handleProcessDowns
-                                                , dropUnhandledMessages
-                                                , exitOnUnhandled
-                                                , logUnhandledMessages
-                                                , (^:)
-                                                , fallbackHandler
-                                                , ToServerPids(..)
-                                                , InterruptCallback(..)
-                                                , stopServerOnInterrupt
-                                                )
-import           Control.Eff.Concurrent.Api.Supervisor
+import           Control.Eff.Concurrent.Protocol.Supervisor
                                                 ( Sup()
                                                 , SpawnFun
                                                 , SupConfig(MkSupConfig)

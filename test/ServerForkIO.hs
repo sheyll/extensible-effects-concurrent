@@ -17,12 +17,12 @@ import           Control.DeepSeq
 data TestServer deriving Typeable
 type instance ToPretty TestServer = PutStr "test"
 
-data instance Api TestServer x where
-  TestGetStringLength :: String -> Api TestServer ('Synchronous Int)
-  TestSetNextDelay :: Timeout -> Api TestServer 'Asynchronous
+data instance Pdu TestServer x where
+  TestGetStringLength :: String -> Pdu TestServer ('Synchronous Int)
+  TestSetNextDelay :: Timeout -> Pdu TestServer 'Asynchronous
   deriving Typeable
 
-instance NFData (Api TestServer x) where
+instance NFData (Pdu TestServer x) where
   rnf (TestGetStringLength x) = rnf x
   rnf (TestSetNextDelay x) = rnf x
 
@@ -35,7 +35,7 @@ test_ServerCallTimeout =
                $ do  let backendDelay  = 100000
                          clientTimeout = 1000
                      s <- spawnBackend
-                     linkProcess (_fromServer s)
+                     linkProcess (_fromEndpoint s)
                      logInfo "====================== All Servers Started ========================"
                      cast s (TestSetNextDelay backendDelay)
                      let testData = "this is a nice string" :: String
@@ -58,8 +58,8 @@ test_ServerCallTimeout =
          threadDelay 1000
 
 
-spawnRelay :: Timeout -> Server TestServer -> Eff InterruptableProcEff (Server TestServer)
-spawnRelay callTimeout target = spawnApiServer hm hi
+spawnRelay :: Timeout -> Endpoint TestServer -> Eff InterruptableProcEff (Endpoint TestServer)
+spawnRelay callTimeout target = spawnProtocolServer hm hi
   where
     hi = InterruptCallback $ \i -> do
             logAlert' (show i)
@@ -67,15 +67,15 @@ spawnRelay callTimeout target = spawnApiServer hm hi
     hm :: MessageCallback TestServer InterruptableProcEff
     hm = handleCastsAndCalls onCast onCall
       where
-        onCast :: Api TestServer 'Asynchronous -> Eff InterruptableProcEff (CallbackResult 'Recoverable)
+        onCast :: Pdu TestServer 'Asynchronous -> Eff InterruptableProcEff (ServerLoopCommand 'Recoverable)
         onCast (TestSetNextDelay x) = do
           logDebug "relaying delay"
           cast target (TestSetNextDelay x)
           pure AwaitNext
 
         onCall :: (NFData l, Typeable l)
-               => Api TestServer ('Synchronous l)
-               -> (Eff InterruptableProcEff (Maybe l, CallbackResult 'Recoverable) -> k)
+               => Pdu TestServer ('Synchronous l)
+               -> (Eff InterruptableProcEff (Maybe l, ServerLoopCommand 'Recoverable) -> k)
                -> k
         onCall (TestGetStringLength s) runHandler = runHandler $ do
           logDebug "relaying get string length"
@@ -84,8 +84,8 @@ spawnRelay callTimeout target = spawnApiServer hm hi
           return (Just l, AwaitNext)
 
 
-spawnBackend :: Eff InterruptableProcEff (Server TestServer)
-spawnBackend = spawnApiServerStateful (return (1000000 :: Timeout)) hm hi
+spawnBackend :: Eff InterruptableProcEff (Endpoint TestServer)
+spawnBackend = spawnProtocolServerStateful (return (1000000 :: Timeout)) hm hi
   where
     hi = InterruptCallback $ \i -> do
             logAlert' (show i)
@@ -93,15 +93,15 @@ spawnBackend = spawnApiServerStateful (return (1000000 :: Timeout)) hm hi
     hm :: MessageCallback TestServer (State Timeout ': InterruptableProcEff)
     hm = handleCastsAndCalls onCast onCall
       where
-        onCast :: Api TestServer 'Asynchronous -> Eff (State Timeout ': InterruptableProcEff) (CallbackResult 'Recoverable)
+        onCast :: Pdu TestServer 'Asynchronous -> Eff (State Timeout ': InterruptableProcEff) (ServerLoopCommand 'Recoverable)
         onCast (TestSetNextDelay x) = do
           logDebug' ("setting delay: " ++ show x)
           put x
           pure AwaitNext
 
         onCall :: (NFData l, Typeable l)
-               => Api TestServer ('Synchronous l)
-               -> (Eff (State Timeout ': InterruptableProcEff) (Maybe l, CallbackResult 'Recoverable) -> k)
+               => Pdu TestServer ('Synchronous l)
+               -> (Eff (State Timeout ': InterruptableProcEff) (Maybe l, ServerLoopCommand 'Recoverable) -> k)
                -> k
         onCall (TestGetStringLength s) runHandler = runHandler $ do
           logDebug' ("calculating string length: " ++ show s)

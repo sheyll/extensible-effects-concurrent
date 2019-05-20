@@ -20,12 +20,12 @@ data Counter deriving Typeable
 
 type instance ToPretty Counter = PutStr "counter"
 
-data instance Api Counter x where
-  Inc :: Api Counter 'Asynchronous
-  Cnt :: Api Counter ('Synchronous Integer)
+data instance Pdu Counter x where
+  Inc :: Pdu Counter 'Asynchronous
+  Cnt :: Pdu Counter ('Synchronous Integer)
   deriving Typeable
 
-instance NFData (Api Counter x) where
+instance NFData (Pdu Counter x) where
   rnf Inc = ()
   rnf Cnt = ()
 
@@ -63,11 +63,11 @@ data SupiDupi deriving Typeable
 
 type instance ToPretty SupiDupi = PutStr "supi dupi"
 
-data instance Api SupiDupi r where
-  Whoopediedoo :: Bool -> Api SupiDupi ('Synchronous (Maybe ()))
+data instance Pdu SupiDupi r where
+  Whoopediedoo :: Bool -> Pdu SupiDupi ('Synchronous (Maybe ()))
   deriving Typeable
 
-instance NFData (Api SupiDupi r) where
+instance NFData (Pdu SupiDupi r) where
   rnf (Whoopediedoo b) = rnf b
 
 newtype CounterChanged = CounterChanged Integer
@@ -79,14 +79,14 @@ spawnCounter
   :: (Member Logs q)
   => Eff
        (InterruptableProcess q)
-       ( Server Counter
-       , ( Server (ObserverRegistry CounterChanged)
-         , (Server SupiDupi, ProcessId)
+       ( Endpoint Counter
+       , ( Endpoint (ObserverRegistry CounterChanged)
+         , (Endpoint SupiDupi, ProcessId)
          )
        )
-spawnCounter = spawnApiServerEffectful
+spawnCounter = spawnProtocolServerEffectful
   (manageObservers @CounterChanged . evalState (0 :: Integer) . evalState
-    (Nothing :: Maybe (RequestOrigin (Api SupiDupi ( 'Synchronous (Maybe ())))))
+    (Nothing :: Maybe (RequestOrigin (Pdu SupiDupi ( 'Synchronous (Maybe ())))))
   )
   (  handleCalls
       (\case
@@ -106,12 +106,12 @@ spawnCounter = spawnApiServerEffectful
            when (val' > 5) $ do
              get
                @( Maybe
-                   (RequestOrigin (Api SupiDupi ( 'Synchronous (Maybe ()))))
+                   (RequestOrigin (Pdu SupiDupi ( 'Synchronous (Maybe ()))))
                )
                >>= traverse_ (flip sendReply (Just ()))
              put
                (Nothing :: Maybe
-                   (RequestOrigin (Api SupiDupi ( 'Synchronous (Maybe ()))))
+                   (RequestOrigin (Pdu SupiDupi ( 'Synchronous (Maybe ()))))
                )
 
            return AwaitNext
@@ -128,7 +128,7 @@ spawnCounter = spawnApiServerEffectful
                  put
                    (Nothing :: Maybe
                        ( RequestOrigin
-                           (Api SupiDupi ( 'Synchronous (Maybe ())))
+                           (Pdu SupiDupi ( 'Synchronous (Maybe ())))
                        )
                    )
              pure AwaitNext
@@ -138,13 +138,13 @@ spawnCounter = spawnApiServerEffectful
   )
   stopServerOnInterrupt
 
-deriving instance Show (Api Counter x)
+deriving instance Show (Pdu Counter x)
 
 logCounterObservations
   :: (Member Logs q)
   => Eff (InterruptableProcess q) (Observer CounterChanged)
 logCounterObservations = do
-  svr <- spawnApiServer
+  svr <- spawnProtocolServer
     (handleObservations
       (\msg -> do
         logInfo' ("observed: " ++ show msg)

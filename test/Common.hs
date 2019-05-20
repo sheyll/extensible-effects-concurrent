@@ -18,6 +18,13 @@ setTravisTestOptions = localOption (timeoutSeconds 60) . localOption (NumThreads
 timeoutSeconds :: Integer -> Timeout
 timeoutSeconds seconds = Timeout (seconds * 1000000) (show seconds ++ "s")
 
+runTestCase :: TestName -> Eff InterruptableProcEff () -> TestTree
+runTestCase msg =
+  testCase msg .
+  runLift . withTraceLogging "unit-tests" local0 allLogMessages . Scheduler.schedule . handleInterrupts onInt
+  where
+    onInt = lift . assertFailure . show
+
 withTestLogC :: (e -> IO ()) -> (IO (e -> IO ()) -> TestTree) -> TestTree
 withTestLogC doSchedule k = k (return doSchedule)
 

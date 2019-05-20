@@ -1,4 +1,4 @@
-module Control.Eff.Concurrent.Api.Supervisor.InternalState where
+module Control.Eff.Concurrent.Protocol.Supervisor.InternalState where
 
 import Control.DeepSeq
 import Control.Eff as Eff

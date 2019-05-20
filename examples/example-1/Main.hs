@@ -11,19 +11,19 @@ import qualified Data.Text as T
 import           Control.DeepSeq
 import           Data.Type.Pretty
 
-data TestApi
+data TestProtocol
   deriving Typeable
 
-type instance ToPretty TestApi = PutStr "test"
+type instance ToPretty TestProtocol = PutStr "test"
 
-data instance Api TestApi x where
-  SayHello :: String -> Api TestApi ('Synchronous Bool)
-  Shout :: String -> Api TestApi 'Asynchronous
-  Terminate :: Api TestApi ('Synchronous ())
-  TerminateError :: String -> Api TestApi ('Synchronous ())
+data instance Pdu TestProtocol x where
+  SayHello :: String -> Protocol TestProtocol ('Synchronous Bool)
+  Shout :: String -> Protocol TestProtocol 'Asynchronous
+  Terminate :: Pdu TestProtocol ('Synchronous ())
+  TerminateError :: String -> Pdu TestProtocol ('Synchronous ())
   deriving (Typeable)
 
-instance NFData (Api TestApi x) where
+instance NFData (Pdu TestProtocol x) where
   rnf (SayHello s) = rnf s
   rnf (Shout s) = rnf s
   rnf Terminate = ()
@@ -35,7 +35,7 @@ data MyException = MyException
 
 instance Exc.Exception MyException
 
-deriving instance Show (Api TestApi x)
+deriving instance Show (Pdu TestProtocol x)
 
 main :: IO ()
 main = defaultMain example
@@ -54,23 +54,23 @@ example = do
         x <- lift getLine
         case x of
           ('K' : rest) -> do
-            callRegistered (TerminateError rest)
+            callEndpointReader (TerminateError rest)
             go
           ('S' : _) -> do
-            callRegistered Terminate
+            callEndpointReader Terminate
             go
           ('C' : _) -> do
-            castRegistered (Shout x)
+            castEndpointReader (Shout x)
             go
           ('R' : rest) -> do
-            replicateM_ (read rest) (castRegistered (Shout x))
+            replicateM_ (read rest) (castEndpointReader (Shout x))
             go
           ('q' : _) -> logInfo "Done."
           _         -> do
-            res <- callRegistered (SayHello x)
+            res <- callEndpointReader (SayHello x)
             logInfo (T.pack ("Result: " ++ show res))
             go
-  registerServer server go
+  registerEndpoint server go
 
 testServerLoop
   :: forall q
@@ -78,15 +78,15 @@ testServerLoop
      , Member Logs q
      , Lifted IO q
      )
-  => Eff (InterruptableProcess q) (Server TestApi)
-testServerLoop = spawnApiServer
+  => Eff (InterruptableProcess q) (Endpoint TestProtocol)
+testServerLoop = spawnProtocolServer
   (handleCastTest <> handleCalls handleCallTest) handleTerminateTest
  where
   handleCastTest = handleCasts $ \(Shout x) -> do
     me <- self
     logInfo (T.pack (show me ++ " Shouting: " ++ x))
     return AwaitNext
-  handleCallTest :: Api TestApi ('Synchronous r) -> (Eff (InterruptableProcess q) (Maybe r, CallbackResult 'Recoverable) -> xxx) -> xxx
+  handleCallTest :: Pdu TestProtocol ('Synchronous r) -> (Eff (InterruptableProcess q) (Maybe r, ServerLoopCommand 'Recoverable) -> xxx) -> xxx
   handleCallTest (SayHello "e1") k = k $ do
     me <- self
     logInfo (T.pack (show me ++ " raising an error"))
@@ -99,7 +99,7 @@ testServerLoop = spawnApiServer
   handleCallTest (SayHello "self") k = k $ do
     me <- self
     logInfo (T.pack (show me ++ " casting to self"))
-    cast (asServer @TestApi me) (Shout "from me")
+    cast (asEndpoint @TestProtocol me) (Shout "from me")
     return (Just False, AwaitNext)
   handleCallTest (SayHello "stop") k = k $ do
     me <- self

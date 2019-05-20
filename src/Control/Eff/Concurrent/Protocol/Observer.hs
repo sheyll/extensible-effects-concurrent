@@ -4,9 +4,10 @@
 -- case is event propagation.
 --
 -- @since 0.16.0
-module Control.Eff.Concurrent.Api.Observer
+module Control.Eff.Concurrent.Protocol.Observer
   ( Observer(..)
-  , Api(RegisterObserver, ForgetObserver, Observed)
+  , TangibleObserver
+  , Pdu(RegisterObserver, ForgetObserver, Observed)
   , registerObserver
   , forgetObserver
   , handleObservations
@@ -23,9 +24,8 @@ where
 import           Control.DeepSeq               (NFData(rnf))
 import           Control.Eff
 import           Control.Eff.Concurrent.Process
-import           Control.Eff.Concurrent.Api
-import           Control.Eff.Concurrent.Api.Client
-import           Control.Eff.Concurrent.Api.Server
+import           Control.Eff.Concurrent.Protocol
+import           Control.Eff.Concurrent.Protocol.Client
 import           Control.Eff.State.Strict
 import           Control.Eff.Log
 import           Control.Lens
@@ -42,7 +42,7 @@ import           GHC.Stack
 
 -- * Observers
 
--- | Describes a process that observes another via 'Asynchronous' 'Api' messages.
+-- | Describes a process that observes another via 'Asynchronous' 'Pdu' messages.
 --
 -- An observer consists of a filter and a process id. The filter converts an observation to
 -- a message understood by the observer process, and the 'ProcessId' is used to send the message.
@@ -50,8 +50,21 @@ import           GHC.Stack
 -- @since 0.16.0
 data Observer o where
   Observer
-    :: (PrettyTypeShow (ToPretty p), Show (Server p), Typeable p, Typeable o, NFData o, NFData (Api p 'Asynchronous))
-    => (o -> Maybe (Api p 'Asynchronous)) -> Server p -> Observer o
+    :: ( Tangible o
+       , TangiblePdu p 'Asynchronous
+       , PrettyTypeShow (ToPretty p)
+       , Tangible (Endpoint p)
+       , Typeable p
+       )
+    => (o -> Maybe (Pdu p 'Asynchronous)) -> Endpoint p -> Observer o
+
+
+-- | The constraints on the type parameters to an 'Observer'
+--
+-- @since 0.24.0
+type TangibleObserver o =
+  ( Tangible o, TangiblePdu (Observer o) 'Asynchronous
+  , PrettyTypeShow (ToPretty o))
 
 type instance ToPretty (Observer o) =
   PrettyParens ("observing" <:> ToPretty o)
@@ -66,11 +79,11 @@ instance Show (Observer o) where
 
 instance Ord (Observer o) where
   compare (Observer _ s1) (Observer _ s2) =
-    compare (s1 ^. fromServer) (s2 ^. fromServer)
+    compare (s1 ^. fromEndpoint) (s2 ^. fromEndpoint)
 
 instance Eq (Observer o) where
   (==) (Observer _ s1) (Observer _ s2) =
-    (==) (s1 ^. fromServer) (s2 ^. fromServer)
+    (==) (s1 ^. fromEndpoint) (s2 ^. fromEndpoint)
 
 -- | And an 'Observer' to the set of recipients for all observations reported by 'observed'.
 --   Note that the observers are keyed by the observing process, i.e. a previous entry for the process
@@ -82,12 +95,10 @@ registerObserver
   :: ( SetMember Process (Process q) r
      , HasCallStack
      , Member Interrupts r
-     , Typeable o
-     , NFData o
-     , PrettyTypeShow (ToPretty o)
+     , TangibleObserver o
      )
   => Observer o
-  -> Server (ObserverRegistry o)
+  -> Endpoint (ObserverRegistry o)
   -> Eff r ()
 registerObserver observer observerRegistry =
   cast observerRegistry (RegisterObserver observer)
@@ -104,65 +115,60 @@ forgetObserver
      , PrettyTypeShow (ToPretty o)
      )
   => Observer o
-  -> Server (ObserverRegistry o)
+  -> Endpoint (ObserverRegistry o)
   -> Eff r ()
 forgetObserver observer observerRegistry =
   cast observerRegistry (ForgetObserver observer)
 
 -- ** Observer Support Functions
 
--- | A minimal Api for handling observations.
+-- | A minimal Protocol for handling observations.
 -- This is one simple way of receiving observations - of course users can use
--- any other 'Asynchronous' 'Api' message type for receiving observations.
+-- any other 'Asynchronous' 'Pdu' message type for receiving observations.
 --
 -- @since 0.16.0
-data instance Api (Observer o) r where
+data instance Pdu (Observer o) r where
   -- | This message denotes that the given value was 'observed'.
   --
   -- @since 0.16.1
-  Observed :: o -> Api (Observer o) 'Asynchronous
+  Observed :: o -> Pdu (Observer o) 'Asynchronous
   deriving Typeable
 
-instance NFData o => NFData (Api (Observer o) 'Asynchronous) where
+instance NFData o => NFData (Pdu (Observer o) 'Asynchronous) where
   rnf (Observed o) = rnf o
 
--- | Based on the 'Api' instance for 'Observer' this simplified writing
+-- | Based on the 'Pdu' instance for 'Observer' this simplified writing
 -- a callback handler for observations. In order to register to
 -- and 'ObserverRegistry' use 'toObserver'.
 --
 -- @since 0.16.0
 handleObservations
   :: (HasCallStack, Typeable o, SetMember Process (Process q) r, NFData (Observer o))
-  => (o -> Eff r (CallbackResult 'Recoverable))
-  -> MessageCallback (Observer o) r
-handleObservations k = handleCasts
-  (\case
-    Observed o -> k o
-  )
+  => (o -> Eff r ())
+  -> Pdu (Observer o) 'Asynchronous -> Eff r ()
+handleObservations k (Observed r) = k r
 
--- | Use a 'Server' as an 'Observer' for 'handleObservations'.
+-- | Use a 'Endpoint' as an 'Observer' for 'handleObservations'.
 --
 -- @since 0.16.0
-toObserver
-  :: (NFData o, Typeable o, NFData (Api (Observer o) 'Asynchronous), PrettyTypeShow (ToPretty o))
-  => Server (Observer o) -> Observer o
+toObserver :: TangibleObserver o => Endpoint (Observer o) -> Observer o
 toObserver = toObserverFor Observed
 
 -- | Create an 'Observer' that conditionally accepts all observations of the
--- given type and applies the given function to them; the function takes an observation and returns an 'Api'
+-- given type and applies the given function to them; the function takes an observation and returns an 'Pdu'
 -- cast that the observer server is compatible to.
 --
 -- @since 0.16.0
 toObserverFor
-  :: (Typeable a, PrettyTypeShow (ToPretty a), NFData (Api a 'Asynchronous), Typeable o, NFData o)
-  => (o -> Api a 'Asynchronous)
-  -> Server a
+  :: (TangibleObserver o, Typeable a, TangiblePdu a 'Asynchronous)
+  => (o -> Pdu a 'Asynchronous)
+  -> Endpoint a
   -> Observer o
-toObserverFor wrapper = Observer (Just . wrapper)
+toObserverFor wrapper = Observer  (Just . wrapper)
 
 -- * Managing Observers
 
--- | An 'Api' for managing 'Observer's, encompassing  registration and de-registration of
+-- | A protocol for managing 'Observer's, encompassing  registration and de-registration of
 -- 'Observer's.
 --
 -- @since 0.16.0
@@ -171,29 +177,29 @@ data ObserverRegistry o
 type instance ToPretty (ObserverRegistry o) =
   PrettyParens ("observer registry" <:> ToPretty o)
 
--- | Api for managing observers. This can be added to any server for any number of different observation types.
+-- | Protocol for managing observers. This can be added to any server for any number of different observation types.
 -- The functions 'manageObservers' and 'handleObserverRegistration' are used to include observer handling;
 --
 -- @since 0.16.0
-data instance Api (ObserverRegistry o) r where
+data instance Pdu (ObserverRegistry o) r where
   -- | This message denotes that the given 'Observer' should receive observations until 'ForgetObserver' is
   --   received.
   --
   -- @since 0.16.1
-  RegisterObserver :: NFData o => Observer o -> Api (ObserverRegistry o) 'Asynchronous
+  RegisterObserver :: NFData o => Observer o -> Pdu (ObserverRegistry o) 'Asynchronous
   -- | This message denotes that the given 'Observer' should not receive observations anymore.
   --
   -- @since 0.16.1
-  ForgetObserver :: NFData o => Observer o -> Api (ObserverRegistry o) 'Asynchronous
+  ForgetObserver :: NFData o => Observer o -> Pdu (ObserverRegistry o) 'Asynchronous
   deriving Typeable
 
-instance NFData (Api (ObserverRegistry o) r) where
+instance NFData (Pdu (ObserverRegistry o) r) where
   rnf (RegisterObserver o) = rnf o
   rnf (ForgetObserver o) = rnf o
 
--- ** Api for integrating 'ObserverRegistry' into processes.
+-- ** Protocol for integrating 'ObserverRegistry' into processes.
 
--- | Provide the implementation for the 'ObserverRegistry' Api, this handled 'RegisterObserver' and 'ForgetObserver'
+-- | Provide the implementation for the 'ObserverRegistry' Protocol, this handled 'RegisterObserver' and 'ForgetObserver'
 -- messages. It also adds the 'ObserverState' constraint to the effect list.
 --
 -- @since 0.16.0
@@ -205,9 +211,8 @@ handleObserverRegistration
      , Member (ObserverState o) r
      , Member Logs r
      )
-  => MessageCallback (ObserverRegistry o) r
-handleObserverRegistration = handleCasts
-  (\case
+  => Pdu (ObserverRegistry o) 'Asynchronous -> Eff r ()
+handleObserverRegistration = \case
     RegisterObserver ob -> do
       os <- get @(Observers o)
       logDebug ("registering "
@@ -215,7 +220,7 @@ handleObserverRegistration = handleCasts
                <> " current number of observers: "
                <> pack (show (Set.size (view observers os))))
       put (over observers (Set.insert ob)os)
-      pure AwaitNext
+
     ForgetObserver ob -> do
       os <- get @(Observers o)
       logDebug ("forgetting "
@@ -223,8 +228,6 @@ handleObserverRegistration = handleCasts
                <> " current number of observers: "
                <> pack (show (Set.size (view observers os))))
       put (over observers (Set.delete ob) os)
-      pure AwaitNext
-  )
 
 
 -- | Keep track of registered 'Observer's.
@@ -255,7 +258,7 @@ observed
      , PrettyTypeShow (ToPretty o)
      , Member (ObserverState o) r
      , Member Interrupts r
-   --  , NFData (Api o 'Asynchronous)
+     , TangibleObserver o
      )
   => o
   -> Eff r ()

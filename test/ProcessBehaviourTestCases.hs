@@ -6,9 +6,9 @@ import           Control.Concurrent
 import           Control.Concurrent.STM
 import           Control.Eff.Concurrent.Process
 import           Control.Eff.Concurrent.Process.Timer
-import           Control.Eff.Concurrent.Api
-import           Control.Eff.Concurrent.Api.Client
-import           Control.Eff.Concurrent.Api.Server
+import           Control.Eff.Concurrent.Protocol
+import           Control.Eff.Concurrent.Protocol.Client
+import           Control.Eff.Concurrent.Protocol.Server
 import qualified Control.Eff.Concurrent.Process.ForkIOScheduler
                                                as ForkIO
 import qualified Control.Eff.Concurrent.Process.SingleThreadedScheduler
@@ -88,22 +88,22 @@ data ReturnToSender
 
 type instance ToPretty ReturnToSender = PutStr "ReturnToSender"
 
-data instance Api ReturnToSender r where
-  ReturnToSender :: ProcessId -> String -> Api ReturnToSender ('Synchronous Bool)
-  StopReturnToSender :: Api ReturnToSender ('Synchronous ())
+data instance Pdu ReturnToSender r where
+  ReturnToSender :: ProcessId -> String -> Pdu ReturnToSender ('Synchronous Bool)
+  StopReturnToSender :: Pdu ReturnToSender ('Synchronous ())
 
-instance NFData (Api ReturnToSender r) where
+instance NFData (Pdu ReturnToSender r) where
   rnf (ReturnToSender p s) = rnf p `seq` rnf s
   rnf StopReturnToSender = ()
 
-deriving instance Show (Api ReturnToSender x)
+deriving instance Show (Pdu ReturnToSender x)
 
-deriving instance Typeable (Api ReturnToSender x)
+deriving instance Typeable (Pdu ReturnToSender x)
 
 returnToSender
   :: forall q r
    . (HasCallStack, SetMember Process (Process q) r, Member Interrupts r)
-  => Server ReturnToSender
+  => Endpoint ReturnToSender
   -> String
   -> Eff r Bool
 returnToSender toP msg = do
@@ -115,15 +115,15 @@ returnToSender toP msg = do
 stopReturnToSender
   :: forall q r
    . (HasCallStack, SetMember Process (Process q) r, Member Interrupts r)
-  => Server ReturnToSender
+  => Endpoint ReturnToSender
   -> Eff r ()
 stopReturnToSender toP = call toP StopReturnToSender
 
 returnToSenderServer
   :: forall q
    . (HasCallStack, Member Logs q)
-  => Eff (InterruptableProcess q) (Server ReturnToSender)
-returnToSenderServer = spawnApiServer
+  => Eff (InterruptableProcess q) (Endpoint ReturnToSender)
+returnToSenderServer = spawnProtocolServer
   (handleCalls
     (\m k -> k $ case m of
       StopReturnToSender -> do

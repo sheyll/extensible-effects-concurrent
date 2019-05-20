@@ -81,21 +81,20 @@ library
                   Control.Eff.LogWriter.UDP,
                   Control.Eff.LogWriter.UnixSocket,
                   Control.Eff.Concurrent,
-                  Control.Eff.Concurrent.Api,
-                  Control.Eff.Concurrent.Api.Client,
-                  Control.Eff.Concurrent.Api.GenServer,
-                  Control.Eff.Concurrent.Api.Server,
-                  Control.Eff.Concurrent.Api.Supervisor,
+                  Control.Eff.Concurrent.Protocol,
+                  Control.Eff.Concurrent.Protocol.Client,
+                  Control.Eff.Concurrent.Protocol.Server,
+                  Control.Eff.Concurrent.Protocol.Request,
+                  Control.Eff.Concurrent.Protocol.Supervisor,
                   Control.Eff.Concurrent.Process,
                   Control.Eff.Concurrent.Process.Timer,
                   Control.Eff.Concurrent.Process.ForkIOScheduler,
                   Control.Eff.Concurrent.Process.Interactive,
                   Control.Eff.Concurrent.Process.SingleThreadedScheduler,
-                  Control.Eff.Concurrent.Api.Observer
-                  Control.Eff.Concurrent.Api.Observer.Queue
+                  Control.Eff.Concurrent.Protocol.Observer
+                  Control.Eff.Concurrent.Protocol.Observer.Queue
   other-modules:
-                Control.Eff.Concurrent.Api.Request,
-                Control.Eff.Concurrent.Api.Supervisor.InternalState,
+                Control.Eff.Concurrent.Protocol.Supervisor.InternalState,
                 Paths_extensible_effects_concurrent
   default-extensions:
                      AllowAmbiguousTypes,
@@ -265,7 +264,7 @@ test-suite extensible-effects-concurrent-test
                 Common
               , Debug
               , ForkIOScheduler
-              , GenServerTests
+              , ServerTests
               , Interactive
               , LoggingTests
               , LogMessageIdeaTest

@@ -1,5 +1,5 @@
 -- | A small process to capture and _share_ observation's by enqueueing them into an STM 'TBQueue'.
-module Control.Eff.Concurrent.Api.Observer.Queue
+module Control.Eff.Concurrent.Protocol.Observer.Queue
   ( ObservationQueue()
   , ObservationQueueReader
   , readObservationQueue
@@ -13,9 +13,9 @@ where
 import           Control.Concurrent.STM
 import           Control.DeepSeq (NFData)
 import           Control.Eff
-import           Control.Eff.Concurrent.Api
-import           Control.Eff.Concurrent.Api.Observer
-import           Control.Eff.Concurrent.Api.Server
+import           Control.Eff.Concurrent.Protocol
+import           Control.Eff.Concurrent.Protocol.Observer
+import           Control.Eff.Concurrent.Protocol.Server
 import           Control.Eff.Concurrent.Process
 import           Control.Eff.ExceptionExtra     ( )
 import           Control.Eff.Log
@@ -137,14 +137,14 @@ withObservationQueue queueLimit e = do
 spawnLinkObservationQueueWriter
   :: forall o q
    . ( Tangible o
-     , NFData (Api (Observer o) 'Asynchronous)
+     , NFData (Pdu (Observer o) 'Asynchronous)
      , Member Logs q
      , Lifted IO q
      , HasCallStack)
   => ObservationQueue o
   -> Eff (InterruptableProcess q) (Observer o)
 spawnLinkObservationQueueWriter (ObservationQueue q) = do
-  cbo <- spawnLinkApiServer
+  cbo <- spawnLinkProtocolServer
     (handleObservations
       (\case
         o -> do

@@ -7,7 +7,7 @@ import Control.Concurrent (threadDelay)
 import Control.DeepSeq
 import Control.Eff
 import Control.Eff.Concurrent
-import Control.Eff.Concurrent.Api.Supervisor as Sup
+import Control.Eff.Concurrent.Protocol.Supervisor as Sup
 import Control.Eff.Concurrent.Process.ForkIOScheduler as Scheduler
 import Control.Eff.Concurrent.Process.Timer
 import Data.Either (fromRight, isLeft, isRight)
@@ -24,7 +24,7 @@ test_Supervisor =
   testGroup
     "Supervisor"
     (let startTestSup = startTestSupWith ExitWhenRequested (TimeoutMicros 500000)
-         startTestSupWith e t = Sup.startSupervisor (MkSupConfig (spawnTestApiProcess e) t)
+         startTestSupWith e t = Sup.startSupervisor (MkSupConfig (spawnTestProtocolProcess e) t)
          spawnTestChild sup i = Sup.spawnChild sup i >>= either (lift . assertFailure . show) pure
       in [ runTestCase "The supervisor starts and is shut down" $ do
              outerSelf <- self
@@ -37,7 +37,7 @@ test_Supervisor =
                  () <- receiveMessage
                  Sup.stopSupervisor sup
              unlinkProcess testWorker
-             sup <- receiveMessage :: Eff InterruptableProcEff (Sup.Sup Int (Server TestApi))
+             sup <- receiveMessage :: Eff InterruptableProcEff (Sup.Sup Int (Endpoint TestProtocol))
              supAliveAfter1 <- isSupervisorAlive sup
              logInfo ("still alive 1: " <> pack (show supAliveAfter1))
              lift (supAliveAfter1 @=? True)
@@ -80,7 +80,7 @@ test_Supervisor =
                  [ runTestCase "When a supervisor is shut down, all children are shutdown" $ do
                      sup <- startTestSup
                      child <- spawnTestChild sup childId
-                     let childPid = _fromServer child
+                     let childPid = _fromEndpoint child
                      supMon <- monitorSupervisor sup
                      childMon <- monitor childPid
                      isProcessAlive childPid >>= lift . assertBool "child process not running"
@@ -112,7 +112,7 @@ test_Supervisor =
                      "When a supervisor is shut down, children that won't shutdown, are killed after some time" $ do
                      sup <- startTestSupWith IgnoreNormalExitRequest (TimeoutMicros 10000)
                      child <- spawnTestChild sup childId
-                     let childPid = _fromServer child
+                     let childPid = _fromEndpoint child
                      supMon <- monitorSupervisor sup
                      childMon <- monitor childPid
                      isProcessAlive childPid >>= lift . assertBool "child process not running"
@@ -166,14 +166,14 @@ test_Supervisor =
                      someOtherChild <- spawnTestChild sup (i + 1)
                      c' <- Sup.lookupChild sup i >>= maybe (lift (assertFailure "child not found")) pure
                      lift (assertEqual "lookupChild returned wrong child" c c')
-                     childStillRunning <- isProcessAlive (_fromServer c)
+                     childStillRunning <- isProcessAlive (_fromEndpoint c)
                      lift (assertBool "child not running" childStillRunning)
-                     someOtherChildStillRunning <- isProcessAlive (_fromServer someOtherChild)
+                     someOtherChildStillRunning <- isProcessAlive (_fromEndpoint someOtherChild)
                      lift (assertBool "someOtherChild not running" someOtherChildStillRunning)
                  , let startTestSupAndChild = do
                          sup <- startTestSup
                          c <- spawnTestChild sup i
-                         cm <- monitor (_fromServer c)
+                         cm <- monitor (_fromEndpoint c)
                          return (sup, cm)
                     in testGroup
                          "Stopping children"
@@ -186,7 +186,7 @@ test_Supervisor =
                              "When a child is stopped but doesn't exit voluntarily, it is kill after some time" $ do
                              sup <- startTestSupWith IgnoreNormalExitRequest (TimeoutMicros 5000)
                              c <- spawnTestChild sup i
-                             cm <- monitor (_fromServer c)
+                             cm <- monitor (_fromEndpoint c)
                              Sup.stopChild sup i >>= lift . assertBool "child not found"
                              (ProcessDown _ r) <- receiveSelectedMessage (selectProcessDown cm)
                              case r of
@@ -208,7 +208,7 @@ test_Supervisor =
                  , let startTestSupAndChild = do
                          sup <- startTestSup
                          c <- spawnTestChild sup i
-                         cm <- monitor (_fromServer c)
+                         cm <- monitor (_fromEndpoint c)
                          return (sup, c, cm)
                     in testGroup
                          "Child exit handling"
@@ -227,13 +227,13 @@ test_Supervisor =
                              lift (assertEqual "lookup should not find a child" Nothing x)
                          , runTestCase "When a child is interrupted from another process and dies, lookupChild will not find it" $ do
                              (sup, c, cm) <- startTestSupAndChild
-                             sendInterrupt (_fromServer c) NormalExitRequested
+                             sendInterrupt (_fromEndpoint c) NormalExitRequested
                              (ProcessDown _ _) <- receiveSelectedMessage (selectProcessDown cm)
                              x <- Sup.lookupChild sup i
                              lift (assertEqual "lookup should not find a child" Nothing x)
                          , runTestCase "When a child is shutdown from another process and dies, lookupChild will not find it" $ do
                              (sup, c, cm) <- startTestSupAndChild
-                             sendShutdown (_fromServer c) ExitProcessCancelled
+                             sendShutdown (_fromEndpoint c) ExitProcessCancelled
                              (ProcessDown _ _) <- receiveSelectedMessage (selectProcessDown cm)
                              x <- Sup.lookupChild sup i
                              lift (assertEqual "lookup should not find a child" Nothing x)
@@ -241,34 +241,27 @@ test_Supervisor =
                  ]
          ])
 
-runTestCase :: TestName -> Eff InterruptableProcEff () -> TestTree
-runTestCase msg =
-  testCase msg .
-  runLift . withTraceLogging "supervisor-test" local0 allLogMessages . Scheduler.schedule . handleInterrupts onInt
-  where
-    onInt = lift . assertFailure . show
-
-data TestApiServerMode
+data TestProtocolServerMode
   = IgnoreNormalExitRequest
   | ExitWhenRequested
   deriving (Eq)
 
-spawnTestApiProcess :: TestApiServerMode -> Sup.SpawnFun Int InterruptableProcEff (Server TestApi)
-spawnTestApiProcess testMode tId =
-  spawnApiServer (handleCasts onCast <> handleCalls onCall ^: handleAnyMessages onInfo) (InterruptCallback onInterrupt)
+spawnTestProtocolProcess :: TestProtocolServerMode -> Sup.SpawnFun Int InterruptableProcEff (Endpoint TestProtocol)
+spawnTestProtocolProcess testMode tId =
+  spawnProtocolServer (handleCasts onCast <> handleCalls onCall ^: handleAnyMessages onInfo) (InterruptCallback onInterrupt)
   where
     onCast ::
-         Api TestApi 'Asynchronous -> Eff InterruptableProcEff (CallbackResult 'Recoverable)
+         Pdu TestProtocol 'Asynchronous -> Eff InterruptableProcEff (ServerLoopCommand 'Recoverable)
     onCast (TestInterruptWith i) = do
       logInfo (pack (show tId) <> ": stopping with: " <> pack (show i))
       pure (StopServer i)
     onCall ::
-         Api TestApi ('Synchronous r) -> (Eff InterruptableProcEff (Maybe r, CallbackResult 'Recoverable) -> x) -> x
+         Pdu TestProtocol ('Synchronous r) -> (Eff InterruptableProcEff (Maybe r, ServerLoopCommand 'Recoverable) -> x) -> x
     onCall (TestGetStringLength str) runMe =
       runMe $ do
         logInfo (pack (show tId) <> ": calculating length of: " <> pack str)
         pure (Just (length str), AwaitNext)
-    onInfo :: StrictDynamic -> Eff InterruptableProcEff (CallbackResult 'Recoverable)
+    onInfo :: StrictDynamic -> Eff InterruptableProcEff (ServerLoopCommand 'Recoverable)
     onInfo sd = do
       logDebug (pack (show tId) <> ": got some info: " <> pack (show sd))
       pure AwaitNext
@@ -282,16 +275,16 @@ spawnTestApiProcess testMode tId =
           logNotice $ pack (show tId) <> ": exitting normally"
           pure (StopServer (interruptToExit x))
 
-data TestApi
+data TestProtocol
   deriving (Typeable)
 
-type instance ToPretty TestApi = PutStr "test"
+type instance ToPretty TestProtocol = PutStr "test"
 
-data instance  Api TestApi x where
-        TestGetStringLength :: String -> Api TestApi ('Synchronous Int)
-        TestInterruptWith :: Interrupt 'Recoverable -> Api TestApi 'Asynchronous
+data instance  Pdu TestProtocol x where
+        TestGetStringLength :: String -> Pdu TestProtocol ('Synchronous Int)
+        TestInterruptWith :: Interrupt 'Recoverable -> Pdu TestProtocol 'Asynchronous
     deriving Typeable
 
-instance NFData (Api TestApi x) where
+instance NFData (Pdu TestProtocol x) where
   rnf (TestGetStringLength x) = rnf x
   rnf (TestInterruptWith x) = rnf x

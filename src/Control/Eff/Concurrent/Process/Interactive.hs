@@ -38,8 +38,8 @@ where
 import           Control.Concurrent
 import           Control.Concurrent.STM
 import           Control.Eff
-import           Control.Eff.Concurrent.Api
-import           Control.Eff.Concurrent.Api.Client
+import           Control.Eff.Concurrent.Protocol
+import           Control.Eff.Concurrent.Protocol.Client
 import           Control.Eff.Concurrent.Process
 import           Control.Monad
 import           Data.Foldable
@@ -136,11 +136,11 @@ submitCast
    . ( SetMember Lift (Lift IO) r
      , Typeable o
      , PrettyTypeShow (ToPretty o)
-     , NFData (Api o 'Asynchronous)
+     , NFData (Pdu o 'Asynchronous)
      , Member Interrupts r)
   => SchedulerSession r
   -> Server o
-  -> Api o 'Asynchronous
+  -> Pdu o 'Asynchronous
   -> IO ()
 submitCast sc svr request = submit sc (cast svr request)
 
@@ -154,10 +154,10 @@ submitCall
      , NFData q
      , Show q
      , Member Interrupts r
-     , NFData (Api o ('Synchronous q))
+     , NFData (Pdu o ('Synchronous q))
      )
   => SchedulerSession r
   -> Server o
-  -> Api o ( 'Synchronous q)
+  -> Pdu o ( 'Synchronous q)
   -> IO q
 submitCall sc svr request = submit sc (call svr request)
