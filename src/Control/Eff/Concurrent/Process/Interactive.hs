@@ -43,9 +43,6 @@ import           Control.Eff.Concurrent.Protocol.Client
 import           Control.Eff.Concurrent.Process
 import           Control.Monad
 import           Data.Foldable
-import           Data.Typeable                  ( Typeable )
-import           Data.Type.Pretty
-import           Control.DeepSeq
 import           System.Timeout
 
 -- | Contains the communication channels to interact with a scheduler running in
@@ -134,12 +131,10 @@ submit (SchedulerSession qVar) theAction = do
 submitCast
   :: forall o r
    . ( SetMember Lift (Lift IO) r
-     , Typeable o
-     , PrettyTypeShow (ToPretty o)
-     , NFData (Pdu o 'Asynchronous)
+     , TangiblePdu o 'Asynchronous
      , Member Interrupts r)
   => SchedulerSession r
-  -> Server o
+  -> Endpoint o
   -> Pdu o 'Asynchronous
   -> IO ()
 submitCast sc svr request = submit sc (cast svr request)
@@ -148,16 +143,12 @@ submitCast sc svr request = submit sc (cast svr request)
 submitCall
   :: forall o q r
    . ( SetMember Lift (Lift IO) r
-     , Typeable o
-     , PrettyTypeShow (ToPretty o)
-     , Typeable q
-     , NFData q
-     , Show q
      , Member Interrupts r
-     , NFData (Pdu o ('Synchronous q))
+     , TangiblePdu o ('Synchronous q)
+     , Tangible q
      )
   => SchedulerSession r
-  -> Server o
+  -> Endpoint o
   -> Pdu o ( 'Synchronous q)
   -> IO q
 submitCall sc svr request = submit sc (call svr request)

@@ -376,9 +376,6 @@ selectDynamicMessage = MessageSelector
 selectAnyMessage :: MessageSelector StrictDynamic
 selectAnyMessage = MessageSelector Just
 
--- | /Cons/ 'Process' onto a list of effects.
-type ConsProcess r = Process r ': r
-
 -- | The state that a 'Process' is currently in.
 data ProcessState =
     ProcessBooting              -- ^ The process has just been started but not
@@ -576,12 +573,15 @@ isProcessDownInterrupt mOtherProcess = \case
 -- | 'Interrupt's which are 'Recoverable'.
 type RecoverableInterrupt = Interrupt 'Recoverable
 
+-- | /Cons/ 'Process' onto a list of effects.
+type ConsProcess r = Process r ': r
+
 -- | 'Exc'eptions containing 'Interrupt's.
 -- See 'handleInterrupts', 'exitOnInterrupt' or 'provideInterrupts'
 type Interrupts = Exc (Interrupt 'Recoverable)
 
--- | This adds a layer of the 'Interrupts' effect on top of 'ConsProcess'
-type InterruptableProcess e = Interrupts ': ConsProcess e
+-- | This adds a layer of the 'Interrupts' effect on top of 'Process'
+type InterruptableProcess e = Interrupts ': Process e ': e
 
 -- | Handle all 'Interrupt's of an 'InterruptableProcess' by
 -- wrapping them up in 'interruptToExit' and then do a process 'Shutdown'.

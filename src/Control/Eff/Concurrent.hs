@@ -21,9 +21,6 @@ module Control.Eff.Concurrent
     -- ** /Client/ Functions for Consuming APIs
     module Control.Eff.Concurrent.Protocol.Client
   ,
-    -- ** /Server/ Functions for Providing APIs
-    module Control.Eff.Concurrent.Protocol.Request
-  ,
     -- ** /Observer/ Functions for Events and Event Listener
     module Control.Eff.Concurrent.Protocol.Observer
   ,
@@ -234,7 +231,7 @@ import           Control.Eff.Concurrent.Protocol.Observer.Queue
 import           Control.Eff.Concurrent.Protocol.Supervisor
                                                 ( Sup()
                                                 , SpawnFun
-                                                , SupConfig(MkSupConfig)
+                                                , ServerArgument(MkSupConfig)
                                                 , supConfigChildStopTimeout
                                                 , supConfigSpawnFun
                                                 , SpawnErr(AlreadyStarted)

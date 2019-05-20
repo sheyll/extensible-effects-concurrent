@@ -19,6 +19,7 @@ import Control.Eff.Concurrent.Protocol.Request
 import Control.Eff.Log
 import Control.Eff.Reader.Strict
 import Control.Eff.State.Strict
+import Data.Default
 import Data.Kind
 import Data.Typeable
 import Data.Type.Pretty
@@ -30,13 +31,16 @@ import GHC.Generics
 --
 -- @since 0.24.0
 class
-  ( Typeable a
+  ( Typeable (Protocol a)
+  , Typeable a
   , Tangible (ServerEnv a)
   , Tangible (ServerState a)
   ) =>
-      Server a e
+      Server (a :: Type) e
   where
   data ServerArgument a e
+  type Protocol a :: Type
+  type Protocol a = a
   type ServerState a :: Type
   type ServerState a = ()
   type ServerEnv a :: Type
@@ -44,17 +48,30 @@ class
 
   serverInit ::
        ServerArgument a e
-    -> Eff eff (ServerState a, ServerEnv a)
+    -> Eff e (ServerState a, ServerEnv a)
+
+  default serverInit ::
+       (Default (ServerState a), Default (ServerEnv a))
+    => ServerArgument a e
+    -> Eff e (ServerState a, ServerEnv a)
+  serverInit _ = pure (def, def)
 
   stepServerLoop ::
        ServerArgument a e
-    -> ServerLoopEvent a
+    -> ServerLoopEvent (Protocol a)
     -> Eff (State (ServerState a) ': Reader (ServerEnv a) ': e) ()
 
   recoverFromInterrupt ::
        ServerArgument a e
     -> Interrupt 'Recoverable
     -> Eff (State (ServerState a) ': Reader (ServerEnv a) ': e) ()
+
+  default recoverFromInterrupt ::
+       (SetMember Process (Process q) e)
+    => ServerArgument a e
+    -> Interrupt 'Recoverable
+    -> Eff (State (ServerState a) ': Reader (ServerEnv a) ': e) ()
+  recoverFromInterrupt _ = exitBecause . interruptToExit
 
 -- | There is an internal protocol used by the protocol server loop
 -- to communicate certain events, such that a
@@ -67,7 +84,7 @@ spawnProtocolServer
   . ( Server a (InterruptableProcess q)
     , LogsTo h (InterruptableProcess q)
     , HasCallStack)
-  => ServerArgument a (InterruptableProcess q) -> Eff (InterruptableProcess q) (Endpoint a)
+  => ServerArgument a (InterruptableProcess q) -> Eff (InterruptableProcess q) (Endpoint (Protocol a))
 spawnProtocolServer a = asEndpoint <$> spawn (protocolServerLoop a)
 
 -- | Execute the server loop.
@@ -75,7 +92,7 @@ spawnProtocolServer a = asEndpoint <$> spawn (protocolServerLoop a)
 -- @since 0.24.0
 spawnLinkProtocolServer
   :: forall a q h . (Server a (InterruptableProcess q), LogsTo h (InterruptableProcess q), HasCallStack)
-  => ServerArgument a (InterruptableProcess q) -> Eff (InterruptableProcess q) (Endpoint a)
+  => ServerArgument a (InterruptableProcess q) -> Eff (InterruptableProcess q) (Endpoint (Protocol a))
 spawnLinkProtocolServer a = asEndpoint <$> spawnLink (protocolServerLoop a)
 
 -- | Execute the server loop.
@@ -94,9 +111,9 @@ protocolServerLoop a = do
   _ <- runReader env (runState st (receiveSelectedLoop sel mainLoop))
   return ()
   where
-    sel :: MessageSelector (ServerLoopEvent a)
+    sel :: MessageSelector (ServerLoopEvent (Protocol a))
     sel =
-          ServerLoopRequest      <$> selectMessage @(Request a)
+          ServerLoopRequest      <$> selectMessage @(Request (Protocol a))
       <|> ServerLoopProcessDown  <$> selectMessage @ProcessDown
       <|> ServerLoopTimerElapsed <$> selectMessage @TimerElapsed
       <|> ServerLoopOtherMessage <$> selectAnyMessage
@@ -105,7 +122,7 @@ protocolServerLoop a = do
       pure (Just ())
     mainLoop ::
          (Typeable a)
-      => Either (Interrupt 'Recoverable) (ServerLoopEvent a)
+      => Either (Interrupt 'Recoverable) (ServerLoopEvent (Protocol a))
       -> Eff (State (ServerState a) ': Reader (ServerEnv a) ': e) (Maybe ())
     mainLoop (Left i) = handleInt i
     mainLoop (Right i) = do

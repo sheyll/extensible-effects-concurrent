@@ -1,6 +1,6 @@
 -- | A small process to capture and _share_ observation's by enqueueing them into an STM 'TBQueue'.
 module Control.Eff.Concurrent.Protocol.Observer.Queue
-  ( ObservationQueue()
+  ( ObservationQueue(..)
   , ObservationQueueReader
   , readObservationQueue
   , tryReadObservationQueue
@@ -11,10 +11,10 @@ module Control.Eff.Concurrent.Protocol.Observer.Queue
 where
 
 import           Control.Concurrent.STM
-import           Control.DeepSeq (NFData)
 import           Control.Eff
 import           Control.Eff.Concurrent.Protocol
 import           Control.Eff.Concurrent.Protocol.Observer
+import           Control.Eff.Concurrent.Protocol.Request
 import           Control.Eff.Concurrent.Protocol.Server
 import           Control.Eff.Concurrent.Process
 import           Control.Eff.ExceptionExtra     ( )
@@ -135,22 +135,27 @@ withObservationQueue queueLimit e = do
 --
 -- @since 0.18.0
 spawnLinkObservationQueueWriter
-  :: forall o q
-   . ( Tangible o
-     , NFData (Pdu (Observer o) 'Asynchronous)
+  :: forall o q h
+   . ( TangibleObserver o
+     , TangiblePdu (Observer o) 'Asynchronous
      , Member Logs q
      , Lifted IO q
+     , LogsTo h (InterruptableProcess q)
      , HasCallStack)
   => ObservationQueue o
   -> Eff (InterruptableProcess q) (Observer o)
-spawnLinkObservationQueueWriter (ObservationQueue q) = do
-  cbo <- spawnLinkProtocolServer
-    (handleObservations
-      (\case
-        o -> do
-          lift (atomically (writeTBQueue q o))
-          pure AwaitNext
-      )
-    )
-    stopServerOnInterrupt
+spawnLinkObservationQueueWriter q = do
+  cbo <- spawnLinkProtocolServer (MkObservationQueue q)
   pure (toObserver cbo)
+
+instance (TangibleObserver o, TangiblePdu (Observer o) 'Asynchronous, Lifted IO q, Member Logs q) => Server (ObservationQueue o) (InterruptableProcess q) where
+  type Protocol (ObservationQueue o) = Observer o
+
+  data instance ServerArgument (ObservationQueue o) (InterruptableProcess q) =
+     MkObservationQueue (ObservationQueue o)
+
+  stepServerLoop (MkObservationQueue (ObservationQueue q)) =
+    \case
+      ServerLoopRequest (Cast r) ->
+        handleObservations (lift . atomically . writeTBQueue q) r
+      otherMsg -> logError ("unexpected: " <> T.pack (show otherMsg))

@@ -173,6 +173,7 @@ toObserverFor wrapper = Observer  (Just . wrapper)
 --
 -- @since 0.16.0
 data ObserverRegistry o
+  deriving Typeable
 
 type instance ToPretty (ObserverRegistry o) =
   PrettyParens ("observer registry" <:> ToPretty o)
@@ -196,6 +197,10 @@ data instance Pdu (ObserverRegistry o) r where
 instance NFData (Pdu (ObserverRegistry o) r) where
   rnf (RegisterObserver o) = rnf o
   rnf (ForgetObserver o) = rnf o
+
+instance Show (Pdu (ObserverRegistry o) r) where
+  showsPrec d (RegisterObserver o) = showParen (d >= 10) (showString "register observer: " . showsPrec 11 o)
+  showsPrec d (ForgetObserver o) = showParen (d >= 10) (showString "forget observer: " . showsPrec 11 o)
 
 -- ** Protocol for integrating 'ObserverRegistry' into processes.
 
