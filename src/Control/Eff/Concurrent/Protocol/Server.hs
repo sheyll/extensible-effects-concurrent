@@ -1,5 +1,5 @@
 -- | A better, more safe implementation of the Erlang/OTP gen_server behaviour.
--- **PLANNED TODO**
+--
 -- @since 0.24.0
 module Control.Eff.Concurrent.Protocol.Server
   ( Server(..)
@@ -7,11 +7,21 @@ module Control.Eff.Concurrent.Protocol.Server
   , spawnProtocolServer
   , spawnLinkProtocolServer
   , protocolServerLoop
-  ) where
+  , GenServer(..)
+  , GenIO
+  , GenServerId(..)
+  , GenServerState
+  , GenServerReader
+  , ServerArgument(..)
+  , StatelessGenServer
+  , simpleGenServer
+  )
+  where
 
 import Control.Applicative
 import Control.DeepSeq
 import Control.Eff
+import Control.Eff.Extend
 import Control.Eff.Concurrent.Process
 import Control.Eff.Concurrent.Process.Timer
 import Control.Eff.Concurrent.Protocol
@@ -19,10 +29,12 @@ import Control.Eff.Concurrent.Protocol.Request
 import Control.Eff.Log
 import Control.Eff.Reader.Strict
 import Control.Eff.State.Strict
+import Data.Coerce
 import Data.Default
 import Data.Kind
 import Data.Typeable
 import Data.Type.Pretty
+import qualified Data.Text as T
 import GHC.Stack (HasCallStack)
 import GHC.Generics
 
@@ -73,8 +85,6 @@ class
     -> Eff (State (ServerState a) ': Reader (ServerEnv a) ': e) ()
   recoverFromInterrupt _ = exitBecause . interruptToExit
 
--- | There is an internal protocol used by the protocol server loop
--- to communicate certain events, such that a
 
 -- | Execute the server loop.
 --
@@ -129,6 +139,24 @@ protocolServerLoop a = do
       stepServerLoop a i
       pure (Just ())
 
+
+-- | The underlying effects for 'GenServer's:
+--     * Logging
+--     * Interrupts
+--     * Processes
+--     * IO
+--
+-- @since 0.24.0
+-- type GenIO = InterruptableProcess LoggingAndIo
+type GenIO e q h =
+  ( Member Interrupts e
+  , SetMember Process (Process q) e
+  , LogsTo h q
+  , LogsTo h e
+  , Lifted IO e
+  , Lifted IO q
+  )
+
 -- | Internal protocol to communicate incoming messages and other events to the
 -- instances of 'Server'.
 --
@@ -151,3 +179,122 @@ instance NFData a => NFData (ServerLoopEvent a) where
 
 
 type instance ToPretty (ServerLoopEvent a) = PutStr "sever-loop-event<" <++> ToPretty a <++> PutStr ">"
+
+
+-- * GenServer
+
+-- | A helper for 'Server's that are directly based on logging and 'IO': 'GenIO'
+--
+-- A record that contains callbacks to provide a 'Server' instance for the
+-- @tag@ parameter, .
+--
+-- The name prefix @Gen@ indicates the inspiration from Erlang's @gen_server@ module.
+--
+-- @since 0.24.0
+data GenServer tag e where
+  MkGenServer :: GenIO e h q =>
+      { _serverInitCallback :: GenServerId tag -> Eff e (ServerState (GenServer tag e), ServerEnv (GenServer tag e))
+      , _stepServerLoopCallback
+          :: GenServerId tag
+          -> ServerLoopEvent (GenServerProtocol tag)
+          -> Eff (State (GenServerState tag) ': Reader (GenServerReader tag) ': e) ()
+      , _recoverFromInterruptCallback
+          :: GenServerId tag
+          -> Interrupt 'Recoverable
+          -> Eff (State (GenServerState tag) ': Reader (GenServerReader tag) ': e) ()
+      } -> GenServer tag e
+
+-- | The name/id of a 'GenServer' for logging purposes.
+--
+-- @since 0.24.0
+newtype GenServerId tag =
+  MkGenServerId { _fromGenServerId :: T.Text }
+  deriving (Typeable, NFData, Ord, Eq)
+
+instance Show (GenServerId tag) where
+  showsPrec _d (MkGenServerId x) = showString (T.unpack x)
+
+-- | The 'Protocol' un-wrapper type function.
+--
+-- @since 0.24.0
+type family GenServerProtocol tag
+
+-- | Type of state for 'GenServer' based 'Server's
+--
+-- @since 0.24.0
+type family GenServerState tag
+
+-- | Type of the environment for 'GenServer' based 'Server's
+--
+-- @since 0.24.0
+type family GenServerReader tag
+
+instance ( Tangible (GenServerState tag)
+         , Tangible (GenServerReader tag)
+         , Typeable (GenServerProtocol tag)
+         , Typeable tag
+         , Typeable e
+         , GenIO e h q
+         ) => Server (GenServer (tag :: Type) e) e where
+  type Protocol (GenServer tag e) = GenServerProtocol tag
+  type ServerState (GenServer tag e) = GenServerState tag
+  type ServerEnv (GenServer tag e) = GenServerReader tag
+  data instance ServerArgument (GenServer tag e) e =
+        MkGenServerArgument
+          { _genServerId :: GenServerId tag
+          , _genServerCallbacks :: GenServer tag e
+          }
+          deriving Typeable
+  serverInit (MkGenServerArgument x cb) = _serverInitCallback cb x
+  stepServerLoop (MkGenServerArgument x cb) req = _stepServerLoopCallback cb x req
+  recoverFromInterrupt (MkGenServerArgument x cb) i = _recoverFromInterruptCallback cb x i
+
+instance NFData (ServerArgument (GenServer tag e) e) where
+  rnf (MkGenServerArgument x _) = rnf x
+
+instance Typeable tag => Show (ServerArgument (GenServer tag e) e) where
+  showsPrec d (MkGenServerArgument x _) =
+    showParen (d>=10)
+      ( showsPrec 11 x
+      . showChar ' ' . showsTypeRep (typeRep (Proxy @tag))
+      . showString " gen-server"
+      )
+
+-- ** 'GenServer' based Server constructors
+
+-- | The type-level tag indicating a stateless 'Server' instance.
+--
+-- There are 'GenServerState', 'GenServerReader' and 'GenServerProtocol' as well as
+-- 'ToPretty' instances for this type.
+--
+-- @since 0.24.0
+data StatelessGenServer tag deriving Typeable
+
+type instance GenServerState (StatelessGenServer tag) = ()
+type instance GenServerReader (StatelessGenServer tag) = ()
+type instance GenServerProtocol (StatelessGenServer tag) = tag
+type instance ToPretty (StatelessGenServer t) = ToPretty t
+
+-- | Create a simple 'GenServer' from a single 'Pdu' callback.
+--
+-- @since 0.24.0
+simpleGenServer
+  :: ( Typeable tag
+     , HasCallStack
+     , GenIO e h q
+     , Server (GenServer (StatelessGenServer tag) e) e
+     , PrettyTypeShow (ToPretty tag)
+     )
+  => (GenServerId (StatelessGenServer tag) -> ServerLoopEvent tag -> Eff e ())
+  -> GenServer (StatelessGenServer tag) e
+simpleGenServer stepCb =
+  MkGenServer { _serverInitCallback = const (pure ((), ()))
+              , _stepServerLoopCallback = runStep
+              , _recoverFromInterruptCallback = noRecovery
+              }
+   where
+    runStep i loopEvent =  raise . raise $ stepCb i (coerce loopEvent)
+    noRecovery _ i = do
+      let e = T.pack (show i)
+      logError e
+      exitBecause (ExitUnhandledError e)

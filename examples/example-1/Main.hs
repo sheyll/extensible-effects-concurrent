@@ -17,8 +17,8 @@ data TestProtocol
 type instance ToPretty TestProtocol = PutStr "test"
 
 data instance Pdu TestProtocol x where
-  SayHello :: String -> Protocol TestProtocol ('Synchronous Bool)
-  Shout :: String -> Protocol TestProtocol 'Asynchronous
+  SayHello :: String -> Pdu TestProtocol ('Synchronous Bool)
+  Shout :: String -> Pdu TestProtocol 'Asynchronous
   Terminate :: Pdu TestProtocol ('Synchronous ())
   TerminateError :: String -> Pdu TestProtocol ('Synchronous ())
   deriving (Typeable)
@@ -40,10 +40,10 @@ deriving instance Show (Pdu TestProtocol x)
 main :: IO ()
 main = defaultMain example
 
-mainProcessSpawnsAChildAndReturns :: HasCallStack => Eff (InterruptableProcess q) ()
+mainProcessSpawnsAChildAndReturns :: HasCallStack => Eff InterruptableProcEff ()
 mainProcessSpawnsAChildAndReturns = void (spawn (void receiveAnyMessage))
 
-example:: ( HasCallStack, Member Logs q, Lifted IO q) => Eff (InterruptableProcess q) ()
+example:: HasCallStack => Eff InterruptableProcEff ()
 example = do
   me <- self
   logInfo (T.pack ("I am " ++ show me))
@@ -54,71 +54,79 @@ example = do
         x <- lift getLine
         case x of
           ('K' : rest) -> do
-            callEndpointReader (TerminateError rest)
+            call server (TerminateError rest)
             go
           ('S' : _) -> do
-            callEndpointReader Terminate
+            call server Terminate
             go
           ('C' : _) -> do
-            castEndpointReader (Shout x)
+            cast server (Shout x)
             go
           ('R' : rest) -> do
-            replicateM_ (read rest) (castEndpointReader (Shout x))
+            replicateM_ (read rest) (cast server (Shout x))
             go
           ('q' : _) -> logInfo "Done."
           _         -> do
-            res <- callEndpointReader (SayHello x)
+            res <- call server (SayHello x)
             logInfo (T.pack ("Result: " ++ show res))
             go
-  registerEndpoint server go
+  go
 
-testServerLoop
-  :: forall q
-   . ( HasCallStack
-     , Member Logs q
-     , Lifted IO q
-     )
-  => Eff (InterruptableProcess q) (Endpoint TestProtocol)
+testServerLoop :: Eff InterruptableProcEff (Endpoint TestProtocol)
 testServerLoop = spawnProtocolServer
-  (handleCastTest <> handleCalls handleCallTest) handleTerminateTest
+  ((simpleGenServer cb) { _recoverFromInterruptCallback = handleErr })
  where
-  handleCastTest = handleCasts $ \(Shout x) -> do
-    me <- self
-    logInfo (T.pack (show me ++ " Shouting: " ++ x))
-    return AwaitNext
-  handleCallTest :: Pdu TestProtocol ('Synchronous r) -> (Eff (InterruptableProcess q) (Maybe r, ServerLoopCommand 'Recoverable) -> xxx) -> xxx
-  handleCallTest (SayHello "e1") k = k $ do
-    me <- self
-    logInfo (T.pack (show me ++ " raising an error"))
-    interrupt (ErrorInterrupt "No body loves me... :,(")
-  handleCallTest (SayHello "e2") k = k $ do
-    me <- self
-    logInfo (T.pack (show me ++ " throwing a MyException "))
-    void (lift (Exc.throw MyException))
-    pure (Nothing, AwaitNext)
-  handleCallTest (SayHello "self") k = k $ do
-    me <- self
-    logInfo (T.pack (show me ++ " casting to self"))
-    cast (asEndpoint @TestProtocol me) (Shout "from me")
-    return (Just False, AwaitNext)
-  handleCallTest (SayHello "stop") k = k $ do
-    me <- self
-    logInfo (T.pack (show me ++ " stopping me"))
-    return (Just False, StopServer (ErrorInterrupt "test error"))
-  handleCallTest (SayHello x) k = k $ do
-    me <- self
-    logInfo (T.pack (show me ++ " Got Hello: " ++ x))
-    return (Just (length x > 3), AwaitNext)
-  handleCallTest Terminate k = k $ do
+  handleReq (ServerLoopRequest (Call orig Terminate)) = do
     me <- self
     logInfo (T.pack (show me ++ " exiting"))
-    pure (Just (), StopServer NormalExitRequested)
-  handleCallTest (TerminateError msg) k = k $ do
+    sendReply orig ()
+    interrupt NormalExitRequested
+
+  handleReq (ServerLoopRequest (Call orig (TerminateError e))) = do
     me <- self
     logInfo (T.pack (show me ++ " exiting with error: " ++ msg))
-    pure (Just (), StopServer (ErrorInterrupt msg))
-  handleTerminateTest = InterruptCallback $ \msg -> do
+    sendReply orig ()
+    interrupt (ErrorInterrupt msg)
+
+  handleReq (ServerLoopRequest (Call orig (SayHello mx))) =
+    case mx of
+      SayHello "e1" -> do
+        me <- self
+        logInfo (T.pack (show me ++ " raising an error"))
+        interrupt (ErrorInterrupt "No body loves me... :,(")
+
+      SayHello "e2" -> do
+        me <- self
+        logInfo (T.pack (show me ++ " throwing a MyException "))
+        void (lift (Exc.throw MyException))
+
+      SayHello "self" -> do
+        me <- self
+        logInfo (T.pack (show me ++ " casting to self"))
+        cast (asEndpoint @TestProtocol me) (Shout "from me")
+        sendReply orig False
+
+      SayHello "stop" -> do
+        me <- self
+        logInfo (T.pack (show me ++ " stopping me"))
+        sendReply orig False
+        interrupt (ErrorInterrupt "test error")
+
+      SayHello x -> do
+        me <- self
+        logInfo (T.pack (show me ++ " Got Hello: " ++ x))
+        sendReply orig (length x > 3)
+
+  handleReq (ServerLoopRequest (Cast (Shout x))) = do
+    me <- self
+    logInfo (T.pack (show me ++ " Shouting: " ++ x))
+
+  handleReq wtf = do
+    me <- self
+    logCritical (T.pack (show me ++ " WTF: " ++ show wtf))
+
+  handleErr _ msg = do
     me <- self
     logInfo (T.pack (show me ++ " is exiting: " ++ show msg))
     logProcessExit msg
-    pure (StopServer (interruptToExit msg))
+    interrupt msg

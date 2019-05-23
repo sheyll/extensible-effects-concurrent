@@ -193,6 +193,14 @@ import           Control.Eff.Concurrent.Protocol.Server
                                                 , spawnProtocolServer
                                                 , spawnLinkProtocolServer
                                                 , protocolServerLoop
+                                                , GenServer(..)
+                                                , GenIO
+                                                , GenServerId(..)
+                                                , GenServerState
+                                                , GenServerReader
+                                                , ServerArgument(..)
+                                                , StatelessGenServer
+                                                , simpleGenServer
                                                 )
 import           Control.Eff.Concurrent.Protocol.Request
                                                 ( Request(..)
