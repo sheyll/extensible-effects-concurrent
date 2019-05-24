@@ -27,15 +27,6 @@ module Control.Eff.Concurrent
     -- *** Capture /Observation/ in a FIFO Queue
     module Control.Eff.Concurrent.Protocol.Observer.Queue
   ,
-    -- ** Encapsulate 'Cast' 'Pdu's as well as 'Call's and their 'Reply's
-    module Control.Eff.Concurrent.Protocol.Request
-  ,
-    -- ** /Server/ Functions for Providing APIs
-    module Control.Eff.Concurrent.Protocol.Server
-  ,
-    -- ** Encapsulate Process Supervision
-    module Control.Eff.Concurrent.Protocol.Supervisor
-  ,
     -- * Utilities
     -- ** Logging Effect
     module Control.Eff.Log
@@ -167,14 +158,16 @@ import           Control.Eff.Concurrent.Process.Timer
                                                 )
 
 import           Control.Eff.Concurrent.Protocol
-                                                ( Pdu
+                                                ( Pdu(..)
                                                 , Synchronicity(..)
-                                                , Endpoint(..)
                                                 , ProtocolReply
                                                 , Tangible
+                                                , TangiblePdu
+                                                , Endpoint(..)
                                                 , fromEndpoint
                                                 , proxyAsEndpoint
                                                 , asEndpoint
+                                                , EmbedProtocol(..)
                                                 )
 import           Control.Eff.Concurrent.Protocol.Client
                                                 ( cast
@@ -186,28 +179,6 @@ import           Control.Eff.Concurrent.Protocol.Client
                                                 , runEndpointReader
                                                 , askEndpoint
                                                 , EndpointReader
-                                                )
-import           Control.Eff.Concurrent.Protocol.Server
-                                                ( Server(..)
-                                                , Event(..)
-                                                , spawnProtocolServer
-                                                , spawnLinkProtocolServer
-                                                , protocolServerLoop
-                                                , GenServer(..)
-                                                , GenIO
-                                                , GenServerId(..)
-                                                , GenServerState
-                                                , GenServerReader
-                                                , StartArgument(..)
-                                                , StatelessGenServer
-                                                , simpleGenServer
-                                                )
-import           Control.Eff.Concurrent.Protocol.Request
-                                                ( Request(..)
-                                                , Reply(..)
-                                                , makeRequestOrigin
-                                                , RequestOrigin(..)
-                                                , sendReply
                                                 )
 import           Control.Eff.Concurrent.Protocol.Observer
                                                 ( Observer(..)
@@ -223,6 +194,8 @@ import           Control.Eff.Concurrent.Protocol.Observer
                                                 , toObserverFor
                                                 , ObserverRegistry
                                                 , ObserverState
+                                                , Observers()
+                                                , emptyObservers
                                                 , handleObserverRegistration
                                                 , manageObservers
                                                 , observed
@@ -235,22 +208,6 @@ import           Control.Eff.Concurrent.Protocol.Observer.Queue
                                                 , flushObservationQueue
                                                 , withObservationQueue
                                                 , spawnLinkObservationQueueWriter
-                                                )
-import           Control.Eff.Concurrent.Protocol.Supervisor
-                                                ( Sup()
-                                                , SpawnFun
-                                                , StartArgument(MkSupConfig)
-                                                , supConfigChildStopTimeout
-                                                , supConfigSpawnFun
-                                                , SpawnErr(AlreadyStarted)
-                                                , startSupervisor
-                                                , stopSupervisor
-                                                , isSupervisorAlive
-                                                , monitorSupervisor
-                                                , getDiagnosticInfo
-                                                , spawnChild
-                                                , lookupChild
-                                                , stopChild
                                                 )
 import           Control.Eff.Concurrent.Process.ForkIOScheduler
                                                 ( schedule

@@ -248,7 +248,7 @@ data TestProtocolServerMode
 
 spawnTestProtocolProcess :: TestProtocolServerMode -> Sup.SpawnFun Int InterruptableProcEff (Endpoint TestProtocol)
 spawnTestProtocolProcess testMode tId =
-  spawnProtocolServer (handleCasts onCast <> handleCalls onCall ^: handleAnyMessages onInfo) (InterruptCallback onInterrupt)
+  start (handleCasts onCast <> handleCalls onCall ^: handleAnyMessages onInfo) (InterruptCallback onInterrupt)
   where
     onCast ::
          Pdu TestProtocol 'Asynchronous -> Eff InterruptableProcEff (ServerLoopCommand 'Recoverable)

@@ -16,7 +16,7 @@
 -- the "Control.Eff.Concurrent.Pdu.Client" should be used.
 --
 module Control.Eff.Concurrent.Protocol
-  ( Pdu
+  ( Pdu(..)
   , Synchronicity(..)
   , ProtocolReply
   , Tangible
@@ -26,11 +26,10 @@ module Control.Eff.Concurrent.Protocol
   , proxyAsEndpoint
   , asEndpoint
   , EmbedProtocol(..)
-  , embeddedEndpoint
   )
 where
 
-import           Control.DeepSeq                ( NFData )
+import           Control.DeepSeq
 import           Control.Eff.Concurrent.Process
 import           Control.Lens
 import           Data.Kind
@@ -156,29 +155,63 @@ class EmbedProtocol protocol embeddedProtocol where
   fromPdu :: Pdu protocol r -> Maybe (Pdu embeddedProtocol r)
   fromPdu = preview embeddedPdu
 
--- | Re-tag an 'Endpoint' of some protocol to the endpoint of an embedded
--- protocol, if an 'EmbedProtocol' instance exists.
---
--- @since 0.24.0
-embeddedEndpoint :: EmbedProtocol outer inner => Endpoint outer -> Endpoint inner
-embeddedEndpoint = Endpoint . _fromEndpoint
-
 instance EmbedProtocol a a where
   embeddedPdu = prism' id Just
   embedPdu = id
   fromPdu = Just
 
-data instance  Pdu (Either a1 a2) x where
-        LeftProtocol :: Pdu a1 r -> Pdu (Either a1 a2) r
-        RightProtocol :: Pdu a2 r -> Pdu (Either a1 a2) r
+data instance Pdu (a1, a2) x where
+        ToPduLeft :: Pdu a1 r -> Pdu (a1, a2) r
+        ToPduRight :: Pdu a2 r -> Pdu (a1, a2) r
+  deriving Typeable
 
-instance EmbedProtocol (Either a1 a2) a1 where
-  embedPdu = LeftProtocol
-  fromPdu (LeftProtocol l) = Just l
+instance (NFData (Pdu a1 r), NFData (Pdu a2 r)) => NFData (Pdu (a1, a2) r) where
+  rnf (ToPduLeft x) = rnf x
+  rnf (ToPduLeft y) = rnf y
+
+instance (Show (Pdu a1 r), Show (Pdu a2 r)) => Show (Pdu (a1, a2) r) where
+  showsPrec d (ToPduLeft x) = showsPrec d x
+  showsPrec d (ToPduRight y) = showsPrec d y
+
+instance EmbedProtocol (a1, a2) a1 where
+  embedPdu = ToPduLeft
+  fromPdu (ToPduLeft l) = Just l
   fromPdu _ = Nothing
 
-instance EmbedProtocol (Either a1 a2) a2 where
+instance EmbedProtocol (a1, a2) a2 where
   embeddedPdu =
-    prism' RightProtocol $ \case
-      RightProtocol r -> Just r
-      LeftProtocol _ -> Nothing
+    prism' ToPduRight $ \case
+      ToPduRight r -> Just r
+      ToPduLeft _ -> Nothing
+
+data instance Pdu (a1, a2, a3) x where
+  ToPdu1 :: Pdu a1 r -> Pdu (a1, a2, a3) r
+  ToPdu2 :: Pdu a2 r -> Pdu (a1, a2, a3) r
+  ToPdu3 :: Pdu a3 r -> Pdu (a1, a2, a3) r
+  deriving Typeable
+
+instance (NFData (Pdu a1 r), NFData (Pdu a2 r), NFData (Pdu a3 r)) => NFData (Pdu (a1, a2, a3) r) where
+  rnf (ToPdu1 x) = rnf x
+  rnf (ToPdu2 y) = rnf y
+  rnf (ToPdu3 z) = rnf z
+
+instance (Show (Pdu a1 r), Show (Pdu a2 r), Show (Pdu a3 r)) => Show (Pdu (a1, a2, a3) r) where
+  showsPrec d (ToPdu1 x) = showsPrec d x
+  showsPrec d (ToPdu2 y) = showsPrec d y
+  showsPrec d (ToPdu3 z) = showsPrec d z
+
+instance EmbedProtocol (a1, a2, a3) a1 where
+  embedPdu = ToPdu1
+  fromPdu (ToPdu1 l) = Just l
+  fromPdu _ = Nothing
+
+instance EmbedProtocol (a1, a2, a3) a2 where
+  embedPdu = ToPdu2
+  fromPdu (ToPdu2 l) = Just l
+  fromPdu _ = Nothing
+
+instance EmbedProtocol (a1, a2, a3) a3 where
+  embedPdu = ToPdu3
+  fromPdu (ToPdu3 l) = Just l
+  fromPdu _ = Nothing
+

@@ -59,7 +59,7 @@ test_ServerCallTimeout =
 
 
 spawnRelay :: Timeout -> Endpoint TestServer -> Eff InterruptableProcEff (Endpoint TestServer)
-spawnRelay callTimeout target = spawnProtocolServer hm hi
+spawnRelay callTimeout target = start hm hi
   where
     hi = InterruptCallback $ \i -> do
             logAlert' (show i)

@@ -1,14 +1,17 @@
+{-# LANGUAGE UndecidableInstances #-}
 -- | Another complete example for the library
 module Main where
 
 import           Data.Dynamic
 import           Control.Eff
 import           Control.Eff.Concurrent
-import           Control.Eff.State.Strict
+import           Control.Eff.Concurrent.Protocol.Server
 import           Control.Monad
 import           Data.Foldable
+import           Control.Lens
 import           Control.Concurrent
 import           Control.DeepSeq
+import qualified Data.Text as T
 import           Data.Type.Pretty
 
 main :: IO ()
@@ -30,16 +33,17 @@ instance NFData (Pdu Counter x) where
   rnf Cnt = ()
 
 counterExample
-  :: (Member Logs q, Lifted IO q)
+  :: (Typeable q, LogsTo IO q, Lifted IO q)
   => Eff (InterruptableProcess q) ()
 counterExample = do
-  (c, (co, (_sdp, cp))) <- spawnCounter
+  cx <- spawnCounter
+  let cp = _fromEndpoint cx
   lift (threadDelay 500000)
   o <- logCounterObservations
   lift (threadDelay 500000)
-  registerObserver o co
+  registerObserver o cx
   lift (threadDelay 500000)
-  cast c Inc
+  cast cx (embedPdu Inc)
   lift (threadDelay 500000)
   sendMessage cp ("test 123" :: String)
   cast c Inc
@@ -75,81 +79,63 @@ newtype CounterChanged = CounterChanged Integer
 
 type instance ToPretty CounterChanged = PutStr "counter changed"
 
-spawnCounter
-  :: (Member Logs q)
-  => Eff
-       (InterruptableProcess q)
-       ( Endpoint Counter
-       , ( Endpoint (ObserverRegistry CounterChanged)
-         , (Endpoint SupiDupi, ProcessId)
-         )
-       )
-spawnCounter = spawnProtocolServerEffectful
-  (manageObservers @CounterChanged . evalState (0 :: Integer) . evalState
-    (Nothing :: Maybe (RequestOrigin (Pdu SupiDupi ( 'Synchronous (Maybe ())))))
-  )
-  (  handleCalls
-      (\case
-        Cnt ->
-          ($ do
-            val <- get
-            return (Just val, AwaitNext)
-          )
-      )
-  <> handleCasts
-       (\case
-         Inc -> do
-           val <- get @Integer
-           let val' = val + 1
-           observed (CounterChanged val')
-           put val'
-           when (val' > 5) $ do
-             get
-               @( Maybe
-                   (RequestOrigin (Pdu SupiDupi ( 'Synchronous (Maybe ()))))
-               )
-               >>= traverse_ (flip sendReply (Just ()))
-             put
-               (Nothing :: Maybe
-                   (RequestOrigin (Pdu SupiDupi ( 'Synchronous (Maybe ()))))
-               )
+type SupiCounter = (Counter, ObserverRegistry CounterChanged, SupiDupi)
 
-           return AwaitNext
-       )
-  ^: handleObserverRegistration
-  ^: handleCallsDeferred
+type instance ToPretty (Counter, ObserverRegistry CounterChanged, SupiDupi) = PutStr "supi-counter"
 
-       (\origin ->
-         (\case
-           Whoopediedoo c -> do
-             if c
-               then put (Just origin)
-               else
-                 put
-                   (Nothing :: Maybe
-                       ( RequestOrigin
-                           (Pdu SupiDupi ( 'Synchronous (Maybe ())))
-                       )
-                   )
-             pure AwaitNext
-         )
-       )
-  ^: logUnhandledMessages
-  )
-  stopServerOnInterrupt
+instance (LogsTo IO q, Lifted IO q) => Server SupiCounter (InterruptableProcess q) where
+
+  type instance Model SupiCounter = (Integer, Observers CounterChanged, Maybe (RequestOrigin SupiCounter (Maybe ())))
+
+  data instance StartArgument SupiCounter (InterruptableProcess q) = MkEmptySupiCounter
+
+  setup _ = return ((0, emptyObservers, Nothing), ())
+
+  update _ = \case
+    OnRequest req ->
+      case req of
+        Call orig callReq ->
+          case callReq of
+            ToPdu1 Cnt ->
+              sendReply orig =<< useModel @SupiCounter _1
+            ToPdu3 (Whoopediedoo c) ->
+              modifyModel @SupiCounter (_3 .~ if c then Just orig else Nothing)
+
+        Cast castReq ->
+          case castReq of
+            ToPdu2 x ->
+              zoomModel @SupiCounter _2 (handleObserverRegistration x)
+            ToPdu1 Inc -> do
+              val' <- view _1 <$> modifyAndGetModel @SupiCounter (_1 %~ (+ 1))
+              zoomModel @SupiCounter _2 (observed (CounterChanged val'))
+              when (val' > 5) $
+                getAndModifyModel @SupiCounter (_3 .~ Nothing)
+                >>= traverse_ (flip sendReply (Just ())) . view _3
+    other -> logWarning (T.pack (show other))
+
+spawnCounter :: (LogsTo IO q, Lifted IO q) => Eff (InterruptableProcess q) ( Endpoint SupiCounter )
+spawnCounter = start MkEmptySupiCounter
+
 
 deriving instance Show (Pdu Counter x)
 
 logCounterObservations
-  :: (Member Logs q)
+  :: (LogsTo IO q, Lifted IO q, Typeable q)
   => Eff (InterruptableProcess q) (Observer CounterChanged)
 logCounterObservations = do
-  svr <- spawnProtocolServer
-    (handleObservations
-      (\msg -> do
-        logInfo' ("observed: " ++ show msg)
-        return AwaitNext
-      )
-    )
-    stopServerOnInterrupt
+  svr <- start
+          $ genServer @(Observer CounterChanged)
+            (\_me -> pure (emptyObservers, ()))
+            (\me ->
+                \case
+                  OnRequest (Cast r) ->
+                    handleObservations (\msg -> logInfo' ("observed: " ++ show msg)) r
+                  wtf -> logNotice (T.pack (show wtf))
+            )
+            "counter logger"
+
   pure (toObserver svr)
+
+type instance GenServerModel (Observer CounterChanged) = Observers CounterChanged
+type instance GenServerSettings (Observer CounterChanged) = ()
+type instance GenServerProtocol (Observer CounterChanged) = Observer CounterChanged

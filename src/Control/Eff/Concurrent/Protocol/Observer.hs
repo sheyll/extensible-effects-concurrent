@@ -15,6 +15,8 @@ module Control.Eff.Concurrent.Protocol.Observer
   , toObserverFor
   , ObserverRegistry
   , ObserverState
+  , Observers()
+  , emptyObservers
   , handleObserverRegistration
   , manageObservers
   , observed
@@ -96,12 +98,14 @@ registerObserver
      , HasCallStack
      , Member Interrupts r
      , TangibleObserver o
+     , EmbedProtocol x (ObserverRegistry o)
+     , TangiblePdu x 'Asynchronous
      )
   => Observer o
-  -> Endpoint (ObserverRegistry o)
+  -> Endpoint x
   -> Eff r ()
 registerObserver observer observerRegistry =
-  cast observerRegistry (RegisterObserver observer)
+  cast observerRegistry (embedPdu (RegisterObserver observer))
 
 -- | Send the 'ForgetObserver' message
 --
@@ -113,12 +117,14 @@ forgetObserver
      , Typeable o
      , NFData o
      , PrettyTypeShow (ToPretty o)
+     , EmbedProtocol x (ObserverRegistry o)
+     , TangiblePdu x 'Asynchronous
      )
   => Observer o
-  -> Endpoint (ObserverRegistry o)
+  -> Endpoint x
   -> Eff r ()
 forgetObserver observer observerRegistry =
-  cast observerRegistry (ForgetObserver observer)
+  cast observerRegistry (embedPdu (ForgetObserver observer))
 
 -- ** Observer Support Functions
 
@@ -136,6 +142,9 @@ data instance Pdu (Observer o) r where
 
 instance NFData o => NFData (Pdu (Observer o) 'Asynchronous) where
   rnf (Observed o) = rnf o
+
+instance Show o => Show (Pdu (Observer o) r) where
+  showsPrec d (Observed o) = showParen (d>=10) (showString "observered: " . shows o)
 
 -- | Based on the 'Pdu' instance for 'Observer' this simplified writing
 -- a callback handler for observations. In order to register to
@@ -224,7 +233,7 @@ handleObserverRegistration = \case
                <> pack (show (typeOf ob))
                <> " current number of observers: "
                <> pack (show (Set.size (view observers os))))
-      put (over observers (Set.insert ob)os)
+      put (over observers (Set.insert ob) os)
 
     ForgetObserver ob -> do
       os <- get @(Observers o)
@@ -234,7 +243,6 @@ handleObserverRegistration = \case
                <> pack (show (Set.size (view observers os))))
       put (over observers (Set.delete ob) os)
 
-
 -- | Keep track of registered 'Observer's.
 --
 -- Handle the 'ObserverState' introduced by 'handleObserverRegistration'.
@@ -243,9 +251,16 @@ handleObserverRegistration = \case
 manageObservers :: Eff (ObserverState o ': r) a -> Eff r a
 manageObservers = evalState (Observers Set.empty)
 
+-- | The empty 'ObserverState'
+--
+-- @since 0.24.0
+emptyObservers :: Observers o
+emptyObservers = Observers Set.empty
+
 -- | Internal state for 'manageObservers'
 newtype Observers o =
   Observers { _observers :: Set (Observer o) }
+   deriving (Eq, Ord, Typeable, Show, NFData)
 
 -- | Alias for the effect that contains the observers managed by 'manageObservers'
 type ObserverState o = State (Observers o)

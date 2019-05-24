@@ -81,6 +81,6 @@ instance Server Big e where
 test_genServer :: HasCallStack => TestTree
 test_genServer = setTravisTestOptions $ testGroup "Server" [
   runTestCase "When a server is started it handles call Pdus" $ do
-    big <- spawnProtocolServer MkBig
+    big <- start MkBig
     call big (BigCall True) >>=  left . assertBool "invalid result"
   ]

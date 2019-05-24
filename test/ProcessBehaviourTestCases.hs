@@ -123,7 +123,7 @@ returnToSenderServer
   :: forall q
    . (HasCallStack, Member Logs q)
   => Eff (InterruptableProcess q) (Endpoint ReturnToSender)
-returnToSenderServer = spawnProtocolServer
+returnToSenderServer = start
   (handleCalls
     (\m k -> k $ case m of
       StopReturnToSender -> do

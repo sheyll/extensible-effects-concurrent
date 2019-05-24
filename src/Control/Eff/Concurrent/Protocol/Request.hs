@@ -5,11 +5,12 @@
 -- @since 0.15.0
 module Control.Eff.Concurrent.Protocol.Request
   ( Request(..)
+  , sendReply
+  , RequestOrigin(..)
   , Reply(..)
   , makeRequestOrigin
-  , RequestOrigin(..)
-  , sendReply
-  ) where
+  )
+  where
 
 import Control.DeepSeq
 import Control.Eff

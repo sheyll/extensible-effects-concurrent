@@ -180,7 +180,7 @@ instance
     , supConfigChildStopTimeout :: Timeout
     }
 
-  type ServerState (Sup i o) = Children i o
+  type Model (Sup i o) = Children i o
 
   setup _cfg = pure (def, ())
   update supConfig (OnRequest (Call orig req)) =
@@ -272,7 +272,7 @@ startSupervisor
     )
   => StartArgument (Sup i o) (InterruptableProcess e)
   -> Eff (InterruptableProcess e) (Sup i o)
-startSupervisor supConfig = MkSup <$> spawnProtocolServer supConfig
+startSupervisor supConfig = MkSup <$> start supConfig
 
 -- | Stop the supervisor and shutdown all processes.
 --
