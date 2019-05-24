@@ -64,7 +64,7 @@ instance HasProtocol Big Small where
 
 -- ----------------------------------------------------------------------------
 instance Server Big e where
-  serverInit MkBig = return ((), ())
+  setup MkBig = return ((), ())
   handlePde MkBig = \case
     Call orig req ->
       case req of

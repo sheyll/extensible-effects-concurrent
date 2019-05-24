@@ -149,13 +149,13 @@ spawnLinkObservationQueueWriter q = do
   pure (toObserver cbo)
 
 instance (TangibleObserver o, TangiblePdu (Observer o) 'Asynchronous, Lifted IO q, Member Logs q) => Server (ObservationQueue o) (InterruptableProcess q) where
-  type Protocol (ObservationQueue o) = Observer o
+  type ServerPdu (ObservationQueue o) = Observer o
 
-  data instance ServerArgument (ObservationQueue o) (InterruptableProcess q) =
+  data instance StartArgument (ObservationQueue o) (InterruptableProcess q) =
      MkObservationQueue (ObservationQueue o)
 
-  stepServerLoop (MkObservationQueue (ObservationQueue q)) =
+  update (MkObservationQueue (ObservationQueue q)) =
     \case
-      ServerLoopRequest (Cast r) ->
+      OnRequest (Cast r) ->
         handleObservations (lift . atomically . writeTBQueue q) r
       otherMsg -> logError ("unexpected: " <> T.pack (show otherMsg))

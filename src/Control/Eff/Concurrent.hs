@@ -189,7 +189,7 @@ import           Control.Eff.Concurrent.Protocol.Client
                                                 )
 import           Control.Eff.Concurrent.Protocol.Server
                                                 ( Server(..)
-                                                , ServerLoopEvent(..)
+                                                , Event(..)
                                                 , spawnProtocolServer
                                                 , spawnLinkProtocolServer
                                                 , protocolServerLoop
@@ -198,7 +198,7 @@ import           Control.Eff.Concurrent.Protocol.Server
                                                 , GenServerId(..)
                                                 , GenServerState
                                                 , GenServerReader
-                                                , ServerArgument(..)
+                                                , StartArgument(..)
                                                 , StatelessGenServer
                                                 , simpleGenServer
                                                 )
@@ -239,7 +239,7 @@ import           Control.Eff.Concurrent.Protocol.Observer.Queue
 import           Control.Eff.Concurrent.Protocol.Supervisor
                                                 ( Sup()
                                                 , SpawnFun
-                                                , ServerArgument(MkSupConfig)
+                                                , StartArgument(MkSupConfig)
                                                 , supConfigChildStopTimeout
                                                 , supConfigSpawnFun
                                                 , SpawnErr(AlreadyStarted)

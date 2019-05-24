@@ -74,59 +74,61 @@ example = do
 
 testServerLoop :: Eff InterruptableProcEff (Endpoint TestProtocol)
 testServerLoop = spawnProtocolServer
-  ((simpleGenServer cb) { _recoverFromInterruptCallback = handleErr })
+  (simpleGenServer  (handleReq @(GenServerId TestProtocol)) "test-server-1")
  where
-  handleReq (ServerLoopRequest (Call orig Terminate)) = do
+  handleReq :: GenServerId TestProtocol -> Event TestProtocol -> Eff
+  handleReq _myId (OnRequest (Call orig Terminate)) = do
     me <- self
     logInfo (T.pack (show me ++ " exiting"))
     sendReply orig ()
     interrupt NormalExitRequested
 
-  handleReq (ServerLoopRequest (Call orig (TerminateError e))) = do
+  handleReq _myId (OnRequest (Call orig (TerminateError e))) = do
     me <- self
-    logInfo (T.pack (show me ++ " exiting with error: " ++ msg))
+    logInfo (T.pack (show me ++ " exiting with error: " ++ e))
     sendReply orig ()
-    interrupt (ErrorInterrupt msg)
+    interrupt (ErrorInterrupt e)
 
-  handleReq (ServerLoopRequest (Call orig (SayHello mx))) =
+  handleReq _myId (OnRequest (Call orig (SayHello mx))) =
     case mx of
-      SayHello "e1" -> do
+      "e1" -> do
         me <- self
         logInfo (T.pack (show me ++ " raising an error"))
         interrupt (ErrorInterrupt "No body loves me... :,(")
 
-      SayHello "e2" -> do
+      "e2" -> do
         me <- self
         logInfo (T.pack (show me ++ " throwing a MyException "))
         void (lift (Exc.throw MyException))
 
-      SayHello "self" -> do
+      "self" -> do
         me <- self
         logInfo (T.pack (show me ++ " casting to self"))
         cast (asEndpoint @TestProtocol me) (Shout "from me")
         sendReply orig False
 
-      SayHello "stop" -> do
+      "stop" -> do
         me <- self
         logInfo (T.pack (show me ++ " stopping me"))
         sendReply orig False
         interrupt (ErrorInterrupt "test error")
 
-      SayHello x -> do
+      x -> do
         me <- self
         logInfo (T.pack (show me ++ " Got Hello: " ++ x))
         sendReply orig (length x > 3)
 
-  handleReq (ServerLoopRequest (Cast (Shout x))) = do
+  handleReq _myId (OnRequest (Cast (Shout x))) = do
     me <- self
     logInfo (T.pack (show me ++ " Shouting: " ++ x))
 
-  handleReq wtf = do
-    me <- self
-    logCritical (T.pack (show me ++ " WTF: " ++ show wtf))
-
-  handleErr _ msg = do
+  handleReq _myId (OnInterrupt msg) = do
     me <- self
     logInfo (T.pack (show me ++ " is exiting: " ++ show msg))
     logProcessExit msg
     interrupt msg
+
+  handleReq _myId wtf = do
+    me <- self
+    logCritical (T.pack (show me ++ " WTF: " ++ show wtf))
+

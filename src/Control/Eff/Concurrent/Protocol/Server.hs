@@ -3,7 +3,10 @@
 -- @since 0.24.0
 module Control.Eff.Concurrent.Protocol.Server
   ( Server(..)
-  , ServerLoopEvent(..)
+  , ToServerEffects
+  , State(..)
+  , Reader(..)
+  , Event(..)
   , spawnProtocolServer
   , spawnLinkProtocolServer
   , protocolServerLoop
@@ -12,9 +15,10 @@ module Control.Eff.Concurrent.Protocol.Server
   , GenServerId(..)
   , GenServerState
   , GenServerReader
-  , ServerArgument(..)
+  , StartArgument(..)
   , StatelessGenServer
   , simpleGenServer
+
   )
   where
 
@@ -32,6 +36,7 @@ import Control.Eff.State.Strict
 import Data.Coerce
 import Data.Default
 import Data.Kind
+import Data.String
 import Data.Typeable
 import Data.Type.Pretty
 import qualified Data.Text as T
@@ -43,48 +48,39 @@ import GHC.Generics
 --
 -- @since 0.24.0
 class
-  ( Typeable (Protocol a)
+  ( Typeable (ServerPdu a)
   , Typeable a
   , Tangible (ServerEnv a)
   , Tangible (ServerState a)
   ) =>
       Server (a :: Type) e
   where
-  data ServerArgument a e
-  type Protocol a :: Type
-  type Protocol a = a
+  data StartArgument a e
+  type ServerPdu a :: Type
+  type ServerPdu a = a
   type ServerState a :: Type
   type ServerState a = ()
   type ServerEnv a :: Type
   type ServerEnv a = ()
 
-  serverInit ::
-       ServerArgument a e
+  setup ::
+       StartArgument a e
     -> Eff e (ServerState a, ServerEnv a)
 
-  default serverInit ::
+  default setup ::
        (Default (ServerState a), Default (ServerEnv a))
-    => ServerArgument a e
+    => StartArgument a e
     -> Eff e (ServerState a, ServerEnv a)
-  serverInit _ = pure (def, def)
+  setup _ = pure (def, def)
 
-  stepServerLoop ::
-       ServerArgument a e
-    -> ServerLoopEvent (Protocol a)
-    -> Eff (State (ServerState a) ': Reader (ServerEnv a) ': e) ()
+  update ::
+       StartArgument a e
+    -> Event (ServerPdu a)
+    -> Eff (ToServerEffects a e) ()
 
-  recoverFromInterrupt ::
-       ServerArgument a e
-    -> Interrupt 'Recoverable
-    -> Eff (State (ServerState a) ': Reader (ServerEnv a) ': e) ()
-
-  default recoverFromInterrupt ::
-       (SetMember Process (Process q) e)
-    => ServerArgument a e
-    -> Interrupt 'Recoverable
-    -> Eff (State (ServerState a) ': Reader (ServerEnv a) ': e) ()
-  recoverFromInterrupt _ = exitBecause . interruptToExit
-
+-- | /Cons/ (i.e. prepend) the 'Server' 'State' and 'Reader' effects.
+type ToServerEffects a e =
+  State (ServerState a) ': Reader (ServerEnv a) ': e
 
 -- | Execute the server loop.
 --
@@ -94,7 +90,7 @@ spawnProtocolServer
   . ( Server a (InterruptableProcess q)
     , LogsTo h (InterruptableProcess q)
     , HasCallStack)
-  => ServerArgument a (InterruptableProcess q) -> Eff (InterruptableProcess q) (Endpoint (Protocol a))
+  => StartArgument a (InterruptableProcess q) -> Eff (InterruptableProcess q) (Endpoint (ServerPdu a))
 spawnProtocolServer a = asEndpoint <$> spawn (protocolServerLoop a)
 
 -- | Execute the server loop.
@@ -102,7 +98,7 @@ spawnProtocolServer a = asEndpoint <$> spawn (protocolServerLoop a)
 -- @since 0.24.0
 spawnLinkProtocolServer
   :: forall a q h . (Server a (InterruptableProcess q), LogsTo h (InterruptableProcess q), HasCallStack)
-  => ServerArgument a (InterruptableProcess q) -> Eff (InterruptableProcess q) (Endpoint (Protocol a))
+  => StartArgument a (InterruptableProcess q) -> Eff (InterruptableProcess q) (Endpoint (ServerPdu a))
 spawnLinkProtocolServer a = asEndpoint <$> spawnLink (protocolServerLoop a)
 
 -- | Execute the server loop.
@@ -115,30 +111,29 @@ protocolServerLoop
        , Member Interrupts e
        , LogsTo h e
        )
-  => ServerArgument a e -> Eff e ()
+  => StartArgument a e -> Eff e ()
 protocolServerLoop a = do
-  (st, env) <- serverInit a
+  (st, env) <- setup a
   _ <- runReader env (runState st (receiveSelectedLoop sel mainLoop))
   return ()
   where
-    sel :: MessageSelector (ServerLoopEvent (Protocol a))
+    sel :: MessageSelector (Event (ServerPdu a))
     sel =
-          ServerLoopRequest      <$> selectMessage @(Request (Protocol a))
-      <|> ServerLoopProcessDown  <$> selectMessage @ProcessDown
-      <|> ServerLoopTimerElapsed <$> selectMessage @TimerElapsed
-      <|> ServerLoopOtherMessage <$> selectAnyMessage
+          OnRequest <$> selectMessage @(Request (ServerPdu a))
+      <|> OnDown    <$> selectMessage @ProcessDown
+      <|> OnTimeOut <$> selectMessage @TimerElapsed
+      <|> OnMessage <$> selectAnyMessage
     handleInt i = do
-      recoverFromInterrupt a i
+      update a (OnInterrupt i)
       pure (Just ())
     mainLoop ::
          (Typeable a)
-      => Either (Interrupt 'Recoverable) (ServerLoopEvent (Protocol a))
-      -> Eff (State (ServerState a) ': Reader (ServerEnv a) ': e) (Maybe ())
+      => Either (Interrupt 'Recoverable) (Event (ServerPdu a))
+      -> Eff (ToServerEffects a e) (Maybe ())
     mainLoop (Left i) = handleInt i
     mainLoop (Right i) = do
-      stepServerLoop a i
+      update a i
       pure (Just ())
-
 
 -- | The underlying effects for 'GenServer's:
 --     * Logging
@@ -163,23 +158,23 @@ type GenIO e q h =
 -- Note that this is required to receive any kind of messages in 'protocolServerLoop'.
 --
 -- @since 0.24.0
-data ServerLoopEvent a =
-    ServerLoopRequest (Request a)
-  | ServerLoopProcessDown ProcessDown
-  | ServerLoopTimerElapsed TimerElapsed
-  | ServerLoopOtherMessage StrictDynamic
+data Event a =
+    OnRequest (Request a)
+  | OnInterrupt (Interrupt 'Recoverable)
+  | OnDown ProcessDown
+  | OnTimeOut TimerElapsed
+  | OnMessage StrictDynamic
   deriving (Show,Generic,Typeable)
 
-instance NFData a => NFData (ServerLoopEvent a) where
+instance NFData a => NFData (Event a) where
    rnf = \case
-       ServerLoopRequest r      -> rnf r
-       ServerLoopProcessDown r  -> rnf r
-       ServerLoopTimerElapsed r -> rnf r
-       ServerLoopOtherMessage r -> r `seq` ()
+       OnRequest r      -> rnf r
+       OnInterrupt r    -> rnf r
+       OnDown r  -> rnf r
+       OnTimeOut r -> rnf r
+       OnMessage r -> r `seq` ()
 
-
-type instance ToPretty (ServerLoopEvent a) = PutStr "sever-loop-event<" <++> ToPretty a <++> PutStr ">"
-
+type instance ToPretty (Event a) = ToPretty a <+> PutStr "event"
 
 -- * GenServer
 
@@ -193,14 +188,9 @@ type instance ToPretty (ServerLoopEvent a) = PutStr "sever-loop-event<" <++> ToP
 -- @since 0.24.0
 data GenServer tag e where
   MkGenServer :: GenIO e h q =>
-      { _serverInitCallback :: GenServerId tag -> Eff e (ServerState (GenServer tag e), ServerEnv (GenServer tag e))
-      , _stepServerLoopCallback
-          :: GenServerId tag
-          -> ServerLoopEvent (GenServerProtocol tag)
-          -> Eff (State (GenServerState tag) ': Reader (GenServerReader tag) ': e) ()
-      , _recoverFromInterruptCallback
-          :: GenServerId tag
-          -> Interrupt 'Recoverable
+      { _setupCallback :: Eff e (ServerState (GenServer tag e), ServerEnv (GenServer tag e))
+      , _updateCallback
+          :: Event (GenServerProtocol tag)
           -> Eff (State (GenServerState tag) ': Reader (GenServerReader tag) ': e) ()
       } -> GenServer tag e
 
@@ -209,12 +199,12 @@ data GenServer tag e where
 -- @since 0.24.0
 newtype GenServerId tag =
   MkGenServerId { _fromGenServerId :: T.Text }
-  deriving (Typeable, NFData, Ord, Eq)
+  deriving (Typeable, NFData, Ord, Eq, IsString)
 
 instance Show (GenServerId tag) where
   showsPrec _d (MkGenServerId x) = showString (T.unpack x)
 
--- | The 'Protocol' un-wrapper type function.
+-- | The 'ServerPdu' un-wrapper type function.
 --
 -- @since 0.24.0
 type family GenServerProtocol tag
@@ -236,24 +226,22 @@ instance ( Tangible (GenServerState tag)
          , Typeable e
          , GenIO e h q
          ) => Server (GenServer (tag :: Type) e) e where
-  type Protocol (GenServer tag e) = GenServerProtocol tag
+  type ServerPdu (GenServer tag e) = GenServerProtocol tag
   type ServerState (GenServer tag e) = GenServerState tag
   type ServerEnv (GenServer tag e) = GenServerReader tag
-  data instance ServerArgument (GenServer tag e) e =
-        MkGenServerArgument
-          { _genServerId :: GenServerId tag
-          , _genServerCallbacks :: GenServer tag e
-          }
-          deriving Typeable
-  serverInit (MkGenServerArgument x cb) = _serverInitCallback cb x
-  stepServerLoop (MkGenServerArgument x cb) req = _stepServerLoopCallback cb x req
-  recoverFromInterrupt (MkGenServerArgument x cb) i = _recoverFromInterruptCallback cb x i
+  data instance StartArgument (GenServer tag e) e =
+        MkGenStartArgument
+         { _genServerId :: GenServerId tag
+         , _genServerCallbacks :: GenServer tag e
+         } deriving Typeable
+  setup (MkGenStartArgument _ cb) = _setupCallback cb
+  update (MkGenStartArgument _ cb) req = _updateCallback cb req
 
-instance NFData (ServerArgument (GenServer tag e) e) where
-  rnf (MkGenServerArgument x _) = rnf x
+instance NFData (StartArgument (GenServer tag e) e) where
+  rnf (MkGenStartArgument x _) = rnf x
 
-instance Typeable tag => Show (ServerArgument (GenServer tag e) e) where
-  showsPrec d (MkGenServerArgument x _) =
+instance Typeable tag => Show (StartArgument (GenServer tag e) e) where
+  showsPrec d (MkGenStartArgument x _) =
     showParen (d>=10)
       ( showsPrec 11 x
       . showChar ' ' . showsTypeRep (typeRep (Proxy @tag))
@@ -275,7 +263,14 @@ type instance GenServerReader (StatelessGenServer tag) = ()
 type instance GenServerProtocol (StatelessGenServer tag) = tag
 type instance ToPretty (StatelessGenServer t) = ToPretty t
 
--- | Create a simple 'GenServer' from a single 'Pdu' callback.
+-- | Create a 'Stateless' 'GenServer'.
+--
+-- This requires only the callback for 'Event's
+-- and a 'GenServerId'.
+--
+-- This is Haskell, so if this functions is partially applied
+-- to some 'Event' callback, you get a function back,
+-- that generates 'StartArgument's from 'GenServerId's, like a /factory/
 --
 -- @since 0.24.0
 simpleGenServer
@@ -285,16 +280,16 @@ simpleGenServer
      , Server (GenServer (StatelessGenServer tag) e) e
      , PrettyTypeShow (ToPretty tag)
      )
-  => (GenServerId (StatelessGenServer tag) -> ServerLoopEvent tag -> Eff e ())
-  -> GenServer (StatelessGenServer tag) e
-simpleGenServer stepCb =
-  MkGenServer { _serverInitCallback = const (pure ((), ()))
-              , _stepServerLoopCallback = runStep
-              , _recoverFromInterruptCallback = noRecovery
-              }
+  => (GenServerId (StatelessGenServer tag) -> Event tag -> Eff e ())
+  -> GenServerId (StatelessGenServer tag)
+  -> StartArgument (GenServer (StatelessGenServer tag) e) e
+simpleGenServer stepCb i =
+  MkGenStartArgument
+    { _genServerId = i
+    , _genServerCallbacks =
+        MkGenServer { _setupCallback = pure ((), ())
+                    , _updateCallback = runStep
+                    }
+    }
    where
-    runStep i loopEvent =  raise . raise $ stepCb i (coerce loopEvent)
-    noRecovery _ i = do
-      let e = T.pack (show i)
-      logError e
-      exitBecause (ExitUnhandledError e)
+    runStep loopEvent =  raise . raise $ stepCb i (coerce loopEvent)

@@ -50,7 +50,7 @@
 module Control.Eff.Concurrent.Protocol.Supervisor
   ( Sup()
   , SpawnFun
-  , ServerArgument(MkSupConfig)
+  , StartArgument(MkSupConfig)
   , supConfigChildStopTimeout
   , supConfigSpawnFun
   , SpawnErr(AlreadyStarted)
@@ -175,15 +175,15 @@ instance
   -- * the 'Timeout' after requesting a normal child exit before brutally killing the child.
   --
   -- @since 0.24.0
-  data ServerArgument (Sup i o) e = MkSupConfig
+  data StartArgument (Sup i o) e = MkSupConfig
     { supConfigSpawnFun         :: SpawnFun i e o
     , supConfigChildStopTimeout :: Timeout
     }
 
   type ServerState (Sup i o) = Children i o
 
-  serverInit _cfg = pure (def, ())
-  stepServerLoop supConfig (ServerLoopRequest (Call orig req)) =
+  setup _cfg = pure (def, ())
+  update supConfig (OnRequest (Call orig req)) =
     case req of
       GetDiagnosticInfo ->  do
         p <- (pack . show <$> getChildren @i @o)
@@ -212,7 +212,7 @@ instance
           Just existingChild ->
             sendReply orig (Left (AlreadyStarted i (existingChild ^. childOutput)))
 
-  stepServerLoop _supConfig (ServerLoopProcessDown (ProcessDown mrChild reason)) = do
+  update _supConfig (OnDown (ProcessDown mrChild reason)) = do
       oldEntry <- lookupAndRemoveChildByMonitor @i @o mrChild
       case oldEntry of
         Nothing ->
@@ -231,9 +231,7 @@ instance
                   <> " => "
                   <> pack (show (_childOutput c))
                   )
-  stepServerLoop _supConfig o = logWarning ("unexpected: " <> pack (show o))
-
-  recoverFromInterrupt supConfig e = do
+  update supConfig (OnInterrupt e) = do
       let (logSev, exitReason) =
             case e of
               NormalExitRequested ->
@@ -243,6 +241,9 @@ instance
       stopAllChildren @i @o (supConfigChildStopTimeout supConfig)
       logWithSeverity logSev ("supervisor stopping: " <> pack (show e))
       exitBecause exitReason
+
+  update _supConfig o = logWarning ("unexpected: " <> pack (show o))
+
 
 -- | Runtime-Errors occurring when spawning child-processes.
 --
@@ -269,7 +270,7 @@ startSupervisor
     , TangibleSup i o
     , Server (Sup i o) (InterruptableProcess e)
     )
-  => ServerArgument (Sup i o) (InterruptableProcess e)
+  => StartArgument (Sup i o) (InterruptableProcess e)
   -> Eff (InterruptableProcess e) (Sup i o)
 startSupervisor supConfig = MkSup <$> spawnProtocolServer supConfig
 

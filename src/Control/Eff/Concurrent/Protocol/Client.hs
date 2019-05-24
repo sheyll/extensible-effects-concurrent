@@ -25,7 +25,6 @@ import           Control.Eff.Concurrent.Process.Timer
 import           Control.Eff.Log
 import           Data.Typeable                  ( Typeable )
 import           Data.Type.Pretty
-import           Control.DeepSeq
 import           GHC.Stack
 
 -- | Send a request 'Pdu' that has no reply and return immediately.
