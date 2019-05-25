@@ -43,7 +43,7 @@
 -- implemented outside of this supervisor module.
 --
 -- One way to do that is to implement the restart logic in
--- a seperate module, since the child-id can be reused when a child
+-- a separate module, since the child-id can be reused when a child
 -- exits.
 --
 -- @since 0.23.0
@@ -373,6 +373,7 @@ lookupChild (MkSup ep) cId = call ep (LookupC cId)
 --
 -- @since 0.23.0
 stopChild ::
+    forall i o e q0 .
      ( HasCallStack
      , Member Interrupts e
      , Member Logs e
@@ -382,20 +383,21 @@ stopChild ::
   => Sup i o
   -> i
   -> Eff e Bool
-stopChild (MkSup ep) cId = call ep (StopC cId (TimeoutMicros 4000000))
+stopChild (MkSup ep) cId = call ep (StopC @i @o cId (TimeoutMicros 4000000))
 
 -- | Return a 'Text' describing the current state of the supervisor.
 --
 -- @since 0.23.0
 getDiagnosticInfo
-  :: ( HasCallStack
+  :: forall i o e q0 .
+     ( HasCallStack
      , Member Interrupts e
      , SetMember Process (Process q0) e
      , TangibleSup i o
      )
   => Sup i o
   -> Eff e Text
-getDiagnosticInfo (MkSup s) = call s GetDiagnosticInfo
+getDiagnosticInfo (MkSup s) = call s (GetDiagnosticInfo  @i @o)
 
 -- Internal Functions
 

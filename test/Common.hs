@@ -3,12 +3,14 @@ module Common where
 import Control.Concurrent
 import Control.Concurrent.STM
 import Control.Eff
+import Control.Eff.Concurrent hiding (Timeout)
+import Control.Eff.Concurrent.Process.ForkIOScheduler as Scheduler
 import Control.Eff.Concurrent.Process
 import Control.Eff.Extend
 import Control.Eff.Log
 import Control.Monad (void)
 import GHC.Stack
-import Test.Tasty
+import Test.Tasty 
 import Test.Tasty.HUnit
 import Test.Tasty.Runners
 

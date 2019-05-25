@@ -167,7 +167,7 @@ data instance Pdu (a1, a2) x where
 
 instance (NFData (Pdu a1 r), NFData (Pdu a2 r)) => NFData (Pdu (a1, a2) r) where
   rnf (ToPduLeft x) = rnf x
-  rnf (ToPduLeft y) = rnf y
+  rnf (ToPduRight y) = rnf y
 
 instance (Show (Pdu a1 r), Show (Pdu a2 r)) => Show (Pdu (a1, a2) r) where
   showsPrec d (ToPduLeft x) = showsPrec d x

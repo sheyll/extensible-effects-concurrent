@@ -105,7 +105,7 @@ registerObserver
   -> Endpoint x
   -> Eff r ()
 registerObserver observer observerRegistry =
-  cast observerRegistry (embedPdu (RegisterObserver observer))
+  cast observerRegistry (RegisterObserver observer)
 
 -- | Send the 'ForgetObserver' message
 --
@@ -124,7 +124,7 @@ forgetObserver
   -> Endpoint x
   -> Eff r ()
 forgetObserver observer observerRegistry =
-  cast observerRegistry (embedPdu (ForgetObserver observer))
+  cast observerRegistry (ForgetObserver observer)
 
 -- ** Observer Support Functions
 

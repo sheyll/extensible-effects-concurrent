@@ -36,14 +36,14 @@ counterExample
   :: (Typeable q, LogsTo IO q, Lifted IO q)
   => Eff (InterruptableProcess q) ()
 counterExample = do
-  cx <- spawnCounter
-  let cp = _fromEndpoint cx
+  c <- spawnCounter
+  let cp = _fromEndpoint c
   lift (threadDelay 500000)
   o <- logCounterObservations
   lift (threadDelay 500000)
-  registerObserver o cx
+  registerObserver o c
   lift (threadDelay 500000)
-  cast cx (embedPdu Inc)
+  cast c Inc
   lift (threadDelay 500000)
   sendMessage cp ("test 123" :: String)
   cast c Inc
@@ -70,6 +70,10 @@ type instance ToPretty SupiDupi = PutStr "supi dupi"
 data instance Pdu SupiDupi r where
   Whoopediedoo :: Bool -> Pdu SupiDupi ('Synchronous (Maybe ()))
   deriving Typeable
+
+instance Show (Pdu SupiDupi r) where
+  show (Whoopediedoo True) = "woopediedooo"
+  show (Whoopediedoo False) = "no woopy doopy"
 
 instance NFData (Pdu SupiDupi r) where
   rnf (Whoopediedoo b) = rnf b

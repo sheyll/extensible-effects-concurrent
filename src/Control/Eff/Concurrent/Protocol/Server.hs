@@ -228,17 +228,13 @@ protocolServerLoop a = do
       <|> OnDown    <$> selectMessage @ProcessDown
       <|> OnTimeOut <$> selectMessage @TimerElapsed
       <|> OnMessage <$> selectAnyMessage
-    handleInt i = do
-      update a (OnInterrupt i)
-      pure (Just ())
+    handleInt i = update a (OnInterrupt i) *> pure Nothing
     mainLoop ::
          (Typeable a)
       => Either (Interrupt 'Recoverable) (Event (Protocol a))
       -> Eff (ToServerEffects a e) (Maybe ())
     mainLoop (Left i) = handleInt i
-    mainLoop (Right i) = do
-      update a i
-      pure (Just ())
+    mainLoop (Right i) = update a i *> pure Nothing
 
 -- | The underlying effects for 'GenServer's:
 --     * Logging
