@@ -63,7 +63,7 @@ test_singleThreaded = setTravisTestOptions $ withTestLogC
 
 allTests
   :: forall r
-   . (Lifted IO r, LogsTo IO r)
+   . (Lifted IO r, LogsTo IO r, Typeable r)
   => IO (Eff (InterruptableProcess r) () -> IO ())
   -> TestTree
 allTests schedulerFactory = localOption
@@ -119,26 +119,34 @@ stopReturnToSender
   -> Eff r ()
 stopReturnToSender toP = call toP StopReturnToSender
 
+type instance GenServerProtocol ReturnToSender = ReturnToSender
+
 returnToSenderServer
   :: forall q
-   . (HasCallStack, Member Logs q)
+   . (HasCallStack, Lifted IO q, LogsTo IO q, Member Logs q, Typeable q)
   => Eff (InterruptableProcess q) (Endpoint ReturnToSender)
 returnToSenderServer = start
-  (handleCalls
-    (\m k -> k $ case m of
-      StopReturnToSender -> do
-        return (Nothing, StopServer testInterruptReason)
-      ReturnToSender fromP echoMsg -> do
-        sendMessage fromP echoMsg
-        yieldProcess
-        return (Just True, AwaitNext)
+  (statelessGenServer @ReturnToSender
+    (\_me evt ->
+      case evt of
+        OnRequest (Call orig msg) ->
+          case msg of
+            StopReturnToSender -> interrupt testInterruptReason
+            ReturnToSender fromP echoMsg -> do
+              sendMessage fromP echoMsg
+              yieldProcess
+              sendReply orig True
+        OnInterrupt i ->
+          interrupt i
+        other -> interrupt (ErrorInterrupt (show other))
     )
+    "return-to-sender"
   )
-  stopServerOnInterrupt
+
 
 selectiveReceiveTests
   :: forall r
-   . (Lifted IO r, LogsTo IO r)
+   . (Lifted IO r, LogsTo IO r, Typeable r)
   => IO (Eff (InterruptableProcess r) () -> IO ())
   -> TestTree
 selectiveReceiveTests schedulerFactory = setTravisTestOptions

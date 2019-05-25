@@ -273,7 +273,6 @@ test-suite extensible-effects-concurrent-test
               , LoopTests
               , ProcessBehaviourTestCases
               , SupervisorTests
-              , ServerForkIO
               , SingleThreadedScheduler
   ghc-options: -Wall -threaded -fno-full-laziness
   build-depends:
