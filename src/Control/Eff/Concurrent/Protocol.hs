@@ -26,6 +26,8 @@ module Control.Eff.Concurrent.Protocol
   , proxyAsEndpoint
   , asEndpoint
   , EmbedProtocol(..)
+  , prettyTypeableShows
+  , prettyTypeableShowsPrec
   )
 where
 
@@ -33,7 +35,7 @@ import           Control.DeepSeq
 import           Control.Eff.Concurrent.Process
 import           Control.Lens
 import           Data.Kind
-import           Data.Typeable                  ( Typeable )
+import           Type.Reflection
 import           Data.Type.Pretty
 
 -- | This data family defines the **protocol data units**(PDU) of a /protocol/.
@@ -119,8 +121,39 @@ type family ProtocolReply (s :: Synchronicity) where
 newtype Endpoint protocol = Endpoint { _fromEndpoint :: ProcessId }
   deriving (Eq,Ord,Typeable, NFData)
 
-instance (PrettyTypeShow (ToPretty protocol)) => Show (Endpoint protocol) where
-  showsPrec _ s@(Endpoint c) = showString (showPretty s) . showsPrec 10 c
+instance Typeable protocol => Show (Endpoint protocol) where
+  showsPrec d (Endpoint c) =
+    showParen (d>=10)
+    (prettyTypeableShows (SomeTypeRep (typeRep @protocol)) . showsPrec 10 c)
+
+-- | This is equivalent to @'prettyTypeableShowsPrec' 0@
+--
+-- @since 0.24.0
+prettyTypeableShows :: SomeTypeRep -> ShowS
+prettyTypeableShows = prettyTypeableShowsPrec 0
+
+-- | An internal utility to print 'Typeable' without the kinds.
+-- This is like 'showsPrec' in that it accepts a /precedence/ parameter,
+-- and the result is in parentheses when the precedence is higher than 9.
+--
+-- @since 0.24.0
+prettyTypeableShowsPrec :: Int -> SomeTypeRep -> ShowS
+prettyTypeableShowsPrec d (SomeTypeRep tr) =
+  let (con, conArgs) = splitApps tr
+   in case conArgs of
+        [] -> showString (tyConName con)
+        (f0:fRest0) ->
+          mshowParen
+            (d >= 10)
+            (showString (tyConName con) <> showChar ':' <>
+             case fRest0 of
+               [] -> prettyTypeableShowsPrec 10 f0
+               _ ->
+                prettyTypeableShowsPrec 10 f0 <>
+                 foldr (\f acc -> showChar '-' <> prettyTypeableShowsPrec 10 f <> acc) id fRest0)
+  where
+    mshowParen True s = showChar '(' <> s <> showChar ')'
+    mshowParen False s = s
 
 type instance ToPretty (Endpoint a) = ToPretty a <+> PutStr "endpoint"
 

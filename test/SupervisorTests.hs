@@ -7,8 +7,8 @@ import Control.Concurrent (threadDelay)
 import Control.DeepSeq
 import Control.Eff
 import Control.Eff.Concurrent
+import Control.Eff.Concurrent.Protocol.Server as Server
 import Control.Eff.Concurrent.Protocol.Supervisor as Sup
-import Control.Eff.Concurrent.Process.ForkIOScheduler as Scheduler
 import Control.Eff.Concurrent.Process.Timer
 import Data.Either (fromRight, isLeft, isRight)
 import Data.Maybe (fromMaybe)
@@ -24,7 +24,7 @@ test_Supervisor =
   testGroup
     "Supervisor"
     (let startTestSup = startTestSupWith ExitWhenRequested (TimeoutMicros 500000)
-         startTestSupWith e t = Sup.startSupervisor (MkSupConfig (spawnTestProtocolProcess e) t)
+         startTestSupWith e t = Sup.startSupervisor (MkSupConfig t (TestServerArgs e))
          spawnTestChild sup i = Sup.spawnChild sup i >>= either (lift . assertFailure . show) pure
       in [ runTestCase "The supervisor starts and is shut down" $ do
              outerSelf <- self
@@ -37,7 +37,7 @@ test_Supervisor =
                  () <- receiveMessage
                  Sup.stopSupervisor sup
              unlinkProcess testWorker
-             sup <- receiveMessage :: Eff InterruptableProcEff (Sup.Sup Int (Endpoint TestProtocol))
+             sup <- receiveMessage :: Eff InterruptableProcEff  (Endpoint (Sup.Sup TestProtocol))
              supAliveAfter1 <- isSupervisorAlive sup
              logInfo ("still alive 1: " <> pack (show supAliveAfter1))
              lift (supAliveAfter1 @=? True)
@@ -241,40 +241,6 @@ test_Supervisor =
                  ]
          ])
 
-data TestProtocolServerMode
-  = IgnoreNormalExitRequest
-  | ExitWhenRequested
-  deriving (Eq)
-
-spawnTestProtocolProcess :: TestProtocolServerMode -> Sup.SpawnFun Int InterruptableProcEff (Endpoint TestProtocol)
-spawnTestProtocolProcess testMode tId =
-  start (handleCasts onCast <> handleCalls onCall ^: handleAnyMessages onInfo) (InterruptCallback onInterrupt)
-  where
-    onCast ::
-         Pdu TestProtocol 'Asynchronous -> Eff InterruptableProcEff (ServerLoopCommand 'Recoverable)
-    onCast (TestInterruptWith i) = do
-      logInfo (pack (show tId) <> ": stopping with: " <> pack (show i))
-      pure (StopServer i)
-    onCall ::
-         Pdu TestProtocol ('Synchronous r) -> (Eff InterruptableProcEff (Maybe r, ServerLoopCommand 'Recoverable) -> x) -> x
-    onCall (TestGetStringLength str) runMe =
-      runMe $ do
-        logInfo (pack (show tId) <> ": calculating length of: " <> pack str)
-        pure (Just (length str), AwaitNext)
-    onInfo :: StrictDynamic -> Eff InterruptableProcEff (ServerLoopCommand 'Recoverable)
-    onInfo sd = do
-      logDebug (pack (show tId) <> ": got some info: " <> pack (show sd))
-      pure AwaitNext
-    onInterrupt x = do
-      logNotice (pack (show tId) <> ": " <> pack (show x))
-      if testMode == IgnoreNormalExitRequest
-        then do
-          logNotice $ pack (show tId) <> ": ignoring normal exit request"
-          pure AwaitNext
-        else do
-          logNotice $ pack (show tId) <> ": exitting normally"
-          pure (StopServer (interruptToExit x))
-
 data TestProtocol
   deriving (Typeable)
 
@@ -288,3 +254,35 @@ data instance  Pdu TestProtocol x where
 instance NFData (Pdu TestProtocol x) where
   rnf (TestGetStringLength x) = rnf x
   rnf (TestInterruptWith x) = rnf x
+
+instance Show (Pdu TestProtocol r) where
+  show (TestGetStringLength s) = "TestGetStringLength " ++ show s
+  show (TestInterruptWith s) = "TestInterruptWith " ++ show s
+
+data TestProtocolServerMode
+  = IgnoreNormalExitRequest
+  | ExitWhenRequested
+  deriving Eq
+
+instance Server TestProtocol InterruptableProcEff where
+  update (TestServerArgs testMode tId) evt =
+    case evt of
+      OnRequest (Cast (TestInterruptWith i)) -> do
+        logInfo (pack (show tId) <> ": stopping with: " <> pack (show i))
+        interrupt i
+      OnRequest (Call orig (TestGetStringLength str)) -> do
+        logInfo (pack (show tId) <> ": calculating length of: " <> pack str)
+        sendReply orig (length str)
+      OnInterrupt x -> do
+        logNotice (pack (show tId) <> ": " <> pack (show x))
+        if testMode == IgnoreNormalExitRequest
+          then
+            logNotice $ pack (show tId) <> ": ignoring normal exit request"
+          else do
+            logNotice $ pack (show tId) <> ": exitting normally"
+            exitBecause (interruptToExit x)
+      _ ->
+        logDebug (pack (show tId) <> ": got some info: " <> pack (show evt))
+  data instance StartArgument TestProtocol InterruptableProcEff = TestServerArgs TestProtocolServerMode Int
+
+type instance ChildId TestProtocol = Int

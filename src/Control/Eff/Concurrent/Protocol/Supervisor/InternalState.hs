@@ -3,6 +3,8 @@ module Control.Eff.Concurrent.Protocol.Supervisor.InternalState where
 import Control.DeepSeq
 import Control.Eff as Eff
 import Control.Eff.Concurrent.Process
+import Control.Eff.Concurrent.Protocol
+import Control.Eff.Concurrent.Protocol.Server
 import Control.Eff.State.Strict as Eff
 import Control.Lens hiding ((.=), use)
 import Data.Default
@@ -11,28 +13,30 @@ import Data.Map (Map)
 import GHC.Generics (Generic)
 
 
-data Child o = MkChild
-  { _childOutput :: o
-  , _childProcessId :: ProcessId
+data Child p = MkChild
+  { _childEndpoint :: Endpoint (Protocol p)
   , _childMonitoring :: MonitorReference
   }
-  deriving (Show, Generic, Typeable, Eq, Ord)
+  deriving (Generic, Typeable, Eq, Ord)
 
-instance (NFData o) => NFData (Child o)
+instance NFData (Child o)
+
+instance Typeable (Protocol p) => Show (Child p) where
+  showsPrec d c = showParen (d>=10)
+    (showString "supervised process: " . shows (_childEndpoint c)  . showChar ' ' . shows (_childMonitoring c) )
 
 makeLenses ''Child
 
-
 -- | Internal state.
-data Children i o = MkChildren
-  { _childrenById :: Map i (Child o)
-  , _childrenByMonitor :: Map MonitorReference (i, Child o)
+data Children i p = MkChildren
+  { _childrenById :: Map i (Child p)
+  , _childrenByMonitor :: Map MonitorReference (i, Child p)
   } deriving (Show, Generic, Typeable)
 
-instance Default (Children i o) where
+instance Default (Children i p) where
   def = MkChildren def def
 
-instance (NFData i, NFData o) => NFData (Children i o)
+instance (NFData i) => NFData (Children i p)
 
 makeLenses ''Children
 
