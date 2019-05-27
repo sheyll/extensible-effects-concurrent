@@ -99,6 +99,31 @@ import Control.Applicative ((<|>))
 -- @since 0.24.0
 data Sup p deriving Typeable
 
+-- | The 'Pdu' instance contains methods to start, stop and lookup a child
+-- process, as well as a diagnostic callback.
+--
+-- @since 0.23.0
+data instance  Pdu (Sup p) r where
+        StartC :: ChildId p -> Pdu (Sup p) ('Synchronous (Either (SpawnErr p) (Endpoint (Protocol p))))
+        StopC :: ChildId p -> Timeout -> Pdu (Sup p) ('Synchronous Bool)
+        LookupC :: ChildId p -> Pdu (Sup p) ('Synchronous (Maybe (Endpoint (Protocol p))))
+        GetDiagnosticInfo :: Pdu (Sup p) ('Synchronous Text)
+    deriving Typeable
+
+instance (Show (ChildId p)) => Show (Pdu (Sup p) ('Synchronous r)) where
+  showsPrec d (StartC c) = showParen (d >= 10) (showString "StartC " . showsPrec 10 c)
+  showsPrec d (StopC c t) = showParen (d >= 10) (showString "StopC " . showsPrec 10 c . showChar ' ' . showsPrec 10 t)
+  showsPrec d (LookupC c) = showParen (d >= 10) (showString "LookupC " . showsPrec 10 c)
+  showsPrec _ GetDiagnosticInfo = showString "GetDiagnosticInfo"
+
+instance (NFData (ChildId p)) => NFData (Pdu (Sup p) ('Synchronous r)) where
+  rnf (StartC ci) = rnf ci
+  rnf (StopC ci t) = rnf ci `seq` rnf t
+  rnf (LookupC ci) = rnf ci
+  rnf GetDiagnosticInfo = ()
+
+type instance ToPretty (Sup p) = "supervisor" <:> ToPretty p
+
 -- | The type of value used to index running 'Server' processes managed by a 'Sup'.
 --
 -- Note, that the type you provide must be 'Tangible'.
@@ -115,39 +140,12 @@ type TangibleSup p =
   , Typeable p
   )
 
--- | The 'Pdu' instance contains methods to start, stop and lookup a child
--- process, as well as a diagnostic callback.
---
--- @since 0.23.0
-data instance  Pdu (Sup p) r where
-        StartC :: ChildId p -> Pdu (Sup p) ('Synchronous (Either (SpawnErr p) (Endpoint (Protocol p))))
-        StopC :: ChildId p -> Timeout -> Pdu (Sup p) ('Synchronous Bool)
-        LookupC :: ChildId p -> Pdu (Sup p) ('Synchronous (Maybe (Endpoint (Protocol p))))
-        GetDiagnosticInfo :: Pdu (Sup p) ('Synchronous Text)
-    deriving Typeable
-
-type instance ToPretty (Sup p) =
-    PutStr "supervisor{" <++> ToPretty (ChildId p) <+> PutStr "=>" <+> ToPretty p <++> PutStr "}"
-
-instance (Show (ChildId p)) => Show (Pdu (Sup p) ('Synchronous r)) where
-  showsPrec d (StartC c) = showParen (d >= 10) (showString "StartC " . showsPrec 10 c)
-  showsPrec d (StopC c t) = showParen (d >= 10) (showString "StopC " . showsPrec 10 c . showChar ' ' . showsPrec 10 t)
-  showsPrec d (LookupC c) = showParen (d >= 10) (showString "LookupC " . showsPrec 10 c)
-  showsPrec _ GetDiagnosticInfo = showString "GetDiagnosticInfo"
-
-instance (NFData (ChildId p)) => NFData (Pdu (Sup p) ('Synchronous r)) where
-  rnf (StartC ci) = rnf ci
-  rnf (StopC ci t) = rnf ci `seq` rnf t
-  rnf (LookupC ci) = rnf ci
-  rnf GetDiagnosticInfo = ()
 
 instance
   ( Lifted IO q, LogsTo IO q
   , TangibleSup p
   , Tangible (ChildId p)
   , Server p (InterruptableProcess q)
-  , PrettyTypeShow (ToPretty p)
-  , PrettyTypeShow (ToPretty (ChildId p))
   ) => Server (Sup p) (InterruptableProcess q) where
 
   -- | Options that control the 'Sup p' process.
@@ -327,8 +325,6 @@ spawnChild
      , SetMember Process (Process q0) e
      , TangibleSup p
      , Typeable (Protocol p)
-     , PrettyTypeShow (ToPretty (ChildId p))
-     , PrettyTypeShow (ToPretty p)
      )
   => Endpoint (Sup p)
   -> ChildId p
@@ -347,8 +343,6 @@ lookupChild ::
      , SetMember Process (Process q0) e
      , TangibleSup p
      , Typeable (Protocol p)
-     , PrettyTypeShow (ToPretty (ChildId p))
-     , PrettyTypeShow (ToPretty p)
      )
   => Endpoint (Sup p)
   -> ChildId p
@@ -368,8 +362,6 @@ stopChild ::
      , Member Logs e
      , SetMember Process (Process q0) e
      , TangibleSup p
-     , PrettyTypeShow (ToPretty (ChildId p))
-     , PrettyTypeShow (ToPretty p)
      )
   => Endpoint (Sup p)
   -> ChildId p
@@ -385,8 +377,6 @@ getDiagnosticInfo
      , Member Interrupts e
      , SetMember Process (Process q0) e
      , TangibleSup p
-     , PrettyTypeShow (ToPretty (ChildId p))
-     , PrettyTypeShow (ToPretty p)
      )
   => Endpoint (Sup p)
   -> Eff e Text
@@ -404,8 +394,6 @@ stopOrKillChild
      , Member Logs e
      , Member (State (Children (ChildId p) p)) e
      , TangibleSup p
-     , PrettyTypeShow (ToPretty (ChildId p))
-     , PrettyTypeShow (ToPretty p)
      , Typeable (Protocol p)
      )
   => ChildId p
@@ -440,8 +428,6 @@ stopAllChildren
      , Member Logs e
      , Member (State (Children (ChildId p) p)) e
      , TangibleSup p
-     , PrettyTypeShow (ToPretty (ChildId p))
-     , PrettyTypeShow (ToPretty p)
      , Typeable (Protocol p)
      )
   => Timeout -> Eff e ()

@@ -111,6 +111,7 @@ module Control.Eff.Log
     -- ** 'Logs' Effect Handling
   , Logs()
   , LogsTo
+  , LogIo
   , withLogging
   , withSomeLogging
 

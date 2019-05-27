@@ -54,7 +54,6 @@ data Observer o where
   Observer
     :: ( Tangible o
        , TangiblePdu p 'Asynchronous
-       , PrettyTypeShow (ToPretty p)
        , Tangible (Endpoint p)
        , Typeable p
        )
@@ -65,8 +64,7 @@ data Observer o where
 --
 -- @since 0.24.0
 type TangibleObserver o =
-  ( Tangible o, TangiblePdu (Observer o) 'Asynchronous
-  , PrettyTypeShow (ToPretty o))
+  ( Tangible o, TangiblePdu (Observer o) 'Asynchronous)
 
 type instance ToPretty (Observer o) =
   PrettyParens ("observing" <:> ToPretty o)
@@ -116,7 +114,6 @@ forgetObserver
      , Member Interrupts r
      , Typeable o
      , NFData o
-     , PrettyTypeShow (ToPretty o)
      , EmbedProtocol x (ObserverRegistry o)
      , TangiblePdu x 'Asynchronous
      )
@@ -275,7 +272,6 @@ observers = iso _observers Observers
 observed
   :: forall o r q
    . ( SetMember Process (Process q) r
-     , PrettyTypeShow (ToPretty o)
      , Member (ObserverState o) r
      , Member Interrupts r
      , TangibleObserver o

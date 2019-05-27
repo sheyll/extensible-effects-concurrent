@@ -48,6 +48,7 @@ module Control.Eff.Log.Handler
   -- ** 'Logs' Effect Handling
   , Logs()
   , LogsTo
+  , LogIo
   , withLogging
   , withSomeLogging
 
@@ -177,6 +178,11 @@ instance (Applicative m, LiftedBase m e, Catch.MonadMask (Eff e), LogsTo m (Logs
 -- * 'withSomeLogging'
 --
 type LogsTo h e = (Member Logs e, HandleLogWriter h, LogWriterEffects h <:: e, SetMember LogWriterReader (LogWriterReader h) e)
+
+-- | A constraint that required @'LogsTo' 'IO' e@ and @'Lifted' 'IO' e@.
+--
+-- @since 0.24.0
+type LogIo e = (LogsTo IO e, Lifted IO e)
 
 -- | Handle the 'Logs' and 'LogWriterReader' effects.
 --

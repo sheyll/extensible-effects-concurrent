@@ -50,9 +50,6 @@ import           Data.Type.Pretty
 -- @Pdu@ instance is 'Synchronous', i.e. returns a result and blocks the caller
 -- or if it is 'Asynchronous'
 --
--- Also, for better logging, the an instance of 'ToPretty' for the 'Pdu' index
--- type must be given.
---
 -- Example:
 --
 -- >
@@ -61,8 +58,6 @@ import           Data.Type.Pretty
 -- > data instance Pdu BookShop r where
 -- >   RentBook  :: BookId   -> Pdu BookShop ('Synchronous (Either RentalError RentalId))
 -- >   BringBack :: RentalId -> Pdu BookShop 'Asynchronous
--- >
--- > type instance ToPretty BookShop = PutStr "book shop"
 -- >
 -- > type BookId = Int
 -- > type RentalId = Int
@@ -75,7 +70,7 @@ type instance ToPretty (Pdu x y) =
 
 -- | A set of constraints for types that can evaluated via 'NFData', compared via 'Ord' and presented
 -- dynamically via 'Typeable', and represented both as values
--- via 'Show', as well as on the type level via 'ToPretty'.
+-- via 'Show'.
 --
 -- @since 0.23.0
 type Tangible i =
@@ -95,7 +90,6 @@ type TangiblePdu p r =
   ( Typeable p
   , Typeable r
   , Tangible (Pdu p r)
-  , PrettyTypeShow (ToPretty p)
   )
 
 -- | The (promoted) constructors of this type specify (at the type level) the
@@ -138,22 +132,17 @@ prettyTypeableShows = prettyTypeableShowsPrec 0
 --
 -- @since 0.24.0
 prettyTypeableShowsPrec :: Int -> SomeTypeRep -> ShowS
-prettyTypeableShowsPrec d (SomeTypeRep tr) =
+prettyTypeableShowsPrec d (SomeTypeRep tr) sIn =
   let (con, conArgs) = splitApps tr
    in case conArgs of
-        [] -> showString (tyConName con)
-        (f0:fRest0) ->
-          mshowParen
+        [] -> showString (tyConName con) sIn
+        _ ->
+          showParen
             (d >= 10)
-            (showString (tyConName con) <> showChar ':' <>
-             case fRest0 of
-               [] -> prettyTypeableShowsPrec 10 f0
-               _ ->
-                prettyTypeableShowsPrec 10 f0 <>
-                 foldr (\f acc -> showChar '-' <> prettyTypeableShowsPrec 10 f <> acc) id fRest0)
-  where
-    mshowParen True s = showChar '(' <> s <> showChar ')'
-    mshowParen False s = s
+            (showString (tyConName con) . showChar ':' .
+              foldr1 (\f acc -> showChar '-' . f . acc)
+                     (prettyTypeableShowsPrec 10 <$> conArgs))
+            sIn
 
 type instance ToPretty (Endpoint a) = ToPretty a <+> PutStr "endpoint"
 

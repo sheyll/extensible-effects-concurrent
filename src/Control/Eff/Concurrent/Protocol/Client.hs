@@ -24,7 +24,6 @@ import           Control.Eff.Concurrent.Process
 import           Control.Eff.Concurrent.Process.Timer
 import           Control.Eff.Log
 import           Data.Typeable                  ( Typeable )
-import           Data.Type.Pretty
 import           GHC.Stack
 
 -- | Send a request 'Pdu' that has no reply and return immediately.
@@ -147,7 +146,6 @@ callWithTimeout serverP@(Endpoint pidInternal) req timeOut = do
 -- 'Endpoint'.
 type ServesProtocol o r q =
   ( Typeable o
-  , PrettyTypeShow (ToPretty o)
   , SetMember Process (Process q) r
   , Member (EndpointReader o) r
   )

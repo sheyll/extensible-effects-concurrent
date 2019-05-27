@@ -1,3 +1,4 @@
+{-# LANGUAGE UndecidableInstances #-}
 -- | A better, more safe implementation of the Erlang/OTP gen_server behaviour.
 --
 -- @since 0.24.0
@@ -247,10 +248,8 @@ protocolServerLoop a = do
 type GenIO e q =
   ( Member Interrupts e
   , SetMember Process (Process q) e
-  , LogsTo IO q
-  , LogsTo IO e
-  , Lifted IO e
-  , Lifted IO q
+  , LogIo q
+  , LogIo e
   )
 
 -- | Internal protocol to communicate incoming messages and other events to the
@@ -377,7 +376,6 @@ genServer
      , HasCallStack
      , GenIO e q
      , Server (GenServer tag e) e
-     , PrettyTypeShow (ToPretty tag)
      )
   => (GenServerId tag -> Eff e (GenServerModel tag, GenServerSettings tag))
   -> (GenServerId tag -> Event (GenServerProtocol tag) -> Eff (ToGenServerEffects tag e) ())
@@ -429,7 +427,6 @@ statelessGenServer
      , HasCallStack
      , GenIO e q
      , Server (GenServer (Stateless tag) e) e
-     , PrettyTypeShow (ToPretty tag)
      )
   => (GenServerId tag -> Event (GenServerProtocol tag) -> Eff (ToStatelessEffects e) ())
   -> GenServerId tag

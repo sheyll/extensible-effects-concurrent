@@ -39,7 +39,7 @@ instance Show (Pdu Small r) where
 
 -- ----------------------------------------------------------------------------
 
-instance LogsTo IO e => Server Small (InterruptableProcess e) where
+instance LogIo e => Server Small (InterruptableProcess e) where
   data StartArgument Small (InterruptableProcess e) = MkSmall
   type Model Small = String
   update MkSmall x =
@@ -81,7 +81,7 @@ instance EmbedProtocol Big Small where
 
 -- ----------------------------------------------------------------------------
 
-instance LogsTo IO e => Server Big (InterruptableProcess e) where
+instance LogIo e => Server Big (InterruptableProcess e) where
   data instance StartArgument Big (InterruptableProcess e) = MkBig
   type Model Big = String
   update MkBig = \case
