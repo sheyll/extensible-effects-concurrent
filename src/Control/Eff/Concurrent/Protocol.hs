@@ -236,3 +236,88 @@ instance EmbedProtocol (a1, a2, a3) a3 where
   fromPdu (ToPdu3 l) = Just l
   fromPdu _ = Nothing
 
+data instance Pdu (a1, a2, a3, a4) x where
+  ToPdu1Of4 :: Pdu a1 r -> Pdu (a1, a2, a3, a4) r
+  ToPdu2Of4 :: Pdu a2 r -> Pdu (a1, a2, a3, a4) r
+  ToPdu3Of4 :: Pdu a3 r -> Pdu (a1, a2, a3, a4) r
+  ToPdu4Of4 :: Pdu a4 r -> Pdu (a1, a2, a3, a4) r
+  deriving Typeable
+
+instance (NFData (Pdu a1 r), NFData (Pdu a2 r), NFData (Pdu a3 r), NFData (Pdu a4 r)) => NFData (Pdu (a1, a2, a3, a4) r) where
+  rnf (ToPdu1Of4 x) = rnf x
+  rnf (ToPdu2Of4 y) = rnf y
+  rnf (ToPdu3Of4 z) = rnf z
+  rnf (ToPdu4Of4 w) = rnf w
+
+instance (Show (Pdu a1 r), Show (Pdu a2 r), Show (Pdu a3 r), Show (Pdu a4 r)) => Show (Pdu (a1, a2, a3, a4) r) where
+  showsPrec d (ToPdu1Of4 x) = showsPrec d x
+  showsPrec d (ToPdu2Of4 y) = showsPrec d y
+  showsPrec d (ToPdu3Of4 z) = showsPrec d z
+  showsPrec d (ToPdu4Of4 w) = showsPrec d w
+
+instance EmbedProtocol (a1, a2, a3, a4) a1 where
+  embedPdu = ToPdu1Of4
+  fromPdu (ToPdu1Of4 l) = Just l
+  fromPdu _ = Nothing
+
+instance EmbedProtocol (a1, a2, a3, a4) a2 where
+  embedPdu = ToPdu2Of4
+  fromPdu (ToPdu2Of4 l) = Just l
+  fromPdu _ = Nothing
+
+instance EmbedProtocol (a1, a2, a3, a4) a3 where
+  embedPdu = ToPdu3Of4
+  fromPdu (ToPdu3Of4 l) = Just l
+  fromPdu _ = Nothing
+
+instance EmbedProtocol (a1, a2, a3, a4) a4 where
+  embedPdu = ToPdu4Of4
+  fromPdu (ToPdu4Of4 l) = Just l
+  fromPdu _ = Nothing
+
+data instance Pdu (a1, a2, a3, a4, a5) x where
+  ToPdu1Of5 :: Pdu a1 r -> Pdu (a1, a2, a3, a4, a5) r
+  ToPdu2Of5 :: Pdu a2 r -> Pdu (a1, a2, a3, a4, a5) r
+  ToPdu3Of5 :: Pdu a3 r -> Pdu (a1, a2, a3, a4, a5) r
+  ToPdu4Of5 :: Pdu a4 r -> Pdu (a1, a2, a3, a4, a5) r
+  ToPdu5Of5 :: Pdu a4 r -> Pdu (a1, a2, a3, a4, a5) r
+  deriving Typeable
+
+instance (NFData (Pdu a1 r), NFData (Pdu a2 r), NFData (Pdu a3 r), NFData (Pdu a4 r), NFData (Pdu a5 r)) => NFData (Pdu (a1, a2, a3, a4, a5) r) where
+  rnf (ToPdu1Of5 x) = rnf x
+  rnf (ToPdu2Of5 y) = rnf y
+  rnf (ToPdu3Of5 z) = rnf z
+  rnf (ToPdu4Of5 w) = rnf w
+  rnf (ToPdu5Of5 w) = rnf w
+
+instance (Show (Pdu a1 r), Show (Pdu a2 r), Show (Pdu a3 r), Show (Pdu a4 r), Show (Pdu a5 r)) => Show (Pdu (a1, a2, a3, a4, a5) r) where
+  showsPrec d (ToPdu1Of5 x) = showsPrec d x
+  showsPrec d (ToPdu2Of5 y) = showsPrec d y
+  showsPrec d (ToPdu3Of5 z) = showsPrec d z
+  showsPrec d (ToPdu4Of5 w) = showsPrec d w
+  showsPrec d (ToPdu5Of5 w) = showsPrec d w
+
+instance EmbedProtocol (a1, a2, a3, a4, a5) a1 where
+  embedPdu = ToPdu1Of5
+  fromPdu (ToPdu1Of5 l) = Just l
+  fromPdu _ = Nothing
+
+instance EmbedProtocol (a1, a2, a3, a4, a5) a2 where
+  embedPdu = ToPdu2Of5
+  fromPdu (ToPdu2Of5 l) = Just l
+  fromPdu _ = Nothing
+
+instance EmbedProtocol (a1, a2, a3, a4, a5) a3 where
+  embedPdu = ToPdu3Of5
+  fromPdu (ToPdu3Of5 l) = Just l
+  fromPdu _ = Nothing
+
+instance EmbedProtocol (a1, a2, a3, a4, a5) a4 where
+  embedPdu = ToPdu4Of5
+  fromPdu (ToPdu4Of5 l) = Just l
+  fromPdu _ = Nothing
+
+instance EmbedProtocol (a1, a2, a3, a4, a5) a5 where
+  embedPdu = ToPdu5Of5
+  fromPdu (ToPdu5Of5 l) = Just l
+  fromPdu _ = Nothing

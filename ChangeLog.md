@@ -2,6 +2,7 @@
 
 ## Plan for future Versions
 
+- Put timing into pure processes!
 - Every `Api` type instance now **must** be an `NFData` 
   and a `ToLogText` instance
 - `call` will always require a `Timeout`
@@ -14,20 +15,19 @@
     - Remove `ToLogMessage`
     - Remove `logXXX'` users have to use `logXXX` and `ToLogText` 
 
+## 0.24.1
+
+- Add more `EmbedProtocol` tuple instances (4-tuple, 5-tuple)
+
 ## 0.24.0
 
-- Add `GenServer` module for `Api` handling: 
+- Get rid of the `PrettyTypeShow` constraint in `Tangible`
+- Get rid of `LogWriterEffects` and the necessity for some `UndecidableInstances` that came with it  
+- Add `Server` module for `Api` handling via type classes
+    - Add `Stateless` 
+    - Add `GenServer`
+- Reimplement `Supervisor`    
        
-    - Reduce the server to handle a single `Api` instance
-        - Instances of `GenServer` must provide `lenses` and `prisms`
-          for accessing the *other* Api instances like `Observer`
-          and `ServerCallback` 
-    - Add `ServerCallback`, an internal API for interacting with these
-      `GenServer` instances
-        - `Api AnyMsg 'Asynchronous` 
-        - `Api GetInfo ('Synchronous Text)`  
-         
-
 ## 0.23.0
 
 - Include the process id in the console and trace log renderer
