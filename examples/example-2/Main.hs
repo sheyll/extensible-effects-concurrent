@@ -1,4 +1,4 @@
-{-# LANGUAGE UndecidableInstances #-}
+
 -- | Another complete example for the library
 module Main where
 
@@ -87,7 +87,7 @@ type SupiCounter = (Counter, ObserverRegistry CounterChanged, SupiDupi)
 
 type instance ToPretty (Counter, ObserverRegistry CounterChanged, SupiDupi) = PutStr "supi-counter"
 
-instance (LogsTo IO q, Lifted IO q) => Server SupiCounter (InterruptableProcess q) where
+instance (LogIo q) => Server SupiCounter (InterruptableProcess q) where
 
   type instance Model SupiCounter = (Integer, Observers CounterChanged, Maybe (RequestOrigin SupiCounter (Maybe ())))
 
@@ -102,19 +102,22 @@ instance (LogsTo IO q, Lifted IO q) => Server SupiCounter (InterruptableProcess 
           case callReq of
             ToPdu1 Cnt ->
               sendReply orig =<< useModel @SupiCounter _1
+            ToPdu2 _ -> error "unreachable"
             ToPdu3 (Whoopediedoo c) ->
               modifyModel @SupiCounter (_3 .~ if c then Just orig else Nothing)
 
         Cast castReq ->
           case castReq of
-            ToPdu2 x ->
-              zoomModel @SupiCounter _2 (handleObserverRegistration x)
             ToPdu1 Inc -> do
               val' <- view _1 <$> modifyAndGetModel @SupiCounter (_1 %~ (+ 1))
               zoomModel @SupiCounter _2 (observed (CounterChanged val'))
               when (val' > 5) $
                 getAndModifyModel @SupiCounter (_3 .~ Nothing)
                 >>= traverse_ (flip sendReply (Just ())) . view _3
+            ToPdu2 x ->
+              zoomModel @SupiCounter _2 (handleObserverRegistration x)
+            ToPdu3 _ -> error "unreachable"
+
     other -> logWarning (T.pack (show other))
 
 spawnCounter :: (LogsTo IO q, Lifted IO q) => Eff (InterruptableProcess q) ( Endpoint SupiCounter )
@@ -130,7 +133,7 @@ logCounterObservations = do
   svr <- start
           $ genServer @(Observer CounterChanged)
             (\_me -> pure (emptyObservers, ()))
-            (\me ->
+            (\_me ->
                 \case
                   OnRequest (Cast r) ->
                     handleObservations (\msg -> logInfo' ("observed: " ++ show msg)) r

@@ -1,4 +1,4 @@
-{-# LANGUAGE UndecidableInstances #-}
+
 module GenServerTests
   ( test_genServer
   ) where

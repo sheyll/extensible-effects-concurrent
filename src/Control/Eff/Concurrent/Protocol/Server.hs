@@ -1,4 +1,3 @@
-{-# LANGUAGE UndecidableInstances #-}
 -- | A better, more safe implementation of the Erlang/OTP gen_server behaviour.
 --
 -- @since 0.24.0
@@ -24,7 +23,6 @@ module Control.Eff.Concurrent.Protocol.Server
   , protocolServerLoop
   , GenServer(..)
   , ToGenServerEffects
-  , GenIO
   , GenServerId(..)
   , GenServerProtocol
   , GenServerModel
@@ -67,11 +65,7 @@ import GHC.Generics
 --
 -- @since 0.24.0
 class
-  ( Typeable a
-  , Typeable (Protocol a)
-  , Tangible (Settings a)
-  , Tangible (Model a)
-  ) =>
+  (Typeable (Protocol a)) =>
       Server (a :: Type) e
   where
   -- | The value that defines what is required to initiate a 'Server'
@@ -194,6 +188,7 @@ viewSettings l = view l <$> askSettings @a
 start
   :: forall a q h
   . ( Server a (InterruptableProcess q)
+    , Typeable a
     , LogsTo h (InterruptableProcess q)
     , HasCallStack)
   => StartArgument a (InterruptableProcess q) -> Eff (InterruptableProcess q) (Endpoint (Protocol a))
@@ -203,7 +198,7 @@ start a = asEndpoint <$> spawn (protocolServerLoop a)
 --
 -- @since 0.24.0
 startLink
-  :: forall a q h . (Server a (InterruptableProcess q), LogsTo h (InterruptableProcess q), HasCallStack)
+  :: forall a q h . (Typeable a, Server a (InterruptableProcess q), LogsTo h (InterruptableProcess q), HasCallStack)
   => StartArgument a (InterruptableProcess q) -> Eff (InterruptableProcess q) (Endpoint (Protocol a))
 startLink a = asEndpoint <$> spawnLink (protocolServerLoop a)
 
@@ -216,6 +211,7 @@ protocolServerLoop
        , SetMember Process (Process q) e
        , Member Interrupts e
        , LogsTo h e
+       , Typeable a
        )
   => StartArgument a e -> Eff e ()
 protocolServerLoop a = do
@@ -236,21 +232,6 @@ protocolServerLoop a = do
       -> Eff (ToServerEffects a e) (Maybe ())
     mainLoop (Left i) = handleInt i
     mainLoop (Right i) = update a i *> pure Nothing
-
--- | The underlying effects for 'GenServer's:
---     * Logging
---     * Interrupts
---     * Processes
---     * IO
---
--- @since 0.24.0
--- type GenIO = InterruptableProcess LoggingAndIo
-type GenIO e q =
-  ( Member Interrupts e
-  , SetMember Process (Process q) e
-  , LogIo q
-  , LogIo e
-  )
 
 -- | Internal protocol to communicate incoming messages and other events to the
 -- instances of 'Server'.
@@ -287,8 +268,8 @@ type instance ToPretty (Event a) = ToPretty a <+> PutStr "event"
 --
 -- @since 0.24.0
 data GenServer tag e where
-  MkGenServer :: GenIO e q =>
-      { _setupCallback :: Eff e (Model (GenServer tag e), Settings (GenServer tag e))
+  MkGenServer :: LogIo e =>
+      { _setupCallback :: Eff (InterruptableProcess e) (Model (GenServer tag e), Settings (GenServer tag e))
       , _updateCallback
           :: Event (GenServerProtocol tag)
           -> Eff (ToGenServerEffects tag e) ()
@@ -298,7 +279,7 @@ data GenServer tag e where
 -- 'Server' to an effect list.
 --
 -- @since 0.24.0
-type ToGenServerEffects tag e = ToServerEffects (GenServer tag e) e
+type ToGenServerEffects tag e = ToServerEffects (GenServer tag e) (InterruptableProcess e)
 
 -- | The name/id of a 'GenServer' for logging purposes.
 --
@@ -325,17 +306,13 @@ type family GenServerModel tag
 -- @since 0.24.0
 type family GenServerSettings tag
 
-instance ( Tangible (GenServerModel tag)
-         , Tangible (GenServerSettings tag)
-         , Typeable (GenServerProtocol tag)
-         , Typeable tag
-         , Typeable e
-         , GenIO e q
-         ) => Server (GenServer (tag :: Type) e) e where
+instance ( Typeable (GenServerProtocol tag)
+         , LogIo e )
+         => Server (GenServer (tag :: Type) e) (InterruptableProcess e) where
   type Protocol (GenServer tag e) = GenServerProtocol tag
   type Model (GenServer tag e) = GenServerModel tag
   type Settings (GenServer tag e) = GenServerSettings tag
-  data instance StartArgument (GenServer tag e) e =
+  data instance StartArgument (GenServer tag e) (InterruptableProcess e) =
         MkGenStartArgument
          { _genServerId :: GenServerId tag
          , _genServerCallbacks :: GenServer tag e
@@ -343,10 +320,10 @@ instance ( Tangible (GenServerModel tag)
   setup (MkGenStartArgument _ cb) = _setupCallback cb
   update (MkGenStartArgument _ cb) req = _updateCallback cb req
 
-instance NFData (StartArgument (GenServer tag e) e) where
+instance NFData (StartArgument (GenServer tag e) (InterruptableProcess e)) where
   rnf (MkGenStartArgument x _) = rnf x
 
-instance Typeable tag => Show (StartArgument (GenServer tag e) e) where
+instance Typeable tag => Show (StartArgument (GenServer tag e) (InterruptableProcess e)) where
   showsPrec d (MkGenStartArgument x _) =
     showParen (d>=10)
       ( showsPrec 11 x
@@ -371,16 +348,16 @@ instance Typeable tag => Show (StartArgument (GenServer tag e) e) where
 --
 -- @since 0.24.0
 genServer
-  :: forall tag e q .
+  :: forall tag e  .
      ( Typeable tag
      , HasCallStack
-     , GenIO e q
-     , Server (GenServer tag e) e
+     , LogIo e
+     , Server (GenServer tag e) (InterruptableProcess e)
      )
-  => (GenServerId tag -> Eff e (GenServerModel tag, GenServerSettings tag))
+  => (GenServerId tag -> Eff (InterruptableProcess e) (GenServerModel tag, GenServerSettings tag))
   -> (GenServerId tag -> Event (GenServerProtocol tag) -> Eff (ToGenServerEffects tag e) ())
   -> GenServerId tag
-  -> StartArgument (GenServer tag e) e
+  -> StartArgument (GenServer tag e) (InterruptableProcess e)
 genServer initCb stepCb i =
   MkGenStartArgument
     { _genServerId = i
@@ -423,16 +400,17 @@ type instance ToPretty (Stateless t) = ToPretty t
 --
 -- @since 0.24.0
 statelessGenServer
-  :: forall tag e q . ( Typeable tag
+  :: forall tag e . ( Typeable tag
      , HasCallStack
-     , GenIO e q
-     , Server (GenServer (Stateless tag) e) e
+     , LogIo e
+     , Typeable tag
+     , Server (GenServer (Stateless tag) e) (InterruptableProcess e)
      )
-  => (GenServerId tag -> Event (GenServerProtocol tag) -> Eff (ToStatelessEffects e) ())
+  => (GenServerId tag -> Event (GenServerProtocol tag) -> Eff (ToStatelessEffects (InterruptableProcess e)) ())
   -> GenServerId tag
-  -> StartArgument (GenServer (Stateless tag) e) e
+  -> StartArgument (GenServer (Stateless tag) e) (InterruptableProcess e)
 statelessGenServer stepCb (MkGenServerId i) =
   genServer (const (pure ((), ()))) runStep (MkGenServerId i)
    where
-    runStep :: GenServerId (Stateless tag) -> Event (GenServerProtocol (Stateless tag)) -> Eff (ToStatelessEffects e) ()
+    runStep :: GenServerId (Stateless tag) -> Event (GenServerProtocol (Stateless tag)) -> Eff (ToStatelessEffects (InterruptableProcess e)) ()
     runStep (MkGenServerId i') loopEvent = stepCb (MkGenServerId i') (coerce loopEvent)

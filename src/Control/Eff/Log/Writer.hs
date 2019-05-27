@@ -141,28 +141,23 @@ instance (Applicative m, LiftedBase m e, Catch.MonadMask (Eff e))
 -- * 'LogWriter' Zoo
 
 -- | The instances of this class are the monads that define (side-) effect(s) of writting logs.
-class HandleLogWriter (writerEff :: Type -> Type) where
-  -- | A list of effects that are required for writing the log messages.
-  -- For example 'Lift IO' or '[]' for pure log writers.
-  type LogWriterEffects writerEff :: [Type -> Type]
+class HandleLogWriter (writerEff :: Type -> Type) e where
 
   -- | Run the side effect of a 'LogWriter' in a compatible 'Eff'.
-  handleLogWriterEffect :: (LogWriterEffects writerEff <:: e) => writerEff () -> Eff e ()
+  handleLogWriterEffect :: writerEff () -> Eff e ()
 
   -- | Write a message using the 'LogWriter' found in the environment.
   --
   -- The semantics of this function are a combination of 'runLogWriter' and 'handleLogWriterEffect',
   -- with the 'LogWriter' read from a 'LogWriterReader'.
-  liftWriteLogMessage :: ( SetMember LogWriterReader (LogWriterReader writerEff) e
-                         , LogWriterEffects writerEff <:: e)
+  liftWriteLogMessage :: ( SetMember LogWriterReader (LogWriterReader writerEff) e)
                       => LogMessage
                       -> Eff e ()
   liftWriteLogMessage m = do
     w <- askLogWriter
     handleLogWriterEffect (runLogWriter w m)
 
-instance HandleLogWriter IO where
-  type LogWriterEffects IO = '[Lift IO]
+instance (Lifted IO e) => HandleLogWriter IO e where
   handleLogWriterEffect = send . Lift
 
 -- ** Pure Log Writers
@@ -172,8 +167,7 @@ newtype PureLogWriter a = MkPureLogWriter { runPureLogWriter :: Identity a }
   deriving (Applicative, Functor, Monad)
 
 -- | A 'LogWriter' monad for 'Debug.Trace' based pure logging.
-instance HandleLogWriter PureLogWriter where
-  type LogWriterEffects PureLogWriter = '[]
+instance HandleLogWriter PureLogWriter e where
   handleLogWriterEffect lw = return (force (runIdentity (force (runPureLogWriter lw))))
 
 -- | This 'LogWriter' will discard all messages.

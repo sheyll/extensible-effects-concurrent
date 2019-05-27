@@ -1,5 +1,3 @@
-{-# LANGUAGE UndecidableInstances #-}
-
 -- | Proxies and containers for casts and calls.
 --
 -- @since 0.15.0

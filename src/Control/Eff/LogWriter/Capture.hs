@@ -1,3 +1,4 @@
+{-# LANGUAGE UndecidableInstances #-}
 -- | Capture 'LogMessage's to a 'Writer'.
 --
 -- See 'Control.Eff.Log.Examples.exampleLogCapture'
@@ -30,8 +31,7 @@ newtype CaptureLogs a = MkCaptureLogs { unCaptureLogs :: Eff '[CaptureLogWriter]
 -- | A 'LogWriter' monad for pure logging.
 --
 -- The 'HandleLogWriter' instance for this type assumes a 'Writer' effect.
-instance HandleLogWriter CaptureLogs where
-  type LogWriterEffects CaptureLogs = '[CaptureLogWriter]
+instance Member CaptureLogWriter e => HandleLogWriter CaptureLogs e where
   handleLogWriterEffect =
     traverse_ (tell @LogMessage) . snd . run . runListWriter . unCaptureLogs
 

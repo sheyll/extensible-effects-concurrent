@@ -1,4 +1,3 @@
-{-# LANGUAGE UndecidableInstances #-}
 -- | This module contains a mechanism to specify what kind of messages (aka
 -- /requests/) a 'Endpoint' ('Process') can handle, and if the caller blocks and
 -- waits for an answer, which the server process provides.

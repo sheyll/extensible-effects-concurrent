@@ -177,7 +177,7 @@ instance (Applicative m, LiftedBase m e, Catch.MonadMask (Eff e), LogsTo m (Logs
 -- * 'withLogging'
 -- * 'withSomeLogging'
 --
-type LogsTo h e = (Member Logs e, HandleLogWriter h, LogWriterEffects h <:: e, SetMember LogWriterReader (LogWriterReader h) e)
+type LogsTo h e = (Member Logs e, HandleLogWriter h e, SetMember LogWriterReader (LogWriterReader h) e)
 
 -- | A constraint that required @'LogsTo' 'IO' e@ and @'Lifted' 'IO' e@.
 --
