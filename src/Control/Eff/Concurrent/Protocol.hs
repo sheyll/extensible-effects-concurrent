@@ -280,7 +280,7 @@ data instance Pdu (a1, a2, a3, a4, a5) x where
   ToPdu2Of5 :: Pdu a2 r -> Pdu (a1, a2, a3, a4, a5) r
   ToPdu3Of5 :: Pdu a3 r -> Pdu (a1, a2, a3, a4, a5) r
   ToPdu4Of5 :: Pdu a4 r -> Pdu (a1, a2, a3, a4, a5) r
-  ToPdu5Of5 :: Pdu a4 r -> Pdu (a1, a2, a3, a4, a5) r
+  ToPdu5Of5 :: Pdu a5 r -> Pdu (a1, a2, a3, a4, a5) r
   deriving Typeable
 
 instance (NFData (Pdu a1 r), NFData (Pdu a2 r), NFData (Pdu a3 r), NFData (Pdu a4 r), NFData (Pdu a5 r)) => NFData (Pdu (a1, a2, a3, a4, a5) r) where
@@ -295,7 +295,7 @@ instance (Show (Pdu a1 r), Show (Pdu a2 r), Show (Pdu a3 r), Show (Pdu a4 r), Sh
   showsPrec d (ToPdu2Of5 y) = showsPrec d y
   showsPrec d (ToPdu3Of5 z) = showsPrec d z
   showsPrec d (ToPdu4Of5 w) = showsPrec d w
-  showsPrec d (ToPdu5Of5 w) = showsPrec d w
+  showsPrec d (ToPdu5Of5 v) = showsPrec d v
 
 instance EmbedProtocol (a1, a2, a3, a4, a5) a1 where
   embedPdu = ToPdu1Of5
