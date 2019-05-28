@@ -31,7 +31,7 @@ data Request protocol where
     -> Pdu protocol ('Synchronous reply)
     -> Request protocol
   Cast
-    :: forall protocol. (TangiblePdu protocol 'Asynchronous)
+    :: forall protocol. (TangiblePdu protocol 'Asynchronous, NFData (Pdu protocol 'Asynchronous))
     => Pdu protocol 'Asynchronous
     -> Request protocol
   deriving (Typeable)
@@ -46,11 +46,15 @@ instance NFData (Request protocol) where
   rnf (Call o req) = rnf o `seq` rnf req
   rnf (Cast req) = rnf req
 
+
 -- | The wrapper around replies to 'Call's.
 --
 -- @since 0.15.0
 data Reply protocol reply where
-  Reply :: (Tangible reply) => RequestOrigin protocol reply -> reply -> Reply protocol reply
+  Reply :: (Tangible reply) =>
+    { _replyTo :: RequestOrigin protocol reply
+    , _replyValue :: reply
+    } -> Reply protocol reply
   deriving (Typeable)
 
 instance NFData (Reply p r) where
@@ -64,21 +68,27 @@ instance Show r => Show (Reply p r) where
 --
 -- @since 0.15.0
 data RequestOrigin (proto :: Type) reply = RequestOrigin
-  { _requestOriginPid :: !ProcessId
+  { _requestOriginPid     :: !ProcessId
   , _requestOriginCallRef :: !Int
-  } deriving (Eq, Ord, Typeable, Generic)
+  } deriving (Typeable, Generic, Eq, Ord)
 
 instance Show (RequestOrigin p r) where
   showsPrec d (RequestOrigin o r) =
-    showParen (d >= 10) (showString "origin: " . showsPrec 11 o . showChar ' ' . showsPrec 11 r)
+    showParen (d >= 10) (showString "origin: " . showsPrec 10 o . showChar ' ' . showsPrec 10 r)
 
 -- | Create a new, unique 'RequestOrigin' value for the current process.
 --
 -- @since 0.24.0
-makeRequestOrigin :: (SetMember Process (Process q0) e, '[Interrupts] <:: e) => Eff e (RequestOrigin p r)
+makeRequestOrigin
+  :: ( Typeable r
+     , NFData r
+     , SetMember Process (Process q0) e
+     , '[Interrupts] <:: e)
+  => Eff e (RequestOrigin p r)
 makeRequestOrigin = RequestOrigin <$> self <*> makeReference
 
 instance NFData (RequestOrigin p r)
+
 
 -- | Send a 'Reply' to a 'Call'.
 --
@@ -87,7 +97,7 @@ instance NFData (RequestOrigin p r)
 -- @since 0.15.0
 sendReply ::
      (SetMember Process (Process q) eff, Member Interrupts eff, Tangible reply, Typeable protocol)
-  => RequestOrigin protocol reply
-  -> reply
-  -> Eff eff ()
-sendReply origin reply = sendMessage (_requestOriginPid origin) (Reply origin $! force reply)
+  => Serializer (Reply protocol reply) -> RequestOrigin protocol reply -> reply -> Eff eff ()
+sendReply ser o r = sendAnyMessage (_requestOriginPid o) $! runSerializer ser $! Reply o r
+
+

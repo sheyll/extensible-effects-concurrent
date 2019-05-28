@@ -66,6 +66,7 @@ import           Control.Eff.Concurrent.Process ( Process(..)
                                                 , toStrictDynamic
                                                 , fromStrictDynamic
                                                 , unwrapStrictDynamic
+                                                , Serializer(..)
                                                 , ProcessId(..)
                                                 , fromProcessId
                                                 , ConsProcess

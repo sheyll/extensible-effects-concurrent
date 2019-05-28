@@ -18,6 +18,8 @@
 ## 0.24.1
 
 - Add more `EmbedProtocol` tuple instances (4-tuple, 5-tuple)
+- Make `Effectful.Server` instances composable (See the `GenServerTests` for an example)
+  [more details in a seperate file](./ChangeLog-Details-0.24.1.md)
 
 ## 0.24.0
 

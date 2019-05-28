@@ -15,7 +15,6 @@ import           Control.Concurrent.STM
 import           Control.Eff
 import           Control.Eff.Concurrent.Protocol
 import           Control.Eff.Concurrent.Protocol.Observer
-import           Control.Eff.Concurrent.Protocol.Request
 import           Control.Eff.Concurrent.Protocol.StatefulServer
 import           Control.Eff.Concurrent.Process
 import           Control.Eff.ExceptionExtra     ( )
@@ -157,6 +156,6 @@ instance (TangibleObserver o, TangiblePdu (Observer o) 'Asynchronous, Lifted 
 
   update (MkObservationQueue (ObservationQueue q)) =
     \case
-      OnRequest (Cast r) ->
+      OnCast r ->
         handleObservations (lift . atomically . writeTBQueue q) r
       otherMsg -> logError ("unexpected: " <> T.pack (show otherMsg))

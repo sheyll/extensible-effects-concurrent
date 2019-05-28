@@ -13,6 +13,7 @@ import qualified Control.Eff.Concurrent.Protocol.StatefulServer as S
 import Control.Eff.Concurrent.Protocol.Request
 import Control.Lens
 import Data.Coerce
+import Data.Functor.Contravariant ((>$<))
 import Data.Text as T
 import Data.Type.Pretty
 import Data.Typeable (Typeable)
@@ -46,9 +47,9 @@ instance LogIo e => S.Server Small e where
   type Model Small = String
   update MkSmall x =
     case x of
-      E.OnRequest (Call o (SmallCall f)) ->
-       sendReply o f
-      E.OnRequest msg ->
+      E.OnCall ser o (SmallCall f) ->
+       sendReply ser o f
+      E.OnCast msg ->
        logInfo' (show msg)
       other ->
         interrupt (ErrorInterrupt (show other))
@@ -89,18 +90,16 @@ instance LogIo e => S.Server Big e where
   data instance StartArgument Big e = MkBig
   type Model Big = String
   update MkBig = \case
-    E.OnRequest msg ->
-      case msg of
-        Call orig req ->
+    E.OnCall ser orig req ->
           case req of
             BigCall o -> do
               logNotice ("BigCall " <> pack (show o))
-              sendReply orig o
-            BigSmall x -> S.update MkSmall (S.OnRequest (Call (coerce orig) x))
-        Cast req ->
-          case req of
-            BigCast o -> S.putModel @Big o
-            BigSmall x -> S.update MkSmall (S.OnRequest (Cast x))
+              sendReply ser orig o
+            BigSmall x -> S.update MkSmall (S.OnCall (coerce >$< ser) (coerce orig) x)
+    E.OnCast req ->
+        case req of
+          BigCast o -> S.putModel @Big o
+          BigSmall x -> S.update MkSmall (S.OnCast x)
     other ->
       interrupt (ErrorInterrupt (show other))
 -- ----------------------------------------------------------------------------

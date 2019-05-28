@@ -20,6 +20,8 @@ module Control.Eff.Concurrent.Process
   , toStrictDynamic
   , fromStrictDynamic
   , unwrapStrictDynamic
+  , Serializer(..)
+
     -- ** ProcessId Type
   , ProcessId(..)
   , fromProcessId
@@ -123,6 +125,7 @@ import           Control.Monad                  ( void
                                                 )
 import           Data.Default
 import           Data.Dynamic
+import           Data.Functor.Contravariant
 import           Data.Kind
 import           GHC.Stack
 import           Data.Function
@@ -272,8 +275,26 @@ newtype StrictDynamic where
   MkDynamicMessage :: Dynamic -> StrictDynamic
   deriving Typeable
 
+instance NFData StrictDynamic where
+  rnf (MkDynamicMessage d) = d `seq` ()
+
 instance Show StrictDynamic where
   show (MkDynamicMessage d) = show d
+
+
+-- | Serialize a @message@ into a 'StrictDynamic' value to be sent via 'sendAnyMessage'.
+--
+-- This indirection allows, among other things, the composition of
+-- 'Control.Eff.Concurrent.Protocol.Effectful.Server's.
+--
+-- @since 0.24.1
+newtype Serializer message =
+  MkSerializer
+    { runSerializer :: message -> StrictDynamic
+    } deriving (Typeable)
+
+instance Contravariant Serializer where
+  contramap f (MkSerializer b) = MkSerializer (b . f)
 
 -- | Deeply evaluate the given value and wrap it into a 'StrictDynamic'.
 --

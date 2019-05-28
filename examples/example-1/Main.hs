@@ -77,48 +77,50 @@ testServerLoop :: Eff InterruptableProcEff (Endpoint TestProtocol)
 testServerLoop = start (genServer (const id) handleReq "test-server-1")
  where
   handleReq :: GenServerId TestProtocol -> Event TestProtocol -> Eff InterruptableProcEff ()
-  handleReq _myId (OnRequest (Call orig Terminate)) = do
-    me <- self
-    logInfo (T.pack (show me ++ " exiting"))
-    sendReply orig ()
-    interrupt NormalExitRequested
-
-  handleReq _myId (OnRequest (Call orig (TerminateError e))) = do
-    me <- self
-    logInfo (T.pack (show me ++ " exiting with error: " ++ e))
-    sendReply orig ()
-    interrupt (ErrorInterrupt e)
-
-  handleReq _myId (OnRequest (Call orig (SayHello mx))) =
-    case mx of
-      "e1" -> do
+  handleReq _myId (OnCall ser orig cm) =
+    case cm of
+      Terminate -> do
         me <- self
-        logInfo (T.pack (show me ++ " raising an error"))
-        interrupt (ErrorInterrupt "No body loves me... :,(")
+        logInfo (T.pack (show me ++ " exiting"))
+        sendReply ser orig ()
+        interrupt NormalExitRequested
 
-      "e2" -> do
+      TerminateError e -> do
         me <- self
-        logInfo (T.pack (show me ++ " throwing a MyException "))
-        void (lift (Exc.throw MyException))
+        logInfo (T.pack (show me ++ " exiting with error: " ++ e))
+        sendReply ser orig ()
+        interrupt (ErrorInterrupt e)
 
-      "self" -> do
-        me <- self
-        logInfo (T.pack (show me ++ " casting to self"))
-        cast (asEndpoint @TestProtocol me) (Shout "from me")
-        sendReply orig False
+      SayHello mx ->
+        case mx of
+          "e1" -> do
+            me <- self
+            logInfo (T.pack (show me ++ " raising an error"))
+            interrupt (ErrorInterrupt "No body loves me... :,(")
 
-      "stop" -> do
-        me <- self
-        logInfo (T.pack (show me ++ " stopping me"))
-        sendReply orig False
-        interrupt (ErrorInterrupt "test error")
+          "e2" -> do
+            me <- self
+            logInfo (T.pack (show me ++ " throwing a MyException "))
+            void (lift (Exc.throw MyException))
 
-      x -> do
-        me <- self
-        logInfo (T.pack (show me ++ " Got Hello: " ++ x))
-        sendReply orig (length x > 3)
+          "self" -> do
+            me <- self
+            logInfo (T.pack (show me ++ " casting to self"))
+            cast (asEndpoint @TestProtocol me) (Shout "from me")
+            sendReply ser orig False
 
-  handleReq _myId (OnRequest (Cast (Shout x))) = do
+          "stop" -> do
+            me <- self
+            logInfo (T.pack (show me ++ " stopping me"))
+            sendReply ser orig False
+            interrupt (ErrorInterrupt "test error")
+
+          x -> do
+            me <- self
+            logInfo (T.pack (show me ++ " Got Hello: " ++ x))
+            sendReply ser orig (length x > 3)
+
+  handleReq _myId (OnCast (Shout x)) = do
     me <- self
     logInfo (T.pack (show me ++ " Shouting: " ++ x))
 

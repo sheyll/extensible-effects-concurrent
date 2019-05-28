@@ -267,12 +267,12 @@ data TestProtocolServerMode
 instance Server TestProtocol SchedulerIO where
   update (TestServerArgs testMode tId) evt =
     case evt of
-      OnRequest (Cast (TestInterruptWith i)) -> do
+      OnCast (TestInterruptWith i) -> do
         logInfo (pack (show tId) <> ": stopping with: " <> pack (show i))
         interrupt i
-      OnRequest (Call orig (TestGetStringLength str)) -> do
+      OnCall ser orig (TestGetStringLength str) -> do
         logInfo (pack (show tId) <> ": calculating length of: " <> pack str)
-        sendReply orig (length str)
+        sendReply ser orig (length str)
       OnInterrupt x -> do
         logNotice (pack (show tId) <> ": " <> pack (show x))
         if testMode == IgnoreNormalExitRequest

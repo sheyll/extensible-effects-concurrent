@@ -19,9 +19,9 @@ module Control.Eff.Concurrent.Protocol.StatefulServer
   , viewSettings
   -- * Re-exports
   , Effectful.Event(..)
-  , Request(..)
-  , sendReply
   , RequestOrigin(..)
+  , Reply(..)
+  , sendReply
   )
   where
 

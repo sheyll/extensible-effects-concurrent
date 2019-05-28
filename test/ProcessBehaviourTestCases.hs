@@ -128,13 +128,13 @@ returnToSenderServer = start
     (const id)
     (\_me evt ->
       case evt of
-        OnRequest (Call orig msg) ->
+        OnCall ser orig msg ->
           case msg of
             StopReturnToSender -> interrupt testInterruptReason
             ReturnToSender fromP echoMsg -> do
               sendMessage fromP echoMsg
               yieldProcess
-              sendReply orig True
+              sendReply ser orig True
         OnInterrupt i ->
           interrupt i
         other -> interrupt (ErrorInterrupt (show other))

@@ -89,34 +89,38 @@ type instance ToPretty (Counter, ObserverRegistry CounterChanged, SupiDupi) = Pu
 
 instance (LogIo q) => Server SupiCounter q where
 
-  type instance Model SupiCounter = (Integer, Observers CounterChanged, Maybe (RequestOrigin SupiCounter (Maybe ())))
+  type instance Model SupiCounter =
+    ( Integer
+    , Observers CounterChanged
+    , Maybe ( Serializer (Reply SupiCounter (Maybe ()))
+            , RequestOrigin SupiCounter (Maybe ())
+            )
+    )
 
   data instance StartArgument SupiCounter q = MkEmptySupiCounter
 
   setup _ = return ((0, emptyObservers, Nothing), ())
 
   update _ = \case
-    OnRequest req ->
-      case req of
-        Call orig callReq ->
-          case callReq of
-            ToPdu1 Cnt ->
-              sendReply orig =<< useModel @SupiCounter _1
-            ToPdu2 _ -> error "unreachable"
-            ToPdu3 (Whoopediedoo c) ->
-              modifyModel @SupiCounter (_3 .~ if c then Just orig else Nothing)
+    OnCall ser orig callReq ->
+      case callReq of
+        ToPdu1 Cnt ->
+          sendReply ser orig =<< useModel @SupiCounter _1
+        ToPdu2 _ -> error "unreachable"
+        ToPdu3 (Whoopediedoo c) ->
+          modifyModel @SupiCounter (_3 .~ if c then Just (ser, orig) else Nothing)
 
-        Cast castReq ->
-          case castReq of
-            ToPdu1 Inc -> do
-              val' <- view _1 <$> modifyAndGetModel @SupiCounter (_1 %~ (+ 1))
-              zoomModel @SupiCounter _2 (observed (CounterChanged val'))
-              when (val' > 5) $
-                getAndModifyModel @SupiCounter (_3 .~ Nothing)
-                >>= traverse_ (flip sendReply (Just ())) . view _3
-            ToPdu2 x ->
-              zoomModel @SupiCounter _2 (handleObserverRegistration x)
-            ToPdu3 _ -> error "unreachable"
+    OnCast castReq ->
+      case castReq of
+        ToPdu1 Inc -> do
+          val' <- view _1 <$> modifyAndGetModel @SupiCounter (_1 %~ (+ 1))
+          zoomModel @SupiCounter _2 (observed (CounterChanged val'))
+          when (val' > 5) $
+            getAndModifyModel @SupiCounter (_3 .~ Nothing)
+            >>= traverse_ (\(ser, orig) -> sendReply ser orig (Just ())) . view _3
+        ToPdu2 x ->
+          zoomModel @SupiCounter _2 (handleObserverRegistration x)
+        ToPdu3 _ -> error "unreachable"
 
     other -> logWarning (T.pack (show other))
 
@@ -141,5 +145,5 @@ instance Member Logs q => Server (Observer CounterChanged) q where
   setup _ = pure (emptyObservers, ())
   update _ =
     \case
-      OnRequest (Cast r) -> handleObservations (\msg -> logInfo' ("observed: " ++ show msg)) r
+      OnCast r -> handleObservations (\msg -> logInfo' ("observed: " ++ show msg)) r
       wtf -> logNotice (T.pack (show wtf))

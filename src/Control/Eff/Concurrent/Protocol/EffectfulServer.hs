@@ -13,9 +13,9 @@ module Control.Eff.Concurrent.Protocol.EffectfulServer
   , GenServerId(..)
   , genServer
   -- * Re-exports
-  , Request(..)
-  , sendReply
   , RequestOrigin(..)
+  , Reply(..)
+  , sendReply
   )
   where
 
@@ -35,7 +35,6 @@ import Data.Typeable
 import Data.Type.Pretty
 import qualified Data.Text as T
 import GHC.Stack (HasCallStack)
-import GHC.Generics
 
 -- | A type class for building supervised processes, that handle 'Event's
 -- with 'Request's for 'Pdu' instance.
@@ -120,10 +119,14 @@ protocolServerLoop a = do
   where
     lmAddEp myEp = lmProcessId ?~ myEp
     sel :: MessageSelector (Event (ServerPdu a))
-    sel = OnRequest <$> selectMessage @(Request (ServerPdu a))
+    sel = onRequest <$> selectMessage @(Request (ServerPdu a))
       <|> OnDown    <$> selectMessage @ProcessDown
       <|> OnTimeOut <$> selectMessage @TimerElapsed
       <|> OnMessage <$> selectAnyMessage
+      where
+        onRequest :: Request (ServerPdu a) -> Event (ServerPdu a)
+        onRequest (Call o m) = OnCall (MkSerializer toStrictDynamic) o m
+        onRequest (Cast m) = OnCast m
     handleInt i = onEvent a (OnInterrupt i) *> pure Nothing
     mainLoop :: (Typeable a)
       => Either (Interrupt 'Recoverable) (Event (ServerPdu a))
@@ -137,18 +140,36 @@ protocolServerLoop a = do
 -- Note that this is required to receive any kind of messages in 'protocolServerLoop'.
 --
 -- @since 0.24.0
-data Event a =
-    OnRequest (Request a)
-  | OnInterrupt (Interrupt 'Recoverable)
-  | OnDown ProcessDown
-  | OnTimeOut TimerElapsed
-  | OnMessage StrictDynamic
-  deriving (Show,Generic,Typeable)
+data Event a where
+  -- | A 'Synchronous' message was received. If an implementation wants to delegate nested 'Pdu's, it can
+  -- 'contramap' the reply 'Serializer' such that the 'Reply' received by the caller has the correct type.
+  --
+  -- @since 0.24.1
+  OnCall :: forall a r. (Tangible r, TangiblePdu a ('Synchronous r)) => Serializer (Reply a r) -> RequestOrigin a r -> Pdu a ('Synchronous r) -> Event a
+  OnCast :: forall a. TangiblePdu a 'Asynchronous => Pdu a 'Asynchronous -> Event a
+  OnInterrupt  :: (Interrupt 'Recoverable) -> Event a
+  OnDown  :: ProcessDown -> Event a
+  OnTimeOut  :: TimerElapsed -> Event a
+  OnMessage  :: StrictDynamic -> Event a
+  deriving Typeable
+
+instance Show (Event a) where
+  showsPrec d e =
+    showParen (d>=10) $
+      showString "event: "
+      . case e of
+          OnCall _ o p -> shows (Call o p)
+          OnCast p -> shows (Cast p)
+          OnInterrupt r -> shows r
+          OnDown r -> shows r
+          OnTimeOut r -> shows r
+          OnMessage r -> shows r
 
 instance NFData a => NFData (Event a) where
    rnf = \case
-       OnRequest r      -> rnf r
-       OnInterrupt r    -> rnf r
+       OnCall _ o p -> rnf o `seq` rnf p
+       OnCast p -> rnf p
+       OnInterrupt r -> rnf r
        OnDown r  -> rnf r
        OnTimeOut r -> rnf r
        OnMessage r -> r `seq` ()
