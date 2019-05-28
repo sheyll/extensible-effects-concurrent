@@ -4,7 +4,7 @@ import Control.DeepSeq
 import Control.Eff as Eff
 import Control.Eff.Concurrent.Process
 import Control.Eff.Concurrent.Protocol
-import Control.Eff.Concurrent.Protocol.Server
+import Control.Eff.Concurrent.Protocol.StatefulServer
 import Control.Eff.State.Strict as Eff
 import Control.Lens hiding ((.=), use)
 import Data.Default

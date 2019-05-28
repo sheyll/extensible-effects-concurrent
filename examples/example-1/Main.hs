@@ -6,7 +6,7 @@ import           Control.Eff
 import           Control.Monad
 import           Data.Dynamic
 import           Control.Eff.Concurrent
-import           Control.Eff.Concurrent.Protocol.Server
+import           Control.Eff.Concurrent.Protocol.EffectfulServer
 import qualified Control.Exception             as Exc
 import qualified Data.Text as T
 import           Control.DeepSeq
@@ -73,12 +73,10 @@ example = do
             go
   go
 
-type instance GenServerProtocol TestProtocol = TestProtocol
-
 testServerLoop :: Eff InterruptableProcEff (Endpoint TestProtocol)
-testServerLoop = start (statelessGenServer handleReq "test-server-1")
+testServerLoop = start (genServer (const id) handleReq "test-server-1")
  where
-  handleReq :: GenServerId TestProtocol -> Event TestProtocol -> Eff (ToStatelessEffects InterruptableProcEff) ()
+  handleReq :: GenServerId TestProtocol -> Event TestProtocol -> Eff InterruptableProcEff ()
   handleReq _myId (OnRequest (Call orig Terminate)) = do
     me <- self
     logInfo (T.pack (show me ++ " exiting"))

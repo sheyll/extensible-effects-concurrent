@@ -7,7 +7,7 @@ import Control.Concurrent (threadDelay)
 import Control.DeepSeq
 import Control.Eff
 import Control.Eff.Concurrent
-import Control.Eff.Concurrent.Protocol.Server as Server
+import Control.Eff.Concurrent.Protocol.StatefulServer as Server
 import Control.Eff.Concurrent.Protocol.Supervisor as Sup
 import Control.Eff.Concurrent.Process.Timer
 import Data.Either (fromRight, isLeft, isRight)
@@ -264,7 +264,7 @@ data TestProtocolServerMode
   | ExitWhenRequested
   deriving Eq
 
-instance Server TestProtocol InterruptableProcEff where
+instance Server TestProtocol SchedulerIO where
   update (TestServerArgs testMode tId) evt =
     case evt of
       OnRequest (Cast (TestInterruptWith i)) -> do
@@ -283,6 +283,6 @@ instance Server TestProtocol InterruptableProcEff where
             exitBecause (interruptToExit x)
       _ ->
         logDebug (pack (show tId) <> ": got some info: " <> pack (show evt))
-  data instance StartArgument TestProtocol InterruptableProcEff = TestServerArgs TestProtocolServerMode Int
+  data instance StartArgument TestProtocol SchedulerIO = TestServerArgs TestProtocolServerMode Int
 
 type instance ChildId TestProtocol = Int

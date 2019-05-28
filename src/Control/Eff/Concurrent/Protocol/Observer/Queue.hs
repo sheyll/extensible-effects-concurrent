@@ -1,3 +1,4 @@
+{-# LANGUAGE UndecidableInstances #-}
 -- | A small process to capture and _share_ observation's by enqueueing them into an STM 'TBQueue'.
 module Control.Eff.Concurrent.Protocol.Observer.Queue
   ( ObservationQueue(..)
@@ -15,7 +16,7 @@ import           Control.Eff
 import           Control.Eff.Concurrent.Protocol
 import           Control.Eff.Concurrent.Protocol.Observer
 import           Control.Eff.Concurrent.Protocol.Request
-import           Control.Eff.Concurrent.Protocol.Server
+import           Control.Eff.Concurrent.Protocol.StatefulServer
 import           Control.Eff.Concurrent.Process
 import           Control.Eff.ExceptionExtra     ( )
 import           Control.Eff.Log
@@ -148,10 +149,10 @@ spawnLinkObservationQueueWriter q = do
   cbo <- startLink (MkObservationQueue q)
   pure (toObserver cbo)
 
-instance (TangibleObserver o, TangiblePdu (Observer o) 'Asynchronous, Lifted IO q, Member Logs q) => Server (ObservationQueue o) (InterruptableProcess q) where
+instance (TangibleObserver o, TangiblePdu (Observer o) 'Asynchronous, Lifted IO q, Member Logs q) => Server (ObservationQueue o) q where
   type Protocol (ObservationQueue o) = Observer o
 
-  data instance StartArgument (ObservationQueue o) (InterruptableProcess q) =
+  data instance StartArgument (ObservationQueue o) q =
      MkObservationQueue (ObservationQueue o)
 
   update (MkObservationQueue (ObservationQueue q)) =

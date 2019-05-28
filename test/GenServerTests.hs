@@ -1,4 +1,4 @@
-
+{-# LANGUAGE UndecidableInstances #-}
 module GenServerTests
   ( test_genServer
   ) where
@@ -8,7 +8,9 @@ import Control.DeepSeq
 import Control.Eff
 import Control.Eff.Concurrent
 import Control.Eff.Concurrent.Protocol.Supervisor as Sup
-import Control.Eff.Concurrent.Protocol.Server as Server
+import qualified Control.Eff.Concurrent.Protocol.EffectfulServer as E
+import qualified Control.Eff.Concurrent.Protocol.StatefulServer as S
+import Control.Eff.Concurrent.Protocol.Request
 import Control.Lens
 import Data.Coerce
 import Data.Text as T
@@ -39,12 +41,14 @@ instance Show (Pdu Small r) where
 
 -- ----------------------------------------------------------------------------
 
-instance LogIo e => Server Small (InterruptableProcess e) where
-  data StartArgument Small (InterruptableProcess e) = MkSmall
+instance LogIo e => S.Server Small e where
+  data StartArgument Small e = MkSmall
   type Model Small = String
   update MkSmall x =
     case x of
-      OnRequest msg ->
+      E.OnRequest (Call o (SmallCall f)) ->
+       sendReply o f
+      E.OnRequest msg ->
        logInfo' (show msg)
       other ->
         interrupt (ErrorInterrupt (show other))
@@ -81,22 +85,22 @@ instance EmbedProtocol Big Small where
 
 -- ----------------------------------------------------------------------------
 
-instance LogIo e => Server Big (InterruptableProcess e) where
-  data instance StartArgument Big (InterruptableProcess e) = MkBig
+instance LogIo e => S.Server Big e where
+  data instance StartArgument Big e = MkBig
   type Model Big = String
   update MkBig = \case
-    OnRequest msg ->
+    E.OnRequest msg ->
       case msg of
         Call orig req ->
           case req of
             BigCall o -> do
               logNotice ("BigCall " <> pack (show o))
               sendReply orig o
-            BigSmall x -> update MkSmall (OnRequest (Call (coerce orig) x))
+            BigSmall x -> S.update MkSmall (S.OnRequest (Call (coerce orig) x))
         Cast req ->
           case req of
-            BigCast o -> putModel @Big o
-            BigSmall x -> update MkSmall (OnRequest (Cast x))
+            BigCast o -> S.putModel @Big o
+            BigSmall x -> S.update MkSmall (S.OnRequest (Cast x))
     other ->
       interrupt (ErrorInterrupt (show other))
 -- ----------------------------------------------------------------------------
@@ -104,8 +108,15 @@ instance LogIo e => Server Big (InterruptableProcess e) where
 test_genServer :: HasCallStack => TestTree
 test_genServer = setTravisTestOptions $ testGroup "Server" [
   runTestCase "When a server is started it handles call Pdus without dieing" $ do
-    big <- start MkBig
+    big <- S.start MkBig
     call big (BigCall True) >>=  lift . assertBool "invalid result 1"
     isProcessAlive (_fromEndpoint big) >>= lift . assertBool "process dead"
     call big (BigCall False) >>=  lift . assertBool "invalid result 2" . not
+    isProcessAlive (_fromEndpoint big) >>= lift . assertBool "process dead"
+    cast big (BigCast "rezo")
+    isProcessAlive (_fromEndpoint big) >>= lift . assertBool "process dead"
+    cast big (BigSmall (SmallCast "yo diggi"))
+    isProcessAlive (_fromEndpoint big) >>= lift . assertBool "process dead"
+    call big (BigSmall (SmallCall False )) >>=  lift . assertBool "invalid result 3" . not
+    isProcessAlive (_fromEndpoint big) >>= lift . assertBool "process dead"
   ]

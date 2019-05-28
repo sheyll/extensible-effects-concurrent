@@ -1,11 +1,11 @@
-
+{-# LANGUAGE UndecidableInstances #-}
 -- | Another complete example for the library
 module Main where
 
 import           Data.Dynamic
 import           Control.Eff
 import           Control.Eff.Concurrent
-import           Control.Eff.Concurrent.Protocol.Server
+import           Control.Eff.Concurrent.Protocol.StatefulServer
 import           Control.Monad
 import           Data.Foldable
 import           Control.Lens
@@ -87,11 +87,11 @@ type SupiCounter = (Counter, ObserverRegistry CounterChanged, SupiDupi)
 
 type instance ToPretty (Counter, ObserverRegistry CounterChanged, SupiDupi) = PutStr "supi-counter"
 
-instance (LogIo q) => Server SupiCounter (InterruptableProcess q) where
+instance (LogIo q) => Server SupiCounter q where
 
   type instance Model SupiCounter = (Integer, Observers CounterChanged, Maybe (RequestOrigin SupiCounter (Maybe ())))
 
-  data instance StartArgument SupiCounter (InterruptableProcess q) = MkEmptySupiCounter
+  data instance StartArgument SupiCounter q = MkEmptySupiCounter
 
   setup _ = return ((0, emptyObservers, Nothing), ())
 
@@ -130,19 +130,16 @@ logCounterObservations
   :: (LogsTo IO q, Lifted IO q, Typeable q)
   => Eff (InterruptableProcess q) (Observer CounterChanged)
 logCounterObservations = do
-  svr <- start
-          $ genServer @(Observer CounterChanged)
-            (\_me -> pure (emptyObservers, ()))
-            (\_me ->
-                \case
-                  OnRequest (Cast r) ->
-                    handleObservations (\msg -> logInfo' ("observed: " ++ show msg)) r
-                  wtf -> logNotice (T.pack (show wtf))
-            )
-            "counter logger"
-
+  svr <- start OCCStart
   pure (toObserver svr)
 
-type instance GenServerModel (Observer CounterChanged) = Observers CounterChanged
-type instance GenServerSettings (Observer CounterChanged) = ()
-type instance GenServerProtocol (Observer CounterChanged) = Observer CounterChanged
+instance Member Logs q => Server (Observer CounterChanged) q where
+  data StartArgument (Observer CounterChanged) q = OCCStart
+  type Model (Observer CounterChanged) = Observers CounterChanged
+  type Settings (Observer CounterChanged) = ()
+  type Protocol (Observer CounterChanged) = Observer CounterChanged
+  setup _ = pure (emptyObservers, ())
+  update _ =
+    \case
+      OnRequest (Cast r) -> handleObservations (\msg -> logInfo' ("observed: " ++ show msg)) r
+      wtf -> logNotice (T.pack (show wtf))

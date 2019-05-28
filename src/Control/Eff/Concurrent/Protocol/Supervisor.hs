@@ -68,7 +68,7 @@ import Control.Eff as Eff
 import Control.Eff.Concurrent.Protocol
 import Control.Eff.Concurrent.Protocol.Client
 import Control.Eff.Concurrent.Protocol.Request
-import Control.Eff.Concurrent.Protocol.Server as Server
+import Control.Eff.Concurrent.Protocol.StatefulServer as Server
 import Control.Eff.Concurrent.Protocol.Supervisor.InternalState
 import Control.Eff.Concurrent.Process
 import Control.Eff.Concurrent.Process.Timer
@@ -145,8 +145,8 @@ instance
   ( Lifted IO q, LogsTo IO q
   , TangibleSup p
   , Tangible (ChildId p)
-  , Server p (InterruptableProcess q)
-  ) => Server (Sup p) (InterruptableProcess q) where
+  , Server p q
+  ) => Server (Sup p) q where
 
   -- | Options that control the 'Sup p' process.
   --
@@ -156,12 +156,12 @@ instance
   -- * the 'Timeout' after requesting a normal child exit before brutally killing the child.
   --
   -- @since 0.24.0
-  data StartArgument (Sup p) (InterruptableProcess q) = MkSupConfig
+  data StartArgument (Sup p) q = MkSupConfig
     {
       -- , supConfigChildRestartPolicy :: ChildRestartPolicy
       -- , supConfigResilience :: Resilience
       supConfigChildStopTimeout :: Timeout
-    , supConfigStartFun :: ChildId p -> Server.StartArgument p (InterruptableProcess q)
+    , supConfigStartFun :: ChildId p -> Server.StartArgument p q
     }
 
   type Model (Sup p) = Children (ChildId p) p
@@ -255,9 +255,9 @@ startSupervisor
     , LogsTo IO (InterruptableProcess e)
     , Lifted IO e
     , TangibleSup p
-    , Server (Sup p) (InterruptableProcess e)
+    , Server (Sup p) e
     )
-  => StartArgument (Sup p) (InterruptableProcess e)
+  => StartArgument (Sup p) e
   -> Eff (InterruptableProcess e) (Endpoint (Sup p))
 startSupervisor = Server.start
 

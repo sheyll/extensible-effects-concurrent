@@ -8,7 +8,7 @@ import           Control.Eff.Concurrent.Process
 import           Control.Eff.Concurrent.Process.Timer
 import           Control.Eff.Concurrent.Protocol
 import           Control.Eff.Concurrent.Protocol.Client
-import           Control.Eff.Concurrent.Protocol.Server
+import           Control.Eff.Concurrent.Protocol.EffectfulServer
 import qualified Control.Eff.Concurrent.Process.ForkIOScheduler
                                                as ForkIO
 import qualified Control.Eff.Concurrent.Process.SingleThreadedScheduler
@@ -119,14 +119,13 @@ stopReturnToSender
   -> Eff r ()
 stopReturnToSender toP = call toP StopReturnToSender
 
-type instance GenServerProtocol ReturnToSender = ReturnToSender
-
 returnToSenderServer
   :: forall q
    . (HasCallStack, Lifted IO q, LogsTo IO q, Member Logs q, Typeable q)
   => Eff (InterruptableProcess q) (Endpoint ReturnToSender)
 returnToSenderServer = start
-  (statelessGenServer @ReturnToSender
+  (genServer @ReturnToSender
+    (const id)
     (\_me evt ->
       case evt of
         OnRequest (Call orig msg) ->
