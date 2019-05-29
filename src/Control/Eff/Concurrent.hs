@@ -78,6 +78,8 @@ import           Control.Eff.Concurrent.Process ( Process(..)
                                                 , sendShutdown
                                                 , sendInterrupt
                                                 , makeReference
+                                                , getProcessState
+                                                , updateProcessDetails
                                                 , receiveAnyMessage
                                                 , receiveMessage
                                                 , receiveSelectedMessage

@@ -15,12 +15,18 @@ module Control.Eff.Concurrent.Process
   ( -- * Process Effect
     -- ** Effect Type Handling
     Process(..)
+    -- ** Process Info
+  , ProcessTitle(..)
+  , fromProcessTitle
+  , ProcessDetails(..)
+  , fromProcessDetails
   , -- ** Message Data
     StrictDynamic()
   , toStrictDynamic
   , fromStrictDynamic
   , unwrapStrictDynamic
   , Serializer(..)
+
 
     -- ** ProcessId Type
   , ProcessId(..)
@@ -56,7 +62,9 @@ module Control.Eff.Concurrent.Process
   -- ** Process Life Cycle Management
   , self
   , isProcessAlive
-  -- ** Spawning
+  , getProcessState
+  , updateProcessDetails
+    -- ** Spawning
   , spawn
   , spawn_
   , spawnLink
@@ -111,30 +119,30 @@ module Control.Eff.Concurrent.Process
   )
 where
 
-import           GHC.Generics                   ( Generic
-                                                , Generic1
-                                                )
+import           Control.Applicative
 import           Control.DeepSeq
 import           Control.Eff
 import           Control.Eff.Exception
 import           Control.Eff.Extend
 import           Control.Eff.Log.Handler
+import qualified Control.Exception             as Exc
 import           Control.Lens
 import           Control.Monad                  ( void
                                                 , (>=>)
                                                 )
 import           Data.Default
 import           Data.Dynamic
-import           Data.Functor.Contravariant
+import           Data.Functor.Contravariant     ()
 import           Data.Kind
-import           GHC.Stack
 import           Data.Function
-import           Control.Applicative
 import           Data.Maybe
-import           Data.String                    (fromString)
-import           Data.Text                     (Text, pack, unpack)
+import           Data.String                    ( IsString, fromString )
+import           Data.Text                      ( Text, pack, unpack)
 import qualified Data.Text                     as T
-import qualified Control.Exception             as Exc
+import           GHC.Stack
+import           GHC.Generics                    ( Generic
+                                                 , Generic1
+                                                 )
 
 
 -- | The process effect is the basis for message passing concurrency. This
@@ -172,13 +180,11 @@ data Process (r :: [Type -> Type]) b where
   SelfPid :: Process r (ResumeProcess ProcessId)
   -- | Start a new process, the new process will execute an effect, the function
   -- will return immediately with a 'ProcessId'.
-  Spawn :: Eff (Process r ': r) () -> Process r (ResumeProcess ProcessId)
+  Spawn :: ProcessTitle -> Eff (Process r ': r) () -> Process r (ResumeProcess ProcessId)
   -- | Start a new process, and 'Link' to it .
   --
   -- @since 0.12.0
-  SpawnLink :: Eff (Process r ': r) () -> Process r (ResumeProcess ProcessId)
-  -- | Get the process state (or 'Nothing' if the process is dead)
-  GetProcessState :: ProcessId -> Process r (ResumeProcess (Maybe ProcessState))
+  SpawnLink :: ProcessTitle -> Eff (Process r ': r) () -> Process r (ResumeProcess ProcessId)
   -- | Shutdown the process; irregardless of the exit reason, this function never
   -- returns,
   Shutdown :: Interrupt 'NoRecovery -> Process r a
@@ -225,13 +231,20 @@ data Process (r :: [Type -> Type]) b where
   -- @since 0.12.0
   Unlink :: ProcessId -> Process r (ResumeProcess ())
 
+  -- | Update the 'ProcessDetails' of a process
+  UpdateProcessDetails :: ProcessDetails -> Process r (ResumeProcess ())
+
+  -- | Get the 'ProcessState' (or 'Nothing' if the process is dead)
+  GetProcessState :: ProcessId -> Process r (ResumeProcess (Maybe (ProcessTitle, ProcessDetails, ProcessState)))
+
+
 instance Show (Process r b) where
   showsPrec d = \case
     FlushMessages -> showString "flush messages"
     YieldProcess  -> showString "yield process"
     SelfPid       -> showString "lookup the current process id"
-    Spawn     _   -> showString "spawn a new process"
-    SpawnLink _   -> showString "spawn a new process and link to it"
+    Spawn   t _   -> showString "spawn a new process: " . shows t
+    SpawnLink t _ -> showString "spawn a new process and link to it" . shows t
     Shutdown sr ->
       showParen (d >= 10) (showString "shutdown " . showsPrec 10 sr)
     SendShutdown toPid sr -> showParen
@@ -256,12 +269,47 @@ instance Show (Process r b) where
       . showsPrec 10 sr
       )
     ReceiveSelectedMessage _   -> showString "receive a message"
-    GetProcessState pid -> showString "get the process state of " . shows pid
     MakeReference              -> showString "generate a unique reference"
     Monitor   pid              -> showString "monitor " . shows pid
     Demonitor i                -> showString "demonitor " . shows i
     Link      l                -> showString "link " . shows l
     Unlink    l                -> showString "unlink " . shows l
+    GetProcessState pid        -> showString "get the process state of " . shows pid
+    UpdateProcessDetails l     -> showString "update the process details to: " . shows l
+
+-- | A short title for a 'Process' for logging purposes.
+--
+-- @since 0.24.1
+newtype ProcessTitle =
+  MkProcessTitle { _fromProcessTitle :: Text }
+  deriving (Eq, Ord, NFData, Generic, IsString, Typeable, Semigroup, Monoid)
+
+-- | An isomorphism lens for the 'ProcessTitle'
+--
+-- @since 0.24.1
+fromProcessTitle :: Lens' ProcessTitle Text
+fromProcessTitle = iso _fromProcessTitle MkProcessTitle
+
+instance Show ProcessTitle where
+  showsPrec _ (MkProcessTitle t) = showString (T.unpack t)
+
+-- | A multi-line text describing the __current__
+-- state of a process for debugging purposes.
+--
+-- @since 0.24.1
+newtype ProcessDetails =
+  MkProcessDetails { _fromProcessDetails :: Text }
+  deriving (Eq, Ord, NFData, Generic, IsString, Typeable, Semigroup, Monoid)
+
+-- | An isomorphism lens for the 'ProcessDetails'
+--
+-- @since 0.24.1
+fromProcessDetails :: Lens' ProcessDetails Text
+fromProcessDetails = iso _fromProcessDetails MkProcessDetails
+
+instance Show ProcessDetails where
+  showsPrec _ (MkProcessDetails t) = showString (T.unpack t)
+
 
 -- | Data flows between 'Process'es via these messages.
 --
@@ -403,6 +451,7 @@ data ProcessState =
                                 --   scheduled yet.
   | ProcessIdle                 -- ^ The process yielded it's time slice
   | ProcessBusy                 -- ^ The process is busy with non-blocking
+  | ProcessBusyUpdatingDetails  -- ^ The process is busy with 'UpdateProcessDetails'
   | ProcessBusySending          -- ^ The process is busy with sending a message
   | ProcessBusySendingShutdown  -- ^ The process is busy with killing
   | ProcessBusySendingInterrupt -- ^ The process is busy with killing
@@ -502,7 +551,7 @@ data Interrupt (t :: ExitRecovery) where
     -- | An error causes the process to exit immediately.
     -- For example an unexpected runtime exception was thrown, i.e. an exception
     -- derived from 'Control.Exception.Safe.SomeException'
-    -- Or a 'Recoverable' Interrupt was not recoverd.
+    -- Or a 'Recoverable' Interrupt was not recovered.
     ExitUnhandledError
       :: Text -> Interrupt 'NoRecovery
     -- | A process shall exit immediately, without any cleanup was cancelled (e.g. killed, in 'Async.cancel')
@@ -852,18 +901,20 @@ sendInterrupt pid s =
 spawn
   :: forall r q
    . (HasCallStack, SetMember Process (Process q) r, Member Interrupts r)
-  => Eff (InterruptableProcess q) ()
+  => ProcessTitle
+  -> Eff (InterruptableProcess q) ()
   -> Eff r ProcessId
-spawn child =
-  executeAndResumeOrThrow (Spawn @q (provideInterruptsShutdown child))
+spawn t child =
+  executeAndResumeOrThrow (Spawn @q t (provideInterruptsShutdown child))
 
 -- | Like 'spawn' but return @()@.
 spawn_
   :: forall r q
    . (HasCallStack, SetMember Process (Process q) r, Member Interrupts r)
-  => Eff (InterruptableProcess q) ()
+  => ProcessTitle
+  -> Eff (InterruptableProcess q) ()
   -> Eff r ()
-spawn_ child = void (spawn child)
+spawn_ t child = void (spawn t child)
 
 -- | Start a new process, and immediately link to it.
 --
@@ -871,10 +922,11 @@ spawn_ child = void (spawn child)
 spawnLink
   :: forall r q
    . (HasCallStack, SetMember Process (Process q) r, Member Interrupts r)
-  => Eff (InterruptableProcess q) ()
+  => ProcessTitle
+  -> Eff (InterruptableProcess q) ()
   -> Eff r ProcessId
-spawnLink child =
-  executeAndResumeOrThrow (SpawnLink @q (provideInterruptsShutdown child))
+spawnLink t child =
+  executeAndResumeOrThrow (SpawnLink @q t (provideInterruptsShutdown child))
 
 -- | Start a new process, the new process will execute an effect, the function
 -- will return immediately with a 'ProcessId'. The spawned process has only the
@@ -883,17 +935,19 @@ spawnLink child =
 spawnRaw
   :: forall r q
    . (HasCallStack, SetMember Process (Process q) r, Member Interrupts r)
-  => Eff (ConsProcess q) ()
+  => ProcessTitle
+  -> Eff (ConsProcess q) ()
   -> Eff r ProcessId
-spawnRaw child = executeAndResumeOrThrow (Spawn @q child)
+spawnRaw t child = executeAndResumeOrThrow (Spawn @q t child)
 
 -- | Like 'spawnRaw' but return @()@.
 spawnRaw_
   :: forall r q
    . (HasCallStack, SetMember Process (Process q) r, Member Interrupts r)
-  => Eff (ConsProcess q) ()
+  => ProcessTitle
+  -> Eff (ConsProcess q) ()
   -> Eff r ()
-spawnRaw_ = void . spawnRaw
+spawnRaw_ t = void . spawnRaw t
 
 -- | Return 'True' if the process is alive.
 --
@@ -904,6 +958,28 @@ isProcessAlive
   => ProcessId
   -> Eff r Bool
 isProcessAlive pid = isJust <$> executeAndResumeOrThrow (GetProcessState pid)
+
+
+-- | Return the 'ProcessTitle', 'ProcessDetails'  and 'ProcessState',
+-- for the given process, if the process is alive.
+--
+-- @since 0.24.1
+getProcessState
+  :: forall r q
+   . (HasCallStack, SetMember Process (Process q) r, Member Interrupts r)
+  => ProcessId
+  -> Eff r (Maybe (ProcessTitle, ProcessDetails, ProcessState))
+getProcessState pid = executeAndResumeOrThrow (GetProcessState pid)
+
+-- | Replace the 'ProcessDetails' of the process.
+--
+-- @since 0.24.1
+updateProcessDetails
+  :: forall r q
+   . (HasCallStack, SetMember Process (Process q) r, Member Interrupts r)
+  => ProcessDetails
+  -> Eff r ()
+updateProcessDetails pd = executeAndResumeOrThrow (UpdateProcessDetails pd)
 
 -- | Block until a message was received.
 -- See 'ReceiveSelectedMessage' for more documentation.

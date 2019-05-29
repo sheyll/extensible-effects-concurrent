@@ -16,7 +16,7 @@ newtype WhoAreYou = WhoAreYou ProcessId deriving (Typeable, NFData, Show)
 
 firstExample :: (HasCallStack, Member Logs q) => Eff (InterruptableProcess q) ()
 firstExample = do
-  person <- spawn
+  person <- spawn "first-example"
     (do
       logInfo "I am waiting for someone to ask me..."
       WhoAreYou replyPid <- receiveMessage

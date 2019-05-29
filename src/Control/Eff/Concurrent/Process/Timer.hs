@@ -25,6 +25,7 @@ import           Control.Eff
 import           Control.DeepSeq
 import           Control.Monad.IO.Class
 import           Data.Typeable
+import           Data.Text as T
 import           Control.Applicative
 import           GHC.Stack
 
@@ -158,14 +159,15 @@ sendAfter
   -> Timeout
   -> (TimerReference -> message)
   -> Eff r TimerReference
-sendAfter pid (TimeoutMicros 0) mkMsg = TimerReference <$> spawn
-  (yieldProcess >> self >>= (sendMessage pid . force . mkMsg . TimerReference))
-sendAfter pid (TimeoutMicros t) mkMsg = TimerReference <$> spawn
-  (   liftIO (threadDelay t)
-  >>  self
-  >>= (sendMessage pid . force . mkMsg . TimerReference)
-  )
-
+sendAfter pid (TimeoutMicros us) mkMsg =
+  TimerReference <$>
+  spawn
+    (MkProcessTitle ("after_" <> T.pack (show us) <> "us_to_" <> T.pack (show pid)))
+    ((if us == 0
+        then yieldProcess
+        else liftIO (threadDelay us)) >>
+     self >>=
+     (sendMessage pid . force . mkMsg . TimerReference))
 -- | Start a new timer, after the time has elapsed, 'TimerElapsed' is sent to
 -- calling process. The message also contains the 'TimerReference' returned by
 -- this function. Use 'cancelTimer' to cancel the timer. Use

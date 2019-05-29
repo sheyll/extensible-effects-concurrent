@@ -42,7 +42,7 @@ main :: IO ()
 main = defaultMain example
 
 mainProcessSpawnsAChildAndReturns :: HasCallStack => Eff InterruptableProcEff ()
-mainProcessSpawnsAChildAndReturns = void (spawn (void receiveAnyMessage))
+mainProcessSpawnsAChildAndReturns = void (spawn "some child" (void receiveAnyMessage))
 
 example:: HasCallStack => Eff InterruptableProcEff ()
 example = do

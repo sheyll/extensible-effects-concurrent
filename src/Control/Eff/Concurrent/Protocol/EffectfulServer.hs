@@ -58,11 +58,25 @@ class Server (a :: Type) (e :: [Type -> Type])
   type Effects a e :: [Type -> Type]
   type Effects a e = e
 
+  -- | Return the 'ProcessTitle'.
+  --
+  -- Usually you should rely on the default implementation
+  serverTitle :: Init a e -> ProcessTitle
+
+  default serverTitle :: Typeable (ServerPdu a) => Init a e -> ProcessTitle
+  serverTitle _ = fromString $ prettyTypeableShows (typeRep (Proxy @(ServerPdu a))) "-server"
+
   -- | Process the effects of the implementation
   runEffects :: Init a e -> Eff (Effects a e) x -> Eff e x
 
+  default runEffects :: Effects a e ~ e => Init a e -> Eff (Effects a e) x -> Eff e x
+  runEffects = const id
+
   -- | Update the 'Model' based on the 'Event'.
   onEvent :: Init a e -> Event (ServerPdu a) -> Eff (Effects a e) ()
+
+  default onEvent :: (Show (Init a e),  Member Logs (Effects a e)) => Init a e -> Event (ServerPdu a) -> Eff (Effects a e) ()
+  onEvent i e = logInfo ("unhandled: " <> T.pack (show i) <> " " <> T.pack (show e))
 
 
 -- | Execute the server loop.
@@ -79,7 +93,7 @@ start
     , HasCallStack)
   => Init a (InterruptableProcess q)
   -> Eff (InterruptableProcess q) (Endpoint (ServerPdu a))
-start a = asEndpoint <$> spawn (protocolServerLoop a)
+start a = asEndpoint <$> spawn (serverTitle a) (protocolServerLoop a)
 
 -- | Execute the server loop.
 --
@@ -95,7 +109,7 @@ startLink
     , HasCallStack)
   => Init a (InterruptableProcess q)
   -> Eff (InterruptableProcess q) (Endpoint (ServerPdu a))
-startLink a = asEndpoint <$> spawnLink (protocolServerLoop a)
+startLink a = asEndpoint <$> spawnLink (serverTitle a) (protocolServerLoop a)
 
 -- | Execute the server loop.
 --

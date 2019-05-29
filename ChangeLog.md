@@ -20,6 +20,10 @@
 - Add more `EmbedProtocol` tuple instances (4-tuple, 5-tuple)
 - Make `Effectful.Server` instances composable (See the `GenServerTests` for an example)
   [more details in a seperate file](./ChangeLog-Details-0.24.1.md)
+- Add `ProcessTitle` - every process now must have a short title text for logging
+- Add `ProcessDetails` - every process can call `UpdateProcessDetails` to update
+  its infos about the current state of it for debugging and error tracing purposes.
+- Add `GetProcessState` to retreive the `ProcessDetails` for some other process.
 
 ## 0.24.0
 

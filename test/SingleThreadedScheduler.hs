@@ -16,12 +16,12 @@ test_pureScheduler = setTravisTestOptions $ testGroup
       $   Right (42 :: Int)
       @=? Scheduler.schedulePure
               (do
-                  adderChild <- spawn $ do
+                  adderChild <- spawn "test" $ do
                       (from, arg1, arg2) <- receiveMessage
                       sendMessage from ((arg1 + arg2) :: Int)
                       foreverCheap $ void $ receiveAnyMessage
 
-                  multiplierChild <- spawn $ do
+                  multiplierChild <- spawn "test" $ do
                       (from, arg1, arg2) <- receiveMessage
                       sendMessage from ((arg1 * arg2) :: Int)
 
@@ -40,7 +40,7 @@ test_mainProcessSpawnsAChildAndExitsNormally = setTravisTestOptions
         "spawn a child and exit normally"
         (Scheduler.defaultMainSingleThreaded
             (do
-                void (spawn (void receiveAnyMessage))
+                void (spawn "test" (void receiveAnyMessage))
                 void exitNormally
                 fail "This should not happen!!"
             )
@@ -54,7 +54,7 @@ test_mainProcessSpawnsAChildBothExitNormally = setTravisTestOptions
         "spawn a child and let it exit and exit"
         (Scheduler.defaultMainSingleThreaded
             (do
-                child <- spawn
+                child <- spawn "test"
                     (do
                         void (receiveMessage @String)
                         void exitNormally

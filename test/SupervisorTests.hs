@@ -29,7 +29,7 @@ test_Supervisor =
       in [ runTestCase "The supervisor starts and is shut down" $ do
              outerSelf <- self
              testWorker <-
-               spawn $ do
+               spawn "test-worker" $ do
                  sup <- startTestSup
                  sendMessage outerSelf sup
                  () <- receiveMessage

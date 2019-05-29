@@ -87,7 +87,8 @@ tryTakeNextShutdownRequestSTM mqVar = do
 -- a 'MessageQ'.
 data ProcessInfo = ProcessInfo
   { _processId :: ProcessId
-  , _processState :: TVar ProcessState
+  , _processTitle :: ProcessTitle
+  , _processState :: TVar (ProcessDetails, ProcessState)
   , _messageQ :: TVar MessageQ
   , _processLinks :: TVar (Set ProcessId)
   }
@@ -172,9 +173,9 @@ instance Show ProcessInfo where
   show p = "process info: " ++ show (p ^. processId)
 
 -- | Create a new 'ProcessInfo'
-newProcessInfo :: HasCallStack => ProcessId -> STM ProcessInfo
-newProcessInfo a =
-  ProcessInfo a <$> newTVar ProcessBooting <*> newTVar def <*> newTVar def
+newProcessInfo :: HasCallStack => ProcessId -> ProcessTitle ->  STM ProcessInfo
+newProcessInfo a t =
+  ProcessInfo a t  <$> newTVar (mempty, ProcessBooting) <*> newTVar def <*> newTVar def
 
 -- * Scheduler Implementation
 
@@ -296,7 +297,8 @@ handleProcess myProcessInfo actionToRun = fix
 -- setMyProcessState st = do
 --  oldSt <- lift (atomically (readTVar myProcessStateVar <* setMyProcessStateSTM st))
 --  logDebug ("state change: "<> show oldSt <> " -> " <> show st)
-  setMyProcessStateSTM = writeTVar myProcessStateVar
+  setMyProcessStateSTM = modifyTVar myProcessStateVar . set _2
+  setMyProcessDetailsSTM = modifyTVar myProcessStateVar . set _1
   myMessageQVar        = myProcessInfo ^. messageQ
   kontinueWith
     :: forall s v a
@@ -368,8 +370,8 @@ handleProcess myProcessInfo actionToRun = fix
     SendInterrupt _ _ -> diskontinue shutdownRequest
     SendShutdown toPid r ->
       if toPid == myPid then diskontinue r else diskontinue shutdownRequest
-    Spawn                  _ -> diskontinue shutdownRequest
-    SpawnLink              _ -> diskontinue shutdownRequest
+    Spawn                _ _ -> diskontinue shutdownRequest
+    SpawnLink            _ _ -> diskontinue shutdownRequest
     ReceiveSelectedMessage _ -> diskontinue shutdownRequest
     FlushMessages            -> diskontinue shutdownRequest
     SelfPid                  -> diskontinue shutdownRequest
@@ -377,6 +379,7 @@ handleProcess myProcessInfo actionToRun = fix
     YieldProcess             -> diskontinue shutdownRequest
     Shutdown        r        -> diskontinue r
     GetProcessState _        -> diskontinue shutdownRequest
+    UpdateProcessDetails _   -> diskontinue shutdownRequest
     Monitor         _        -> diskontinue shutdownRequest
     Demonitor       _        -> diskontinue shutdownRequest
     Link            _        -> diskontinue shutdownRequest
@@ -396,8 +399,8 @@ handleProcess myProcessInfo actionToRun = fix
       SendShutdown  toPid r -> if toPid == myPid
         then diskontinue r
         else kontinue (Interrupted interruptRequest)
-      Spawn                  _ -> kontinue (Interrupted interruptRequest)
-      SpawnLink              _ -> kontinue (Interrupted interruptRequest)
+      Spawn                _ _ -> kontinue (Interrupted interruptRequest)
+      SpawnLink            _ _ -> kontinue (Interrupted interruptRequest)
       ReceiveSelectedMessage _ -> kontinue (Interrupted interruptRequest)
       FlushMessages            -> kontinue (Interrupted interruptRequest)
       SelfPid                  -> kontinue (Interrupted interruptRequest)
@@ -405,6 +408,7 @@ handleProcess myProcessInfo actionToRun = fix
       YieldProcess             -> kontinue (Interrupted interruptRequest)
       Shutdown        r        -> diskontinue r
       GetProcessState _        -> kontinue (Interrupted interruptRequest)
+      UpdateProcessDetails _   -> kontinue (Interrupted interruptRequest)
       Monitor         _        -> kontinue (Interrupted interruptRequest)
       Demonitor       _        -> kontinue (Interrupted interruptRequest)
       Link            _        -> kontinue (Interrupted interruptRequest)
@@ -432,10 +436,10 @@ handleProcess myProcessInfo actionToRun = fix
         interpretSendShutdownOrInterrupt toPid (SomeExitReason msg)
         >>= kontinue nextRef
         .   ResumeWith
-    Spawn child ->
-      spawnNewProcess Nothing child >>= kontinue nextRef . ResumeWith . fst
-    SpawnLink child ->
-      spawnNewProcess (Just myProcessInfo) child
+    Spawn title child ->
+      spawnNewProcess Nothing title child >>= kontinue nextRef . ResumeWith . fst
+    SpawnLink title child ->
+      spawnNewProcess (Just myProcessInfo) title child
         >>= kontinue nextRef
         .   ResumeWith
         .   fst
@@ -449,6 +453,8 @@ handleProcess myProcessInfo actionToRun = fix
     Shutdown r    -> diskontinue r
     GetProcessState toPid ->
       interpretGetProcessState toPid >>= kontinue nextRef . ResumeWith
+    UpdateProcessDetails d ->
+      interpretUpdateDetails d >>= kontinue nextRef . ResumeWith
     Monitor target ->
       interpretMonitor target >>= kontinue nextRef . ResumeWith
     Demonitor ref -> interpretDemonitor ref >>= kontinue nextRef . ResumeWith
@@ -484,8 +490,13 @@ handleProcess myProcessInfo actionToRun = fix
       let procInfoVar = schedulerState ^. processTable
       lift $ atomically $ do
         procInfoTable <- readTVar procInfoVar
-        traverse (\toProcInfo -> readTVar (toProcInfo ^. processState))
+        traverse (\toProcInfo -> do
+                      (pDetails, pState) <- readTVar (toProcInfo ^. processState)
+                      return (toProcInfo ^. processTitle, pDetails, pState))
                  (procInfoTable ^. at toPid)
+    interpretUpdateDetails !td = do
+      setMyProcessState ProcessBusyUpdatingDetails
+      lift $ atomically $ setMyProcessDetailsSTM td
     interpretLink !toPid = do
       setMyProcessState ProcessBusyLinking
       schedulerState <- getSchedulerState
@@ -557,7 +568,7 @@ schedule procEff =
   liftBaseWith
       (\runS -> Async.withAsync
         (runS $ withNewSchedulerState $ do
-          (_, mainProcAsync) <- spawnNewProcess Nothing $ do
+          (_, mainProcAsync) <- spawnNewProcess Nothing "init" $ do
             logNotice "++++++++ main process started ++++++++"
             provideInterruptsShutdown procEff
             logNotice "++++++++ main process returned ++++++++"
@@ -573,9 +584,10 @@ schedule procEff =
 spawnNewProcess
   :: (HasCallStack)
   => Maybe ProcessInfo
+  -> ProcessTitle
   -> Eff ProcEff ()
   -> Eff SchedulerIO (ProcessId, Async (Interrupt 'NoRecovery))
-spawnNewProcess mLinkedParent mfa = do
+spawnNewProcess mLinkedParent title mfa = do
   schedulerState <- getSchedulerState
   procInfo       <- allocateProcInfo schedulerState
   traverse_ (linkToParent procInfo) mLinkedParent
@@ -589,7 +601,7 @@ spawnNewProcess mLinkedParent mfa = do
             processInfoVar = schedulerState ^. processTable
         pid <- readTVar nextPidVar
         modifyTVar' nextPidVar (+ 1)
-        procInfo <- newProcessInfo pid
+        procInfo <- newProcessInfo pid title
         modifyTVar' processInfoVar (at pid ?~ procInfo)
         return procInfo
       )

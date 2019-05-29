@@ -26,6 +26,7 @@ import           Control.Lens (view)
 import           Control.DeepSeq
 import           Data.List                      ( sort )
 import           Data.Foldable                  ( traverse_ )
+import           Data.Maybe
 import           Data.Typeable
 import           Data.Type.Pretty
 import           Data.Void
@@ -80,6 +81,7 @@ allTests schedulerFactory = localOption
     , linkingTests schedulerFactory
     , monitoringTests schedulerFactory
     , timerTests schedulerFactory
+    , processDetailsTests schedulerFactory
     ]
   )
 
@@ -168,8 +170,8 @@ selectiveReceiveTests schedulerFactory = setTravisTestOptions
             traverse_ (sendMessage destination) [1 .. nMax]
 
         me          <- self
-        receiverPid <- spawn (receiverLoop me)
-        spawn_ (senderLoop receiverPid)
+        receiverPid <- spawn "reciever loop" (receiverLoop me)
+        spawn_ "sender loop" (senderLoop receiverPid)
         ok <- receiveMessage @Bool
         lift (ok @? "selective receive failed")
     , testCase "receive a message while waiting for a call reply"
@@ -181,11 +183,11 @@ selectiveReceiveTests schedulerFactory = setTravisTestOptions
         lift (ok @? "selective receive failed")
     , testCase "flush messages" $ applySchedulerFactory schedulerFactory $ do
       me <- self
-      spawn_ $ replicateM_ 10 (sendMessage me True) >> sendMessage me ()
-      spawn_
+      spawn_ "sender-bool" $ replicateM_ 10 (sendMessage me True) >> sendMessage me ()
+      spawn_ "sender-float"
         $  replicateM_ 10 (sendMessage me (123.23411 :: Float))
         >> sendMessage me ()
-      spawn_ $ replicateM_ 10 (sendMessage me ("123"::String)) >> sendMessage me ()
+      spawn_ "sender-string" $ replicateM_ 10 (sendMessage me ("123"::String)) >> sendMessage me ()
       ()   <- receiveMessage
       ()   <- receiveMessage
       ()   <- receiveMessage
@@ -256,9 +258,9 @@ pingPongTests schedulerFactory = testGroup
             sendMessage ponger (Ping me)
             Pong <- receiveMessage
             sendMessage parent True
-      pongPid <- spawn pongProc
+      pongPid <- spawn "pong" pongProc
       me      <- self
-      spawn_ (pingProc pongPid me)
+      spawn_ "ping" (pingProc pongPid me)
       ok <- receiveMessage @Bool
       lift (ok @? "ping pong failed")
   , testCase "ping pong a message between two processes, with massive yielding"
@@ -282,11 +284,11 @@ pingPongTests schedulerFactory = testGroup
             sendMessage parent True
             yieldProcess
       yieldProcess
-      pongPid <- spawn pongProc
+      pongPid <- spawn "pong" pongProc
       yieldProcess
       me <- self
       yieldProcess
-      spawn_ (pingProc pongPid me)
+      spawn_ "ping" (pingProc pongPid me)
       yieldProcess
       ok <- receiveMessage @Bool
       yieldProcess
@@ -300,7 +302,7 @@ pingPongTests schedulerFactory = testGroup
       let pongProc = foreverCheap $ do
             Pong <- receiveMessage
             lift (putMVar pongVar Pong)
-      ponger <- spawn pongProc
+      ponger <- spawn "pong" pongProc
       sendMessage ponger Pong
       let waitLoop = do
             p <- lift (tryTakeMVar pongVar)
@@ -338,7 +340,7 @@ errorTests schedulerFactory = testGroup
           me <- self
           let n = 15
           traverse_
-            (\(i :: Int) -> spawn $ foreverCheap
+            (\(i :: Int) -> spawn "test" $ foreverCheap
               (void
                 (  sendMessage (888888 + fromIntegral i) ("test message" :: String)
                 >> yieldProcess
@@ -347,7 +349,7 @@ errorTests schedulerFactory = testGroup
             )
             [0 .. n]
           traverse_
-            (\(i :: Int) -> spawn $ do
+            (\(i :: Int) -> spawn "test" $ do
               void $ sendMessage me i
               void (exitWithError (show i ++ " died"))
               error "this should not be reached"
@@ -375,7 +377,7 @@ concurrencyTests schedulerFactory =
           me <- self
           traverse_
             (const
-              (spawn
+              (spawn "reciever"
                 (do
                   m <- receiveAnyMessage
                   void (sendAnyMessage me m)
@@ -389,18 +391,18 @@ concurrencyTests schedulerFactory =
       $ \assertEff -> do -- start massive amount of children that exit as soon as they are
              -- executed, this will only work smoothly when scheduler schedules
              -- the new child before the parent
-          traverse_ (const (spawn exitNormally)) [1 .. n]
+          traverse_ (const (spawn "lemming" exitNormally)) [1 .. n]
           assertEff "" True
       , testCase "two concurrent processes"
       $ scheduleAndAssert schedulerFactory
       $ \assertEff -> do
           me     <- self
-          child1 <- spawn
+          child1 <- spawn "reciever"
             (do
               m <- receiveAnyMessage
               void (sendAnyMessage me m)
             )
-          child2 <- spawn (foreverCheap (void (sendMessage 888888 (""::String))))
+          child2 <- spawn "sender" (foreverCheap (void (sendMessage 888888 (""::String))))
           sendMessage child1 ("test" :: String)
           i <- receiveMessage
           sendInterrupt child2 testInterruptReason
@@ -410,7 +412,7 @@ concurrencyTests schedulerFactory =
       $ \assertEff -> do
           me <- self
           traverse_
-            (\(i :: Int) -> spawn $ do
+            (\(i :: Int) -> spawn "sender"$ do
               when (i `rem` 5 == 0) $ void $ sendMessage me i
               foreverCheap $ void (sendMessage 888 ("test message to 888" :: String))
             )
@@ -422,7 +424,7 @@ concurrencyTests schedulerFactory =
       $ \assertEff -> do
           me <- self
           traverse_
-            (\(i :: Int) -> spawn $ do
+            (\(i :: Int) -> spawn "sender"$ do
               when (i `rem` 5 == 0) $ void $ sendMessage me i
               foreverCheap $ void self
             )
@@ -434,7 +436,7 @@ concurrencyTests schedulerFactory =
       $ \assertEff -> do
           me <- self
           traverse_
-            (\(i :: Int) -> spawn $ do
+            (\(i :: Int) -> spawn "killer" $ do
               when (i `rem` 5 == 0) $ void $ sendMessage me i
               foreverCheap $ void (sendShutdown 999 ExitNormally)
             )
@@ -446,11 +448,11 @@ concurrencyTests schedulerFactory =
       $ \assertEff -> do
           me <- self
           traverse_
-            (\(i :: Int) -> spawn $ do
+            (\(i :: Int) -> spawn "sender 0" $ do
               when (i `rem` 5 == 0) $ void $ sendMessage me i
               parent <- self
               foreverCheap $ void
-                (spawn (void (sendMessage parent ("test msg from child"::String))))
+                (spawn  "sender" (void (sendMessage parent ("test msg from child"::String))))
             )
             [0 .. n]
           oks <- replicateM (length [0, 5 .. n]) receiveMessage
@@ -460,7 +462,7 @@ concurrencyTests schedulerFactory =
       $ \assertEff -> do
           me <- self
           traverse_
-            (\(i :: Int) -> spawn $ do
+            (\(i :: Int) -> spawn  "sender" $ do
               when (i `rem` 5 == 0) $ void $ sendMessage me i
               foreverCheap $ void receiveAnyMessage
             )
@@ -519,7 +521,7 @@ exitTests schedulerFactory =
           , ( "spawn-ing"
             , void
               (send
-                (Spawn @r
+                (Spawn @r  "reciever"
                   (void (send (ReceiveSelectedMessage @r selectAnyMessage)))
                 )
               )
@@ -532,7 +534,7 @@ exitTests schedulerFactory =
         [ testCase ("a child process, busy with " ++ busyWith)
           $ applySchedulerFactory schedulerFactory
           $ do
-              void $ spawn $ foreverCheap busyEffect
+              void $ spawn "busyloop" $ foreverCheap busyEffect
               lift (threadDelay 10000)
         | (busyWith, busyEffect) <-
           [ ( "receiving"
@@ -552,7 +554,7 @@ exitTests schedulerFactory =
             , void
               (send
                 (Spawn @r
-                  (void (send (ReceiveSelectedMessage @r selectAnyMessage)))
+                  "reciever"  (void (send (ReceiveSelectedMessage @r selectAnyMessage)))
                 )
               )
             )
@@ -568,9 +570,9 @@ exitTests schedulerFactory =
             )
           $ scheduleAndAssert schedulerFactory
           $ \assertEff -> do
-              p1 <- spawn $ foreverCheap busyEffect
+              p1 <- spawn "busyloop" $ foreverCheap busyEffect
               lift (threadDelay 1000)
-              void $ spawn $ do
+              void $ spawn "sleep loop"  $ do
                 lift (threadDelay 1000)
                 doExit
               lift (threadDelay 100000)
@@ -598,6 +600,7 @@ exitTests schedulerFactory =
             , void
               (send
                 (Spawn @r
+                  "receiver"
                   (void (send (ReceiveSelectedMessage @r selectAnyMessage)))
                 )
               )
@@ -646,7 +649,7 @@ sendShutdownTests schedulerFactory = testGroup
     $ scheduleAndAssert schedulerFactory
     $ \assertEff -> do
         me    <- self
-        other <- spawn
+        other <- spawn "interrupted"
           (do
             untilInterrupted (SendMessage @r 666666 (toStrictDynamic ("test"::String)))
             void (sendMessage me ("OK"::String))
@@ -658,7 +661,7 @@ sendShutdownTests schedulerFactory = testGroup
     $ scheduleAndAssert schedulerFactory
     $ \assertEff -> do
         me    <- self
-        other <- spawn
+        other <- spawn "interrupted"
           (do
             untilInterrupted (ReceiveSelectedMessage @r selectAnyMessage)
             void (sendMessage me ("OK" :: String))
@@ -670,7 +673,7 @@ sendShutdownTests schedulerFactory = testGroup
     $ scheduleAndAssert schedulerFactory
     $ \assertEff -> do
         me    <- self
-        other <- spawn
+        other <- spawn "interrupted"
           (do
             untilInterrupted (SelfPid @r)
             void (sendMessage me ("OK" :: String))
@@ -682,9 +685,9 @@ sendShutdownTests schedulerFactory = testGroup
     $ scheduleAndAssert schedulerFactory
     $ \assertEff -> do
         me    <- self
-        other <- spawn
+        other <- spawn "interrupted"
           (do
-            untilInterrupted (Spawn @r (return ()))
+            untilInterrupted (Spawn @r "returner" (return ()))
             void (sendMessage me ("OK"::String))
           )
         void (sendInterrupt other testInterruptReason)
@@ -694,7 +697,7 @@ sendShutdownTests schedulerFactory = testGroup
     $ scheduleAndAssert schedulerFactory
     $ \assertEff -> do
         me    <- self
-        other <- spawn
+        other <- spawn "interrupted"
           (do
             untilInterrupted (SendShutdown @r 777 ExitNormally)
             void (sendMessage me ("OK"::String))
@@ -742,7 +745,7 @@ linkingTests schedulerFactory = setTravisTestOptions
     , testCase "linked process exit message is NormalExit"
     $ applySchedulerFactory schedulerFactory
     $ do
-        foo <- spawn (void (receiveMessage @Void))
+        foo <- spawn "reciever" (void (receiveMessage @Void))
         handleInterrupts
           (lift . (\e -> e /= LinkedProcessCrashed foo @? show e))
           (do
@@ -753,7 +756,7 @@ linkingTests schedulerFactory = setTravisTestOptions
     , testCase "linked process exit message is Crash"
     $ applySchedulerFactory schedulerFactory
     $ do
-        foo <- spawn (void (receiveMessage @Void))
+        foo <- spawn "reciever" (void (receiveMessage @Void))
         handleInterrupts
           (lift . (@?= LinkedProcessCrashed foo))
           (do
@@ -764,7 +767,7 @@ linkingTests schedulerFactory = setTravisTestOptions
     , testCase "link multiple times"
     $ applySchedulerFactory schedulerFactory
     $ do
-        foo <- spawn (void (receiveMessage @Void))
+        foo <- spawn "reciever" (void (receiveMessage @Void))
         handleInterrupts
           (lift . (@?= LinkedProcessCrashed foo))
           (do
@@ -781,11 +784,11 @@ linkingTests schedulerFactory = setTravisTestOptions
     , testCase "unlink multiple times"
     $ applySchedulerFactory schedulerFactory
     $ do
-        foo <- spawn (void (receiveMessage @Void))
+        foo <- spawn "reciever" (void (receiveMessage @Void))
         handleInterrupts
           (lift . (False @?) . show)
           (do
-            spawn_ (void receiveAnyMessage)
+            spawn_ "reciever" (void receiveAnyMessage)
             linkProcess foo
             linkProcess foo
             linkProcess foo
@@ -800,14 +803,14 @@ linkingTests schedulerFactory = setTravisTestOptions
     , testCase "spawnLink" $ applySchedulerFactory schedulerFactory $ do
       let foo = void (receiveMessage @Void)
       handleInterrupts (\er -> lift (isProcessDownInterrupt Nothing er @? show er)) $ do
-        x <- spawnLink foo
+        x <- spawnLink "foo" foo
         sendShutdown x ExitProcessCancelled
         void (receiveMessage @Void)
     , testCase "spawnLink and child exits by returning from spawn" $ applySchedulerFactory schedulerFactory $ do
         me <- self
-        u <- spawn $ do
+        u <- spawn "unlinker" $ do
           logCritical "unlinked child started"
-          l <- spawnLink $ do
+          l <- spawnLink "linked" $ do
             logCritical "linked child started"
             () <- receiveMessage
             logCritical "linked child done"
@@ -828,9 +831,9 @@ linkingTests schedulerFactory = setTravisTestOptions
 
     , testCase "spawnLink and child exits via exitWithError" $ applySchedulerFactory schedulerFactory $ do
         me <- self
-        u <- spawn $ do
+        u <- spawn "unlinker" $ do
           logCritical "unlinked child started"
-          l <- spawnLink $ do
+          l <- spawnLink "linker" $ do
             logCritical "linked child started"
             () <- receiveMessage
             logCritical "linked child done"
@@ -860,17 +863,17 @@ linkingTests schedulerFactory = setTravisTestOptions
                 x <- receiveMessage
                 linkProcess x
                 sendMessage mainProc True
-        linker <- spawnLink linkingServer
+        linker <- spawnLink "link-server" linkingServer
         logNotice "mainProc"
         do
-          x <- spawnLink (logNotice "x 1" >> void (receiveMessage @Void))
+          x <- spawnLink "x1" (logNotice "x 1" >> void (receiveMessage @Void))
           withMonitor x $ \xRef -> do
             sendMessage linker x
             void $ receiveSelectedMessage (filterMessage id)
             sendShutdown x ExitNormally
             void (receiveSelectedMessage (selectProcessDown xRef))
         do
-          x <- spawnLink (logNotice "x 2" >> void (receiveMessage @Void))
+          x <- spawnLink "x2" (logNotice "x 2" >> void (receiveMessage @Void))
           withMonitor x $ \xRef -> do
             sendMessage linker x
             void $ receiveSelectedMessage (filterMessage id)
@@ -911,10 +914,10 @@ linkingTests schedulerFactory = setTravisTestOptions
               sendMessage foo2Pid ("the end" :: String)
               void receiveAnyMessage
             )
-      foo1Pid <- spawn foo1
-      foo2Pid <- spawn (foo2 foo1Pid)
+      foo1Pid <- spawn "foo1" foo1
+      foo2Pid <- spawn "foo2" (foo2 foo1Pid)
       me      <- self
-      barPid  <- spawn (bar foo2Pid me)
+      barPid  <- spawn "bar" (bar foo2Pid me)
       handleInterrupts
         (\er -> lift (LinkedProcessCrashed barPid @?= er))
         (do
@@ -944,7 +947,7 @@ monitoringTests schedulerFactory = setTravisTestOptions
     , testCase "monitored process exit normally"
     $ applySchedulerFactory schedulerFactory
     $ do
-        target <- spawn (receiveMessage >>= exitBecause)
+        target <- spawn "reciever-exit-value" (receiveMessage >>= exitBecause)
         ref    <- monitor target
         sendMessage target ExitNormally
         pd <- receiveSelectedMessage (selectProcessDown ref)
@@ -953,7 +956,7 @@ monitoringTests schedulerFactory = setTravisTestOptions
     , testCase "multiple monitors some demonitored"
     $ applySchedulerFactory schedulerFactory
     $ do
-        target <- spawn (receiveMessage >>= exitBecause)
+        target <- spawn "reciever-exit-value" (receiveMessage >>= exitBecause)
         ref1   <- monitor target
         ref2   <- monitor target
         ref3   <- monitor target
@@ -972,7 +975,7 @@ monitoringTests schedulerFactory = setTravisTestOptions
     , testCase "monitored process killed"
     $ applySchedulerFactory schedulerFactory
     $ do
-        target <- spawn (receiveMessage >>= exitBecause)
+        target <- spawn "reciever-exit-value" (receiveMessage >>= exitBecause)
         ref    <- monitor target
         sendMessage target ExitProcessCancelled
         pd <- receiveSelectedMessage (selectProcessDown ref)
@@ -981,12 +984,12 @@ monitoringTests schedulerFactory = setTravisTestOptions
     , testCase "demonitored process killed"
     $ applySchedulerFactory schedulerFactory
     $ do
-        target <- spawn (receiveMessage >>= exitBecause)
+        target <- spawn "reciever-exit-value" (receiveMessage >>= exitBecause)
         ref    <- monitor target
         demonitor ref
         sendMessage target ExitProcessCancelled
         me <- self
-        spawn_ (lift (threadDelay 10000) >> sendMessage me ())
+        spawn_ "wait-and-send" (lift (threadDelay 10000) >> sendMessage me ())
         pd <- receiveSelectedMessage
 
           (Right <$> selectProcessDown ref <|> Left <$> selectMessage @())
@@ -1013,7 +1016,7 @@ timerTests schedulerFactory = setTravisTestOptions
     $ applySchedulerFactory schedulerFactory
     $ do
         me    <- self
-        other <- spawn
+        other <- spawn "reciever"
           (do
             r <- receiveMessage @()
             lift (r @?= ())
@@ -1032,7 +1035,7 @@ timerTests schedulerFactory = setTravisTestOptions
             testMsg :: Float
             testMsg = 123
         me    <- self
-        other <- spawn
+        other <- spawn "test"
           (do
             replicateM_ n $ sendMessage me ("bad message" :: String)
             r <- receiveMessage @()
@@ -1051,3 +1054,56 @@ timerTests schedulerFactory = setTravisTestOptions
         lift (threadDelay 100)
     ]
   )
+
+processDetailsTests ::
+     forall r. (Lifted IO r, LogsTo IO r)
+  => IO (Eff (InterruptableProcess r) () -> IO ())
+  -> TestTree
+processDetailsTests schedulerFactory =
+  setTravisTestOptions
+    (testGroup
+       "process info tests"
+       [ testCase
+           "no infos for a non-existant process"
+           (applySchedulerFactory
+              schedulerFactory
+              (do let nonExistentPid = ProcessId 123
+                  me <- self
+                  pInfo <- getProcessState nonExistentPid
+                  lift (assertEqual "" (nonExistentPid /= me) (isNothing pInfo))))
+       , testCase
+           "no infos for a dead process"
+           (applySchedulerFactory
+              schedulerFactory
+              (do deadProc <- spawn "dead" (return ())
+                  mr <- monitor deadProc
+                  void $ receiveSelectedMessage (selectProcessDown mr)
+                  pInfo <- getProcessState deadProc
+                  lift (assertBool "no process state of a dead process expected" (isNothing pInfo))))
+       , testGroup
+           "process title tests"
+           [ testCase
+               "getProcessState returns the title passed to spawn"
+               (applySchedulerFactory
+                  schedulerFactory
+                  (do let expectedTitle = "expected title"
+                      p <- spawn expectedTitle (void receiveAnyMessage)
+                      (actualTitle, _, _) <- fromJust <$> getProcessState p
+                      lift (assertEqual "unexpected process title" expectedTitle actualTitle)))
+           ]
+       , testGroup "process details tests" [
+            testCase
+                       "update"
+                       (applySchedulerFactory
+                          schedulerFactory
+                          (do let expected1 = "test details 1"
+                                  expected2 = "test details 2"
+                              updateProcessDetails expected1
+                              (_, actual1 , _) <- fromJust <$> (self >>= getProcessState)
+                              lift (assertEqual "1" expected1 actual1)
+                              updateProcessDetails expected2
+                              (_, actual2 , _) <- fromJust <$> (self >>= getProcessState)
+                              lift (assertEqual "2" expected2 actual2)
+                              ))
+       ]
+       ])

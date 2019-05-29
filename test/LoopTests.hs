@@ -47,7 +47,7 @@ test_loopTests =
                       res <- Scheduler.scheduleIOWithLogging  (mkLogWriterIO (T.putStrLn . (">>> " <>) . renderLogMessageConsoleLog))
                               $ do
                                     me <- self
-                                    spawn_ (foreverCheap $ sendMessage me ())
+                                    spawn_ "test" (foreverCheap $ sendMessage me ())
                                     replicateCheapM_
                                         soMany
                                         (void (receiveMessage @()))
@@ -88,7 +88,7 @@ test_loopWithLeaksTests =
                           Scheduler.scheduleIOWithLogging  (mkLogWriterIO (T.putStrLn . (">>> " <>) . renderLogMessageConsoleLog))
                               $ do
                                     me <- self
-                                    spawn_ (forever $ sendMessage me ())
+                                    spawn_ "test" (forever $ sendMessage me ())
                                     replicateM_ soMany
                                                 (void (receiveMessage @()))
 

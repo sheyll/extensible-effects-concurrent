@@ -37,13 +37,34 @@ import Data.Function (fix)
 import Data.Dynamic (dynTypeRep)
 
 -- -----------------------------------------------------------------------------
---  STS
+--  STS and ProcessInfo
 -- -----------------------------------------------------------------------------
+
+data ProcessInfo =
+  MkProcessInfo
+  { _processInfoTitle :: !ProcessTitle
+  , _processInfoDetails :: !ProcessDetails
+  , _processInfoMessageQ :: !(Seq StrictDynamic)
+  }
+
+instance Show ProcessInfo where
+  showsPrec d (MkProcessInfo pTitle pDetails pQ) =
+    showParen
+      (d >= 10)
+      (appEndo
+         (Endo (showChar ' ' . shows pTitle . showString ": ") <>
+          foldMap (Endo . shows . dynTypeRep . unwrapStrictDynamic) (toList pQ) <>
+          Endo (shows pDetails)))
+
+makeLenses ''ProcessInfo
+
+newProcessInfo :: ProcessTitle -> ProcessInfo
+newProcessInfo t = MkProcessInfo t "" Seq.empty
 
 data STS r m = STS
   { _nextPid :: !ProcessId
   , _nextRef :: !Int
-  , _msgQs :: !(Map.Map ProcessId (Seq StrictDynamic))
+  , _msgQs :: !(Map.Map ProcessId ProcessInfo)
   , _monitors :: !(Set.Set (MonitorReference, ProcessId))
   , _processLinks :: !(Set.Set (ProcessId, ProcessId))
   , _runEff :: forall a . Eff r a -> m a
@@ -51,7 +72,7 @@ data STS r m = STS
   }
 
 initStsMainProcess :: (forall a . Eff r a -> m a) -> m () -> STS r m
-initStsMainProcess = STS 1 0 (Map.singleton 0 Seq.empty) Set.empty Set.empty
+initStsMainProcess = STS 1 0 (Map.singleton 0 (newProcessInfo "init" )) Set.empty Set.empty
 
 makeLenses ''STS
 
@@ -64,9 +85,8 @@ instance Show (STS r m) where
     . showString " msgQs: "
     . appEndo
         (foldMap
-          (\(pid, msgs) ->
-            Endo (showString "  " . shows pid . showString ": ")
-              <> foldMap (Endo . shows . dynTypeRep . unwrapStrictDynamic) (toList msgs)
+          (\(pid, p) ->
+            Endo (showChar ' ' . shows pid . showChar ' ' . shows p)
           )
           (sts ^.. msgQs . itraversed . withIndex)
         )
@@ -75,44 +95,48 @@ instance Show (STS r m) where
 dropMsgQ :: ProcessId -> STS r m -> STS r m
 dropMsgQ pid = msgQs . at pid .~ Nothing
 
-getProcessState :: ProcessId -> STS r m -> Maybe ProcessState
-getProcessState pid sts = toPS <$> sts ^. msgQs . at pid
- where
-  toPS Empty     = ProcessIdle
-  toPS (_ :<| _) = ProcessBusy -- TODO get more detailed state
+getProcessStateFromScheduler :: ProcessId -> STS r m -> Maybe (ProcessTitle, ProcessDetails, ProcessState)
+getProcessStateFromScheduler pid sts = toPS <$> sts ^. msgQs . at pid
+  where
+    toPS p =
+      ( p ^. processInfoTitle
+      , p ^. processInfoDetails
+      , case (p ^. processInfoMessageQ) -- TODO get more detailed state
+              of
+          _ :<| _ -> ProcessBusy
+          _ -> ProcessIdle)
 
 incRef :: STS r m -> (Int, STS r m)
 incRef sts = (sts ^. nextRef, sts & nextRef %~ (+ 1))
 
 enqueueMsg :: ProcessId -> StrictDynamic -> STS r m -> STS r m
-enqueueMsg toPid msg = msgQs . ix toPid %~ (:|> msg)
+enqueueMsg toPid msg = msgQs . ix toPid . processInfoMessageQ %~ (:|> msg)
 
-newProcessQ :: Maybe ProcessId -> STS r m -> (ProcessId, STS r m)
-newProcessQ parentLink sts =
+newProcessQ :: Maybe ProcessId -> ProcessTitle -> STS r m -> (ProcessId, STS r m)
+newProcessQ parentLink title sts =
   ( sts ^. nextPid
-  , let stsQ =
-          sts & nextPid %~ (+ 1) & msgQs . at (sts ^. nextPid) ?~ Seq.empty
-    in  case parentLink of
+  , let stsQ = sts & nextPid %~ (+ 1) & msgQs . at (sts ^. nextPid) ?~ newProcessInfo title
+     in case parentLink of
           Nothing -> stsQ
           Just pid ->
-            let (Nothing, stsQL) = addLink pid (sts ^. nextPid) stsQ in stsQL
-  )
+            let (Nothing, stsQL) = addLink pid (sts ^. nextPid) stsQ
+             in stsQL)
 
 flushMsgs :: ProcessId -> STS m r -> ([StrictDynamic], STS m r)
 flushMsgs pid = State.runState $ do
-  msgs <- msgQs . ix pid <<.= Empty
+  msgs <- msgQs . ix pid . processInfoMessageQ <<.= Empty
   return (toList msgs)
 
 receiveMsg
   :: ProcessId -> MessageSelector a -> STS m r -> Maybe (Maybe (a, STS m r))
 receiveMsg pid messageSelector sts =
-  case sts ^. msgQs . at pid of
+  case sts ^? msgQs . at pid . _Just . processInfoMessageQ of
     Nothing -> Nothing
     Just msgQ ->
       Just $
       case partitionMessages msgQ Empty of
         Nothing -> Nothing
-        Just (result, otherMessages) -> Just (result, sts & msgQs . ix pid .~ otherMessages)
+        Just (result, otherMessages) -> Just (result, sts & msgQs . ix pid . processInfoMessageQ .~ otherMessages)
   where
     partitionMessages Empty _acc = Nothing
     partitionMessages (m :<| msgRest) acc =
@@ -265,6 +289,7 @@ data OnYield r a where
   OnSelf :: (ResumeProcess ProcessId -> Eff r (OnYield r a))
          -> OnYield r a
   OnSpawn :: Bool
+          -> ProcessTitle
           -> Eff (Process r ': r) ()
           -> (ResumeProcess ProcessId -> Eff r (OnYield r a))
           -> OnYield r a
@@ -280,12 +305,16 @@ data OnYield r a where
          -> OnYield r a
   OnGetProcessState
          :: ProcessId
-         -> (ResumeProcess (Maybe ProcessState) -> Eff r (OnYield r a))
+         -> (ResumeProcess (Maybe (ProcessTitle, ProcessDetails, ProcessState)) -> Eff r (OnYield r a))
+         -> OnYield r a
+  OnUpdateProcessDetails
+         :: ProcessDetails
+         -> (ResumeProcess () -> Eff r (OnYield r a))
          -> OnYield r a
   OnSendShutdown :: !ProcessId -> Interrupt 'NoRecovery
-                    -> (ResumeProcess () -> Eff r (OnYield r a)) -> OnYield r a
+                 -> (ResumeProcess () -> Eff r (OnYield r a)) -> OnYield r a
   OnSendInterrupt :: !ProcessId -> Interrupt 'Recoverable
-                    -> (ResumeProcess () -> Eff r (OnYield r a)) -> OnYield r a
+                  -> (ResumeProcess () -> Eff r (OnYield r a)) -> OnYield r a
   OnMakeReference :: (ResumeProcess Int -> Eff r (OnYield r a)) -> OnYield r a
   OnMonitor
     :: ProcessId
@@ -306,24 +335,25 @@ data OnYield r a where
 
 instance Show (OnYield r a) where
   show = \case
-    OnFlushMessages _     -> "OnFlushMessages"
-    OnYield         _     -> "OnYield"
-    OnSelf          _     -> "OnSelf"
-    OnSpawn False _ _     -> "OnSpawn"
-    OnSpawn True  _ _     -> "OnSpawn (link)"
-    OnDone     _          -> "OnDone"
-    OnShutdown e          -> "OnShutdown " ++ show e
-    OnInterrupt e _       -> "OnInterrupt " ++ show e
-    OnSend toP _ _        -> "OnSend " ++ show toP
-    OnRecv            _ _ -> "OnRecv"
-    OnGetProcessState p _ -> "OnGetProcessState " ++ show p
-    OnSendShutdown  p e _ -> "OnSendShutdow " ++ show p ++ " " ++ show e
-    OnSendInterrupt p e _ -> "OnSendInterrupt " ++ show p ++ " " ++ show e
-    OnMakeReference _     -> "OnMakeReference"
-    OnMonitor   p _       -> "OnMonitor " ++ show p
-    OnDemonitor p _       -> "OnDemonitor " ++ show p
-    OnLink      p _       -> "OnLink " ++ show p
-    OnUnlink    p _       -> "OnUnlink " ++ show p
+    OnFlushMessages _          -> "OnFlushMessages"
+    OnYield         _          -> "OnYield"
+    OnSelf          _          -> "OnSelf"
+    OnSpawn False t _ _        -> "OnSpawn" ++ show t
+    OnSpawn True  t _ _        -> "OnSpawn (link)" ++ show t
+    OnDone     _               -> "OnDone"
+    OnShutdown e               -> "OnShutdown " ++ show e
+    OnInterrupt e _            -> "OnInterrupt " ++ show e
+    OnSend toP _ _             -> "OnSend " ++ show toP
+    OnRecv            _ _      -> "OnRecv"
+    OnGetProcessState p _      -> "OnGetProcessState " ++ show p
+    OnUpdateProcessDetails p _ -> "OnUpdateProcessDetails " ++ show p
+    OnSendShutdown  p e _      -> "OnSendShutdow " ++ show p ++ " " ++ show e
+    OnSendInterrupt p e _      -> "OnSendInterrupt " ++ show p ++ " " ++ show e
+    OnMakeReference _          -> "OnMakeReference"
+    OnMonitor   p _            -> "OnMonitor " ++ show p
+    OnDemonitor p _            -> "OnDemonitor " ++ show p
+    OnLink      p _            -> "OnLink " ++ show p
+    OnUnlink    p _            -> "OnUnlink " ++ show p
 
 runAsCoroutinePure
   :: forall v r m
@@ -340,12 +370,13 @@ runAsCoroutinePure r = r . fix (handle_relay' cont (return . OnDone))
   cont k q FlushMessages                = return (OnFlushMessages (k . qApp q))
   cont k q YieldProcess                 = return (OnYield (k . qApp q))
   cont k q SelfPid                      = return (OnSelf (k . qApp q))
-  cont k q (Spawn     e               ) = return (OnSpawn False e (k . qApp q))
-  cont k q (SpawnLink e               ) = return (OnSpawn True e (k . qApp q))
+  cont k q (Spawn     t e             ) = return (OnSpawn False t e (k . qApp q))
+  cont k q (SpawnLink t e             ) = return (OnSpawn True t e (k . qApp q))
   cont _ _ (Shutdown  !sr             ) = return (OnShutdown sr)
   cont k q (SendMessage !tp !msg      ) = return (OnSend tp msg (k . qApp q))
   cont k q (ReceiveSelectedMessage f  ) = return (OnRecv f (k . qApp q))
   cont k q (GetProcessState        !tp) = return (OnGetProcessState tp (k . qApp q))
+  cont k q (UpdateProcessDetails   !td) = return (OnUpdateProcessDetails td (k . qApp q))
   cont k q (SendInterrupt !tp  !er    ) = return (OnSendInterrupt tp er (k . qApp q))
   cont k q (SendShutdown  !pid !sr    ) = return (OnSendShutdown pid sr (k . qApp q))
   cont k q MakeReference                = return (OnMakeReference (k . qApp q))
@@ -412,9 +443,10 @@ handleProcess sts allProcs@((!processState, !pid) :<| rest) =
                         OnSelf _tk -> return (OnShutdown sr)
                         OnSend _ _ _tk -> return (OnShutdown sr)
                         OnRecv _ _tk -> return (OnShutdown sr)
-                        OnSpawn _ _ _tk -> return (OnShutdown sr)
+                        OnSpawn _ _ _ _tk -> return (OnShutdown sr)
                         OnDone x -> return (OnDone x)
                         OnGetProcessState _ _tk -> return (OnShutdown sr)
+                        OnUpdateProcessDetails _ _tk -> return (OnShutdown sr)
                         OnShutdown sr' -> return (OnShutdown sr')
                         OnInterrupt _er _tk -> return (OnShutdown sr)
                         OnMakeReference _tk -> return (OnShutdown sr)
@@ -441,14 +473,19 @@ handleProcess sts allProcs@((!processState, !pid) :<| rest) =
           nextK <- kontinue sts k ()
           handleProcess (enqueueMsg toPid msg sts) (rest :|> (nextK, pid))
         OnGetProcessState toPid k -> do
-          nextK <- kontinue sts k (getProcessState toPid sts)
+          nextK <- kontinue sts k (getProcessStateFromScheduler toPid sts)
           handleProcess sts (rest :|> (nextK, pid))
-        OnSpawn link f k -> do
+        OnUpdateProcessDetails pd k -> do
+          let newSts = sts & msgQs . ix pid . processInfoDetails .~ pd
+          nextK <- kontinue newSts k ()
+          handleProcess newSts (rest :|> (nextK, pid))
+        OnSpawn link title f k -> do
           let (newPid, newSts) =
                 newProcessQ
                   (if link
                      then Just pid
                      else Nothing)
+                  title
                   sts
           fk <- runAsCoroutinePure (newSts ^. runEff) (f >> exitNormally)
           nextK <- kontinue newSts k newPid
@@ -514,9 +551,10 @@ handleProcess sts allProcs@((!processState, !pid) :<| rest) =
                 OnSelf tk -> tk (Interrupted sr)
                 OnSend _ _ tk -> tk (Interrupted sr)
                 OnRecv _ tk -> tk (Interrupted sr)
-                OnSpawn _ _ tk -> tk (Interrupted sr)
+                OnSpawn _ _ _ tk -> tk (Interrupted sr)
                 OnDone x -> return (OnDone x)
                 OnGetProcessState _ tk -> tk (Interrupted sr)
+                OnUpdateProcessDetails _ tk -> tk (Interrupted sr)
                 OnShutdown sr' -> return (OnShutdown sr')
                 OnInterrupt er tk -> tk (Interrupted er)
                 OnMakeReference tk -> tk (Interrupted sr)

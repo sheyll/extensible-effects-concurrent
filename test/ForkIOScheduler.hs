@@ -30,15 +30,15 @@ test_IOExceptionsIsolated = setTravisTestOptions $ testGroup
           aVar <- newEmptyTMVarIO
           (Scheduler.defaultMain
               (do
-                p1 <- spawn $ foreverCheap busyEffect
+                p1 <- spawn "test" $ foreverCheap busyEffect
                 lift (threadDelay 1000)
-                void $ spawn $ do
+                void $ spawn "test" $ do
                   lift (threadDelay 1000)
                   doExit
                 lift (threadDelay 100000)
 
                 me <- self
-                spawn_ (lift (threadDelay 10000) >> sendMessage me ())
+                spawn_  "test" (lift (threadDelay 10000) >> sendMessage me ())
                 resultOrError <- receiveWithMonitor p1 (selectMessage @())
                 case resultOrError of
                   Left  _down -> lift (atomically (putTMVar aVar False))
@@ -65,7 +65,7 @@ test_IOExceptionsIsolated = setTravisTestOptions $ testGroup
     , ( "spawn-ing"
       , void
         (send
-          (Spawn @SchedulerIO
+          (Spawn @SchedulerIO  "test"
             (void
               (send (ReceiveSelectedMessage @SchedulerIO selectAnyMessage))
             )
@@ -87,7 +87,7 @@ test_mainProcessSpawnsAChildAndReturns = setTravisTestOptions
   (testCase
     "spawn a child and return"
       (Scheduler.defaultMain
-        (void (spawn (void receiveAnyMessage)))
+        (void (spawn "test" (void receiveAnyMessage)))
       )
   )
 
@@ -97,7 +97,7 @@ test_mainProcessSpawnsAChildAndExitsNormally = setTravisTestOptions
     "spawn a child and exit normally"
       (Scheduler.defaultMain
         (do
-          void (spawn (void receiveAnyMessage))
+          void (spawn "test" (void receiveAnyMessage))
           void exitNormally
           fail "This should not happen!!"
         )
@@ -112,7 +112,7 @@ test_mainProcessSpawnsAChildInABusySendLoopAndExitsNormally =
       "spawn a child with a busy send loop and exit normally"
         (Scheduler.defaultMain
           (do
-            void (spawn (foreverCheap (void (sendMessage 1000 ("test" :: String)))))
+            void (spawn "test" (foreverCheap (void (sendMessage 1000 ("test" :: String)))))
             void exitNormally
             fail "This should not happen!!"
           )
@@ -126,7 +126,7 @@ test_mainProcessSpawnsAChildBothReturn = setTravisTestOptions
     "spawn a child and let it return and return"
     (Scheduler.defaultMain
         (do
-          child <- spawn (void (receiveMessage @String))
+          child <- spawn "test" (void (receiveMessage @String))
           sendMessage child ("test" :: String)
           return ()
         )
@@ -138,7 +138,7 @@ test_mainProcessSpawnsAChildBothExitNormally = setTravisTestOptions
     "spawn a child and let it exit and exit"
       (Scheduler.defaultMain
            (do
-              child <- spawn $ void $ provideInterrupts $ exitOnInterrupt
+              child <- spawn "test" $ void $ provideInterrupts $ exitOnInterrupt
                 (do
                   void (receiveMessage @String)
                   void exitNormally
@@ -166,7 +166,7 @@ test_timer =
                 Left  _to -> return ()
                 Right _   -> flushMessagesLoop
         me <- self
-        spawn_
+        spawn_  "test-worker"
           (do
             replicateM_ n $ sendMessage me ("bad message" :: String)
             replicateM_ n $ sendMessage me (3123 :: Integer)
