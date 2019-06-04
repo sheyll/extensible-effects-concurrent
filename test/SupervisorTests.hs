@@ -37,7 +37,7 @@ test_Supervisor =
                  () <- receiveMessage
                  Sup.stopSupervisor sup
              unlinkProcess testWorker
-             sup <- receiveMessage :: Eff InterruptableProcEff  (Endpoint (Sup.Sup TestProtocol))
+             sup <- receiveMessage :: Eff Effects  (Endpoint (Sup.Sup TestProtocol))
              supAliveAfter1 <- isSupervisorAlive sup
              logInfo ("still alive 1: " <> pack (show supAliveAfter1))
              lift (supAliveAfter1 @=? True)
@@ -264,7 +264,7 @@ data TestProtocolServerMode
   | ExitWhenRequested
   deriving Eq
 
-instance Server TestProtocol SchedulerIO where
+instance Server TestProtocol BaseEffects where
   update (TestServerArgs testMode tId) evt =
     case evt of
       OnCast (TestInterruptWith i) -> do
@@ -283,6 +283,6 @@ instance Server TestProtocol SchedulerIO where
             exitBecause (interruptToExit x)
       _ ->
         logDebug (pack (show tId) <> ": got some info: " <> pack (show evt))
-  data instance StartArgument TestProtocol SchedulerIO = TestServerArgs TestProtocolServerMode Int
+  data instance StartArgument TestProtocol BaseEffects = TestServerArgs TestProtocolServerMode Int
 
 type instance ChildId TestProtocol = Int

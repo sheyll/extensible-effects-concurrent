@@ -34,7 +34,7 @@ instance NFData (Pdu Counter x) where
 
 counterExample
   :: (Typeable q, LogsTo IO q, Lifted IO q)
-  => Eff (InterruptableProcess q) ()
+  => Eff (Processes q) ()
 counterExample = do
   c <- spawnCounter
   let cp = _fromEndpoint c
@@ -124,7 +124,7 @@ instance (LogIo q) => Server SupiCounter q where
 
     other -> logWarning (T.pack (show other))
 
-spawnCounter :: (LogsTo IO q, Lifted IO q) => Eff (InterruptableProcess q) ( Endpoint SupiCounter )
+spawnCounter :: (LogsTo IO q, Lifted IO q) => Eff (Processes q) ( Endpoint SupiCounter )
 spawnCounter = start MkEmptySupiCounter
 
 
@@ -132,7 +132,7 @@ deriving instance Show (Pdu Counter x)
 
 logCounterObservations
   :: (LogsTo IO q, Lifted IO q, Typeable q)
-  => Eff (InterruptableProcess q) (Observer CounterChanged)
+  => Eff (Processes q) (Observer CounterChanged)
 logCounterObservations = do
   svr <- start OCCStart
   pure (toObserver svr)

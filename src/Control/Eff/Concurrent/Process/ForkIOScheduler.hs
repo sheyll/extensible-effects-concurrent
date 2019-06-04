@@ -14,10 +14,10 @@ module Control.Eff.Concurrent.Process.ForkIOScheduler
   ( schedule
   , defaultMain
   , defaultMainWithLogWriter
-  , ProcEff
-  , InterruptableProcEff
-  , SchedulerIO
-  , HasSchedulerIO
+  , SafeEffects
+  , Effects
+  , BaseEffects
+  , HasBaseEffects
   )
 where
 
@@ -192,7 +192,7 @@ newSchedulerState =
 -- | Create a new 'SchedulerState' run an IO action, catching all exceptions,
 -- and when the actions returns, clean up and kill all processes.
 withNewSchedulerState
-  :: (HasCallStack) => Eff SchedulerIO () -> Eff LoggingAndIo ()
+  :: (HasCallStack) => Eff BaseEffects () -> Eff LoggingAndIo ()
 withNewSchedulerState mainProcessAction = Safe.bracketWithError
   (lift (atomically newSchedulerState))
   (\exceptions schedulerState -> do
@@ -213,7 +213,7 @@ withNewSchedulerState mainProcessAction = Safe.bracketWithError
     return x
   )
  where
-  tearDownScheduler :: Eff SchedulerIO ()
+  tearDownScheduler :: Eff BaseEffects ()
   tearDownScheduler = do
     schedulerState <- getSchedulerState
     let cancelTableVar = schedulerState ^. processCancellationTable
@@ -243,28 +243,36 @@ withNewSchedulerState mainProcessAction = Safe.bracketWithError
       )
 
 -- | The concrete list of 'Eff'ects of processes compatible with this scheduler.
--- This builds upon 'SchedulerIO'.
-type ProcEff = ConsProcess SchedulerIO
+-- This builds upon 'BaseEffects'.
+--
+-- @since 0.25.0
+type SafeEffects = SafeProcesses BaseEffects
 
--- | The concrete list of the effects, that the 'Process' uses
-type InterruptableProcEff = InterruptableProcess SchedulerIO
+-- | The 'Eff'ects for interruptable, concurrent processes, scheduled via 'forkIO'.
+--
+-- @since 0.25.0
+type Effects = Processes BaseEffects
 
 -- | Type class constraint to indicate that an effect union contains the
 -- effects required by every process and the scheduler implementation itself.
-type HasSchedulerIO r = (HasCallStack, Lifted IO r, SchedulerIO <:: r)
+--
+-- @since 0.25.0
+type HasBaseEffects r = (HasCallStack, Lifted IO r, BaseEffects <:: r)
 
 -- | The concrete list of 'Eff'ects for this scheduler implementation.
-type SchedulerIO = (Reader SchedulerState : LoggingAndIo)
+--
+-- @since 0.25.0
+type BaseEffects = Reader SchedulerState : LoggingAndIo
 
 -- | Start the message passing concurrency system then execute a 'Process' on
--- top of 'SchedulerIO' effect. All logging is sent to standard output.
-defaultMain :: HasCallStack => Eff InterruptableProcEff () -> IO ()
+-- top of 'BaseEffects' effect. All logging is sent to standard output.
+defaultMain :: HasCallStack => Eff Effects () -> IO ()
 defaultMain = defaultMainWithLogWriter consoleLogWriter
 
 -- | Start the message passing concurrency system then execute a 'Process' on
--- top of 'SchedulerIO' effect. All logging is sent to standard output.
+-- top of 'BaseEffects' effect. All logging is sent to standard output.
 defaultMainWithLogWriter
-  :: HasCallStack => LogWriter IO -> Eff InterruptableProcEff () -> IO ()
+  :: HasCallStack => LogWriter IO -> Eff Effects () -> IO ()
 defaultMainWithLogWriter lw =
   runLift . withLogging lw . withAsyncLogWriter (1024 :: Int) . schedule
 
@@ -273,18 +281,18 @@ defaultMainWithLogWriter lw =
 handleProcess
   :: (HasCallStack)
   => ProcessInfo
-  -> Eff ProcEff (Interrupt 'NoRecovery)
-  -> Eff SchedulerIO (Interrupt 'NoRecovery)
+  -> Eff SafeEffects (Interrupt 'NoRecovery)
+  -> Eff BaseEffects (Interrupt 'NoRecovery)
 handleProcess myProcessInfo actionToRun = fix
   (handle_relay' singleStep (\er _nextRef -> return er))
   actionToRun
   0
  where
   singleStep
-    :: (Eff ProcEff xx -> (Int -> Eff SchedulerIO (Interrupt 'NoRecovery)))
-    -> Arrs ProcEff x xx
-    -> Process SchedulerIO x
-    -> (Int -> Eff SchedulerIO (Interrupt 'NoRecovery))
+    :: (Eff SafeEffects xx -> (Int -> Eff BaseEffects (Interrupt 'NoRecovery)))
+    -> Arrs SafeEffects x xx
+    -> Process BaseEffects x
+    -> (Int -> Eff BaseEffects (Interrupt 'NoRecovery))
   singleStep k q p !nextRef = stepProcessInterpreter
     nextRef
     p
@@ -303,8 +311,8 @@ handleProcess myProcessInfo actionToRun = fix
   kontinueWith
     :: forall s v a
      . HasCallStack
-    => (s -> Arr SchedulerIO v a)
-    -> (s -> Arr SchedulerIO v a)
+    => (s -> Arr BaseEffects v a)
+    -> (s -> Arr BaseEffects v a)
   kontinueWith kontinue !nextRef !result = do
     setMyProcessState ProcessIdle
     lift yield
@@ -312,8 +320,8 @@ handleProcess myProcessInfo actionToRun = fix
   diskontinueWith
     :: forall a
      . HasCallStack
-    => Arr SchedulerIO (Interrupt 'NoRecovery) a
-    -> Arr SchedulerIO (Interrupt 'NoRecovery) a
+    => Arr BaseEffects (Interrupt 'NoRecovery) a
+    -> Arr BaseEffects (Interrupt 'NoRecovery) a
   diskontinueWith diskontinue !reason = do
     setMyProcessState ProcessShuttingDown
     diskontinue reason
@@ -321,10 +329,10 @@ handleProcess myProcessInfo actionToRun = fix
     :: forall v a
      . HasCallStack
     => Int
-    -> Process SchedulerIO v
-    -> (Int -> Arr SchedulerIO v a)
-    -> Arr SchedulerIO (Interrupt 'NoRecovery) a
-    -> Eff SchedulerIO a
+    -> Process BaseEffects v
+    -> (Int -> Arr BaseEffects v a)
+    -> Arr BaseEffects (Interrupt 'NoRecovery) a
+    -> Eff BaseEffects a
   stepProcessInterpreter !nextRef !request kontinue diskontinue =
     tryTakeNextShutdownRequest >>= maybe
       noShutdownRequested
@@ -361,10 +369,10 @@ handleProcess myProcessInfo actionToRun = fix
   interpretRequestAfterShutdownRequest
     :: forall v a
      . HasCallStack
-    => Arr SchedulerIO (Interrupt 'NoRecovery) a
+    => Arr BaseEffects (Interrupt 'NoRecovery) a
     -> Interrupt 'NoRecovery
-    -> Process SchedulerIO v
-    -> Eff SchedulerIO a
+    -> Process BaseEffects v
+    -> Eff BaseEffects a
   interpretRequestAfterShutdownRequest diskontinue shutdownRequest = \case
     SendMessage   _ _ -> diskontinue shutdownRequest
     SendInterrupt _ _ -> diskontinue shutdownRequest
@@ -387,11 +395,11 @@ handleProcess myProcessInfo actionToRun = fix
   interpretRequestAfterInterruptRequest
     :: forall v a
      . HasCallStack
-    => Arr SchedulerIO v a
-    -> Arr SchedulerIO (Interrupt 'NoRecovery) a
+    => Arr BaseEffects v a
+    -> Arr BaseEffects (Interrupt 'NoRecovery) a
     -> Interrupt 'Recoverable
-    -> Process SchedulerIO v
-    -> Eff SchedulerIO a
+    -> Process BaseEffects v
+    -> Eff BaseEffects a
   interpretRequestAfterInterruptRequest kontinue diskontinue interruptRequest =
     \case
       SendMessage   _     _ -> kontinue (Interrupted interruptRequest)
@@ -416,11 +424,11 @@ handleProcess myProcessInfo actionToRun = fix
   interpretRequest
     :: forall v a
      . HasCallStack
-    => (Int -> Arr SchedulerIO v a)
-    -> Arr SchedulerIO (Interrupt 'NoRecovery) a
+    => (Int -> Arr BaseEffects v a)
+    -> Arr BaseEffects (Interrupt 'NoRecovery) a
     -> Int
-    -> Process SchedulerIO v
-    -> Eff SchedulerIO a
+    -> Process BaseEffects v
+    -> Eff BaseEffects a
   interpretRequest kontinue diskontinue nextRef = \case
     SendMessage toPid msg ->
       interpretSend toPid msg >>= kontinue nextRef . ResumeWith
@@ -525,7 +533,7 @@ handleProcess myProcessInfo actionToRun = fix
         >>= lift
         .   atomically
         .   enqueueShutdownRequest toPid msg
-    interpretFlush :: Eff SchedulerIO (ResumeProcess [StrictDynamic])
+    interpretFlush :: Eff BaseEffects (ResumeProcess [StrictDynamic])
     interpretFlush = do
       setMyProcessState ProcessBusyReceiving
       lift $ atomically $ do
@@ -534,7 +542,7 @@ handleProcess myProcessInfo actionToRun = fix
         return (ResumeWith (toList (myMessageQ ^. incomingMessages)))
     interpretReceive
       :: MessageSelector b
-      -> Eff SchedulerIO (Either (Interrupt 'NoRecovery) (ResumeProcess b))
+      -> Eff BaseEffects (Either (Interrupt 'NoRecovery) (ResumeProcess b))
     interpretReceive f = do
       setMyProcessState ProcessBusyReceiving
       lift $ atomically $ do
@@ -561,9 +569,9 @@ handleProcess myProcessInfo actionToRun = fix
         (runMessageSelector f m)
 
 -- | This is the main entry point to running a message passing concurrency
--- application. This function takes a 'Process' on top of the 'SchedulerIO'
+-- application. This function takes a 'Process' on top of the 'BaseEffects'
 -- effect for concurrent logging.
-schedule :: (HasCallStack) => Eff InterruptableProcEff () -> Eff LoggingAndIo ()
+schedule :: (HasCallStack) => Eff Effects () -> Eff LoggingAndIo ()
 schedule procEff =
   liftBaseWith
       (\runS -> Async.withAsync
@@ -585,8 +593,8 @@ spawnNewProcess
   :: (HasCallStack)
   => Maybe ProcessInfo
   -> ProcessTitle
-  -> Eff ProcEff ()
-  -> Eff SchedulerIO (ProcessId, Async (Interrupt 'NoRecovery))
+  -> Eff SafeEffects ()
+  -> Eff BaseEffects (ProcessId, Async (Interrupt 'NoRecovery))
 spawnNewProcess mLinkedParent title mfa = do
   schedulerState <- getSchedulerState
   procInfo       <- allocateProcInfo schedulerState
@@ -619,7 +627,7 @@ spawnNewProcess mLinkedParent title mfa = do
           (maybe (Just (T.pack (printf "% 9s" (show pid)))) Just)
     in  censorLogs @IO addProcessId
   triggerProcessLinksAndMonitors
-    :: ProcessId -> Interrupt e -> TVar (Set ProcessId) -> Eff SchedulerIO ()
+    :: ProcessId -> Interrupt e -> TVar (Set ProcessId) -> Eff BaseEffects ()
   triggerProcessLinksAndMonitors !pid !reason !linkSetVar = do
     schedulerState <- getSchedulerState
     lift $ atomically $ triggerAndRemoveMonitor pid
@@ -670,7 +678,7 @@ spawnNewProcess mLinkedParent title mfa = do
   doForkProc
     :: ProcessInfo
     -> SchedulerState
-    -> Eff SchedulerIO (Async (Interrupt 'NoRecovery))
+    -> Eff BaseEffects (Async (Interrupt 'NoRecovery))
   doForkProc procInfo schedulerState = control
     (\inScheduler -> do
       let cancellationsVar = schedulerState ^. processCancellationTable
@@ -723,7 +731,7 @@ spawnNewProcess mLinkedParent title mfa = do
       return reason
 
 -- * Scheduler Accessor
-getSchedulerState :: HasSchedulerIO r => Eff r SchedulerState
+getSchedulerState :: HasBaseEffects r => Eff r SchedulerState
 getSchedulerState = ask
 
 enqueueMessageOtherProcess

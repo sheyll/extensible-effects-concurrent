@@ -81,19 +81,19 @@ class (Typeable (Protocol a)) => Server (a :: Type) q where
   -- | Return an initial 'Model' and 'Settings'
   setup ::
        StartArgument a q
-    -> Eff (InterruptableProcess q) (Model a, Settings a)
+    -> Eff (Processes q) (Model a, Settings a)
 
   default setup ::
        (Default (Model a), Default (Settings a))
     => StartArgument a q
-    -> Eff (InterruptableProcess q) (Model a, Settings a)
+    -> Eff (Processes q) (Model a, Settings a)
   setup _ = pure (def, def)
 
   -- | Update the 'Model' based on the 'Event'.
   update ::
        StartArgument a q
     -> Effectful.Event (Protocol a)
-    -> Eff (ModelState a ': SettingsReader a ': InterruptableProcess q) ()
+    -> Eff (ModelState a ': SettingsReader a ': Processes q) ()
 
 -- | This type is used to build stateful 'EffectfulServer' instances.
 --
@@ -102,10 +102,10 @@ class (Typeable (Protocol a)) => Server (a :: Type) q where
 -- @since 0.24.0
 data Stateful a deriving Typeable
 
-instance Server a q => Effectful.Server (Stateful a) (InterruptableProcess q) where
-  data Init (Stateful a) (InterruptableProcess q) = Init (StartArgument a q)
+instance Server a q => Effectful.Server (Stateful a) (Processes q) where
+  data Init (Stateful a) (Processes q) = Init (StartArgument a q)
   type ServerPdu (Stateful a) = Protocol a
-  type Effects (Stateful a) (InterruptableProcess q) = ModelState a ': SettingsReader a ': InterruptableProcess q
+  type Effects (Stateful a) (Processes q) = ModelState a ': SettingsReader a ': Processes q
 
   runEffects (Init sa) m = do
     (st, env) <- setup sa
@@ -121,11 +121,11 @@ start
   :: forall a q h
   . ( HasCallStack
     , Typeable a
-    , LogsTo h (InterruptableProcess q)
-    , Effectful.Server (Stateful a) (InterruptableProcess q)
+    , LogsTo h (Processes q)
+    , Effectful.Server (Stateful a) (Processes q)
     , Server a q
     )
-  => StartArgument a q -> Eff (InterruptableProcess q) (Endpoint (Protocol a))
+  => StartArgument a q -> Eff (Processes q) (Endpoint (Protocol a))
 start = Effectful.start . Init
 
 -- | Execute the server loop.
@@ -135,11 +135,11 @@ startLink
   :: forall a q h
   . ( HasCallStack
     , Typeable a
-    , LogsTo h (InterruptableProcess q)
-    , Effectful.Server (Stateful a) (InterruptableProcess q)
+    , LogsTo h (Processes q)
+    , Effectful.Server (Stateful a) (Processes q)
     , Server a q
     )
-  => StartArgument a q -> Eff (InterruptableProcess q) (Endpoint (Protocol a))
+  => StartArgument a q -> Eff (Processes q) (Endpoint (Protocol a))
 startLink = Effectful.startLink . Init
 
 

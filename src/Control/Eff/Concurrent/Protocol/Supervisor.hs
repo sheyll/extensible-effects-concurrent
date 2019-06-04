@@ -252,13 +252,13 @@ instance NFData (ChildId p) => NFData (SpawnErr p)
 startSupervisor
   :: forall p e
   . ( HasCallStack
-    , LogsTo IO (InterruptableProcess e)
+    , LogsTo IO (Processes e)
     , Lifted IO e
     , TangibleSup p
     , Server (Sup p) e
     )
   => StartArgument (Sup p) e
-  -> Eff (InterruptableProcess e) (Endpoint (Sup p))
+  -> Eff (Processes e) (Endpoint (Sup p))
 startSupervisor = Server.start
 
 -- | Stop the supervisor and shutdown all processes.

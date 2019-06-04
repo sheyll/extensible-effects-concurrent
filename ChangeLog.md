@@ -1,5 +1,8 @@
 # Changelog for extensible-effects-concurrent
 
+## 0.25.0 
+- Improve effect type aliases and module structure, [read the details here](./ChangeLog-Details-0.25.0.md).
+        
 ## 0.24.3
 - Add `EmbedProtocol` related function `toEmbeddedOrigin`
     

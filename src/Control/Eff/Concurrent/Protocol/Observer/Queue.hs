@@ -140,10 +140,10 @@ spawnLinkObservationQueueWriter
      , TangiblePdu (Observer o) 'Asynchronous
      , Member Logs q
      , Lifted IO q
-     , LogsTo h (InterruptableProcess q)
+     , LogsTo h (Processes q)
      , HasCallStack)
   => ObservationQueue o
-  -> Eff (InterruptableProcess q) (Observer o)
+  -> Eff (Processes q) (Observer o)
 spawnLinkObservationQueueWriter q = do
   cbo <- startLink (MkObservationQueue q)
   pure (toObserver cbo)

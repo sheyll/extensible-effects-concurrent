@@ -69,7 +69,7 @@ import           Control.Eff.Concurrent.Process ( Process(..)
                                                 , Serializer(..)
                                                 , ProcessId(..)
                                                 , fromProcessId
-                                                , ConsProcess
+                                                , SafeProcesses
                                                 , ResumeProcess(..)
                                                 , ProcessState(..)
                                                 , yieldProcess
@@ -135,7 +135,7 @@ import           Control.Eff.Concurrent.Process ( Process(..)
                                                 , ExitRecovery(..)
                                                 , RecoverableInterrupt
                                                 , Interrupts
-                                                , InterruptableProcess
+                                                , Processes
                                                 , ExitSeverity(..)
                                                 , SomeExitReason(SomeExitReason)
                                                 , toExitRecovery
@@ -216,10 +216,10 @@ import           Control.Eff.Concurrent.Process.ForkIOScheduler
                                                 ( schedule
                                                 , defaultMain
                                                 , defaultMainWithLogWriter
-                                                , ProcEff
-                                                , InterruptableProcEff
-                                                , SchedulerIO
-                                                , HasSchedulerIO
+                                                , SafeEffects
+                                                , Effects
+                                                , BaseEffects
+                                                , HasBaseEffects
                                                 )
 
 import           Control.Eff.Concurrent.Process.SingleThreadedScheduler

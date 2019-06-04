@@ -209,7 +209,7 @@ diskontinue sts k e = (sts ^. runEff) (k (Interrupted e))
 --
 -- @since 0.3.0.2
 schedulePure
-  :: Eff (InterruptableProcess '[Logs, LogWriterReader PureLogWriter]) a
+  :: Eff (Processes '[Logs, LogWriterReader PureLogWriter]) a
   -> Either (Interrupt 'NoRecovery) a
 schedulePure e = run (scheduleM (withSomeLogging @PureLogWriter) (return ()) e)
 
@@ -220,7 +220,7 @@ schedulePure e = run (scheduleM (withSomeLogging @PureLogWriter) (return ()) e)
 scheduleIO
   :: MonadIO m
   => (forall b . Eff r b -> Eff '[Lift m] b)
-  -> Eff (InterruptableProcess r) a
+  -> Eff (Processes r) a
   -> m (Either (Interrupt 'NoRecovery) a)
 scheduleIO r = scheduleM (runLift . r) (liftIO yield)
 
@@ -230,7 +230,7 @@ scheduleIO r = scheduleM (runLift . r) (liftIO yield)
 -- @since 0.3.0.2
 scheduleMonadIOEff
   :: MonadIO (Eff r)
-  => Eff (InterruptableProcess r) a
+  => Eff (Processes r) a
   -> Eff r (Either (Interrupt 'NoRecovery) a)
 scheduleMonadIOEff = -- schedule (lift yield)
   scheduleM id (liftIO yield)
@@ -246,7 +246,7 @@ scheduleMonadIOEff = -- schedule (lift yield)
 scheduleIOWithLogging
   :: HasCallStack
   => LogWriter IO
-  -> Eff (InterruptableProcess LoggingAndIo) a
+  -> Eff (Processes LoggingAndIo) a
   -> IO (Either (Interrupt 'NoRecovery) a)
 scheduleIOWithLogging h = scheduleIO (withLogging h)
 
@@ -273,7 +273,7 @@ scheduleM
   -> m () -- ^ An that performs a __yield__ w.r.t. the underlying effect
   --  @r@. E.g. if @Lift IO@ is present, this might be:
   --  @lift 'Control.Concurrent.yield'.
-  -> Eff (InterruptableProcess r) a
+  -> Eff (Processes r) a
   -> m (Either (Interrupt 'NoRecovery) a)
 scheduleM r y e = do
   c <- runAsCoroutinePure r (provideInterruptsShutdown e)
@@ -359,12 +359,12 @@ runAsCoroutinePure
   :: forall v r m
    . Monad m
   => (forall a . Eff r a -> m a)
-  -> Eff (ConsProcess r) v
+  -> Eff (SafeProcesses r) v
   -> m (OnYield r v)
 runAsCoroutinePure r = r . fix (handle_relay' cont (return . OnDone))
  where
-  cont :: (Eff (ConsProcess r) v -> Eff r (OnYield r v))
-       -> Arrs (ConsProcess r) x v
+  cont :: (Eff (SafeProcesses r) v -> Eff r (OnYield r v))
+       -> Arrs (SafeProcesses r) x v
        -> Process r x
        -> Eff r (OnYield r v)
   cont k q FlushMessages                = return (OnFlushMessages (k . qApp q))
@@ -568,7 +568,7 @@ handleProcess sts allProcs@((!processState, !pid) :<| rest) =
 
 -- | Execute a 'Process' using 'scheduleM' on top of 'Lift' @IO@ and 'withLogging'
 -- @String@ effects.
-defaultMainSingleThreaded :: HasCallStack => Eff (InterruptableProcess LoggingAndIo) () -> IO ()
+defaultMainSingleThreaded :: HasCallStack => Eff (Processes LoggingAndIo) () -> IO ()
 defaultMainSingleThreaded =
   void
     . runLift

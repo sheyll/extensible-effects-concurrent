@@ -21,13 +21,13 @@ test_interactive = setTravisTestOptions $ testGroup
 
 allTests
   :: SetMember Lift (Lift IO) r
-  => (Eff (InterruptableProcess r) () -> IO ())
+  => (Eff (Processes r) () -> IO ())
   -> [TestTree]
 allTests scheduler = [happyCaseTest scheduler]
 
 happyCaseTest
   :: SetMember Lift (Lift IO) r
-  => (Eff (InterruptableProcess r) () -> IO ())
+  => (Eff (Processes r) () -> IO ())
   -> TestTree
 happyCaseTest scheduler =
   testCase "start, wait and stop interactive scheduler" $ do

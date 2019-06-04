@@ -31,7 +31,7 @@ module Control.Eff.Concurrent.Process
     -- ** ProcessId Type
   , ProcessId(..)
   , fromProcessId
-  , ConsProcess
+  , SafeProcesses
   , ResumeProcess(..)
   -- ** Process State
   , ProcessState(..)
@@ -105,7 +105,7 @@ module Control.Eff.Concurrent.Process
   , ExitRecovery(..)
   , RecoverableInterrupt
   , Interrupts
-  , InterruptableProcess
+  , Processes
   , ExitSeverity(..)
   , SomeExitReason(SomeExitReason)
   , toExitRecovery
@@ -644,19 +644,19 @@ isProcessDownInterrupt mOtherProcess = \case
 type RecoverableInterrupt = Interrupt 'Recoverable
 
 -- | /Cons/ 'Process' onto a list of effects.
-type ConsProcess r = Process r ': r
+type SafeProcesses r = Process r ': r
 
 -- | 'Exc'eptions containing 'Interrupt's.
 -- See 'handleInterrupts', 'exitOnInterrupt' or 'provideInterrupts'
 type Interrupts = Exc (Interrupt 'Recoverable)
 
 -- | This adds a layer of the 'Interrupts' effect on top of 'Process'
-type InterruptableProcess e = Interrupts ': Process e ': e
+type Processes e = Interrupts ': Process e ': e
 
--- | Handle all 'Interrupt's of an 'InterruptableProcess' by
+-- | Handle all 'Interrupt's of an 'Processes' by
 -- wrapping them up in 'interruptToExit' and then do a process 'Shutdown'.
 provideInterruptsShutdown
-  :: forall e a . Eff (InterruptableProcess e) a -> Eff (ConsProcess e) a
+  :: forall e a . Eff (Processes e) a -> Eff (SafeProcesses e) a
 provideInterruptsShutdown e = do
   res <- provideInterrupts e
   case res of
@@ -902,7 +902,7 @@ spawn
   :: forall r q
    . (HasCallStack, SetMember Process (Process q) r, Member Interrupts r)
   => ProcessTitle
-  -> Eff (InterruptableProcess q) ()
+  -> Eff (Processes q) ()
   -> Eff r ProcessId
 spawn t child =
   executeAndResumeOrThrow (Spawn @q t (provideInterruptsShutdown child))
@@ -912,7 +912,7 @@ spawn_
   :: forall r q
    . (HasCallStack, SetMember Process (Process q) r, Member Interrupts r)
   => ProcessTitle
-  -> Eff (InterruptableProcess q) ()
+  -> Eff (Processes q) ()
   -> Eff r ()
 spawn_ t child = void (spawn t child)
 
@@ -923,20 +923,20 @@ spawnLink
   :: forall r q
    . (HasCallStack, SetMember Process (Process q) r, Member Interrupts r)
   => ProcessTitle
-  -> Eff (InterruptableProcess q) ()
+  -> Eff (Processes q) ()
   -> Eff r ProcessId
 spawnLink t child =
   executeAndResumeOrThrow (SpawnLink @q t (provideInterruptsShutdown child))
 
 -- | Start a new process, the new process will execute an effect, the function
 -- will return immediately with a 'ProcessId'. The spawned process has only the
--- /raw/ 'ConsProcess' effects. For non-library code 'spawn' might be better
+-- /raw/ 'SafeProcesses' effects. For non-library code 'spawn' might be better
 -- suited.
 spawnRaw
   :: forall r q
    . (HasCallStack, SetMember Process (Process q) r, Member Interrupts r)
   => ProcessTitle
-  -> Eff (ConsProcess q) ()
+  -> Eff (SafeProcesses q) ()
   -> Eff r ProcessId
 spawnRaw t child = executeAndResumeOrThrow (Spawn @q t child)
 
@@ -945,7 +945,7 @@ spawnRaw_
   :: forall r q
    . (HasCallStack, SetMember Process (Process q) r, Member Interrupts r)
   => ProcessTitle
-  -> Eff (ConsProcess q) ()
+  -> Eff (SafeProcesses q) ()
   -> Eff r ()
 spawnRaw_ t = void . spawnRaw t
 

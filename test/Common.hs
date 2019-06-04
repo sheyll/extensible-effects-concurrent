@@ -18,7 +18,7 @@ setTravisTestOptions = localOption (timeoutSeconds 60) . localOption (NumThreads
 timeoutSeconds :: Integer -> Timeout
 timeoutSeconds seconds = Timeout (seconds * 1000000) (show seconds ++ "s")
 
-runTestCase :: TestName -> Eff InterruptableProcEff () -> TestTree
+runTestCase :: TestName -> Eff Effects () -> TestTree
 runTestCase msg =
   testCase msg .
   runLift . withTraceLogging "unit-tests" local0 allLogMessages . Scheduler.schedule . handleInterrupts onInt
@@ -36,9 +36,9 @@ untilInterrupted pa = do
     _ -> untilInterrupted pa
 
 scheduleAndAssert ::
-     forall r. (Lifted IO r, LogsTo IO r)
-  => IO (Eff (InterruptableProcess r) () -> IO ())
-  -> ((String -> Bool -> Eff (InterruptableProcess r) ()) -> Eff (InterruptableProcess r) ())
+     forall r. (LogIo r)
+  => IO (Eff (Processes r) () -> IO ())
+  -> ((String -> Bool -> Eff (Processes r) ()) -> Eff (Processes r) ())
   -> IO ()
 scheduleAndAssert schedulerFactory testCaseAction =
   withFrozenCallStack $ do
@@ -52,8 +52,8 @@ scheduleAndAssert schedulerFactory testCaseAction =
 
 applySchedulerFactory ::
      forall r. (Lifted IO r, LogsTo IO r)
-  => IO (Eff (InterruptableProcess r) () -> IO ())
-  -> Eff (InterruptableProcess r) ()
+  => IO (Eff (Processes r) () -> IO ())
+  -> Eff (Processes r) ()
   -> IO ()
 applySchedulerFactory factory procAction = do
   scheduler <- factory

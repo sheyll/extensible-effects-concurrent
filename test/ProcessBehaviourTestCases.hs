@@ -65,7 +65,7 @@ test_singleThreaded = setTravisTestOptions $ withTestLogC
 allTests
   :: forall r
    . (Lifted IO r, LogsTo IO r, Typeable r)
-  => IO (Eff (InterruptableProcess r) () -> IO ())
+  => IO (Eff (Processes r) () -> IO ())
   -> TestTree
 allTests schedulerFactory = localOption
   (timeoutSeconds 300)
@@ -124,7 +124,7 @@ stopReturnToSender toP = call toP StopReturnToSender
 returnToSenderServer
   :: forall q
    . (HasCallStack, Lifted IO q, LogsTo IO q, Member Logs q, Typeable q)
-  => Eff (InterruptableProcess q) (Endpoint ReturnToSender)
+  => Eff (Processes q) (Endpoint ReturnToSender)
 returnToSenderServer = start
   (genServer @ReturnToSender
     (const id)
@@ -148,7 +148,7 @@ returnToSenderServer = start
 selectiveReceiveTests
   :: forall r
    . (Lifted IO r, LogsTo IO r, Typeable r)
-  => IO (Eff (InterruptableProcess r) () -> IO ())
+  => IO (Eff (Processes r) () -> IO ())
   -> TestTree
 selectiveReceiveTests schedulerFactory = setTravisTestOptions
   (testGroup
@@ -160,7 +160,7 @@ selectiveReceiveTests schedulerFactory = setTravisTestOptions
           nMax = 10
           receiverLoop donePid = go nMax
            where
-            go :: Int -> Eff (InterruptableProcess r) ()
+            go :: Int -> Eff (Processes r) ()
             go 0 = sendMessage donePid True
             go n = do
               void $ receiveSelectedMessage (filterMessage (== n))
@@ -201,7 +201,7 @@ selectiveReceiveTests schedulerFactory = setTravisTestOptions
 yieldLoopTests
   :: forall r
    . (Lifted IO r, LogsTo IO r)
-  => IO (Eff (InterruptableProcess r) () -> IO ())
+  => IO (Eff (Processes r) () -> IO ())
   -> TestTree
 yieldLoopTests schedulerFactory =
   let maxN = 100000
@@ -243,7 +243,7 @@ instance NFData Pong
 pingPongTests
   :: forall r
    . (Lifted IO r, LogsTo IO r)
-  => IO (Eff (InterruptableProcess r) () -> IO ())
+  => IO (Eff (Processes r) () -> IO ())
   -> TestTree
 pingPongTests schedulerFactory = testGroup
   "Yield Tests"
@@ -318,7 +318,7 @@ pingPongTests schedulerFactory = testGroup
 errorTests
   :: forall r
    . (Lifted IO r, LogsTo IO r)
-  => IO (Eff (InterruptableProcess r) () -> IO ())
+  => IO (Eff (Processes r) () -> IO ())
   -> TestTree
 errorTests schedulerFactory = testGroup
   "causing and handling errors"
@@ -363,7 +363,7 @@ errorTests schedulerFactory = testGroup
 concurrencyTests
   :: forall r
    . (Lifted IO r, LogsTo IO r)
-  => IO (Eff (InterruptableProcess r) () -> IO ())
+  => IO (Eff (Processes r) () -> IO ())
   -> TestTree
 concurrencyTests schedulerFactory =
   let n = 100
@@ -474,7 +474,7 @@ concurrencyTests schedulerFactory =
 exitTests
   :: forall r
    . (Lifted IO r, LogsTo IO r)
-  => IO (Eff (InterruptableProcess r) () -> IO ())
+  => IO (Eff (Processes r) () -> IO ())
   -> TestTree
 exitTests schedulerFactory =
   testGroup "process exit tests"
@@ -624,7 +624,7 @@ exitTests schedulerFactory =
 sendShutdownTests
   :: forall r
    . (Lifted IO r, LogsTo IO r)
-  => IO (Eff (InterruptableProcess r) () -> IO ())
+  => IO (Eff (Processes r) () -> IO ())
   -> TestTree
 sendShutdownTests schedulerFactory = testGroup
   "sendShutdown"
@@ -717,7 +717,7 @@ sendShutdownTests schedulerFactory = testGroup
 linkingTests
   :: forall r
    . (Lifted IO r, LogsTo IO r)
-  => IO (Eff (InterruptableProcess r) () -> IO ())
+  => IO (Eff (Processes r) () -> IO ())
   -> TestTree
 linkingTests schedulerFactory = setTravisTestOptions
   (testGroup
@@ -931,7 +931,7 @@ linkingTests schedulerFactory = setTravisTestOptions
 monitoringTests
   :: forall r
    . (Lifted IO r, LogsTo IO r)
-  => IO (Eff (InterruptableProcess r) () -> IO ())
+  => IO (Eff (Processes r) () -> IO ())
   -> TestTree
 monitoringTests schedulerFactory = setTravisTestOptions
   (testGroup
@@ -1001,7 +1001,7 @@ monitoringTests schedulerFactory = setTravisTestOptions
 timerTests
   :: forall r
    . (Lifted IO r, LogsTo IO r)
-  => IO (Eff (InterruptableProcess r) () -> IO ())
+  => IO (Eff (Processes r) () -> IO ())
   -> TestTree
 timerTests schedulerFactory = setTravisTestOptions
   (testGroup
@@ -1057,7 +1057,7 @@ timerTests schedulerFactory = setTravisTestOptions
 
 processDetailsTests ::
      forall r. (Lifted IO r, LogsTo IO r)
-  => IO (Eff (InterruptableProcess r) () -> IO ())
+  => IO (Eff (Processes r) () -> IO ())
   -> TestTree
 processDetailsTests schedulerFactory =
   setTravisTestOptions
