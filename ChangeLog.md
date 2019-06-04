@@ -1,28 +1,11 @@
 # Changelog for extensible-effects-concurrent
 
-## Plan for future Versions
-
-- Put timing into pure processes!
-- Every `Api` type instance now **must** be an `NFData` 
-  and a `ToLogText` instance
-- `call` will always require a `Timeout`
-- `call` now monitors the caller
-- `call` now monitors the called process
-- `call` now returns `Either TimeoutError a`   
-
-- Logging improvements:
-    - Introduce `ToLogText`
-    - Remove `ToLogMessage`
-    - Remove `logXXX'` users have to use `logXXX` and `ToLogText` 
-
 ## 0.24.2
 - Add more `EmbedProtocol` related functions:
-    - `sendEmbeddedReply`
-    - `embedReply`
+    - `embedReplySerializer`
     - `embedRequestOrigin`
 - Improve documentation for `EffectfulServer`     
 - Improve documentation for `StatefulServer`     
-- Improve documentation for `EmbedProtocol`     
 
 ## 0.24.1
 

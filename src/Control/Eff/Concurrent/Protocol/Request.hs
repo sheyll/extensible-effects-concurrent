@@ -5,7 +5,9 @@ module Control.Eff.Concurrent.Protocol.Request
   ( Request(..)
   , sendReply
   , RequestOrigin(..)
+  , embedRequestOrigin
   , Reply(..)
+  , embedReplySerializer
   , makeRequestOrigin
   )
   where
@@ -16,6 +18,7 @@ import Control.Eff.Concurrent.Process
 import Control.Eff.Concurrent.Protocol
 import Data.Kind (Type)
 import Data.Typeable (Typeable)
+import Data.Functor.Contravariant
 import GHC.Generics
 
 -- | A wrapper sum type for calls and casts for the 'Pdu's of a protocol
@@ -89,10 +92,11 @@ makeRequestOrigin = RequestOrigin <$> self <*> makeReference
 
 instance NFData (RequestOrigin p r)
 
-
 -- | Send a 'Reply' to a 'Call'.
 --
 -- The reply will be deeply evaluated to 'rnf'.
+--
+-- To send replies for 'EmbedProtocol' instances use 'embedReplySerializer'.
 --
 -- @since 0.15.0
 sendReply ::
@@ -100,4 +104,37 @@ sendReply ::
   => Serializer (Reply protocol reply) -> RequestOrigin protocol reply -> reply -> Eff eff ()
 sendReply ser o r = sendAnyMessage (_requestOriginPid o) $! runSerializer ser $! Reply o r
 
+-- | Turn an /embedded/ 'RequestOrigin' to a 'RequestOrigin' for the /bigger/ request.
+--
+-- This function is strict in all parameters.
+--
+-- This is useful of a server delegates the @calls@ and @casts@ for an embedded protocol
+-- to functions, that require the 'Serializer' and 'RequestOrigin' in order to call
+-- 'sendReply'.
+--
+-- See also 'embedReplySerializer'.
+--
+-- @since 0.24.2
+embedRequestOrigin :: EmbedProtocol outer inner => RequestOrigin inner reply -> RequestOrigin outer reply
+embedRequestOrigin (RequestOrigin !pid !ref) = RequestOrigin pid ref
 
+-- | Turn a 'Serializer' for a 'Pdu' instance that contains embedded 'Pdu' values
+-- into a 'Reply' 'Serializer' for the embedded 'Pdu'.
+--
+-- This is useful of a server delegates the @calls@ and @casts@ for an embedded protocol
+-- to functions, that require the 'Serializer' and 'RequestOrigin' in order to call
+-- 'sendReply'.
+--
+-- See also 'embedRequestOrigin'.
+--
+-- @since 0.24.2
+embedReplySerializer :: EmbedProtocol outer inner => Serializer (Reply outer reply) -> Serializer (Reply inner reply)
+embedReplySerializer = contramap embedReply
+
+-- | Turn an /embedded/ 'Reply' to a 'Reply' for the /bigger/ request.
+--
+-- This function is strict in all parameters.
+--
+-- @since 0.24.2
+embedReply :: EmbedProtocol outer inner => Reply inner reply -> Reply outer reply
+embedReply (Reply (RequestOrigin !pid !ref) !v) = Reply (RequestOrigin pid ref) v
