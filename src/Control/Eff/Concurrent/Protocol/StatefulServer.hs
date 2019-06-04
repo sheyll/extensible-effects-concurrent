@@ -105,7 +105,7 @@ data Stateful a deriving Typeable
 instance Server a q => Effectful.Server (Stateful a) (Processes q) where
   data Init (Stateful a) (Processes q) = Init (StartArgument a q)
   type ServerPdu (Stateful a) = Protocol a
-  type Effects (Stateful a) (Processes q) = ModelState a ': SettingsReader a ': Processes q
+  type ServerEffects (Stateful a) (Processes q) = ModelState a ': SettingsReader a ': Processes q
 
   runEffects (Init sa) m = do
     (st, env) <- setup sa

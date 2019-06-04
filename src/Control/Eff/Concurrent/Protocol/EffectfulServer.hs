@@ -65,8 +65,8 @@ class Server (a :: Type) (e :: [Type -> Type])
   -- | Effects of the implementation
   --
   -- @since 0.24.1
-  type Effects a e :: [Type -> Type]
-  type Effects a e = e
+  type ServerEffects a e :: [Type -> Type]
+  type ServerEffects a e = e
 
   -- | Return the 'ProcessTitle'.
   --
@@ -77,15 +77,15 @@ class Server (a :: Type) (e :: [Type -> Type])
   serverTitle _ = fromString $ prettyTypeableShows (typeRep (Proxy @(ServerPdu a))) "-server"
 
   -- | Process the effects of the implementation
-  runEffects :: Init a e -> Eff (Effects a e) x -> Eff e x
+  runEffects :: Init a e -> Eff (ServerEffects a e) x -> Eff e x
 
-  default runEffects :: Effects a e ~ e => Init a e -> Eff (Effects a e) x -> Eff e x
+  default runEffects :: ServerEffects a e ~ e => Init a e -> Eff (ServerEffects a e) x -> Eff e x
   runEffects = const id
 
   -- | Update the 'Model' based on the 'Event'.
-  onEvent :: Init a e -> Event (ServerPdu a) -> Eff (Effects a e) ()
+  onEvent :: Init a e -> Event (ServerPdu a) -> Eff (ServerEffects a e) ()
 
-  default onEvent :: (Show (Init a e),  Member Logs (Effects a e)) => Init a e -> Event (ServerPdu a) -> Eff (Effects a e) ()
+  default onEvent :: (Show (Init a e),  Member Logs (ServerEffects a e)) => Init a e -> Event (ServerPdu a) -> Eff (ServerEffects a e) ()
   onEvent i e = logInfo ("unhandled: " <> T.pack (show i) <> " " <> T.pack (show e))
 
 
@@ -98,8 +98,8 @@ start
     , Typeable a
     , Typeable (ServerPdu a)
     , LogsTo h (Processes q)
-    , SetMember Process (Process q) (Effects a (Processes q))
-    , Member Interrupts             (Effects a (Processes q))
+    , SetMember Process (Process q) (ServerEffects a (Processes q))
+    , Member Interrupts             (ServerEffects a (Processes q))
     , HasCallStack)
   => Init a (Processes q)
   -> Eff (Processes q) (Endpoint (ServerPdu a))
@@ -114,8 +114,8 @@ startLink
     , Typeable (ServerPdu a)
     , Server a (Processes q)
     , LogsTo h (Processes q)
-    , SetMember Process (Process q) (Effects a (Processes q))
-    , Member Interrupts (Effects a (Processes q))
+    , SetMember Process (Process q) (ServerEffects a (Processes q))
+    , Member Interrupts (ServerEffects a (Processes q))
     , HasCallStack)
   => Init a (Processes q)
   -> Eff (Processes q) (Endpoint (ServerPdu a))
@@ -128,8 +128,8 @@ protocolServerLoop
      :: forall q h a
      . ( Server a (Processes q)
        , LogsTo h (Processes q)
-       , SetMember Process (Process q) (Effects a (Processes q))
-       , Member Interrupts (Effects a (Processes q))
+       , SetMember Process (Process q) (ServerEffects a (Processes q))
+       , Member Interrupts (ServerEffects a (Processes q))
        , Typeable a
        , Typeable (ServerPdu a)
        )
@@ -154,7 +154,7 @@ protocolServerLoop a = do
     handleInt i = onEvent a (OnInterrupt i) *> pure Nothing
     mainLoop :: (Typeable a)
       => Either (Interrupt 'Recoverable) (Event (ServerPdu a))
-      -> Eff (Effects a (Processes q)) (Maybe ())
+      -> Eff (ServerEffects a (Processes q)) (Maybe ())
     mainLoop (Left i) = handleInt i
     mainLoop (Right i) = onEvent a i *> pure Nothing
 
@@ -256,7 +256,7 @@ instance (Typeable k, Typeable (tag :: k)) => Show (GenServerId tag) where
 
 instance (TangibleGenServer tag eLoop e) => Server (GenServer (tag :: Type) eLoop e) (Processes e) where
   type ServerPdu (GenServer tag eLoop e) = tag
-  type Effects (GenServer tag eLoop e) (Processes e) = eLoop
+  type ServerEffects (GenServer tag eLoop e) (Processes e) = eLoop
   data instance Init (GenServer tag eLoop e) (Processes e) =
         GenServerInit
          { genServerCallbacks :: GenServer tag eLoop e
