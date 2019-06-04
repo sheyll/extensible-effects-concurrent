@@ -1,4 +1,4 @@
--- | A better, more safe implementation of the Erlang/OTP gen_server behaviour.
+-- | Utilities to implement /effectful server-loops/.
 --
 -- @since 0.24.0
 module Control.Eff.Concurrent.Protocol.EffectfulServer
@@ -36,8 +36,16 @@ import Data.Type.Pretty
 import qualified Data.Text as T
 import GHC.Stack (HasCallStack)
 
--- | A type class for building supervised processes, that handle 'Event's
--- with 'Request's for 'Pdu' instance.
+-- | A type class for effectful server loops.
+--
+-- This type class serves as interface for other abstractions, for example /process supervision/
+--
+-- The methods of this class handle 'Event's 'Request's for 'Pdu' instance.
+--
+-- Instances can by /index types/ for 'Pdu' family directly, or indirectly via the 'ServerPdu' type family.
+--
+-- To builder servers serving multiple protocols, use the generic 'Pdu' instances, for which 'EmbedProtocol'
+-- instances exist, like 2-,3-,4-, or 5-tuple.
 --
 -- @since 0.24.1
 class Server (a :: Type) (e :: [Type -> Type])

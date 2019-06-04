@@ -15,6 +15,15 @@
     - Remove `ToLogMessage`
     - Remove `logXXX'` users have to use `logXXX` and `ToLogText` 
 
+## 0.24.2
+- Add more `EmbedProtocol` related functions:
+    - `sendEmbeddedReply`
+    - `embedReply`
+    - `embedRequestOrigin`
+- Improve documentation for `EffectfulServer`     
+- Improve documentation for `StatefulServer`     
+- Improve documentation for `EmbedProtocol`     
+
 ## 0.24.1
 
 - Add more `EmbedProtocol` tuple instances (4-tuple, 5-tuple)

@@ -1,4 +1,4 @@
--- | A better, more safe implementation of the Erlang/OTP gen_server behaviour.
+-- | Utilities to implement /server-loops/ with builtin state and /TEA/-like naming.
 --
 -- @since 0.24.0
 module Control.Eff.Concurrent.Protocol.StatefulServer
@@ -40,11 +40,21 @@ import Data.Kind
 import Data.Typeable
 import GHC.Stack (HasCallStack)
 
--- | A class for 'Stateful' server processes.
+-- | A type class for server loops.
 --
--- This is inspired by The Elm Architecture, without the @view@ callback.
+-- This type class serves as interface for other abstractions, for example /process supervision/
 --
--- This can be used for a variety of typical server loop implementations.
+-- The methods of this class handle 'Event's 'Request's for 'Pdu' instance.
+--
+-- Instances can by /index types/ for 'Pdu' family directly, or indirectly via the 'ServerPdu' type family.
+--
+-- To builder servers serving multiple protocols, use the generic 'Pdu' instances, for which 'EmbedProtocol'
+-- instances exist, like 2-,3-,4-, or 5-tuple.
+--
+-- The naming is inspired by The Elm Architecture, without the @view@ callback.
+--
+-- This class is based on "Control.Eff.Concurrent.Protocol.EffectfulServer" and adds a default
+-- 'State' and 'Reader' effect.
 --
 -- @since 0.24.0
 class (Typeable (Protocol a)) => Server (a :: Type) q where
