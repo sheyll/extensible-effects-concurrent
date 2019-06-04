@@ -22,6 +22,8 @@ module Control.Eff.Concurrent.Protocol.StatefulServer
   , RequestOrigin(..)
   , Reply(..)
   , sendReply
+  , toEmbeddedOrigin
+  , embedReplySerializer
   )
   where
 

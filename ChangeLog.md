@@ -1,5 +1,8 @@
 # Changelog for extensible-effects-concurrent
 
+## 0.24.3
+- Add `EmbedProtocol` related function `toEmbeddedOrigin`
+    
 ## 0.24.2
 - Add more `EmbedProtocol` related functions:
     - `embedReplySerializer`

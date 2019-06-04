@@ -6,6 +6,7 @@ module Control.Eff.Concurrent.Protocol.Request
   , sendReply
   , RequestOrigin(..)
   , embedRequestOrigin
+  , toEmbeddedOrigin
   , Reply(..)
   , embedReplySerializer
   , makeRequestOrigin
@@ -96,7 +97,8 @@ instance NFData (RequestOrigin p r)
 --
 -- The reply will be deeply evaluated to 'rnf'.
 --
--- To send replies for 'EmbedProtocol' instances use 'embedReplySerializer'.
+-- To send replies for 'EmbedProtocol' instances use 'embedReplySerializer'
+-- and 'toEmbeddedOrigin'.
 --
 -- @since 0.15.0
 sendReply ::
@@ -104,15 +106,26 @@ sendReply ::
   => Serializer (Reply protocol reply) -> RequestOrigin protocol reply -> reply -> Eff eff ()
 sendReply ser o r = sendAnyMessage (_requestOriginPid o) $! runSerializer ser $! Reply o r
 
--- | Turn an /embedded/ 'RequestOrigin' to a 'RequestOrigin' for the /bigger/ request.
---
--- This function is strict in all parameters.
+-- | Turn an 'RequestOrigin' to an origin for an embedded request (See 'EmbedProtocol').
 --
 -- This is useful of a server delegates the @calls@ and @casts@ for an embedded protocol
 -- to functions, that require the 'Serializer' and 'RequestOrigin' in order to call
 -- 'sendReply'.
 --
 -- See also 'embedReplySerializer'.
+--
+-- @since 0.24.3
+toEmbeddedOrigin
+  :: EmbedProtocol outer inner
+  => RequestOrigin outer reply
+  -> RequestOrigin inner reply
+toEmbeddedOrigin (RequestOrigin !pid !ref) = RequestOrigin pid ref
+
+-- | Turn an /embedded/ 'RequestOrigin' to a 'RequestOrigin' for the /bigger/ request.
+--
+-- This is the inverse of 'toEmbeddedOrigin'.
+--
+-- This function is strict in all parameters.
 --
 -- @since 0.24.2
 embedRequestOrigin :: EmbedProtocol outer inner => RequestOrigin inner reply -> RequestOrigin outer reply
@@ -125,7 +138,7 @@ embedRequestOrigin (RequestOrigin !pid !ref) = RequestOrigin pid ref
 -- to functions, that require the 'Serializer' and 'RequestOrigin' in order to call
 -- 'sendReply'.
 --
--- See also 'embedRequestOrigin'.
+-- See also 'toEmbeddedOrigin'.
 --
 -- @since 0.24.2
 embedReplySerializer :: EmbedProtocol outer inner => Serializer (Reply outer reply) -> Serializer (Reply inner reply)
