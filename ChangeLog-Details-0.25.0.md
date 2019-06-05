@@ -35,12 +35,14 @@
           ...
           defaultMain :: Eff Effects () -> IO ()
           ...
+          defaultMainWithLogWriter :: LogWriter -> Eff Effects () -> IO ()
+          ...
           
     - Single threaded scheduler with IO with an `Effects` 
       alias and a `schedule` function, and re-exports from 
       `Control.Eff.Concurrent` and `Control.Eff.Log`: 
      
-          module Control.Eff.Concurrent.Single
+          module Control.Eff.Concurrent.SingleThreaded
           ...
     
           type Effects = Processes BaseEffects
@@ -55,12 +57,10 @@
           ...
           defaultMain :: Eff Effects () -> IO ()
           ...
-    
-    - Multi threaded scheduler with an `Effects` alias and a `schedule` function, and re-exports from 
-      `Control.Eff.Concurrent` and `Control.Eff.Log`: 
-     
-          module Control.Eff.Concurrent.Multi
+          defaultMainWithLogWriter :: LogWriter -> Eff Effects () -> IO ()
           ...
+    
+    - Add aliases to `ForkIoScheduler` 
           
           type Effects = Processes BaseEffects
           
@@ -74,3 +74,9 @@
           ...
           defaultMain :: Eff Effects () -> IO ()
           ...
+          defaultMainWithLogWriter :: LogWriter -> Eff Effects () -> IO ()
+          ...
+
+    - Make the `ForkIoScheduler` the default scheduler, when importing
+      `Control.Eff.Concurrent`
+      

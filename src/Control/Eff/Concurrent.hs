@@ -1,5 +1,18 @@
 -- | Erlang style processes with message passing concurrency based on
 -- (more) @extensible-effects@.
+--
+-- This module re-exports most of the library.
+--
+-- There are several /scheduler/ implementations to choose from.
+--
+-- This module re-exports "Control.Eff.Concurrent.Process.ForkIOScheduler".
+--
+-- To use another scheduler implementation, don't import this module, but instead
+-- import one of:
+--
+-- * "Control.Eff.Concurrent.Pure"
+-- * "Control.Eff.Concurrent.SingleThreaded"
+--
 module Control.Eff.Concurrent
   (
     -- * Concurrent Processes with Message Passing Concurrency
@@ -8,9 +21,6 @@ module Control.Eff.Concurrent
     -- * /Scheduler/ Process Effect Handler
     -- ** Concurrent Scheduler
     module Control.Eff.Concurrent.Process.ForkIOScheduler
-  ,
-    -- ** Single Threaded Scheduler
-    module Control.Eff.Concurrent.Process.SingleThreadedScheduler
   ,
     -- * Timers and Timeouts
     module Control.Eff.Concurrent.Process.Timer
@@ -220,11 +230,6 @@ import           Control.Eff.Concurrent.Process.ForkIOScheduler
                                                 , Effects
                                                 , BaseEffects
                                                 , HasBaseEffects
-                                                )
-
-import           Control.Eff.Concurrent.Process.SingleThreadedScheduler
-                                                ( schedulePure
-                                                , defaultMainSingleThreaded
                                                 )
 import           Control.Eff.Log
 import           Control.Eff.LogWriter.Async

@@ -81,6 +81,8 @@ library
                   Control.Eff.LogWriter.UDP,
                   Control.Eff.LogWriter.UnixSocket,
                   Control.Eff.Concurrent,
+                  Control.Eff.Concurrent.Pure,
+
                   Control.Eff.Concurrent.Protocol,
                   Control.Eff.Concurrent.Protocol.Client,
                   Control.Eff.Concurrent.Protocol.EffectfulServer,

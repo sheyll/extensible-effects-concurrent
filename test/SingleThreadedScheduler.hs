@@ -38,7 +38,7 @@ test_mainProcessSpawnsAChildAndExitsNormally :: TestTree
 test_mainProcessSpawnsAChildAndExitsNormally = setTravisTestOptions
     (testCase
         "spawn a child and exit normally"
-        (Scheduler.defaultMainSingleThreaded
+        (Scheduler.defaultMain
             (do
                 void (spawn "test" (void receiveAnyMessage))
                 void exitNormally
@@ -52,7 +52,7 @@ test_mainProcessSpawnsAChildBothExitNormally :: TestTree
 test_mainProcessSpawnsAChildBothExitNormally = setTravisTestOptions
     (testCase
         "spawn a child and let it exit and exit"
-        (Scheduler.defaultMainSingleThreaded
+        (Scheduler.defaultMain
             (do
                 child <- spawn "test"
                     (do

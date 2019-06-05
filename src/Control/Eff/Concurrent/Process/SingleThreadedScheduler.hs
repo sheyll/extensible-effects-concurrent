@@ -1,11 +1,19 @@
 -- | A coroutine based, single threaded scheduler for 'Process'es.
 module Control.Eff.Concurrent.Process.SingleThreadedScheduler
   ( scheduleM
-  , schedulePure
-  , scheduleIO
   , scheduleMonadIOEff
   , scheduleIOWithLogging
-  , defaultMainSingleThreaded
+  , schedulePure
+  , PureEffects
+  , PureSafeEffects
+  , PureBaseEffects
+  , HasPureBaseEffects
+  , defaultMain
+  , scheduleIO
+  , EffectsIo
+  , SafeEffectsIo
+  , BaseEffectsIo
+  , HasBaseEffectsIo
   )
 where
 
@@ -246,7 +254,7 @@ scheduleMonadIOEff = -- schedule (lift yield)
 scheduleIOWithLogging
   :: HasCallStack
   => LogWriter IO
-  -> Eff (Processes LoggingAndIo) a
+  -> Eff EffectsIo a
   -> IO (Either (Interrupt 'NoRecovery) a)
 scheduleIOWithLogging h = scheduleIO (withLogging h)
 
@@ -568,9 +576,19 @@ handleProcess sts allProcs@((!processState, !pid) :<| rest) =
 
 -- | Execute a 'Process' using 'scheduleM' on top of 'Lift' @IO@ and 'withLogging'
 -- @String@ effects.
-defaultMainSingleThreaded :: HasCallStack => Eff (Processes LoggingAndIo) () -> IO ()
-defaultMainSingleThreaded =
+defaultMain :: HasCallStack => Eff EffectsIo () -> IO ()
+defaultMain =
   void
     . runLift
     . withLogging consoleLogWriter
     . scheduleMonadIOEff
+
+type PureEffects = Processes PureBaseEffects
+type PureSafeEffects = SafeProcesses PureBaseEffects
+type PureBaseEffects = '[Logs, LogWriterReader PureLogWriter]
+type HasPureBaseEffects e = (HasCallStack, PureBaseEffects <:: e)
+
+type SafeEffectsIo = SafeProcesses BaseEffectsIo
+type EffectsIo = Processes BaseEffectsIo
+type BaseEffectsIo = LoggingAndIo
+type HasBaseEffectsIo e = (HasCallStack, Lifted IO e, LoggingAndIo <:: e)
