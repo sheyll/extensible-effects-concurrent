@@ -37,6 +37,8 @@ There are two schedulers, that *interpret* the `Process` effect:
 - A *multi-threaded* scheduler, based on the `async`
 - A *pure* single-threaded scheduler, based on coroutines
 
+### Using the library
+
 For convenience, it is enough to import one of three modules:
 
 - `Control.Eff.Concurrent` for a multi threaded scheduler and `LoggingAndIo`
@@ -88,33 +90,28 @@ module Main where
 
 import           Control.Eff
 import           Control.Eff.Concurrent
-import           Data.Dynamic
-import           Control.DeepSeq
-import           GHC.Stack (HasCallStack)
 
 main :: IO ()
-main = defaultMain firstExample
+main = defaultMain example
 
-newtype WhoAreYou = WhoAreYou ProcessId 
-  deriving (Typeable, NFData, Show)
-
-firstExample 
-  :: (HasCallStack, Member Logs q) 
-  => Eff (InterruptableProcess q) ()
-firstExample = do
-  person <- spawn
-    (do
-      logInfo "I am waiting for someone to ask me..."
-      WhoAreYou replyPid <- receiveMessage
-      sendMessage replyPid "Alice"
-      logInfo (show replyPid ++ " just needed to know it.")
-    )
-  me <- self
-  sendMessage person (WhoAreYou me)
+example :: Eff Effects ()
+example = do
+  person <- spawn "alice" alice
+  replyToMe <- self
+  sendMessage person replyToMe
   personName <- receiveMessage
-  logInfo ("I just met " ++ personName)
+  logInfo' ("I just met " ++ personName)
+
+alice :: Eff Effects ()
+alice = do
+  logInfo "I am waiting for someone to ask me..."
+  sender <- receiveMessage
+  sendMessage sender ("Alice" :: String)
+  logInfo' (show sender ++ " message received.")
 
 ```
+This is taken from [example-4](./examples/example-4/Main.hs).
+
 
 **Running** this example causes this output:
 
