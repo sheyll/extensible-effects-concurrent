@@ -7,7 +7,7 @@
 ## From Erlang to Haskell
 
 This project is an attempt to implement core ideas learned from the **Erlang/OTP**  
-framework in Haskell using **`extensible-effects`**.
+framework in Haskell using **[extensible-effects](http://hackage.haskell.org/package/extensible-effects)**.
 
 This library sketches my personal history of working on a large, real world Erlang
 application, trying to bring some of the ideas over to Haskell.
@@ -23,7 +23,7 @@ based on the concept of concurrent, communicating processes.
 The mental model of the programming framework regards objects as **processes**
 with an isolated internal state. 
 
-**`Processes`** are at the center of that contraption. All *actions*
+**[Processes](http://hackage.haskell.org/package/extensible-effects-concurrent-0.25.0/docs/Control-Eff-Concurrent-Process.html)** are at the center of that contraption. All *actions*
 happen in processes, and all *interactions* happen via messages sent
 between processes. 
 
@@ -41,9 +41,9 @@ There are two schedulers, that *interpret* the `Process` effect:
 
 For convenience, it is enough to import one of three modules:
 
-- `Control.Eff.Concurrent` for a multi threaded scheduler and `LoggingAndIo`
-- `Control.Eff.Concurrent.Pure`, for a single threaded scheduler and pure log capturing and otherwise no IO
-- `Control.Eff.Concurrent.SingleThreaded`, for a single threaded scheduler and totally impure logging via IO
+- [Control.Eff.Concurrent](http://hackage.haskell.org/package/extensible-effects-concurrent/docs/Control-Eff-Concurrent.html) for a multi threaded scheduler and `LoggingAndIo`
+- [Control.Eff.Concurrent.Pure](http://hackage.haskell.org/package/extensible-effects-concurrent/docs/Control-Eff-Concurrent-Pure.html), for a single threaded scheduler and pure log capturing and otherwise no IO
+- [Control.Eff.Concurrent.SingleThreaded](http://hackage.haskell.org/package/extensible-effects-concurrent/docs/Control-Eff-Concurrent-SingleThreaded.html), for a single threaded scheduler and totally impure logging via IO
 
 ### Process Life-Cycles and Interprocess Links
 
