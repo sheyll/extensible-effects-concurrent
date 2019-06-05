@@ -1,23 +1,26 @@
--- | Concurrent, communicating processes, executed using a pure, single-threaded scheduler.
+-- | Concurrent, communicating processes, executed using a single-threaded
+-- scheduler, with support for 'IO' and 'Logs'.
 --
 -- This module re-exports most of the library.
 --
 -- There are several /scheduler/ implementations to choose from.
 --
--- This module re-exports the pure parts of "Control.Eff.Concurrent.Process.SingleThreadedScheduler".
+-- This module re-exports the impure parts of "Control.Eff.Concurrent.Process.SingleThreadedScheduler".
 --
 -- To use another scheduler implementation, don't import this module, but instead
 -- import one of:
 --
 -- * "Control.Eff.Concurrent"
--- * "Control.Eff.Concurrent.SingleThreaded"
+-- * "Control.Eff.Concurrent.Pure"
 --
 -- @since 0.25.0
-module Control.Eff.Concurrent.Pure
+module Control.Eff.Concurrent.SingleThreaded
   ( -- * Generic functions and type for Processes and Messages
     module Control.Eff.Concurrent
     -- * Scheduler
   , schedule
+  , defaultMain
+  , defaultMainWithLogWriter
   , Effects
   , SafeEffects
   , BaseEffects
@@ -37,36 +40,45 @@ import Control.Eff.Concurrent                  hiding
                                                 )
 
 import Control.Eff.Concurrent.Process.SingleThreadedScheduler
+import GHC.Stack (HasCallStack)
 
--- | Run the 'Effects' using a single threaded, coroutine based, pure scheduler
+-- | Run the 'Effects' using a single threaded, coroutine based, scheduler
 -- from "Control.Eff.Concurrent.Process.SingleThreadedScheduler".
 --
 -- @since 0.25.0
-schedule :: Eff Effects a -> Either (Interrupt 'NoRecovery) a
-schedule = schedulePure
+schedule
+  :: HasCallStack
+  => LogWriter IO
+  -> Eff Effects a
+  -> IO (Either (Interrupt 'NoRecovery) a)
+schedule = scheduleIOWithLogging
 
--- | The effect list for 'Process' effects in the single threaded pure scheduler.
+-- | The effect list for 'Process' effects in the single threaded scheduler.
 --
--- See 'PureEffects'
+-- See 'EffectsIo'
 --
 -- @since 0.25.0
-type Effects = PureEffects
+type Effects = EffectsIo
 
--- | The effect list for 'Process' effects in the single threaded pure scheduler.
+-- | The effect list for 'Process' effects in the single threaded scheduler.
 --  This is like 'SafeProcesses', no 'Interrupts' are present.
 --
--- See 'PureSafeEffects'
+-- See 'SafeEffectsIo'
 --
 -- @since 0.25.0
-type SafeEffects = PureSafeEffects
+type SafeEffects = SafeEffectsIo
 
 -- | The effect list for the underlying scheduler.
 --
+-- See 'BaseEffectsIo'
+--
 -- @since 0.25.0
-type BaseEffects = PureBaseEffects
+type BaseEffects = BaseEffectsIo
 
 -- | Constraint for the existence of the underlying scheduler effects.
 --
+-- See 'HasBaseEffectsIo'
+--
 -- @since 0.25.0
-type HasBaseEffects e = HasPureBaseEffects e
+type HasBaseEffects e = HasBaseEffectsIo e
 

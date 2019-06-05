@@ -9,6 +9,7 @@ module Control.Eff.Concurrent.Process.SingleThreadedScheduler
   , PureBaseEffects
   , HasPureBaseEffects
   , defaultMain
+  , defaultMainWithLogWriter
   , scheduleIO
   , EffectsIo
   , SafeEffectsIo
@@ -574,8 +575,10 @@ handleProcess sts allProcs@((!processState, !pid) :<| rest) =
       nextTargets <- _runEff sts $ traverse deliverTheGoodNews targets
       return (nextTargets Seq.>< allButTarget)
 
--- | Execute a 'Process' using 'scheduleM' on top of 'Lift' @IO@ and 'withLogging'
--- @String@ effects.
+-- | Execute a 'Process' using 'scheduleM' on top of 'Lift' @IO@.
+-- All logging is written to the console using 'consoleLogWriter'.
+--
+-- To use another 'LogWriter' use 'defaultMainWithLogWriter' instead.
 defaultMain :: HasCallStack => Eff EffectsIo () -> IO ()
 defaultMain =
   void
@@ -583,12 +586,69 @@ defaultMain =
     . withLogging consoleLogWriter
     . scheduleMonadIOEff
 
+-- | Execute a 'Process' using 'scheduleM' on top of 'Lift' @IO@.
+-- All logging is written using the given 'LogWriter'.
+--
+-- @since 0.25.0
+defaultMainWithLogWriter :: HasCallStack => LogWriter IO -> Eff EffectsIo () -> IO ()
+defaultMainWithLogWriter lw =
+  void
+    . runLift
+    . withLogging lw
+    . scheduleMonadIOEff
+
+
+-- | The effect list for 'Process' effects in the single threaded pure scheduler.
+--
+-- See 'PureBaseEffects' and 'Processes'
+--
+-- @since 0.25.0
 type PureEffects = Processes PureBaseEffects
+
+-- | The effect list for 'Process' effects in the single threaded pure scheduler.
+--  This is like 'SafeProcesses', no 'Interrupts' are present.
+--
+-- See 'PureBaseEffects' and 'SafeProcesses'
+--
+-- @since 0.25.0
 type PureSafeEffects = SafeProcesses PureBaseEffects
+
+-- | The effect list for a pure, single threaded scheduler contains only
+-- 'Logs' and the 'LogWriterReader' for 'PureLogWriter'.
+--
+-- @since 0.25.0
 type PureBaseEffects = '[Logs, LogWriterReader PureLogWriter]
+
+-- | Constraint for the existence of the underlying scheduler effects.
+--
+-- See 'PureBaseEffects'
+--
+-- @since 0.25.0
 type HasPureBaseEffects e = (HasCallStack, PureBaseEffects <:: e)
 
-type SafeEffectsIo = SafeProcesses BaseEffectsIo
+-- | The effect list for 'Process' effects in the single threaded scheduler.
+--
+-- See 'BaseEffectsIo'
+--
+-- @since 0.25.0
 type EffectsIo = Processes BaseEffectsIo
+
+-- | The effect list for 'Process' effects in the single threaded scheduler.
+--  This is like 'SafeProcesses', no 'Interrupts' are present.
+--
+-- See 'BaseEffectsIo'.
+--
+-- @since 0.25.0
+type SafeEffectsIo = SafeProcesses BaseEffectsIo
+
+-- | The effect list for the underlying scheduler.
+--
+-- See 'LoggingAndIo'
+--
+-- @since 0.25.0
 type BaseEffectsIo = LoggingAndIo
+
+-- | Constraint for the existence of the underlying scheduler effects.
+--
+-- @since 0.25.0
 type HasBaseEffectsIo e = (HasCallStack, Lifted IO e, LoggingAndIo <:: e)

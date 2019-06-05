@@ -37,6 +37,12 @@ There are two schedulers, that *interpret* the `Process` effect:
 - A *multi-threaded* scheduler, based on the `async`
 - A *pure* single-threaded scheduler, based on coroutines
 
+For convenience, it is enough to import one of three modules:
+
+- `Control.Eff.Concurrent` for a multi threaded scheduler and `LoggingAndIo`
+- `Control.Eff.Concurrent.Pure`, for a single threaded scheduler and pure log capturing and otherwise no IO
+- `Control.Eff.Concurrent.SingleThreaded`, for a single threaded scheduler and totally impure logging via IO
+
 ### Process Life-Cycles and Interprocess Links
 
 All processes except the first process are **`spawned`** by existing 

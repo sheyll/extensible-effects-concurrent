@@ -5,7 +5,7 @@ import           GHC.Stack
 import           Control.Eff
 import           Control.Monad
 import           Data.Dynamic
-import           Control.Eff.Concurrent as Concurrent
+import           Control.Eff.Concurrent
 import           Control.Eff.Concurrent.Protocol.EffectfulServer as Server
 import qualified Control.Exception             as Exc
 import qualified Data.Text as T
@@ -41,10 +41,10 @@ deriving instance Show (Pdu TestProtocol x)
 main :: IO ()
 main = defaultMain example
 
-mainProcessSpawnsAChildAndReturns :: HasCallStack => Eff Concurrent.Effects ()
+mainProcessSpawnsAChildAndReturns :: HasCallStack => Eff Effects ()
 mainProcessSpawnsAChildAndReturns = void (spawn "some child" (void receiveAnyMessage))
 
-example:: HasCallStack => Eff Concurrent.Effects ()
+example:: HasCallStack => Eff Effects ()
 example = do
   me <- self
   logInfo (T.pack ("I am " ++ show me))
@@ -73,10 +73,10 @@ example = do
             go
   go
 
-testServerLoop :: Eff Concurrent.Effects (Endpoint TestProtocol)
+testServerLoop :: Eff Effects (Endpoint TestProtocol)
 testServerLoop = start (genServer (const id) handleReq "test-server-1")
  where
-  handleReq :: GenServerId TestProtocol -> Event TestProtocol -> Eff Concurrent.Effects ()
+  handleReq :: GenServerId TestProtocol -> Event TestProtocol -> Eff Effects ()
   handleReq _myId (OnCall ser orig cm) =
     case cm of
       Terminate -> do

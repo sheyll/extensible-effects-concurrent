@@ -4,7 +4,7 @@ module Main where
 
 import           Data.Dynamic
 import           Control.Eff
-import           Control.Eff.Concurrent
+import           Control.Eff.Concurrent.SingleThreaded
 import           Control.Eff.Concurrent.Protocol.StatefulServer
 import           Control.Monad
 import           Data.Foldable
@@ -33,8 +33,7 @@ instance NFData (Pdu Counter x) where
   rnf Cnt = ()
 
 counterExample
-  :: (Typeable q, LogsTo IO q, Lifted IO q)
-  => Eff (Processes q) ()
+  :: Eff Effects ()
 counterExample = do
   c <- spawnCounter
   let cp = _fromEndpoint c
@@ -124,14 +123,14 @@ instance (LogIo q) => Server SupiCounter q where
 
     other -> logWarning (T.pack (show other))
 
-spawnCounter :: (LogsTo IO q, Lifted IO q) => Eff (Processes q) ( Endpoint SupiCounter )
+spawnCounter :: (LogIo q) => Eff (Processes q) ( Endpoint SupiCounter )
 spawnCounter = start MkEmptySupiCounter
 
 
 deriving instance Show (Pdu Counter x)
 
 logCounterObservations
-  :: (LogsTo IO q, Lifted IO q, Typeable q)
+  :: (LogIo q, Typeable q)
   => Eff (Processes q) (Observer CounterChanged)
 logCounterObservations = do
   svr <- start OCCStart

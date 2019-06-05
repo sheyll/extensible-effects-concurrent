@@ -643,15 +643,16 @@ isProcessDownInterrupt mOtherProcess = \case
 -- | 'Interrupt's which are 'Recoverable'.
 type RecoverableInterrupt = Interrupt 'Recoverable
 
--- | /Cons/ 'Process' onto a list of effects.
+-- | This adds a layer of the 'Interrupts' effect on top of 'Processes'
+type Processes e = Interrupts ': SafeProcesses e
+
+-- | /Cons/ 'Process' onto a list of effects. This is called @SafeProcesses@ because
+-- the the actions cannot be interrupted in.
 type SafeProcesses r = Process r ': r
 
 -- | 'Exc'eptions containing 'Interrupt's.
 -- See 'handleInterrupts', 'exitOnInterrupt' or 'provideInterrupts'
 type Interrupts = Exc (Interrupt 'Recoverable)
-
--- | This adds a layer of the 'Interrupts' effect on top of 'Process'
-type Processes e = Interrupts ': Process e ': e
 
 -- | Handle all 'Interrupt's of an 'Processes' by
 -- wrapping them up in 'interruptToExit' and then do a process 'Shutdown'.
