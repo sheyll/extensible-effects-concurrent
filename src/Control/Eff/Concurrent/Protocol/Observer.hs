@@ -157,8 +157,15 @@ handleObservations k (Observed r) = k r
 -- | Use a 'Endpoint' as an 'Observer' for 'handleObservations'.
 --
 -- @since 0.16.0
-toObserver :: TangibleObserver o => Endpoint (Observer o) -> Observer o
-toObserver = toObserverFor Observed
+toObserver
+  :: forall p o
+  . ( TangiblePdu p 'Asynchronous
+    , EmbedProtocol p (Observer o)
+    , TangibleObserver o
+    )
+  => Endpoint p
+  -> Observer o
+toObserver = toObserverFor (embedPdu @p . Observed)
 
 -- | Create an 'Observer' that conditionally accepts all observations of the
 -- given type and applies the given function to them; the function takes an observation and returns an 'Pdu'
