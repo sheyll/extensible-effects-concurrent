@@ -158,7 +158,7 @@ handleObservations k (Observed r) = k r
 --
 -- @since 0.16.0
 toObserver
-  :: forall p o
+  :: forall o p
   . ( TangiblePdu p 'Asynchronous
     , EmbedProtocol p (Observer o)
     , TangibleObserver o

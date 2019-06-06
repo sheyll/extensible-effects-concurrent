@@ -16,6 +16,7 @@ module Control.Eff.Concurrent.Protocol.EffectfulServer
   , RequestOrigin(..)
   , Reply(..)
   , sendReply
+  , sendEmbeddedReply
   , toEmbeddedOrigin
   , embedReplySerializer
   )

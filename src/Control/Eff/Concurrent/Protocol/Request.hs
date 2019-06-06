@@ -4,6 +4,7 @@
 module Control.Eff.Concurrent.Protocol.Request
   ( Request(..)
   , sendReply
+  , sendEmbeddedReply
   , RequestOrigin(..)
   , embedRequestOrigin
   , toEmbeddedOrigin
@@ -17,9 +18,10 @@ import Control.DeepSeq
 import Control.Eff
 import Control.Eff.Concurrent.Process
 import Control.Eff.Concurrent.Protocol
+import Data.Functor.Contravariant
 import Data.Kind (Type)
 import Data.Typeable (Typeable)
-import Data.Functor.Contravariant
+import Data.Tagged
 import GHC.Generics
 
 -- | A wrapper sum type for calls and casts for the 'Pdu's of a protocol
@@ -97,14 +99,32 @@ instance NFData (RequestOrigin p r)
 --
 -- The reply will be deeply evaluated to 'rnf'.
 --
--- To send replies for 'EmbedProtocol' instances use 'embedReplySerializer'
--- and 'toEmbeddedOrigin'.
+-- To send replies for 'EmbedProtocol' instances use 'sendEmbeddedReply',
+-- or 'embedReplySerializer' and 'toEmbeddedOrigin'.
 --
 -- @since 0.15.0
 sendReply ::
+  forall protocol reply q eff .
      (SetMember Process (Process q) eff, Member Interrupts eff, Tangible reply, Typeable protocol)
   => Serializer (Reply protocol reply) -> RequestOrigin protocol reply -> reply -> Eff eff ()
 sendReply ser o r = sendAnyMessage (_requestOriginPid o) $! runSerializer ser $! Reply o r
+
+-- | Send a 'Reply' to a 'Call' for an embedded 'Pdu'.
+--
+-- The reply will be deeply evaluated to 'rnf'.
+--
+-- @since 0.25.1
+sendEmbeddedReply ::
+  forall outer inner reply q eff .
+     ( SetMember Process (Process q) eff
+     , Member Interrupts eff
+     , TangiblePdu outer ('Synchronous reply)
+     , TangiblePdu inner ('Synchronous reply)
+     , Tangible reply
+     , EmbedProtocol outer inner
+     )
+  => Serializer (Reply outer reply) -> RequestOrigin outer reply -> Tagged inner reply -> Eff eff ()
+sendEmbeddedReply ser o = sendReply @outer @reply (embedReplySerializer ser) (toEmbeddedOrigin o) . unTagged
 
 -- | Turn an 'RequestOrigin' to an origin for an embedded request (See 'EmbedProtocol').
 --
@@ -116,7 +136,7 @@ sendReply ser o r = sendAnyMessage (_requestOriginPid o) $! runSerializer ser $!
 --
 -- @since 0.24.3
 toEmbeddedOrigin
-  :: EmbedProtocol outer inner
+  :: forall outer inner reply . EmbedProtocol outer inner
   => RequestOrigin outer reply
   -> RequestOrigin inner reply
 toEmbeddedOrigin (RequestOrigin !pid !ref) = RequestOrigin pid ref
@@ -128,7 +148,7 @@ toEmbeddedOrigin (RequestOrigin !pid !ref) = RequestOrigin pid ref
 -- This function is strict in all parameters.
 --
 -- @since 0.24.2
-embedRequestOrigin :: EmbedProtocol outer inner => RequestOrigin inner reply -> RequestOrigin outer reply
+embedRequestOrigin :: forall outer inner reply . EmbedProtocol outer inner => RequestOrigin inner reply -> RequestOrigin outer reply
 embedRequestOrigin (RequestOrigin !pid !ref) = RequestOrigin pid ref
 
 -- | Turn a 'Serializer' for a 'Pdu' instance that contains embedded 'Pdu' values
@@ -141,7 +161,7 @@ embedRequestOrigin (RequestOrigin !pid !ref) = RequestOrigin pid ref
 -- See also 'toEmbeddedOrigin'.
 --
 -- @since 0.24.2
-embedReplySerializer :: EmbedProtocol outer inner => Serializer (Reply outer reply) -> Serializer (Reply inner reply)
+embedReplySerializer :: forall outer inner reply . EmbedProtocol outer inner => Serializer (Reply outer reply) -> Serializer (Reply inner reply)
 embedReplySerializer = contramap embedReply
 
 -- | Turn an /embedded/ 'Reply' to a 'Reply' for the /bigger/ request.
@@ -149,5 +169,5 @@ embedReplySerializer = contramap embedReply
 -- This function is strict in all parameters.
 --
 -- @since 0.24.2
-embedReply :: EmbedProtocol outer inner => Reply inner reply -> Reply outer reply
+embedReply :: forall outer inner reply . EmbedProtocol outer inner => Reply inner reply -> Reply outer reply
 embedReply (Reply (RequestOrigin !pid !ref) !v) = Reply (RequestOrigin pid ref) v
