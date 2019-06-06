@@ -186,7 +186,9 @@ import           Control.Eff.Concurrent.Protocol.Client
                                                 ( cast
                                                 , call
                                                 , callWithTimeout
+                                                , castSingleton
                                                 , castEndpointReader
+                                                , callSingleton
                                                 , callEndpointReader
                                                 , ServesProtocol
                                                 , runEndpointReader

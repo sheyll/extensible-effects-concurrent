@@ -7,7 +7,9 @@ module Control.Eff.Concurrent.Protocol.Client
   , call
   , callWithTimeout
   -- * Server Process Registration
+  , castSingleton
   , castEndpointReader
+  , callSingleton
   , callEndpointReader
   , ServesProtocol
   , EndpointReader
@@ -165,6 +167,8 @@ askEndpoint = ask
 
 -- | Like 'call' but take the 'Endpoint' from the reader provided by
 -- 'runEndpointReader'.
+--
+-- When working with an embedded 'Pdu' use 'callSingleton'.
 callEndpointReader
   :: forall reply o r q .
      ( ServesProtocol o r q
@@ -181,6 +185,8 @@ callEndpointReader method = do
 
 -- | Like 'cast' but take the 'Endpoint' from the reader provided by
 -- 'runEndpointReader'.
+--
+-- When working with an embedded 'Pdu' use 'castSingleton'.
 castEndpointReader
   :: forall o r q .
      ( ServesProtocol o r q
@@ -193,3 +199,46 @@ castEndpointReader
 castEndpointReader method = do
   serverPid <- askEndpoint @o
   cast @o @o serverPid method
+
+-- | Like 'callEndpointReader', uses 'embedPdu' to embed the value.
+--
+-- This function makes use of AmbigousTypes and TypeApplications.
+--
+-- When not working with an embedded 'Pdu' use 'callEndpointReader'.
+--
+-- @since 0.25.1
+callSingleton
+  :: forall outer inner reply q e
+  . ( HasCallStack
+    , EmbedProtocol outer inner
+    , Member (EndpointReader outer) e
+    , SetMember Process (Process q) e
+    , Member Interrupts e
+    , TangiblePdu outer ('Synchronous reply)
+    , TangiblePdu inner ('Synchronous reply)
+    , Tangible reply
+    )
+  => Pdu inner ('Synchronous reply)
+  -> Eff e reply
+callSingleton = withFrozenCallStack $ \p -> callEndpointReader (embedPdu @outer @inner p)
+
+-- | Like 'castEndpointReader', but uses 'embedPdu' to embed the value.
+--
+-- This function makes use of AmbigousTypes and TypeApplications.
+--
+-- When not working with an embedded 'Pdu' use 'castEndpointReader'.
+--
+-- @since 0.25.1
+castSingleton
+  :: forall outer inner q e
+  . ( HasCallStack
+    , EmbedProtocol outer inner
+    , Member (EndpointReader outer) e
+    , SetMember Process (Process q) e
+    , Member Interrupts e
+    , TangiblePdu outer 'Asynchronous
+    , TangiblePdu inner 'Asynchronous
+    )
+  => Pdu inner 'Asynchronous
+  -> Eff e ()
+castSingleton = withFrozenCallStack $ \p -> castEndpointReader (embedPdu @outer @inner p)

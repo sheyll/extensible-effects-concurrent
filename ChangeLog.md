@@ -1,5 +1,9 @@
 # Changelog for extensible-effects-concurrent
 
+## 0.25.1
+- Add `castSingleton` and `callSingleton`, which use the `EndpointReader` and `EmbedProtocol` type class.
+- Change `toObserver` to accept an Endpoint of a protocol that embeds `Observer x`
+
 ## 0.25.0 
 - Improve effect type aliases and module structure, [read the details here](./ChangeLog-Details-0.25.0.md).
         
