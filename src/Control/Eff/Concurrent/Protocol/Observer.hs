@@ -137,7 +137,7 @@ data instance Pdu (Observer o) r where
   Observed :: o -> Pdu (Observer o) 'Asynchronous
   deriving Typeable
 
-instance NFData o => NFData (Pdu (Observer o) 'Asynchronous) where
+instance NFData o => NFData (Pdu (Observer o) r) where
   rnf (Observed o) = rnf o
 
 instance Show o => Show (Pdu (Observer o) r) where
