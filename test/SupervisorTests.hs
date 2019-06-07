@@ -246,9 +246,9 @@ data TestProtocol
 
 type instance ToPretty TestProtocol = PutStr "test"
 
-data instance  Pdu TestProtocol x where
-        TestGetStringLength :: String -> Pdu TestProtocol ('Synchronous Int)
-        TestInterruptWith :: Interrupt 'Recoverable -> Pdu TestProtocol 'Asynchronous
+data instance Pdu TestProtocol x where
+  TestGetStringLength :: String -> Pdu TestProtocol ('Synchronous Int)
+  TestInterruptWith :: Interrupt 'Recoverable -> Pdu TestProtocol 'Asynchronous
     deriving Typeable
 
 instance NFData (Pdu TestProtocol x) where
@@ -264,7 +264,7 @@ data TestProtocolServerMode
   | ExitWhenRequested
   deriving Eq
 
-instance Server TestProtocol BaseEffects where
+instance Server TestProtocol Effects where
   update (TestServerArgs testMode tId) evt =
     case evt of
       OnCast (TestInterruptWith i) -> do
@@ -283,6 +283,6 @@ instance Server TestProtocol BaseEffects where
             exitBecause (interruptToExit x)
       _ ->
         logDebug (pack (show tId) <> ": got some info: " <> pack (show evt))
-  data instance StartArgument TestProtocol BaseEffects = TestServerArgs TestProtocolServerMode Int
+  data instance StartArgument TestProtocol Effects = TestServerArgs TestProtocolServerMode Int
 
 type instance ChildId TestProtocol = Int

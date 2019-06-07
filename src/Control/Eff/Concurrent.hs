@@ -181,6 +181,8 @@ import           Control.Eff.Concurrent.Protocol
                                                 , proxyAsEndpoint
                                                 , asEndpoint
                                                 , EmbedProtocol(..)
+                                                , toEmbeddedEndpoint
+                                                , fromEmbeddedEndpoint
                                                 )
 import           Control.Eff.Concurrent.Protocol.Client
                                                 ( cast

@@ -4,6 +4,8 @@
 - Add `castSingleton` and `callSingleton`, which use the `EndpointReader` and `EmbedProtocol` type class.
 - Change `toObserver` to accept an Endpoint of a protocol that embeds `Observer x`
 - Add `sendEmbeddedReply`
+- Add `toEmbeddedEndpoint` and `fromEmbeddedEndpoint`
+- Change `StatefulServer` class definition to not add `Processes` to the effects by default
 
 ## 0.25.0 
 - Improve effect type aliases and module structure, [read the details here](./ChangeLog-Details-0.25.0.md).

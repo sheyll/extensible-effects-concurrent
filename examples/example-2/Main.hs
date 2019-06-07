@@ -86,7 +86,7 @@ type SupiCounter = (Counter, ObserverRegistry CounterChanged, SupiDupi)
 
 type instance ToPretty (Counter, ObserverRegistry CounterChanged, SupiDupi) = PutStr "supi-counter"
 
-instance (LogIo q) => Server SupiCounter q where
+instance (LogIo q) => Server SupiCounter (Processes q) where
 
   type instance Model SupiCounter =
     ( Integer
@@ -96,7 +96,7 @@ instance (LogIo q) => Server SupiCounter q where
             )
     )
 
-  data instance StartArgument SupiCounter q = MkEmptySupiCounter
+  data instance StartArgument SupiCounter (Processes q) = MkEmptySupiCounter
 
   setup _ = return ((0, emptyObservers, Nothing), ())
 
@@ -136,8 +136,8 @@ logCounterObservations = do
   svr <- start OCCStart
   pure (toObserver svr)
 
-instance Member Logs q => Server (Observer CounterChanged) q where
-  data StartArgument (Observer CounterChanged) q = OCCStart
+instance Member Logs q => Server (Observer CounterChanged) (Processes q) where
+  data StartArgument (Observer CounterChanged) (Processes q) = OCCStart
   type Model (Observer CounterChanged) = Observers CounterChanged
   type Settings (Observer CounterChanged) = ()
   type Protocol (Observer CounterChanged) = Observer CounterChanged

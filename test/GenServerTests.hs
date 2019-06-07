@@ -42,8 +42,8 @@ instance Show (Pdu Small r) where
 
 -- ----------------------------------------------------------------------------
 
-instance LogIo e => S.Server Small e where
-  data StartArgument Small e = MkSmall
+instance LogIo e => S.Server Small (Processes e) where
+  data StartArgument Small (Processes e) = MkSmall
   type Model Small = String
   update MkSmall x =
     case x of
@@ -86,8 +86,8 @@ instance EmbedProtocol Big Small where
 
 -- ----------------------------------------------------------------------------
 
-instance LogIo e => S.Server Big e where
-  data instance StartArgument Big e = MkBig
+instance LogIo e => S.Server Big (Processes e) where
+  data instance StartArgument Big (Processes e) = MkBig
   type Model Big = String
   update MkBig = \case
     E.OnCall ser orig req ->

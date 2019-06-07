@@ -148,10 +148,10 @@ spawnLinkObservationQueueWriter q = do
   cbo <- startLink (MkObservationQueue q)
   pure (toObserver cbo)
 
-instance (TangibleObserver o, TangiblePdu (Observer o) 'Asynchronous, Lifted IO q, Member Logs q) => Server (ObservationQueue o) q where
+instance (TangibleObserver o, TangiblePdu (Observer o) 'Asynchronous, Lifted IO q, Member Logs q) => Server (ObservationQueue o) (Processes q) where
   type Protocol (ObservationQueue o) = Observer o
 
-  data instance StartArgument (ObservationQueue o) q =
+  data instance StartArgument (ObservationQueue o) (Processes q) =
      MkObservationQueue (ObservationQueue o)
 
   update (MkObservationQueue (ObservationQueue q)) =

@@ -25,6 +25,8 @@ module Control.Eff.Concurrent.Protocol
   , proxyAsEndpoint
   , asEndpoint
   , EmbedProtocol(..)
+  , toEmbeddedEndpoint
+  , fromEmbeddedEndpoint
   , prettyTypeableShows
   , prettyTypeableShowsPrec
   )
@@ -33,6 +35,7 @@ where
 import           Control.DeepSeq
 import           Control.Eff.Concurrent.Process
 import           Control.Lens
+import           Data.Coerce
 import           Data.Kind
 import           Type.Reflection
 import           Data.Type.Pretty
@@ -175,6 +178,22 @@ class EmbedProtocol protocol embeddedProtocol where
   -- embedded protocol, otherwise return 'Nothing'/
   fromPdu :: Pdu protocol r -> Maybe (Pdu embeddedProtocol r)
   fromPdu = preview embeddedPdu
+
+-- | Convert an 'Endpoint' to an endpoint for an embedded protocol.
+--
+-- See 'EmbedProtocol', 'fromEmbeddedEndpoint'.
+--
+-- @since 0.25.1
+toEmbeddedEndpoint :: forall inner outer . EmbedProtocol outer inner => Endpoint outer -> Endpoint inner
+toEmbeddedEndpoint = coerce
+
+-- | Convert an 'Endpoint' to an endpoint for a server, that embeds the protocol.
+--
+-- See 'EmbedProtocol', 'toEmbeddedEndpoint'.
+--
+-- @since 0.25.1
+fromEmbeddedEndpoint ::  forall outer inner. EmbedProtocol outer inner => Endpoint inner -> Endpoint outer
+fromEmbeddedEndpoint = coerce
 
 instance EmbedProtocol a a where
   embeddedPdu = prism' id Just

@@ -142,11 +142,11 @@ type TangibleSup p =
 
 
 instance
-  ( Lifted IO q, LogsTo IO q
+  ( LogIo q
   , TangibleSup p
   , Tangible (ChildId p)
-  , Server p q
-  ) => Server (Sup p) q where
+  , Server p (Processes q)
+  ) => Server (Sup p) (Processes q) where
 
   -- | Options that control the 'Sup p' process.
   --
@@ -156,12 +156,12 @@ instance
   -- * the 'Timeout' after requesting a normal child exit before brutally killing the child.
   --
   -- @since 0.24.0
-  data StartArgument (Sup p) q = MkSupConfig
+  data StartArgument (Sup p) (Processes q) = MkSupConfig
     {
       -- , supConfigChildRestartPolicy :: ChildRestartPolicy
       -- , supConfigResilience :: Resilience
       supConfigChildStopTimeout :: Timeout
-    , supConfigStartFun :: ChildId p -> Server.StartArgument p q
+    , supConfigStartFun :: ChildId p -> Server.StartArgument p (Processes q)
     }
 
   type Model (Sup p) = Children (ChildId p) p
@@ -255,9 +255,9 @@ startSupervisor
     , LogsTo IO (Processes e)
     , Lifted IO e
     , TangibleSup p
-    , Server (Sup p) e
+    , Server (Sup p) (Processes e)
     )
-  => StartArgument (Sup p) e
+  => StartArgument (Sup p) (Processes e)
   -> Eff (Processes e) (Endpoint (Sup p))
 startSupervisor = Server.start
 
