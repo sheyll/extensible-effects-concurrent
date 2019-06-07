@@ -72,6 +72,10 @@ module Control.Eff.Concurrent
 where
 
 import           Control.Eff.Concurrent.Process ( Process(..)
+                                                , ProcessTitle(..)
+                                                , fromProcessTitle
+                                                , ProcessDetails(..)
+                                                , fromProcessDetails
                                                 , StrictDynamic()
                                                 , toStrictDynamic
                                                 , fromStrictDynamic

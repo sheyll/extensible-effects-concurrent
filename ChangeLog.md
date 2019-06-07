@@ -6,6 +6,7 @@
 - Add `sendEmbeddedReply`
 - Add `toEmbeddedEndpoint` and `fromEmbeddedEndpoint`
 - Change `StatefulServer` class definition to not add `Processes` to the effects by default
+- Add forgotten re-exports to `Concurrent`
 
 ## 0.25.0 
 - Improve effect type aliases and module structure, [read the details here](./ChangeLog-Details-0.25.0.md).
