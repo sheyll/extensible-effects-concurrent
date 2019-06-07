@@ -42,26 +42,32 @@ logPrefix px = "observation queue: " <> T.pack (show (typeRep px))
 -- variant use 'tryReadObservationQueue' or 'flushObservationQueue'.
 readObservationQueue
   :: forall o r
-   . ( HasCallStack
+   . ( Member (ObservationQueueReader o) r
+     , HasCallStack
      , MonadIO (Eff r)
      , Typeable o
      , Member Logs r
      )
-  => ObservationQueue o -> Eff r o
-readObservationQueue (ObservationQueue q) = liftIO (atomically (readTBQueue q))
+  => Eff r o
+readObservationQueue = do
+  ObservationQueue q <- ask @(ObservationQueue o)
+  liftIO (atomically (readTBQueue q))
 
 -- | Read queued observations captured and enqueued in the shared 'TBQueue' by 'spawnLinkObservationQueueWriter'.
 -- Return the oldest enqueued observation immediately or 'Nothing' if the queue is empty.
 -- Use 'readObservationQueue' to block until an observation is observed.
 tryReadObservationQueue
   :: forall o r
-   . ( HasCallStack
+   . ( Member (ObservationQueueReader o) r
+     , HasCallStack
      , MonadIO (Eff r)
      , Typeable o
      , Member Logs r
      )
-  => ObservationQueue o -> Eff r (Maybe o)
-tryReadObservationQueue (ObservationQueue q) = liftIO (atomically (tryReadTBQueue q))
+  => Eff r (Maybe o)
+tryReadObservationQueue = do
+  ObservationQueue q <- ask @(ObservationQueue o)
+  liftIO (atomically (tryReadTBQueue q))
 
 -- | Read at once all currently queued observations captured and enqueued
 -- in the shared 'TBQueue' by 'spawnLinkObservationQueueWriter'.
@@ -69,13 +75,15 @@ tryReadObservationQueue (ObservationQueue q) = liftIO (atomically (tryReadTBQueu
 -- For a blocking variant use 'readObservationQueue'.
 flushObservationQueue
   :: forall o r
-   . ( HasCallStack
+   . ( Member (ObservationQueueReader o) r
+     , HasCallStack
      , MonadIO (Eff r)
      , Typeable o
      , Member Logs r
      )
-  => ObservationQueue o -> Eff r [o]
-flushObservationQueue (ObservationQueue q) = do
+  => Eff r [o]
+flushObservationQueue = do
+  ObservationQueue q <- ask @(ObservationQueue o)
   liftIO (atomically (flushTBQueue q))
 
 -- | Create a mutable queue for observations. Use 'spawnLinkObservationQueueWriter' for a simple way to get
@@ -84,12 +92,13 @@ flushObservationQueue (ObservationQueue q) = do
 -- ==== __Example__
 --
 -- @
--- withObservationQueue 100 $ \\q -> do
+-- withObservationQueue 100 $ do
+--   q  <- ask \@(ObservationQueueReader TestEvent)
 --   wq <- spawnLinkObservationQueueWriter q
 --   registerObserver wq testServer
 --   ...
 --   cast testServer DoSomething
---   evt <- readObservationQueue \@TestEvent q
+--   evt <- readObservationQueue \@TestEvent
 --   ...
 -- @
 --
@@ -126,10 +135,12 @@ withObservationQueue queueLimit e = do
 --
 -- @since 0.18.0
 spawnLinkObservationQueueWriter
-  :: forall o q
+  :: forall o q h
    . ( TangibleObserver o
      , TangiblePdu (Observer o) 'Asynchronous
-     , LogIo q
+     , Member Logs q
+     , Lifted IO q
+     , LogsTo h (Processes q)
      , HasCallStack)
   => ObservationQueue o
   -> Eff (Processes q) (Observer o)
