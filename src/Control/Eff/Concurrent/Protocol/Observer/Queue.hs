@@ -93,7 +93,7 @@ flushObservationQueue = do
 --
 -- @
 -- withObservationQueue 100 $ do
---   q  <- ask \@(ObservationQueueReader TestEvent)
+--   q  <- ask \@(ObservationQueue TestEvent)
 --   wq <- spawnLinkObservationQueueWriter q
 --   registerObserver wq testServer
 --   ...
@@ -137,7 +137,7 @@ withObservationQueue queueLimit e = do
 spawnLinkObservationQueueWriter
   :: forall o q h
    . ( TangibleObserver o
-     , TangiblePdu (Observer o) 'Asynchronous
+     , IsPdu (Observer o) 'Asynchronous
      , Member Logs q
      , Lifted IO q
      , LogsTo h (Processes q)
@@ -148,7 +148,7 @@ spawnLinkObservationQueueWriter q = do
   cbo <- startLink (MkObservationQueue q)
   pure (toObserver cbo)
 
-instance (TangibleObserver o, TangiblePdu (Observer o) 'Asynchronous, Lifted IO q, Member Logs q) => Server (ObservationQueue o) (Processes q) where
+instance (TangibleObserver o, IsPdu (Observer o) 'Asynchronous, Lifted IO q, Member Logs q) => Server (ObservationQueue o) (Processes q) where
   type Protocol (ObservationQueue o) = Observer o
 
   data instance StartArgument (ObservationQueue o) (Processes q) =

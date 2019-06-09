@@ -175,7 +175,8 @@ import           Control.Eff.Concurrent.Process.Timer
                                                 )
 
 import           Control.Eff.Concurrent.Protocol
-                                                ( Pdu(..)
+                                                ( IsPdu(..)
+                                                , Pdu(..)
                                                 , Synchronicity(..)
                                                 , ProtocolReply
                                                 , Tangible

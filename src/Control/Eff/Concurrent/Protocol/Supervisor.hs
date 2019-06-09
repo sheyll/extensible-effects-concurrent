@@ -79,6 +79,7 @@ import Control.Lens hiding ((.=), use)
 import Data.Default
 import Data.Dynamic
 import Data.Foldable
+import Data.Kind
 import qualified Data.Map as Map
 import Data.Text (Text, pack)
 import Data.Type.Pretty
@@ -97,18 +98,19 @@ import Control.Applicative ((<|>))
 -- The supervisor maps an identifier value of type @'ChildId' p@ to an @'Endpoint' p@.
 --
 -- @since 0.24.0
-data Sup p deriving Typeable
+data Sup (p :: Type) deriving Typeable
 
--- | The 'Pdu' instance contains methods to start, stop and lookup a child
--- process, as well as a diagnostic callback.
---
--- @since 0.23.0
-data instance  Pdu (Sup p) r where
-        StartC :: ChildId p -> Pdu (Sup p) ('Synchronous (Either (SpawnErr p) (Endpoint (Protocol p))))
-        StopC :: ChildId p -> Timeout -> Pdu (Sup p) ('Synchronous Bool)
-        LookupC :: ChildId p -> Pdu (Sup p) ('Synchronous (Maybe (Endpoint (Protocol p))))
-        GetDiagnosticInfo :: Pdu (Sup p) ('Synchronous Text)
-    deriving Typeable
+instance (NFData (Pdu (Sup p) r), Show (Pdu (Sup p) r), Typeable p, Typeable r) => IsPdu (Sup p) r where
+  -- | The 'Pdu' instance contains methods to start, stop and lookup a child
+  -- process, as well as a diagnostic callback.
+  --
+  -- @since 0.23.0
+  data instance  Pdu (Sup p) r where
+          StartC :: ChildId p -> Pdu (Sup p) ('Synchronous (Either (SpawnErr p) (Endpoint (Protocol p))))
+          StopC :: ChildId p -> Timeout -> Pdu (Sup p) ('Synchronous Bool)
+          LookupC :: ChildId p -> Pdu (Sup p) ('Synchronous (Maybe (Endpoint (Protocol p))))
+          GetDiagnosticInfo :: Pdu (Sup p) ('Synchronous Text)
+      deriving Typeable
 
 instance (Show (ChildId p)) => Show (Pdu (Sup p) ('Synchronous r)) where
   showsPrec d (StartC c) = showParen (d >= 10) (showString "StartC " . showsPrec 10 c)

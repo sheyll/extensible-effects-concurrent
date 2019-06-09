@@ -8,19 +8,20 @@
 - Change `StatefulServer` class definition to not add `Processes` to the effects by default
 - Add forgotten re-exports to `Concurrent`
 - Fix the `NFData` instance for `Pdu (Observer o)`
+- Put the `Pdu` data family inside of a new type class `IsPdu`
 
-## 0.25.0 
+## 0.25.0
 - Improve effect type aliases and module structure, [read the details here](./ChangeLog-Details-0.25.0.md).
-        
+
 ## 0.24.3
 - Add `EmbedProtocol` related function `toEmbeddedOrigin`
-    
+
 ## 0.24.2
 - Add more `EmbedProtocol` related functions:
     - `embedReplySerializer`
     - `embedRequestOrigin`
-- Improve documentation for `EffectfulServer`     
-- Improve documentation for `StatefulServer`     
+- Improve documentation for `EffectfulServer`
+- Improve documentation for `StatefulServer`
 
 ## 0.24.1
 
@@ -35,38 +36,38 @@
 ## 0.24.0
 
 - Get rid of the `PrettyTypeShow` constraint in `Tangible`
-- Get rid of `LogWriterEffects` and the necessity for some `UndecidableInstances` that came with it  
+- Get rid of `LogWriterEffects` and the necessity for some `UndecidableInstances` that came with it
 - Add `Server` module for `Api` handling via type classes
-    - Add `Stateless` 
+    - Add `Stateless`
     - Add `GenServer`
-- Reimplement `Supervisor`    
-       
+- Reimplement `Supervisor`
+
 ## 0.23.0
 
 - Include the process id in the console and trace log renderer
 - Add a **process supervisor** similar to Erlang/OTPs simple_one_for_one supervisor.
 - Fix `SingleThreadedScheduler` process linking bug: A process shall not be interrupted
-  when a linked process exits normally. 
-- Rename **ExitReason** to **Interrupt** and make the interrupt and exit handling 
-  API more robust. 
+  when a linked process exits normally.
+- Rename **ExitReason** to **Interrupt** and make the interrupt and exit handling
+  API more robust.
 
 ## 0.22.1
 
 - Fix duplicated content in RFC-5424 log message renderer
 
-## 0.22.0    
+## 0.22.0
 
-- Remove `SchedulerProxy` ruins 
+- Remove `SchedulerProxy` ruins
 
 - Make message sending strict:
 
   Ensure that every message sent from one process to another
-  is reduced to normal form by the sender. 
+  is reduced to normal form by the sender.
 
     - Remove *all* lazy message selectors
     - Introduce a newtype wrapper `StrictDynamic` around `Dynamic`
       and export only a constructor that deeply evaluates the
-      value to *rnf* before converting it to a `Dynamic` 
+      value to *rnf* before converting it to a `Dynamic`
 
 - Change the `Server` API for better system *vitality*:
 
@@ -74,8 +75,8 @@
 
 - Add more efficient log renderer:
     - `renderLogMessageBodyNoLocation`
-    - `renderRFC5424NoLocation`     
-          
+    - `renderRFC5424NoLocation`
+
 ## 0.21.2
 
 - Fix copy-paste error: Remove the `LogsTo` constraint from `withAsyncLogWriter`

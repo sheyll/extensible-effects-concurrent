@@ -17,12 +17,13 @@ data TestProtocol
 
 type instance ToPretty TestProtocol = PutStr "test"
 
-data instance Pdu TestProtocol x where
-  SayHello :: String -> Pdu TestProtocol ('Synchronous Bool)
-  Shout :: String -> Pdu TestProtocol 'Asynchronous
-  Terminate :: Pdu TestProtocol ('Synchronous ())
-  TerminateError :: String -> Pdu TestProtocol ('Synchronous ())
-  deriving (Typeable)
+instance Typeable x => IsPdu TestProtocol x where
+  data instance Pdu TestProtocol x where
+    SayHello :: String -> Pdu TestProtocol ('Synchronous Bool)
+    Shout :: String -> Pdu TestProtocol 'Asynchronous
+    Terminate :: Pdu TestProtocol ('Synchronous ())
+    TerminateError :: String -> Pdu TestProtocol ('Synchronous ())
+    deriving (Typeable)
 
 instance NFData (Pdu TestProtocol x) where
   rnf (SayHello s) = rnf s

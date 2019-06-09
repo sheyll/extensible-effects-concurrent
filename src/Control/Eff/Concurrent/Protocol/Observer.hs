@@ -34,6 +34,7 @@ import           Control.Lens
 import           Data.Data                     (typeOf)
 import           Data.Dynamic
 import           Data.Foldable
+import           Data.Kind
 import           Data.Proxy
 import           Data.Set                       ( Set )
 import qualified Data.Set                      as Set
@@ -53,7 +54,7 @@ import           GHC.Stack
 data Observer o where
   Observer
     :: ( Tangible o
-       , TangiblePdu p 'Asynchronous
+       , IsPdu p 'Asynchronous
        , Tangible (Endpoint p)
        , Typeable p
        )
@@ -64,7 +65,7 @@ data Observer o where
 --
 -- @since 0.24.0
 type TangibleObserver o =
-  ( Tangible o, TangiblePdu (Observer o) 'Asynchronous)
+  ( Tangible o, IsPdu (Observer o) 'Asynchronous)
 
 type instance ToPretty (Observer o) =
   PrettyParens ("observing" <:> ToPretty o)
@@ -97,7 +98,7 @@ registerObserver
      , Member Interrupts r
      , TangibleObserver o
      , EmbedProtocol x (ObserverRegistry o)
-     , TangiblePdu x 'Asynchronous
+     , IsPdu x 'Asynchronous
      )
   => Observer o
   -> Endpoint x
@@ -115,7 +116,7 @@ forgetObserver
      , Typeable o
      , NFData o
      , EmbedProtocol x (ObserverRegistry o)
-     , TangiblePdu x 'Asynchronous
+     , IsPdu x 'Asynchronous
      )
   => Observer o
   -> Endpoint x
@@ -130,12 +131,13 @@ forgetObserver observer observerRegistry =
 -- any other 'Asynchronous' 'Pdu' message type for receiving observations.
 --
 -- @since 0.16.0
-data instance Pdu (Observer o) r where
-  -- | This message denotes that the given value was 'observed'.
-  --
-  -- @since 0.16.1
-  Observed :: o -> Pdu (Observer o) 'Asynchronous
-  deriving Typeable
+instance (NFData o, Show o, Typeable o, Typeable r) => IsPdu (Observer o) r where
+  data instance Pdu (Observer o) r where
+    -- | This message denotes that the given value was 'observed'.
+    --
+    -- @since 0.16.1
+    Observed :: o -> Pdu (Observer o) 'Asynchronous
+    deriving Typeable
 
 instance NFData o => NFData (Pdu (Observer o) r) where
   rnf (Observed o) = rnf o
@@ -159,7 +161,7 @@ handleObservations k (Observed r) = k r
 -- @since 0.16.0
 toObserver
   :: forall o p
-  . ( TangiblePdu p 'Asynchronous
+  . ( IsPdu p 'Asynchronous
     , EmbedProtocol p (Observer o)
     , TangibleObserver o
     )
@@ -173,7 +175,7 @@ toObserver = toObserverFor (embedPdu @p . Observed)
 --
 -- @since 0.16.0
 toObserverFor
-  :: (TangibleObserver o, Typeable a, TangiblePdu a 'Asynchronous)
+  :: (TangibleObserver o, Typeable a, IsPdu a 'Asynchronous)
   => (o -> Pdu a 'Asynchronous)
   -> Endpoint a
   -> Observer o
@@ -185,27 +187,28 @@ toObserverFor wrapper = Observer  (Just . wrapper)
 -- 'Observer's.
 --
 -- @since 0.16.0
-data ObserverRegistry o
+data ObserverRegistry (o :: Type)
   deriving Typeable
 
 type instance ToPretty (ObserverRegistry o) =
   PrettyParens ("observer registry" <:> ToPretty o)
 
--- | Protocol for managing observers. This can be added to any server for any number of different observation types.
--- The functions 'manageObservers' and 'handleObserverRegistration' are used to include observer handling;
---
--- @since 0.16.0
-data instance Pdu (ObserverRegistry o) r where
-  -- | This message denotes that the given 'Observer' should receive observations until 'ForgetObserver' is
-  --   received.
+instance (Typeable o, Typeable r) => IsPdu (ObserverRegistry o) r where
+  -- | Protocol for managing observers. This can be added to any server for any number of different observation types.
+  -- The functions 'manageObservers' and 'handleObserverRegistration' are used to include observer handling;
   --
-  -- @since 0.16.1
-  RegisterObserver :: NFData o => Observer o -> Pdu (ObserverRegistry o) 'Asynchronous
-  -- | This message denotes that the given 'Observer' should not receive observations anymore.
-  --
-  -- @since 0.16.1
-  ForgetObserver :: NFData o => Observer o -> Pdu (ObserverRegistry o) 'Asynchronous
-  deriving Typeable
+  -- @since 0.16.0
+  data instance Pdu (ObserverRegistry o) r where
+    -- | This message denotes that the given 'Observer' should receive observations until 'ForgetObserver' is
+    --   received.
+    --
+    -- @since 0.16.1
+    RegisterObserver :: NFData o => Observer o -> Pdu (ObserverRegistry o) 'Asynchronous
+    -- | This message denotes that the given 'Observer' should not receive observations anymore.
+    --
+    -- @since 0.16.1
+    ForgetObserver :: NFData o => Observer o -> Pdu (ObserverRegistry o) 'Asynchronous
+    deriving Typeable
 
 instance NFData (Pdu (ObserverRegistry o) r) where
   rnf (RegisterObserver o) = rnf o

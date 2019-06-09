@@ -90,9 +90,10 @@ data ReturnToSender
 
 type instance ToPretty ReturnToSender = PutStr "ReturnToSender"
 
-data instance Pdu ReturnToSender r where
-  ReturnToSender :: ProcessId -> String -> Pdu ReturnToSender ('Synchronous Bool)
-  StopReturnToSender :: Pdu ReturnToSender ('Synchronous ())
+instance Typeable r => IsPdu ReturnToSender r where
+ data instance Pdu ReturnToSender r where
+   ReturnToSender :: ProcessId -> String -> Pdu ReturnToSender ('Synchronous Bool)
+   StopReturnToSender :: Pdu ReturnToSender ('Synchronous ())
 
 instance NFData (Pdu ReturnToSender r) where
   rnf (ReturnToSender p s) = rnf p `seq` rnf s

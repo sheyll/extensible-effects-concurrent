@@ -15,7 +15,8 @@
 -- the "Control.Eff.Concurrent.Pdu.Client" should be used.
 --
 module Control.Eff.Concurrent.Protocol
-  ( Pdu(..)
+  ( IsPdu(..)
+  , Pdu(..)
   , Synchronicity(..)
   , ProtocolReply
   , Tangible
@@ -36,36 +37,58 @@ import           Control.DeepSeq
 import           Control.Eff.Concurrent.Process
 import           Control.Lens
 import           Data.Coerce
+import           Data.Dynamic
 import           Data.Kind
-import           Type.Reflection
+import           Data.Typeable ()
 import           Data.Type.Pretty
+import           Type.Reflection
 
--- | This data family defines the **protocol data units**(PDU) of a /protocol/.
+
+  -- | This data family defines the **protocol data units**(PDU) of a /protocol/.
+  --
+  -- A Protocol in the sense of a communication interface description
+  -- between processes.
+  --
+  -- The first parameter is usually a user defined type that identifies the
+  -- protocol that uses the 'Pdu's are. It maybe a /phantom/ type.
+  --
+  -- The second parameter specifies if a specific constructor of an (GADT-like)
+  -- @Pdu@ instance is 'Synchronous', i.e. returns a result and blocks the caller
+  -- or if it is 'Asynchronous'
+  --
+  -- Example:
+  --
+  -- >
+  -- > data BookShop deriving Typeable
+  -- >
+  -- > instance IsPdu BookShop r where
+  -- >   data instance Pdu BookShop r where
+  -- >     RentBook  :: BookId   -> Pdu BookShop ('Synchronous (Either RentalError RentalId))
+  -- >     BringBack :: RentalId -> Pdu BookShop 'Asynchronous
+  -- >     deriving Typeable
+  -- >
+  -- > type BookId = Int
+  -- > type RentalId = Int
+  -- > type RentalError = String
+  -- >
 --
--- A Protocol in the sense of a communication interface description
--- between processes.
---
--- The first parameter is usually a user defined type that identifies the
--- protocol that uses the 'Pdu's are. It maybe a /phantom/ type.
---
--- The second parameter specifies if a specific constructor of an (GADT-like)
--- @Pdu@ instance is 'Synchronous', i.e. returns a result and blocks the caller
--- or if it is 'Asynchronous'
---
--- Example:
---
--- >
--- > data BookShop deriving Typeable
--- >
--- > data instance Pdu BookShop r where
--- >   RentBook  :: BookId   -> Pdu BookShop ('Synchronous (Either RentalError RentalId))
--- >   BringBack :: RentalId -> Pdu BookShop 'Asynchronous
--- >
--- > type BookId = Int
--- > type RentalId = Int
--- > type RentalError = String
--- >
-data family Pdu (protocol :: Type) (reply :: Synchronicity)
+-- @since 0.25.1
+class (NFData (Pdu protocol reply), Show (Pdu protocol reply), Typeable protocol, Typeable reply) => IsPdu (protocol :: Type) (reply :: Synchronicity) where
+  -- | Deserialize a 'Pdu' from a 'Dynamic' i.e. from a message received by a process.
+  --
+  -- @since 0.25.1
+  deserializePdu :: Dynamic -> Maybe (Pdu protocol reply)
+
+  default deserializePdu :: (Typeable (Pdu protocol reply)) => Dynamic -> Maybe (Pdu protocol reply)
+  deserializePdu = fromDynamic
+
+  -- | The __protocol data unit__ type for the given protocol.
+  data family Pdu protocol reply
+
+  --  type family PrettyPdu protocol reply :: PrettyType
+  --  type instance PrettyPdu protocol reply =
+  --      PrettySurrounded (PutStr "<") (PutStr ">") ("protocol" <:> ToPretty protocol <+> ToPretty reply)
+
 
 type instance ToPretty (Pdu x y) =
   PrettySurrounded (PutStr "<") (PutStr ">") ("protocol" <:> ToPretty x <+> ToPretty y)
@@ -179,6 +202,7 @@ class EmbedProtocol protocol embeddedProtocol where
   fromPdu :: Pdu protocol r -> Maybe (Pdu embeddedProtocol r)
   fromPdu = preview embeddedPdu
 
+
 -- | Convert an 'Endpoint' to an endpoint for an embedded protocol.
 --
 -- See 'EmbedProtocol', 'fromEmbeddedEndpoint'.
@@ -200,10 +224,21 @@ instance EmbedProtocol a a where
   embedPdu = id
   fromPdu = Just
 
-data instance Pdu (a1, a2) x where
-        ToPduLeft :: Pdu a1 r -> Pdu (a1, a2) r
-        ToPduRight :: Pdu a2 r -> Pdu (a1, a2) r
-  deriving Typeable
+instance (IsPdu a1 r, IsPdu a2 r) => IsPdu (a1, a2) r where
+  data instance Pdu (a1, a2) r where
+          ToPduLeft :: Pdu a1 r -> Pdu (a1, a2) r
+          ToPduRight :: Pdu a2 r -> Pdu (a1, a2) r
+
+  deserializePdu d =
+    case deserializePdu d of
+      Just (x :: Pdu a1 r) ->
+        Just (embedPdu x)
+      Nothing ->
+        case deserializePdu d of
+          Just (x :: Pdu a2 r) ->
+            Just (embedPdu x)
+          Nothing ->
+            Nothing
 
 instance (NFData (Pdu a1 r), NFData (Pdu a2 r)) => NFData (Pdu (a1, a2) r) where
   rnf (ToPduLeft x) = rnf x
@@ -224,11 +259,26 @@ instance EmbedProtocol (a1, a2) a2 where
       ToPduRight r -> Just r
       ToPduLeft _ -> Nothing
 
-data instance Pdu (a1, a2, a3) x where
-  ToPdu1 :: Pdu a1 r -> Pdu (a1, a2, a3) r
-  ToPdu2 :: Pdu a2 r -> Pdu (a1, a2, a3) r
-  ToPdu3 :: Pdu a3 r -> Pdu (a1, a2, a3) r
-  deriving Typeable
+instance (IsPdu a1 r, IsPdu a2 r, IsPdu a3 r) => IsPdu (a1, a2, a3) r where
+  data instance Pdu (a1, a2, a3) r where
+    ToPdu1 :: Pdu a1 r -> Pdu (a1, a2, a3) r
+    ToPdu2 :: Pdu a2 r -> Pdu (a1, a2, a3) r
+    ToPdu3 :: Pdu a3 r -> Pdu (a1, a2, a3) r
+
+  deserializePdu d =
+    case deserializePdu d of
+      Just (x :: Pdu a1 r) ->
+        Just (embedPdu x)
+      Nothing ->
+        case deserializePdu d of
+          Just (x :: Pdu a2 r) ->
+            Just (embedPdu x)
+          Nothing ->
+            case deserializePdu d of
+              Just (x :: Pdu a3 r) ->
+                Just (embedPdu x)
+              Nothing ->
+                Nothing
 
 instance (NFData (Pdu a1 r), NFData (Pdu a2 r), NFData (Pdu a3 r)) => NFData (Pdu (a1, a2, a3) r) where
   rnf (ToPdu1 x) = rnf x
@@ -255,12 +305,31 @@ instance EmbedProtocol (a1, a2, a3) a3 where
   fromPdu (ToPdu3 l) = Just l
   fromPdu _ = Nothing
 
-data instance Pdu (a1, a2, a3, a4) x where
-  ToPdu1Of4 :: Pdu a1 r -> Pdu (a1, a2, a3, a4) r
-  ToPdu2Of4 :: Pdu a2 r -> Pdu (a1, a2, a3, a4) r
-  ToPdu3Of4 :: Pdu a3 r -> Pdu (a1, a2, a3, a4) r
-  ToPdu4Of4 :: Pdu a4 r -> Pdu (a1, a2, a3, a4) r
-  deriving Typeable
+instance (IsPdu a1 r, IsPdu a2 r, IsPdu a3 r, IsPdu a4 r) => IsPdu (a1, a2, a3, a4) r where
+  data instance Pdu (a1, a2, a3, a4) r where
+    ToPdu1Of4 :: Pdu a1 r -> Pdu (a1, a2, a3, a4) r
+    ToPdu2Of4 :: Pdu a2 r -> Pdu (a1, a2, a3, a4) r
+    ToPdu3Of4 :: Pdu a3 r -> Pdu (a1, a2, a3, a4) r
+    ToPdu4Of4 :: Pdu a4 r -> Pdu (a1, a2, a3, a4) r
+
+  deserializePdu d =
+    case deserializePdu d of
+      Just (x :: Pdu a1 r) ->
+        Just (embedPdu x)
+      Nothing ->
+        case deserializePdu d of
+          Just (x :: Pdu a2 r) ->
+            Just (embedPdu x)
+          Nothing ->
+            case deserializePdu d of
+              Just (x :: Pdu a3 r) ->
+                Just (embedPdu x)
+              Nothing ->
+                case deserializePdu d of
+                  Just (x :: Pdu a4 r) ->
+                    Just (embedPdu x)
+                  Nothing ->
+                    Nothing
 
 instance (NFData (Pdu a1 r), NFData (Pdu a2 r), NFData (Pdu a3 r), NFData (Pdu a4 r)) => NFData (Pdu (a1, a2, a3, a4) r) where
   rnf (ToPdu1Of4 x) = rnf x
@@ -294,13 +363,36 @@ instance EmbedProtocol (a1, a2, a3, a4) a4 where
   fromPdu (ToPdu4Of4 l) = Just l
   fromPdu _ = Nothing
 
-data instance Pdu (a1, a2, a3, a4, a5) x where
-  ToPdu1Of5 :: Pdu a1 r -> Pdu (a1, a2, a3, a4, a5) r
-  ToPdu2Of5 :: Pdu a2 r -> Pdu (a1, a2, a3, a4, a5) r
-  ToPdu3Of5 :: Pdu a3 r -> Pdu (a1, a2, a3, a4, a5) r
-  ToPdu4Of5 :: Pdu a4 r -> Pdu (a1, a2, a3, a4, a5) r
-  ToPdu5Of5 :: Pdu a5 r -> Pdu (a1, a2, a3, a4, a5) r
-  deriving Typeable
+instance (IsPdu a1 r, IsPdu a2 r, IsPdu a3 r, IsPdu a4 r, IsPdu a5 r) => IsPdu (a1, a2, a3, a4, a5) r where
+  data instance Pdu (a1, a2, a3, a4, a5) r where
+    ToPdu1Of5 :: Pdu a1 r -> Pdu (a1, a2, a3, a4, a5) r
+    ToPdu2Of5 :: Pdu a2 r -> Pdu (a1, a2, a3, a4, a5) r
+    ToPdu3Of5 :: Pdu a3 r -> Pdu (a1, a2, a3, a4, a5) r
+    ToPdu4Of5 :: Pdu a4 r -> Pdu (a1, a2, a3, a4, a5) r
+    ToPdu5Of5 :: Pdu a5 r -> Pdu (a1, a2, a3, a4, a5) r
+
+  deserializePdu d =
+    case deserializePdu d of
+      Just (x :: Pdu a1 r) ->
+        Just (embedPdu x)
+      Nothing ->
+        case deserializePdu d of
+          Just (x :: Pdu a2 r) ->
+            Just (embedPdu x)
+          Nothing ->
+            case deserializePdu d of
+              Just (x :: Pdu a3 r) ->
+                Just (embedPdu x)
+              Nothing ->
+                case deserializePdu d of
+                  Just (x :: Pdu a4 r) ->
+                    Just (embedPdu x)
+                  Nothing ->
+                    case deserializePdu d of
+                      Just (x :: Pdu a5 r) ->
+                        Just (embedPdu x)
+                      Nothing ->
+                        Nothing
 
 instance (NFData (Pdu a1 r), NFData (Pdu a2 r), NFData (Pdu a3 r), NFData (Pdu a4 r), NFData (Pdu a5 r)) => NFData (Pdu (a1, a2, a3, a4, a5) r) where
   rnf (ToPdu1Of5 x) = rnf x

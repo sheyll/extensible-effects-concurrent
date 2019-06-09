@@ -246,10 +246,11 @@ data TestProtocol
 
 type instance ToPretty TestProtocol = PutStr "test"
 
-data instance Pdu TestProtocol x where
-  TestGetStringLength :: String -> Pdu TestProtocol ('Synchronous Int)
-  TestInterruptWith :: Interrupt 'Recoverable -> Pdu TestProtocol 'Asynchronous
-    deriving Typeable
+instance Typeable x => IsPdu TestProtocol x where
+  data instance Pdu TestProtocol x where
+    TestGetStringLength :: String -> Pdu TestProtocol ('Synchronous Int)
+    TestInterruptWith :: Interrupt 'Recoverable -> Pdu TestProtocol 'Asynchronous
+      deriving Typeable
 
 instance NFData (Pdu TestProtocol x) where
   rnf (TestGetStringLength x) = rnf x

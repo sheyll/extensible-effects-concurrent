@@ -26,10 +26,11 @@ data Small deriving Typeable
 
 type instance ToPretty Small = PutStr "small"
 
-data instance  Pdu Small r where
-        SmallCall :: Bool -> Pdu Small ('Synchronous Bool)
-        SmallCast :: String -> Pdu Small 'Asynchronous
-    deriving Typeable
+instance Typeable r => IsPdu Small r where
+  data instance  Pdu Small r where
+          SmallCall :: Bool -> Pdu Small ('Synchronous Bool)
+          SmallCast :: String -> Pdu Small 'Asynchronous
+      deriving Typeable
 
 instance NFData (Pdu Small r) where
   rnf (SmallCall x) = rnf x
@@ -60,11 +61,12 @@ data Big deriving (Typeable)
 
 type instance ToPretty Big = PutStr "big"
 
-data instance  Pdu Big r where
-        BigCall :: Bool -> Pdu Big ('Synchronous Bool)
-        BigCast :: String -> Pdu Big 'Asynchronous
-        BigSmall :: Pdu Small r -> Pdu Big r
-    deriving Typeable
+instance Typeable r => IsPdu Big r where
+  data instance  Pdu Big r where
+          BigCall :: Bool -> Pdu Big ('Synchronous Bool)
+          BigCast :: String -> Pdu Big 'Asynchronous
+          BigSmall :: Pdu Small r -> Pdu Big r
+      deriving Typeable
 
 instance NFData (Pdu Big r) where
   rnf (BigCall x) = rnf x
