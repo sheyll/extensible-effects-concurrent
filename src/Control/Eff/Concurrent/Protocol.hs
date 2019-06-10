@@ -44,7 +44,7 @@ import           Data.Type.Pretty
 import           Type.Reflection
 
 
-  -- | This data family defines the **protocol data units**(PDU) of a /protocol/.
+  -- | This data family defines the __protocol data units__ (PDU) of a /protocol/.
   --
   -- A Protocol in the sense of a communication interface description
   -- between processes.
