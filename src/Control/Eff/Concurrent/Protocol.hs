@@ -44,33 +44,33 @@ import           Data.Type.Pretty
 import           Type.Reflection
 
 
-  -- | This data family defines the __protocol data units__ (PDU) of a /protocol/.
-  --
-  -- A Protocol in the sense of a communication interface description
-  -- between processes.
-  --
-  -- The first parameter is usually a user defined type that identifies the
-  -- protocol that uses the 'Pdu's are. It maybe a /phantom/ type.
-  --
-  -- The second parameter specifies if a specific constructor of an (GADT-like)
-  -- @Pdu@ instance is 'Synchronous', i.e. returns a result and blocks the caller
-  -- or if it is 'Asynchronous'
-  --
-  -- Example:
-  --
-  -- >
-  -- > data BookShop deriving Typeable
-  -- >
-  -- > instance IsPdu BookShop r where
-  -- >   data instance Pdu BookShop r where
-  -- >     RentBook  :: BookId   -> Pdu BookShop ('Synchronous (Either RentalError RentalId))
-  -- >     BringBack :: RentalId -> Pdu BookShop 'Asynchronous
-  -- >     deriving Typeable
-  -- >
-  -- > type BookId = Int
-  -- > type RentalId = Int
-  -- > type RentalError = String
-  -- >
+-- | This data family defines the __protocol data units__ (PDU) of a /protocol/.
+--
+-- A Protocol in the sense of a communication interface description
+-- between processes.
+--
+-- The first parameter is usually a user defined type that identifies the
+-- protocol that uses the 'Pdu's are. It maybe a /phantom/ type.
+--
+-- The second parameter specifies if a specific constructor of an (GADT-like)
+-- @Pdu@ instance is 'Synchronous', i.e. returns a result and blocks the caller
+-- or if it is 'Asynchronous'
+--
+-- Example:
+--
+-- >
+-- > data BookShop deriving Typeable
+-- >
+-- > instance IsPdu BookShop r where
+-- >   data instance Pdu BookShop r where
+-- >     RentBook  :: BookId   -> Pdu BookShop ('Synchronous (Either RentalError RentalId))
+-- >     BringBack :: RentalId -> Pdu BookShop 'Asynchronous
+-- >     deriving Typeable
+-- >
+-- > type BookId = Int
+-- > type RentalId = Int
+-- > type RentalError = String
+-- >
 --
 -- @since 0.25.1
 class (NFData (Pdu protocol reply), Show (Pdu protocol reply), Typeable protocol, Typeable reply) => IsPdu (protocol :: Type) (reply :: Synchronicity) where
