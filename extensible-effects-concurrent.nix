@@ -1,5 +1,7 @@
-{ lib, haskellPackages }:
 let
+  pkgs = import ./pkgs.nix;
+  lib = pkgs.lib;
+  haskellPackages = pkgs.haskellPackages;
   cleanSrc = lib.cleanSourceWith {
     filter = (path: type:
       let base = baseNameOf (toString path);
