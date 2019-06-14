@@ -19,12 +19,6 @@ module Control.Eff.Concurrent.Protocol.StatefulServer
   , viewSettings
   -- * Re-exports
   , Effectful.Event(..)
-  , RequestOrigin(..)
-  , Reply(..)
-  , sendReply
-  , sendEmbeddedReply
-  , toEmbeddedOrigin
-  , embedReplySerializer
   )
   where
 
@@ -33,7 +27,6 @@ import Control.Eff.Extend ()
 import Control.Eff.Concurrent.Process
 import Control.Eff.Concurrent.Protocol
 import qualified Control.Eff.Concurrent.Protocol.EffectfulServer as Effectful
-import Control.Eff.Concurrent.Protocol.Request
 import Control.Eff.Log
 import Control.Eff.Reader.Strict
 import Control.Eff.State.Strict

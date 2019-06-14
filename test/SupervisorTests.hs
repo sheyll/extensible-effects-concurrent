@@ -271,9 +271,9 @@ instance Server TestProtocol Effects where
       OnCast (TestInterruptWith i) -> do
         logInfo (pack (show tId) <> ": stopping with: " <> pack (show i))
         interrupt i
-      OnCall ser orig (TestGetStringLength str) -> do
+      OnCall rt (TestGetStringLength str) -> do
         logInfo (pack (show tId) <> ": calculating length of: " <> pack str)
-        sendReply ser orig (length str)
+        sendReply rt (length str)
       OnInterrupt x -> do
         logNotice (pack (show tId) <> ": " <> pack (show x))
         if testMode == IgnoreNormalExitRequest

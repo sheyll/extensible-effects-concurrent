@@ -93,9 +93,7 @@ instance (LogIo q) => Server SupiCounter (Processes q) where
   type instance Model SupiCounter =
     ( Integer
     , Observers CounterChanged
-    , Maybe ( Serializer (Reply SupiCounter (Maybe ()))
-            , RequestOrigin SupiCounter (Maybe ())
-            )
+    , Maybe (ReplyTarget SupiCounter (Maybe ()))
     )
 
   data instance StartArgument SupiCounter (Processes q) = MkEmptySupiCounter
@@ -103,13 +101,13 @@ instance (LogIo q) => Server SupiCounter (Processes q) where
   setup _ = return ((0, emptyObservers, Nothing), ())
 
   update _ = \case
-    OnCall ser orig callReq ->
+    OnCall rt callReq ->
       case callReq of
         ToPdu1 Cnt ->
-          sendReply ser orig =<< useModel @SupiCounter _1
+          sendReply rt =<< useModel @SupiCounter _1
         ToPdu2 _ -> error "unreachable"
         ToPdu3 (Whoopediedoo c) ->
-          modifyModel @SupiCounter (_3 .~ if c then Just (ser, orig) else Nothing)
+          modifyModel @SupiCounter (_3 .~ if c then Just rt else Nothing)
 
     OnCast castReq ->
       case castReq of
@@ -118,7 +116,7 @@ instance (LogIo q) => Server SupiCounter (Processes q) where
           zoomModel @SupiCounter _2 (observed (CounterChanged val'))
           when (val' > 5) $
             getAndModifyModel @SupiCounter (_3 .~ Nothing)
-            >>= traverse_ (\(ser, orig) -> sendReply ser orig (Just ())) . view _3
+            >>= traverse_ (\rt' -> sendReply rt' (Just ())) . view _3
         ToPdu2 x ->
           zoomModel @SupiCounter _2 (handleObserverRegistration x)
         ToPdu3 _ -> error "unreachable"

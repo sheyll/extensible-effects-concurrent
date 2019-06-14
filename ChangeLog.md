@@ -1,5 +1,9 @@
 # Changelog for extensible-effects-concurrent
 
+## 0.26.0
+- Introduce `ReplyTarget` 
+- Change the `sendReply` signature to accept a `ReplyTarget`
+
 ## 0.25.1
 - Add `castSingleton` and `callSingleton`, which use the `EndpointReader` and `EmbedProtocol` type class.
 - Change `toObserver` to accept an Endpoint of a protocol that embeds `Observer x`

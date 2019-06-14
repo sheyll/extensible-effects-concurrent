@@ -31,6 +31,9 @@ module Control.Eff.Concurrent
     -- ** /Client/ Functions for Consuming APIs
     module Control.Eff.Concurrent.Protocol.Client
   ,
+    -- ** /Protocol-Server/ Support Functions for building protocol servers
+    module Control.Eff.Concurrent.Protocol.Request
+  ,
     -- ** /Observer/ Functions for Events and Event Listener
     module Control.Eff.Concurrent.Protocol.Observer
   ,
@@ -230,6 +233,22 @@ import           Control.Eff.Concurrent.Protocol.Observer.Queue
                                                 , flushObservationQueue
                                                 , withObservationQueue
                                                 , spawnLinkObservationQueueWriter
+                                                )
+import           Control.Eff.Concurrent.Protocol.Request
+                                                ( Request(..)
+                                                , sendReply
+                                                , ReplyTarget(..)
+                                                , replyTarget
+                                                , embeddedReplyTarget
+                                                , replyTargetOrigin
+                                                , replyTargetSerializer
+                                                , toEmbeddedReplyTarget
+                                                , RequestOrigin(..)
+                                                , embedRequestOrigin
+                                                , toEmbeddedOrigin
+                                                , Reply(..)
+                                                , embedReplySerializer
+                                                , makeRequestOrigin
                                                 )
 import           Control.Eff.Concurrent.Process.ForkIOScheduler
                                                 ( schedule

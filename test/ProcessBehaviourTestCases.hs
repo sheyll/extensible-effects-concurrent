@@ -7,6 +7,7 @@ import           Control.Concurrent.STM
 import           Control.Eff.Concurrent.Process
 import           Control.Eff.Concurrent.Process.Timer
 import           Control.Eff.Concurrent.Protocol
+import           Control.Eff.Concurrent.Protocol.Request
 import           Control.Eff.Concurrent.Protocol.Client
 import           Control.Eff.Concurrent.Protocol.EffectfulServer
 import qualified Control.Eff.Concurrent.Process.ForkIOScheduler
@@ -131,13 +132,13 @@ returnToSenderServer = start
     (const id)
     (\_me evt ->
       case evt of
-        OnCall ser orig msg ->
+        OnCall rt msg ->
           case msg of
             StopReturnToSender -> interrupt testInterruptReason
             ReturnToSender fromP echoMsg -> do
               sendMessage fromP echoMsg
               yieldProcess
-              sendReply ser orig True
+              sendReply rt True
         OnInterrupt i ->
           interrupt i
         other -> interrupt (ErrorInterrupt (show other))

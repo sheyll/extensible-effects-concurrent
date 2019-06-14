@@ -78,18 +78,18 @@ testServerLoop :: Eff Effects (Endpoint TestProtocol)
 testServerLoop = start (genServer (const id) handleReq "test-server-1")
  where
   handleReq :: GenServerId TestProtocol -> Event TestProtocol -> Eff Effects ()
-  handleReq _myId (OnCall ser orig cm) =
+  handleReq _myId (OnCall rt cm) =
     case cm of
       Terminate -> do
         me <- self
         logInfo (T.pack (show me ++ " exiting"))
-        sendReply ser orig ()
+        sendReply rt ()
         interrupt NormalExitRequested
 
       TerminateError e -> do
         me <- self
         logInfo (T.pack (show me ++ " exiting with error: " ++ e))
-        sendReply ser orig ()
+        sendReply rt ()
         interrupt (ErrorInterrupt e)
 
       SayHello mx ->
@@ -108,18 +108,18 @@ testServerLoop = start (genServer (const id) handleReq "test-server-1")
             me <- self
             logInfo (T.pack (show me ++ " casting to self"))
             cast (asEndpoint @TestProtocol me) (Shout "from me")
-            sendReply ser orig False
+            sendReply rt False
 
           "stop" -> do
             me <- self
             logInfo (T.pack (show me ++ " stopping me"))
-            sendReply ser orig False
+            sendReply rt False
             interrupt (ErrorInterrupt "test error")
 
           x -> do
             me <- self
             logInfo (T.pack (show me ++ " Got Hello: " ++ x))
-            sendReply ser orig (length x > 3)
+            sendReply rt (length x > 3)
 
   handleReq _myId (OnCast (Shout x)) = do
     me <- self

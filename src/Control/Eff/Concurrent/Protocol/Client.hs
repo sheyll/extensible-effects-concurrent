@@ -205,7 +205,7 @@ castEndpointReader method = do
 -- This function makes use of AmbigousTypes and TypeApplications.
 --
 -- When not working with an embedded 'Pdu' use 'callEndpointReader'.
---
+-- 
 -- @since 0.25.1
 callSingleton
   :: forall outer inner reply q e

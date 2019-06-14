@@ -12,13 +12,6 @@ module Control.Eff.Concurrent.Protocol.EffectfulServer
   , GenServer
   , GenServerId(..)
   , genServer
-  -- * Re-exports
-  , RequestOrigin(..)
-  , Reply(..)
-  , sendReply
-  , sendEmbeddedReply
-  , toEmbeddedOrigin
-  , embedReplySerializer
   )
   where
 
@@ -150,7 +143,7 @@ protocolServerLoop a = do
       <|> OnMessage <$> selectAnyMessage
       where
         onRequest :: Request (ServerPdu a) -> Event (ServerPdu a)
-        onRequest (Call o m) = OnCall (MkSerializer toStrictDynamic) o m
+        onRequest (Call o m) = OnCall (replyTarget (MkSerializer toStrictDynamic) o) m
         onRequest (Cast m) = OnCast m
     handleInt i = onEvent a (OnInterrupt i) *> pure Nothing
     mainLoop :: (Typeable a)
@@ -159,18 +152,16 @@ protocolServerLoop a = do
     mainLoop (Left i) = handleInt i
     mainLoop (Right i) = onEvent a i *> pure Nothing
 
--- | Internal protocol to communicate incoming messages and other events to the
+-- | This event sum-type is used to communicate incoming messages and other events to the
 -- instances of 'Server'.
---
--- Note that this is required to receive any kind of messages in 'protocolServerLoop'.
 --
 -- @since 0.24.0
 data Event a where
   -- | A 'Synchronous' message was received. If an implementation wants to delegate nested 'Pdu's, it can
-  -- 'contramap' the reply 'Serializer' such that the 'Reply' received by the caller has the correct type.
+  -- use 'toEmbeddedReplyTarget' to convert a 'ReplyTarget' safely to the embedded protocol.
   --
   -- @since 0.24.1
-  OnCall :: forall a r. (Tangible r, TangiblePdu a ('Synchronous r)) => Serializer (Reply a r) -> RequestOrigin a r -> Pdu a ('Synchronous r) -> Event a
+  OnCall :: forall a r. (Tangible r, TangiblePdu a ('Synchronous r)) => ReplyTarget a r -> Pdu a ('Synchronous r) -> Event a
   OnCast :: forall a. TangiblePdu a 'Asynchronous => Pdu a 'Asynchronous -> Event a
   OnInterrupt  :: (Interrupt 'Recoverable) -> Event a
   OnDown  :: ProcessDown -> Event a
@@ -183,7 +174,7 @@ instance Show (Event a) where
     showParen (d>=10) $
       showString "event: "
       . case e of
-          OnCall _ o p -> shows (Call o p)
+          OnCall o p -> shows (Call (view replyTargetOrigin o) p)
           OnCast p -> shows (Cast p)
           OnInterrupt r -> shows r
           OnDown r -> shows r
@@ -192,7 +183,7 @@ instance Show (Event a) where
 
 instance NFData a => NFData (Event a) where
    rnf = \case
-       OnCall _ o p -> rnf o `seq` rnf p
+       OnCall o p -> rnf o `seq` rnf p
        OnCast p -> rnf p
        OnInterrupt r -> rnf r
        OnDown r  -> rnf r

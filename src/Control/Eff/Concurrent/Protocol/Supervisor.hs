@@ -169,23 +169,23 @@ instance
   type Model (Sup p) = Children (ChildId p) p
 
   setup _cfg = pure (def, ())
-  update supConfig (OnCall ser orig req) =
+  update supConfig (OnCall rt req) =
     case req of
       GetDiagnosticInfo ->  do
         p <- (pack . show <$> getChildren @(ChildId p) @p)
-        sendReply ser orig p
+        sendReply rt p
 
       LookupC i -> do
         p <- fmap _childEndpoint <$> lookupChildById @(ChildId p) @p i
-        sendReply ser orig p
+        sendReply rt p
 
       StopC i t -> do
         mExisting <- lookupAndRemoveChildById @(ChildId p) @p i
         case mExisting of
-          Nothing -> sendReply ser orig False
+          Nothing -> sendReply rt False
           Just existingChild -> do
             stopOrKillChild i existingChild t
-            sendReply ser orig True
+            sendReply rt True
 
       StartC i -> do
         childEp <- raise (raise (Server.start (supConfigStartFun supConfig i)))
@@ -195,9 +195,9 @@ instance
         case mExisting of
           Nothing -> do
             putChild i (MkChild @p childEp cMon)
-            sendReply ser orig (Right childEp)
+            sendReply rt (Right childEp)
           Just existingChild ->
-            sendReply ser orig (Left (AlreadyStarted i (existingChild ^. childEndpoint)))
+            sendReply rt (Left (AlreadyStarted i (existingChild ^. childEndpoint)))
 
   update _supConfig (OnDown (ProcessDown mrChild reason)) = do
       oldEntry <- lookupAndRemoveChildByMonitor @(ChildId p) @p mrChild
