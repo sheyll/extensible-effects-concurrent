@@ -97,7 +97,7 @@ registerObserver
      , HasCallStack
      , Member Interrupts r
      , TangibleObserver o
-     , EmbedProtocol x (ObserverRegistry o)
+     , EmbedProtocol x (ObserverRegistry o) 'Asynchronous
      , IsPdu x 'Asynchronous
      )
   => Observer o
@@ -115,7 +115,7 @@ forgetObserver
      , Member Interrupts r
      , Typeable o
      , NFData o
-     , EmbedProtocol x (ObserverRegistry o)
+     , EmbedProtocol x (ObserverRegistry o) 'Asynchronous
      , IsPdu x 'Asynchronous
      )
   => Observer o
@@ -162,7 +162,7 @@ handleObservations k (Observed r) = k r
 toObserver
   :: forall o p
   . ( IsPdu p 'Asynchronous
-    , EmbedProtocol p (Observer o)
+    , EmbedProtocol p (Observer o) 'Asynchronous
     , TangibleObserver o
     )
   => Endpoint p

@@ -75,7 +75,7 @@ instance Show (Pdu Big r) where
   showsPrec d (BigCast x) = showParen (d > 10) (showString "SmallCast " . showString x)
   showsPrec d (BigSmall x) = showParen (d > 10) (showString "BigSmall " . showsPrec 11 x)
 
-instance EmbedProtocol Big Small where
+instance EmbedProtocol Big Small r where
   embeddedPdu =
     prism'
       BigSmall

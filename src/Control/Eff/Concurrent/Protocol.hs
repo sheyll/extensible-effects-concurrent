@@ -89,7 +89,6 @@ class (NFData (Pdu protocol reply), Show (Pdu protocol reply), Typeable protocol
   --  type instance PrettyPdu protocol reply =
   --      PrettySurrounded (PutStr "<") (PutStr ">") ("protocol" <:> ToPretty protocol <+> ToPretty reply)
 
-
 type instance ToPretty (Pdu x y) =
   PrettySurrounded (PutStr "<") (PutStr ">") ("protocol" <:> ToPretty x <+> ToPretty y)
 
@@ -173,56 +172,6 @@ type instance ToPretty (Endpoint a) = ToPretty a <+> PutStr "endpoint"
 
 makeLenses ''Endpoint
 
--- | Tag a 'ProcessId' with an 'Pdu' type index to mark it a 'Endpoint' process
--- handling that API
-proxyAsEndpoint :: proxy protocol -> ProcessId -> Endpoint protocol
-proxyAsEndpoint = const Endpoint
-
--- | Tag a 'ProcessId' with an 'Pdu' type index to mark it a 'Endpoint' process
--- handling that API
-asEndpoint :: forall protocol . ProcessId -> Endpoint protocol
-asEndpoint = Endpoint
-
--- | A class for 'Pdu' instances that embed other 'Pdu'.
--- A 'Prism' for the embedded 'Pdu' is the center of this class
---
--- Laws: @embeddedPdu = prism' embedPdu fromPdu@
---
--- @since 0.24.0
-class EmbedProtocol protocol embeddedProtocol where
-  -- | A 'Prism' for the embedded 'Pdu's.
-  embeddedPdu :: Prism' (Pdu protocol result) (Pdu embeddedProtocol result)
-  embeddedPdu = prism' embedPdu fromPdu
-  -- | Embed the 'Pdu' value of an embedded protocol into the corresponding
-  --  'Pdu' value.
-  embedPdu :: Pdu embeddedProtocol r -> Pdu protocol r
-  embedPdu = review embeddedPdu
-  -- | Examine a 'Pdu' value from the outer protocol, and return it, if it embeds a 'Pdu' of
-  -- embedded protocol, otherwise return 'Nothing'/
-  fromPdu :: Pdu protocol r -> Maybe (Pdu embeddedProtocol r)
-  fromPdu = preview embeddedPdu
-
-
--- | Convert an 'Endpoint' to an endpoint for an embedded protocol.
---
--- See 'EmbedProtocol', 'fromEmbeddedEndpoint'.
---
--- @since 0.25.1
-toEmbeddedEndpoint :: forall inner outer . EmbedProtocol outer inner => Endpoint outer -> Endpoint inner
-toEmbeddedEndpoint = coerce
-
--- | Convert an 'Endpoint' to an endpoint for a server, that embeds the protocol.
---
--- See 'EmbedProtocol', 'toEmbeddedEndpoint'.
---
--- @since 0.25.1
-fromEmbeddedEndpoint ::  forall outer inner. EmbedProtocol outer inner => Endpoint inner -> Endpoint outer
-fromEmbeddedEndpoint = coerce
-
-instance EmbedProtocol a a where
-  embeddedPdu = prism' id Just
-  embedPdu = id
-  fromPdu = Just
 
 instance (IsPdu a1 r, IsPdu a2 r) => IsPdu (a1, a2) r where
   data instance Pdu (a1, a2) r where
@@ -239,25 +188,6 @@ instance (IsPdu a1 r, IsPdu a2 r) => IsPdu (a1, a2) r where
             Just (embedPdu x)
           Nothing ->
             Nothing
-
-instance (NFData (Pdu a1 r), NFData (Pdu a2 r)) => NFData (Pdu (a1, a2) r) where
-  rnf (ToPduLeft x) = rnf x
-  rnf (ToPduRight y) = rnf y
-
-instance (Show (Pdu a1 r), Show (Pdu a2 r)) => Show (Pdu (a1, a2) r) where
-  showsPrec d (ToPduLeft x) = showsPrec d x
-  showsPrec d (ToPduRight y) = showsPrec d y
-
-instance EmbedProtocol (a1, a2) a1 where
-  embedPdu = ToPduLeft
-  fromPdu (ToPduLeft l) = Just l
-  fromPdu _ = Nothing
-
-instance EmbedProtocol (a1, a2) a2 where
-  embeddedPdu =
-    prism' ToPduRight $ \case
-      ToPduRight r -> Just r
-      ToPduLeft _ -> Nothing
 
 instance (IsPdu a1 r, IsPdu a2 r, IsPdu a3 r) => IsPdu (a1, a2, a3) r where
   data instance Pdu (a1, a2, a3) r where
@@ -279,31 +209,6 @@ instance (IsPdu a1 r, IsPdu a2 r, IsPdu a3 r) => IsPdu (a1, a2, a3) r where
                 Just (embedPdu x)
               Nothing ->
                 Nothing
-
-instance (NFData (Pdu a1 r), NFData (Pdu a2 r), NFData (Pdu a3 r)) => NFData (Pdu (a1, a2, a3) r) where
-  rnf (ToPdu1 x) = rnf x
-  rnf (ToPdu2 y) = rnf y
-  rnf (ToPdu3 z) = rnf z
-
-instance (Show (Pdu a1 r), Show (Pdu a2 r), Show (Pdu a3 r)) => Show (Pdu (a1, a2, a3) r) where
-  showsPrec d (ToPdu1 x) = showsPrec d x
-  showsPrec d (ToPdu2 y) = showsPrec d y
-  showsPrec d (ToPdu3 z) = showsPrec d z
-
-instance EmbedProtocol (a1, a2, a3) a1 where
-  embedPdu = ToPdu1
-  fromPdu (ToPdu1 l) = Just l
-  fromPdu _ = Nothing
-
-instance EmbedProtocol (a1, a2, a3) a2 where
-  embedPdu = ToPdu2
-  fromPdu (ToPdu2 l) = Just l
-  fromPdu _ = Nothing
-
-instance EmbedProtocol (a1, a2, a3) a3 where
-  embedPdu = ToPdu3
-  fromPdu (ToPdu3 l) = Just l
-  fromPdu _ = Nothing
 
 instance (IsPdu a1 r, IsPdu a2 r, IsPdu a3 r, IsPdu a4 r) => IsPdu (a1, a2, a3, a4) r where
   data instance Pdu (a1, a2, a3, a4) r where
@@ -330,38 +235,6 @@ instance (IsPdu a1 r, IsPdu a2 r, IsPdu a3 r, IsPdu a4 r) => IsPdu (a1, a2, a3, 
                     Just (embedPdu x)
                   Nothing ->
                     Nothing
-
-instance (NFData (Pdu a1 r), NFData (Pdu a2 r), NFData (Pdu a3 r), NFData (Pdu a4 r)) => NFData (Pdu (a1, a2, a3, a4) r) where
-  rnf (ToPdu1Of4 x) = rnf x
-  rnf (ToPdu2Of4 y) = rnf y
-  rnf (ToPdu3Of4 z) = rnf z
-  rnf (ToPdu4Of4 w) = rnf w
-
-instance (Show (Pdu a1 r), Show (Pdu a2 r), Show (Pdu a3 r), Show (Pdu a4 r)) => Show (Pdu (a1, a2, a3, a4) r) where
-  showsPrec d (ToPdu1Of4 x) = showsPrec d x
-  showsPrec d (ToPdu2Of4 y) = showsPrec d y
-  showsPrec d (ToPdu3Of4 z) = showsPrec d z
-  showsPrec d (ToPdu4Of4 w) = showsPrec d w
-
-instance EmbedProtocol (a1, a2, a3, a4) a1 where
-  embedPdu = ToPdu1Of4
-  fromPdu (ToPdu1Of4 l) = Just l
-  fromPdu _ = Nothing
-
-instance EmbedProtocol (a1, a2, a3, a4) a2 where
-  embedPdu = ToPdu2Of4
-  fromPdu (ToPdu2Of4 l) = Just l
-  fromPdu _ = Nothing
-
-instance EmbedProtocol (a1, a2, a3, a4) a3 where
-  embedPdu = ToPdu3Of4
-  fromPdu (ToPdu3Of4 l) = Just l
-  fromPdu _ = Nothing
-
-instance EmbedProtocol (a1, a2, a3, a4) a4 where
-  embedPdu = ToPdu4Of4
-  fromPdu (ToPdu4Of4 l) = Just l
-  fromPdu _ = Nothing
 
 instance (IsPdu a1 r, IsPdu a2 r, IsPdu a3 r, IsPdu a4 r, IsPdu a5 r) => IsPdu (a1, a2, a3, a4, a5) r where
   data instance Pdu (a1, a2, a3, a4, a5) r where
@@ -394,6 +267,133 @@ instance (IsPdu a1 r, IsPdu a2 r, IsPdu a3 r, IsPdu a4 r, IsPdu a5 r) => IsPdu (
                       Nothing ->
                         Nothing
 
+-- | Tag a 'ProcessId' with an 'Pdu' type index to mark it a 'Endpoint' process
+-- handling that API
+proxyAsEndpoint :: proxy protocol -> ProcessId -> Endpoint protocol
+proxyAsEndpoint = const Endpoint
+
+-- | Tag a 'ProcessId' with an 'Pdu' type index to mark it a 'Endpoint' process
+-- handling that API
+asEndpoint :: forall protocol . ProcessId -> Endpoint protocol
+asEndpoint = Endpoint
+
+-- | A class for 'Pdu' instances that embed other 'Pdu'.
+-- A 'Prism' for the embedded 'Pdu' is the center of this class
+--
+-- Laws: @embeddedPdu = prism' embedPdu fromPdu@
+--
+-- @since 0.24.0
+class EmbedProtocol protocol embeddedProtocol (result :: Synchronicity) where
+  -- | A 'Prism' for the embedded 'Pdu's.
+  embeddedPdu :: Prism' (Pdu protocol result) (Pdu embeddedProtocol result)
+  embeddedPdu = prism' embedPdu fromPdu
+  -- | Embed the 'Pdu' value of an embedded protocol into the corresponding
+  --  'Pdu' value.
+  embedPdu :: Pdu embeddedProtocol result -> Pdu protocol result
+  embedPdu = review embeddedPdu
+  -- | Examine a 'Pdu' value from the outer protocol, and return it, if it embeds a 'Pdu' of
+  -- embedded protocol, otherwise return 'Nothing'/
+  fromPdu :: Pdu protocol result -> Maybe (Pdu embeddedProtocol result)
+  fromPdu = preview embeddedPdu
+
+
+-- | Convert an 'Endpoint' to an endpoint for an embedded protocol.
+--
+-- See 'EmbedProtocol', 'fromEmbeddedEndpoint'.
+--
+-- @since 0.25.1
+toEmbeddedEndpoint :: forall inner outer r . EmbedProtocol outer inner r => Endpoint outer -> Endpoint inner
+toEmbeddedEndpoint = coerce
+
+-- | Convert an 'Endpoint' to an endpoint for a server, that embeds the protocol.
+--
+-- See 'EmbedProtocol', 'toEmbeddedEndpoint'.
+--
+-- @since 0.25.1
+fromEmbeddedEndpoint ::  forall outer inner r . EmbedProtocol outer inner r => Endpoint inner -> Endpoint outer
+fromEmbeddedEndpoint = coerce
+
+instance EmbedProtocol a a r where
+  embeddedPdu = prism' id Just
+  embedPdu = id
+  fromPdu = Just
+
+instance (NFData (Pdu a1 r), NFData (Pdu a2 r)) => NFData (Pdu (a1, a2) r) where
+  rnf (ToPduLeft x) = rnf x
+  rnf (ToPduRight y) = rnf y
+
+instance (Show (Pdu a1 r), Show (Pdu a2 r)) => Show (Pdu (a1, a2) r) where
+  showsPrec d (ToPduLeft x) = showsPrec d x
+  showsPrec d (ToPduRight y) = showsPrec d y
+
+instance EmbedProtocol (a1, a2) a1 r where
+  embedPdu = ToPduLeft
+  fromPdu (ToPduLeft l) = Just l
+  fromPdu _ = Nothing
+
+instance EmbedProtocol (a1, a2) a2 r where
+  embeddedPdu =
+    prism' ToPduRight $ \case
+      ToPduRight r -> Just r
+      ToPduLeft _ -> Nothing
+
+instance (NFData (Pdu a1 r), NFData (Pdu a2 r), NFData (Pdu a3 r)) => NFData (Pdu (a1, a2, a3) r) where
+  rnf (ToPdu1 x) = rnf x
+  rnf (ToPdu2 y) = rnf y
+  rnf (ToPdu3 z) = rnf z
+
+instance (Show (Pdu a1 r), Show (Pdu a2 r), Show (Pdu a3 r)) => Show (Pdu (a1, a2, a3) r) where
+  showsPrec d (ToPdu1 x) = showsPrec d x
+  showsPrec d (ToPdu2 y) = showsPrec d y
+  showsPrec d (ToPdu3 z) = showsPrec d z
+
+instance EmbedProtocol (a1, a2, a3) a1 r where
+  embedPdu = ToPdu1
+  fromPdu (ToPdu1 l) = Just l
+  fromPdu _ = Nothing
+
+instance EmbedProtocol (a1, a2, a3) a2 r where
+  embedPdu = ToPdu2
+  fromPdu (ToPdu2 l) = Just l
+  fromPdu _ = Nothing
+
+instance EmbedProtocol (a1, a2, a3) a3 r where
+  embedPdu = ToPdu3
+  fromPdu (ToPdu3 l) = Just l
+  fromPdu _ = Nothing
+
+instance (NFData (Pdu a1 r), NFData (Pdu a2 r), NFData (Pdu a3 r), NFData (Pdu a4 r)) => NFData (Pdu (a1, a2, a3, a4) r) where
+  rnf (ToPdu1Of4 x) = rnf x
+  rnf (ToPdu2Of4 y) = rnf y
+  rnf (ToPdu3Of4 z) = rnf z
+  rnf (ToPdu4Of4 w) = rnf w
+
+instance (Show (Pdu a1 r), Show (Pdu a2 r), Show (Pdu a3 r), Show (Pdu a4 r)) => Show (Pdu (a1, a2, a3, a4) r) where
+  showsPrec d (ToPdu1Of4 x) = showsPrec d x
+  showsPrec d (ToPdu2Of4 y) = showsPrec d y
+  showsPrec d (ToPdu3Of4 z) = showsPrec d z
+  showsPrec d (ToPdu4Of4 w) = showsPrec d w
+
+instance EmbedProtocol (a1, a2, a3, a4) a1 r where
+  embedPdu = ToPdu1Of4
+  fromPdu (ToPdu1Of4 l) = Just l
+  fromPdu _ = Nothing
+
+instance EmbedProtocol (a1, a2, a3, a4) a2 r where
+  embedPdu = ToPdu2Of4
+  fromPdu (ToPdu2Of4 l) = Just l
+  fromPdu _ = Nothing
+
+instance EmbedProtocol (a1, a2, a3, a4) a3 r where
+  embedPdu = ToPdu3Of4
+  fromPdu (ToPdu3Of4 l) = Just l
+  fromPdu _ = Nothing
+
+instance EmbedProtocol (a1, a2, a3, a4) a4 r where
+  embedPdu = ToPdu4Of4
+  fromPdu (ToPdu4Of4 l) = Just l
+  fromPdu _ = Nothing
+
 instance (NFData (Pdu a1 r), NFData (Pdu a2 r), NFData (Pdu a3 r), NFData (Pdu a4 r), NFData (Pdu a5 r)) => NFData (Pdu (a1, a2, a3, a4, a5) r) where
   rnf (ToPdu1Of5 x) = rnf x
   rnf (ToPdu2Of5 y) = rnf y
@@ -408,27 +408,27 @@ instance (Show (Pdu a1 r), Show (Pdu a2 r), Show (Pdu a3 r), Show (Pdu a4 r), Sh
   showsPrec d (ToPdu4Of5 w) = showsPrec d w
   showsPrec d (ToPdu5Of5 v) = showsPrec d v
 
-instance EmbedProtocol (a1, a2, a3, a4, a5) a1 where
+instance EmbedProtocol (a1, a2, a3, a4, a5) a1 r where
   embedPdu = ToPdu1Of5
   fromPdu (ToPdu1Of5 l) = Just l
   fromPdu _ = Nothing
 
-instance EmbedProtocol (a1, a2, a3, a4, a5) a2 where
+instance EmbedProtocol (a1, a2, a3, a4, a5) a2 r where
   embedPdu = ToPdu2Of5
   fromPdu (ToPdu2Of5 l) = Just l
   fromPdu _ = Nothing
 
-instance EmbedProtocol (a1, a2, a3, a4, a5) a3 where
+instance EmbedProtocol (a1, a2, a3, a4, a5) a3 r where
   embedPdu = ToPdu3Of5
   fromPdu (ToPdu3Of5 l) = Just l
   fromPdu _ = Nothing
 
-instance EmbedProtocol (a1, a2, a3, a4, a5) a4 where
+instance EmbedProtocol (a1, a2, a3, a4, a5) a4 r where
   embedPdu = ToPdu4Of5
   fromPdu (ToPdu4Of5 l) = Just l
   fromPdu _ = Nothing
 
-instance EmbedProtocol (a1, a2, a3, a4, a5) a5 where
+instance EmbedProtocol (a1, a2, a3, a4, a5) a5 r where
   embedPdu = ToPdu5Of5
   fromPdu (ToPdu5Of5 l) = Just l
   fromPdu _ = Nothing

@@ -1,5 +1,7 @@
 # Changelog for extensible-effects-concurrent
 
+## 0.27.0
+- Improve/fix `EmbedProtocol` type class
 
 ## 0.26.1
 - Documentation fixes
