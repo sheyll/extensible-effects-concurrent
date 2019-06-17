@@ -1,5 +1,10 @@
 # Changelog for extensible-effects-concurrent
 
+
+## 0.26.1
+- Documentation fixes
+- `Supervisor`: Don't start a new process when a process for a child-id exists 
+
 ## 0.26.0
 - Introduce `ReplyTarget` 
 - Change the `sendReply` signature to accept a `ReplyTarget`

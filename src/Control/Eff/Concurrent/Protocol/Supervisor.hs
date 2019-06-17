@@ -188,12 +188,12 @@ instance
             sendReply rt True
 
       StartC i -> do
-        childEp <- raise (raise (Server.start (supConfigStartFun supConfig i)))
-        let childPid = _fromEndpoint childEp
-        cMon <- monitor childPid
         mExisting <- lookupChildById @(ChildId p) @p i
         case mExisting of
           Nothing -> do
+            childEp <- raise (raise (Server.start (supConfigStartFun supConfig i)))
+            let childPid = _fromEndpoint childEp
+            cMon <- monitor childPid
             putChild i (MkChild @p childEp cMon)
             sendReply rt (Right childEp)
           Just existingChild ->
