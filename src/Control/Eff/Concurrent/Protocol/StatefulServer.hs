@@ -38,9 +38,9 @@ import GHC.Stack (HasCallStack)
 
 -- | A type class for server loops.
 --
--- This type class serves as interface for other abstractions, for example /process supervision/
+-- This class serves as interface for other mechanisms, for example /process supervision/
 --
--- The methods of this class handle 'Event's 'Request's for 'Pdu' instance.
+-- The methods of this class handle 'Event's and 'Request's for 'Pdu' instances.
 --
 -- Instances can by /index types/ for 'Pdu' family directly, or indirectly via the 'ServerPdu' type family.
 --
