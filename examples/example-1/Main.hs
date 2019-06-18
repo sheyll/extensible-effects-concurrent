@@ -6,6 +6,7 @@ import           Control.Eff
 import           Control.Monad
 import           Data.Dynamic
 import           Control.Eff.Concurrent
+import qualified Control.Eff.Concurrent.Protocol.CallbackServer as Callback
 import           Control.Eff.Concurrent.Protocol.EffectfulServer as Server
 import qualified Control.Exception             as Exc
 import qualified Data.Text as T
@@ -75,7 +76,7 @@ example = do
   go
 
 testServerLoop :: Eff Effects (Endpoint TestProtocol)
-testServerLoop = start (genServer ( \ _ e -> e) handleReq "test-server-1")
+testServerLoop = Callback.start (\ _ e -> e) handleReq "test-server-1"
  where
   handleReq :: Endpoint TestProtocol -> Event TestProtocol -> Eff Effects ()
   handleReq me (OnCall rt cm) =

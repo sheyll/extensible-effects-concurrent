@@ -4,6 +4,8 @@
 - Improve/fix `EmbedProtocol` type class
 - Add a _this_ like parameter to the methods of `EffectfulServer`
 - Rename `IsPdu` to `HasPdu`
+- Remove `GenServer` from `EffectfulServer` and put it into a 
+  new module: `Control.Eff.Concurrent.Protocol.CallbackServer`
 
 ## 0.26.1
 - Documentation fixes

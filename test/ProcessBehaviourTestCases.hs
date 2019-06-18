@@ -9,6 +9,7 @@ import           Control.Eff.Concurrent.Process.Timer
 import           Control.Eff.Concurrent.Protocol
 import           Control.Eff.Concurrent.Protocol.Request
 import           Control.Eff.Concurrent.Protocol.Client
+import qualified Control.Eff.Concurrent.Protocol.CallbackServer as Callback
 import           Control.Eff.Concurrent.Protocol.EffectfulServer
 import qualified Control.Eff.Concurrent.Process.ForkIOScheduler
                                                as ForkIO
@@ -127,8 +128,8 @@ returnToSenderServer
   :: forall q
    . (HasCallStack, Lifted IO q, LogsTo IO q, Member Logs q, Typeable q)
   => Eff (Processes q) (Endpoint ReturnToSender)
-returnToSenderServer = start
-  (genServer @ReturnToSender
+returnToSenderServer =
+  Callback.start @ReturnToSender
     (const id)
     (\_me evt ->
       case evt of
@@ -144,8 +145,6 @@ returnToSenderServer = start
         other -> interrupt (ErrorInterrupt (show other))
     )
     "return-to-sender"
-  )
-
 
 selectiveReceiveTests
   :: forall r
