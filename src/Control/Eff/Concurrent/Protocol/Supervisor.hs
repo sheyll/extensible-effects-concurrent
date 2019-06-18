@@ -168,8 +168,8 @@ instance
 
   type Model (Sup p) = Children (ChildId p) p
 
-  setup _cfg = pure (def, ())
-  update supConfig (OnCall rt req) =
+  setup _ _cfg = pure (def, ())
+  update _ supConfig (OnCall rt req) =
     case req of
       GetDiagnosticInfo ->  do
         p <- (pack . show <$> getChildren @(ChildId p) @p)
@@ -199,7 +199,7 @@ instance
           Just existingChild ->
             sendReply rt (Left (AlreadyStarted i (existingChild ^. childEndpoint)))
 
-  update _supConfig (OnDown (ProcessDown mrChild reason)) = do
+  update _ _supConfig (OnDown (ProcessDown mrChild reason)) = do
       oldEntry <- lookupAndRemoveChildByMonitor @(ChildId p) @p mrChild
       case oldEntry of
         Nothing ->
@@ -218,7 +218,7 @@ instance
                   <> " => "
                   <> pack (show (_childEndpoint c))
                   )
-  update supConfig (OnInterrupt e) = do
+  update _ supConfig (OnInterrupt e) = do
       let (logSev, exitReason) =
             case e of
               NormalExitRequested ->
@@ -229,7 +229,7 @@ instance
       logWithSeverity logSev ("supervisor stopping: " <> pack (show e))
       exitBecause exitReason
 
-  update _supConfig o = logWarning ("unexpected: " <> pack (show o))
+  update _ _supConfig o = logWarning ("unexpected: " <> pack (show o))
 
 
 -- | Runtime-Errors occurring when spawning child-processes.

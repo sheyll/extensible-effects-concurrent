@@ -1,18 +1,37 @@
--- | This module contains a mechanism to specify what kind of messages (aka
--- /requests/) a 'Endpoint' ('Process') can handle, and if the caller blocks and
--- waits for an answer, which the server process provides.
+-- | Types and functions for type-safe(er) interaction between processes.
 --
--- The type magic in the 'Pdu' type family allows to define a related set of /requests/ along
+-- All messages sent between processes are eventually converted to 'Dynamic' values
+-- which carry little type information.
+--
+-- A step towards a more controlled and type safe process interaction model is
+-- done with the facilities defined in this module.
+--
+-- The metaphor for communication is a /stateles protocol/ that describes the
+-- messages handled by a process.
+--
+-- A /protocol/ is represented by a custom data type, often a /phantom/ type,
+-- which is then used to form specific instances of type classes data/type families,
+-- to determine the messages, the replies, the servers and clients, associated with
+-- specific task, that needs to be executed concurrently.
+--
+-- This module contains a mechanism to specify what kind of messages (aka
+-- /requests/) an 'Endpoint' can handle.
+--
+-- The Endpoint wraps a 'ProcessId' and carries the protocol phantom-type, to indicate the messages
+-- that a process repsonds to.
+--
+-- The associated data type 'Pdu' defines the messages or /requests/ along
 -- with the corresponding responses.
 --
 -- Request handling can be either blocking, if a response is required, or
 -- non-blocking.
 --
--- A process can /serve/ a specific 'Pdu' instance by using the functions provided by
--- the "Control.Eff.Concurrent.Pdu.Server" module.
+-- A process can /serve/ a specific protocol by using the functions provided by
+-- the "Control.Eff.Concurrent.Protocol.EffectfulServer" and
+-- "Control.Eff.Concurrent.Protocol.EffectfulServer" modules.
 --
--- To enable a process to use such a /service/, the functions provided by
--- the "Control.Eff.Concurrent.Pdu.Client" should be used.
+-- To enable a process to use such a /service/, the functions provided in
+-- "Control.Eff.Concurrent.Protocol.Client" should be used.
 --
 module Control.Eff.Concurrent.Protocol
   ( IsPdu(..)
@@ -171,7 +190,6 @@ prettyTypeableShowsPrec d (SomeTypeRep tr) sIn =
 type instance ToPretty (Endpoint a) = ToPretty a <+> PutStr "endpoint"
 
 makeLenses ''Endpoint
-
 
 instance (IsPdu a1 r, IsPdu a2 r) => IsPdu (a1, a2) r where
   data instance Pdu (a1, a2) r where

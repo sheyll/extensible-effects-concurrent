@@ -74,24 +74,28 @@ class (Typeable (Protocol a)) => Server (a :: Type) q where
 
   -- | Return an initial 'Model' and 'Settings'
   setup ::
-       StartArgument a q
+       Endpoint (Protocol a)
+    -> StartArgument a q
     -> Eff q (Model a, Settings a)
 
   default setup ::
        (Default (Model a), Default (Settings a))
-    => StartArgument a q
+    => Endpoint (Protocol a)
+    -> StartArgument a q
     -> Eff q (Model a, Settings a)
-  setup _ = pure (def, def)
+  setup _ _ = pure (def, def)
 
   -- | Update the 'Model' based on the 'Event'.
   update ::
-       StartArgument a q
+       Endpoint (Protocol a)
+    -> StartArgument a q
     -> Effectful.Event (Protocol a)
     -> Eff (ModelState a ': SettingsReader a ': q) ()
 
 -- | This type is used to build stateful 'EffectfulServer' instances.
 --
--- The types that are suitable to be have to be instances of 'Server'
+-- It is a variant of 'EffectfulServer', that comes pre-installed
+-- with 'State' and 'Reader' effects.
 --
 -- @since 0.24.0
 data Stateful a deriving Typeable
@@ -101,11 +105,11 @@ instance Server a q => Effectful.Server (Stateful a) q where
   type ServerPdu (Stateful a) = Protocol a
   type ServerEffects (Stateful a) q = ModelState a ': SettingsReader a ': q
 
-  runEffects (Init sa) m = do
-    (st, env) <- setup sa
+  runEffects selfEndpoint (Init sa) m = do
+    (st, env) <- setup selfEndpoint sa
     runReader env (evalState st m)
 
-  onEvent (Init sa) = update sa
+  onEvent selfEndpoint (Init sa) = update selfEndpoint sa
 
 
 -- | Execute the server loop.

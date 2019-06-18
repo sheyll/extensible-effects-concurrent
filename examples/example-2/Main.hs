@@ -98,9 +98,9 @@ instance (LogIo q) => Server SupiCounter (Processes q) where
 
   data instance StartArgument SupiCounter (Processes q) = MkEmptySupiCounter
 
-  setup _ = return ((0, emptyObservers, Nothing), ())
+  setup _ _ = return ((0, emptyObservers, Nothing), ())
 
-  update _ = \case
+  update _ _ = \case
     OnCall rt callReq ->
       case callReq of
         ToPdu1 Cnt ->
@@ -139,10 +139,8 @@ logCounterObservations = do
 instance Member Logs q => Server (Observer CounterChanged) (Processes q) where
   data StartArgument (Observer CounterChanged) (Processes q) = OCCStart
   type Model (Observer CounterChanged) = Observers CounterChanged
-  type Settings (Observer CounterChanged) = ()
-  type Protocol (Observer CounterChanged) = Observer CounterChanged
-  setup _ = pure (emptyObservers, ())
-  update _ =
+  setup _ _ = pure (emptyObservers, ())
+  update _ _ =
     \case
       OnCast r -> handleObservations (\msg -> logInfo' ("observed: " ++ show msg)) r
       wtf -> logNotice (T.pack (show wtf))

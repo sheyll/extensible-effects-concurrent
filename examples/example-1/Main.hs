@@ -75,19 +75,17 @@ example = do
   go
 
 testServerLoop :: Eff Effects (Endpoint TestProtocol)
-testServerLoop = start (genServer (const id) handleReq "test-server-1")
+testServerLoop = start (genServer ( \ _ e -> e) handleReq "test-server-1")
  where
-  handleReq :: GenServerId TestProtocol -> Event TestProtocol -> Eff Effects ()
-  handleReq _myId (OnCall rt cm) =
+  handleReq :: Endpoint TestProtocol -> Event TestProtocol -> Eff Effects ()
+  handleReq me (OnCall rt cm) =
     case cm of
       Terminate -> do
-        me <- self
         logInfo (T.pack (show me ++ " exiting"))
         sendReply rt ()
         interrupt NormalExitRequested
 
       TerminateError e -> do
-        me <- self
         logInfo (T.pack (show me ++ " exiting with error: " ++ e))
         sendReply rt ()
         interrupt (ErrorInterrupt e)
@@ -95,43 +93,35 @@ testServerLoop = start (genServer (const id) handleReq "test-server-1")
       SayHello mx ->
         case mx of
           "e1" -> do
-            me <- self
             logInfo (T.pack (show me ++ " raising an error"))
             interrupt (ErrorInterrupt "No body loves me... :,(")
 
           "e2" -> do
-            me <- self
             logInfo (T.pack (show me ++ " throwing a MyException "))
             void (lift (Exc.throw MyException))
 
           "self" -> do
-            me <- self
             logInfo (T.pack (show me ++ " casting to self"))
-            cast (asEndpoint @TestProtocol me) (Shout "from me")
+            cast me (Shout "from me")
             sendReply rt False
 
           "stop" -> do
-            me <- self
             logInfo (T.pack (show me ++ " stopping me"))
             sendReply rt False
             interrupt (ErrorInterrupt "test error")
 
           x -> do
-            me <- self
             logInfo (T.pack (show me ++ " Got Hello: " ++ x))
             sendReply rt (length x > 3)
 
-  handleReq _myId (OnCast (Shout x)) = do
-    me <- self
+  handleReq me (OnCast (Shout x)) = do
     logInfo (T.pack (show me ++ " Shouting: " ++ x))
 
-  handleReq _myId (OnInterrupt msg) = do
-    me <- self
+  handleReq me (OnInterrupt msg) = do
     logInfo (T.pack (show me ++ " is exiting: " ++ show msg))
     logProcessExit msg
     interrupt msg
 
-  handleReq _myId wtf = do
-    me <- self
+  handleReq me wtf =
     logCritical (T.pack (show me ++ " WTF: " ++ show wtf))
 

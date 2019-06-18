@@ -266,7 +266,7 @@ data TestProtocolServerMode
   deriving Eq
 
 instance Server TestProtocol Effects where
-  update (TestServerArgs testMode tId) evt =
+  update _me (TestServerArgs testMode tId) evt =
     case evt of
       OnCast (TestInterruptWith i) -> do
         logInfo (pack (show tId) <> ": stopping with: " <> pack (show i))

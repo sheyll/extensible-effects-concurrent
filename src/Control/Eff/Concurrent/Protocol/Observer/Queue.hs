@@ -154,7 +154,7 @@ instance (TangibleObserver o, IsPdu (Observer o) 'Asynchronous, Lifted IO q, 
   data instance StartArgument (ObservationQueue o) (Processes q) =
      MkObservationQueue (ObservationQueue o)
 
-  update (MkObservationQueue (ObservationQueue q)) =
+  update _ (MkObservationQueue (ObservationQueue q)) =
     \case
       OnCast r ->
         handleObservations (lift . atomically . writeTBQueue q) r

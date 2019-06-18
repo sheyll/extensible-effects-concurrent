@@ -71,16 +71,16 @@ class Server (a :: Type) (e :: [Type -> Type])
   serverTitle _ = fromString $ prettyTypeableShows (typeRep (Proxy @(ServerPdu a))) "-server"
 
   -- | Process the effects of the implementation
-  runEffects :: Init a e -> Eff (ServerEffects a e) x -> Eff e x
+  runEffects :: Endpoint (ServerPdu a) -> Init a e -> Eff (ServerEffects a e) x -> Eff e x
 
-  default runEffects :: ServerEffects a e ~ e => Init a e -> Eff (ServerEffects a e) x -> Eff e x
-  runEffects = const id
+  default runEffects :: ServerEffects a e ~ e => Endpoint (ServerPdu a) -> Init a e -> Eff (ServerEffects a e) x -> Eff e x
+  runEffects _ = const id
 
   -- | Update the 'Model' based on the 'Event'.
-  onEvent :: Init a e -> Event (ServerPdu a) -> Eff (ServerEffects a e) ()
+  onEvent :: Endpoint (ServerPdu a) -> Init a e -> Event (ServerPdu a) -> Eff (ServerEffects a e) ()
 
-  default onEvent :: (Show (Init a e),  Member Logs (ServerEffects a e)) => Init a e -> Event (ServerPdu a) -> Eff (ServerEffects a e) ()
-  onEvent i e = logInfo ("unhandled: " <> T.pack (show i) <> " " <> T.pack (show e))
+  default onEvent :: (Show (Init a e),  Member Logs (ServerEffects a e)) => Endpoint (ServerPdu a) -> Init a e -> Event (ServerPdu a) -> Eff (ServerEffects a e) ()
+  onEvent _ i e = logInfo ("unhandled: " <> T.pack (show i) <> " " <> T.pack (show e))
 
 
 -- | Execute the server loop.
@@ -129,10 +129,11 @@ protocolServerLoop
        )
   => Init a (Processes q) -> Eff (Processes q) ()
 protocolServerLoop a = do
-  myEp <- T.pack . show . asEndpoint @(ServerPdu a) <$> self
-  censorLogs (lmAddEp myEp) $ do
+  myEp <- asEndpoint @(ServerPdu a) <$> self
+  let myEpTxt = T.pack . show $ myEp
+  censorLogs (lmAddEp myEpTxt) $ do
     logDebug ("starting")
-    runEffects a (receiveSelectedLoop sel mainLoop)
+    runEffects  myEp a (receiveSelectedLoop sel (mainLoop myEp))
     return ()
   where
     lmAddEp myEp = lmProcessId ?~ myEp
@@ -145,12 +146,13 @@ protocolServerLoop a = do
         onRequest :: Request (ServerPdu a) -> Event (ServerPdu a)
         onRequest (Call o m) = OnCall (replyTarget (MkSerializer toStrictDynamic) o) m
         onRequest (Cast m) = OnCast m
-    handleInt i = onEvent a (OnInterrupt i) *> pure Nothing
+    handleInt myEp i = onEvent myEp a (OnInterrupt i) *> pure Nothing
     mainLoop :: (Typeable a)
-      => Either (Interrupt 'Recoverable) (Event (ServerPdu a))
+      => Endpoint (ServerPdu a)
+      -> Either (Interrupt 'Recoverable) (Event (ServerPdu a))
       -> Eff (ServerEffects a (Processes q)) (Maybe ())
-    mainLoop (Left i) = handleInt i
-    mainLoop (Right i) = onEvent a i *> pure Nothing
+    mainLoop myEp (Left i) = handleInt myEp i
+    mainLoop myEp (Right i) = onEvent myEp a i *> pure Nothing
 
 -- | This event sum-type is used to communicate incoming messages and other events to the
 -- instances of 'Server'.
@@ -213,8 +215,8 @@ type instance ToPretty (Event a) = ToPretty a <+> PutStr "event"
 data GenServer tag eLoop e where
   MkGenServer
     :: (TangibleGenServer tag eLoop e, HasCallStack) =>
-    { genServerRunEffects :: forall x . (Eff eLoop x -> Eff (Processes e) x)
-    , genServerOnEvent :: Event tag -> Eff eLoop ()
+    { genServerRunEffects :: forall x . (Endpoint tag -> Eff eLoop x -> Eff (Processes e) x)
+    , genServerOnEvent :: Endpoint tag -> Event tag -> Eff eLoop ()
     } -> GenServer tag eLoop e
   deriving Typeable
 
@@ -254,11 +256,11 @@ instance (TangibleGenServer tag eLoop e) => Server (GenServer (tag :: Type) eLoo
          { genServerCallbacks :: GenServer tag eLoop e
          , genServerId :: GenServerId tag
          } deriving Typeable
-  runEffects (GenServerInit cb cId) m =
+  runEffects myEp (GenServerInit cb cId) m =
     censorLogs
       (lmMessage <>~ (" | " <> _fromGenServerId cId))
-      (genServerRunEffects cb m)
-  onEvent (GenServerInit cb _cId) req = genServerOnEvent cb req
+      (genServerRunEffects cb myEp m)
+  onEvent myEp (GenServerInit cb _cId) req = genServerOnEvent cb myEp req
 
 instance NFData (Init (GenServer tag eLoop e) (Processes e)) where
   rnf (GenServerInit _ x) = rnf x
@@ -282,21 +284,21 @@ instance Typeable tag => Show (Init (GenServer tag eLoop e) (Processes e)) where
 -- that generates 'Init's from 'GenServerId's, like a /factory/
 --
 -- @since 0.24.0
-genServer
+genServer -- TODO rename to callback...
   :: forall tag eLoop e .
      ( HasCallStack
      , TangibleGenServer tag eLoop e
      , Server (GenServer tag eLoop e) (Processes e)
      )
-  => (forall x . GenServerId tag -> Eff eLoop x -> Eff (Processes e) x)
-  -> (GenServerId tag -> Event tag -> Eff eLoop ())
+  => (forall x . Endpoint tag -> Eff eLoop x -> Eff (Processes e) x)
+  -> (Endpoint tag -> Event tag -> Eff eLoop ())
   -> GenServerId tag
   -> Init (GenServer tag eLoop e) (Processes e)
 genServer initCb stepCb i =
   GenServerInit
     { genServerId = i
     , genServerCallbacks =
-        MkGenServer { genServerRunEffects = initCb i
-                    , genServerOnEvent = stepCb i
+        MkGenServer { genServerRunEffects = initCb
+                    , genServerOnEvent = stepCb
                     }
     }

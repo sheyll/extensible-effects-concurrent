@@ -43,7 +43,7 @@ instance Show (Pdu Small r) where
 instance LogIo e => S.Server Small (Processes e) where
   data StartArgument Small (Processes e) = MkSmall
   type Model Small = String
-  update MkSmall x =
+  update _me MkSmall x =
     case x of
       E.OnCall rt (SmallCall f) ->
        sendReply rt f
@@ -60,9 +60,9 @@ type instance ToPretty Big = PutStr "big"
 
 instance Typeable r => IsPdu Big r where
   data instance  Pdu Big r where
-          BigCall :: Bool -> Pdu Big ('Synchronous Bool)
-          BigCast :: String -> Pdu Big 'Asynchronous
-          BigSmall :: Pdu Small r -> Pdu Big r
+    BigCall :: Bool -> Pdu Big ('Synchronous Bool)
+    BigCast :: String -> Pdu Big 'Asynchronous
+    BigSmall :: Pdu Small r -> Pdu Big r
       deriving Typeable
 
 instance NFData (Pdu Big r) where
@@ -88,17 +88,17 @@ instance EmbedProtocol Big Small r where
 instance LogIo e => S.Server Big (Processes e) where
   data instance StartArgument Big (Processes e) = MkBig
   type Model Big = String
-  update MkBig = \case
+  update me MkBig = \case
     E.OnCall rt req ->
           case req of
             BigCall o -> do
               logNotice ("BigCall " <> pack (show o))
               sendReply rt o
-            BigSmall x -> S.update MkSmall (S.OnCall (toEmbeddedReplyTarget rt) x)
+            BigSmall x -> S.update (toEmbeddedEndpoint me) MkSmall (S.OnCall (toEmbeddedReplyTarget rt) x)
     E.OnCast req ->
         case req of
           BigCast o -> S.putModel @Big o
-          BigSmall x -> S.update MkSmall (S.OnCast x)
+          BigSmall x -> S.update (toEmbeddedEndpoint me) MkSmall (S.OnCast x)
     other ->
       interrupt (ErrorInterrupt (show other))
 -- ----------------------------------------------------------------------------
