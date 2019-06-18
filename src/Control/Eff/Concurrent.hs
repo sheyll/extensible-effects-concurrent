@@ -32,7 +32,7 @@ module Control.Eff.Concurrent
     module Control.Eff.Concurrent.Protocol.Client
   ,
     -- ** /Protocol-Server/ Support Functions for building protocol servers
-    module Control.Eff.Concurrent.Protocol.Request
+    module Control.Eff.Concurrent.Protocol.Wrapper
   ,
     -- ** /Observer/ Functions for Events and Event Listener
     module Control.Eff.Concurrent.Protocol.Observer
@@ -234,7 +234,7 @@ import           Control.Eff.Concurrent.Protocol.Observer.Queue
                                                 , withObservationQueue
                                                 , spawnLinkObservationQueueWriter
                                                 )
-import           Control.Eff.Concurrent.Protocol.Request
+import           Control.Eff.Concurrent.Protocol.Wrapper
                                                 ( Request(..)
                                                 , sendReply
                                                 , ReplyTarget(..)

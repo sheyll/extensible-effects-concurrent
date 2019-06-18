@@ -67,7 +67,7 @@ import Control.DeepSeq (NFData(rnf))
 import Control.Eff as Eff
 import Control.Eff.Concurrent.Protocol
 import Control.Eff.Concurrent.Protocol.Client
-import Control.Eff.Concurrent.Protocol.Request
+import Control.Eff.Concurrent.Protocol.Wrapper
 import Control.Eff.Concurrent.Protocol.StatefulServer as Server
 import Control.Eff.Concurrent.Protocol.Supervisor.InternalState
 import Control.Eff.Concurrent.Process

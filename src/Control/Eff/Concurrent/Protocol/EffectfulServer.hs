@@ -17,7 +17,7 @@ import Control.Eff.Extend ()
 import Control.Eff.Concurrent.Process
 import Control.Eff.Concurrent.Process.Timer
 import Control.Eff.Concurrent.Protocol
-import Control.Eff.Concurrent.Protocol.Request
+import Control.Eff.Concurrent.Protocol.Wrapper
 import Control.Eff.Log
 import Control.Lens
 import Data.Kind

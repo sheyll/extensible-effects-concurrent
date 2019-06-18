@@ -6,6 +6,7 @@
 - Rename `IsPdu` to `HasPdu`
 - Remove `GenServer` from `EffectfulServer` and put it into a 
   new module: `Control.Eff.Concurrent.Protocol.CallbackServer`
+- Rename `Control.Eff.Concurrent.Protocol.Request` to `(...).Wrapper`
 
 ## 0.26.1
 - Documentation fixes

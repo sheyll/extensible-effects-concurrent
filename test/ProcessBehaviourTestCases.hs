@@ -7,7 +7,7 @@ import           Control.Concurrent.STM
 import           Control.Eff.Concurrent.Process
 import           Control.Eff.Concurrent.Process.Timer
 import           Control.Eff.Concurrent.Protocol
-import           Control.Eff.Concurrent.Protocol.Request
+import           Control.Eff.Concurrent.Protocol.Wrapper
 import           Control.Eff.Concurrent.Protocol.Client
 import qualified Control.Eff.Concurrent.Protocol.CallbackServer as Callback
 import           Control.Eff.Concurrent.Protocol.EffectfulServer

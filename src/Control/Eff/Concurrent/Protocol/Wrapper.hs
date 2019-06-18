@@ -1,7 +1,7 @@
 -- | Proxies and containers for casts and calls.
 --
 -- @since 0.15.0
-module Control.Eff.Concurrent.Protocol.Request -- TODO rename to Wrapper
+module Control.Eff.Concurrent.Protocol.Wrapper
   ( Request(..)
   , sendReply
   , ReplyTarget(..)
