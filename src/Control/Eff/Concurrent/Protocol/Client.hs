@@ -40,8 +40,8 @@ cast
    . ( HasCallStack
      , SetMember Process (Process q) r
      , Member Interrupts r
-     , IsPdu o' 'Asynchronous
-     , IsPdu o 'Asynchronous
+     , HasPdu o' 'Asynchronous
+     , HasPdu o 'Asynchronous
      , EmbedProtocol o' o 'Asynchronous
      )
   => Endpoint o'
@@ -192,7 +192,7 @@ castEndpointReader
      ( ServesProtocol o r q
      , HasCallStack
      , Member Interrupts r
-     , IsPdu o 'Asynchronous
+     , HasPdu o 'Asynchronous
      )
   => Pdu o 'Asynchronous
   -> Eff r ()
@@ -236,8 +236,8 @@ castSingleton
     , Member (EndpointReader outer) e
     , SetMember Process (Process q) e
     , Member Interrupts e
-    , IsPdu outer 'Asynchronous
-    , IsPdu inner 'Asynchronous
+    , HasPdu outer 'Asynchronous
+    , HasPdu inner 'Asynchronous
     )
   => Pdu inner 'Asynchronous
   -> Eff e ()

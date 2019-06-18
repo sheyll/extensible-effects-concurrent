@@ -34,7 +34,7 @@
 -- "Control.Eff.Concurrent.Protocol.Client" should be used.
 --
 module Control.Eff.Concurrent.Protocol
-  ( IsPdu(..)
+  ( HasPdu(..)
   , Pdu(..)
   , Synchronicity(..)
   , ProtocolReply
@@ -80,7 +80,7 @@ import           Type.Reflection
 -- >
 -- > data BookShop deriving Typeable
 -- >
--- > instance IsPdu BookShop r where
+-- > instance HasPdu BookShop r where
 -- >   data instance Pdu BookShop r where
 -- >     RentBook  :: BookId   -> Pdu BookShop ('Synchronous (Either RentalError RentalId))
 -- >     BringBack :: RentalId -> Pdu BookShop 'Asynchronous
@@ -92,7 +92,11 @@ import           Type.Reflection
 -- >
 --
 -- @since 0.25.1
-class (NFData (Pdu protocol reply), Show (Pdu protocol reply), Typeable protocol, Typeable reply) => IsPdu (protocol :: Type) (reply :: Synchronicity) where
+class (NFData (Pdu protocol reply), Show (Pdu protocol reply), Typeable protocol, Typeable reply) => HasPdu (protocol :: Type) (reply :: Synchronicity) where
+
+  -- | The __protocol data unit__ type for the given protocol.
+  data family Pdu protocol reply
+
   -- | Deserialize a 'Pdu' from a 'Dynamic' i.e. from a message received by a process.
   --
   -- @since 0.25.1
@@ -100,9 +104,6 @@ class (NFData (Pdu protocol reply), Show (Pdu protocol reply), Typeable protocol
 
   default deserializePdu :: (Typeable (Pdu protocol reply)) => Dynamic -> Maybe (Pdu protocol reply)
   deserializePdu = fromDynamic
-
-  -- | The __protocol data unit__ type for the given protocol.
-  data family Pdu protocol reply
 
   --  type family PrettyPdu protocol reply :: PrettyType
   --  type instance PrettyPdu protocol reply =
@@ -191,7 +192,7 @@ type instance ToPretty (Endpoint a) = ToPretty a <+> PutStr "endpoint"
 
 makeLenses ''Endpoint
 
-instance (IsPdu a1 r, IsPdu a2 r) => IsPdu (a1, a2) r where
+instance (HasPdu a1 r, HasPdu a2 r) => HasPdu (a1, a2) r where
   data instance Pdu (a1, a2) r where
           ToPduLeft :: Pdu a1 r -> Pdu (a1, a2) r
           ToPduRight :: Pdu a2 r -> Pdu (a1, a2) r
@@ -207,7 +208,7 @@ instance (IsPdu a1 r, IsPdu a2 r) => IsPdu (a1, a2) r where
           Nothing ->
             Nothing
 
-instance (IsPdu a1 r, IsPdu a2 r, IsPdu a3 r) => IsPdu (a1, a2, a3) r where
+instance (HasPdu a1 r, HasPdu a2 r, HasPdu a3 r) => HasPdu (a1, a2, a3) r where
   data instance Pdu (a1, a2, a3) r where
     ToPdu1 :: Pdu a1 r -> Pdu (a1, a2, a3) r
     ToPdu2 :: Pdu a2 r -> Pdu (a1, a2, a3) r
@@ -228,7 +229,7 @@ instance (IsPdu a1 r, IsPdu a2 r, IsPdu a3 r) => IsPdu (a1, a2, a3) r where
               Nothing ->
                 Nothing
 
-instance (IsPdu a1 r, IsPdu a2 r, IsPdu a3 r, IsPdu a4 r) => IsPdu (a1, a2, a3, a4) r where
+instance (HasPdu a1 r, HasPdu a2 r, HasPdu a3 r, HasPdu a4 r) => HasPdu (a1, a2, a3, a4) r where
   data instance Pdu (a1, a2, a3, a4) r where
     ToPdu1Of4 :: Pdu a1 r -> Pdu (a1, a2, a3, a4) r
     ToPdu2Of4 :: Pdu a2 r -> Pdu (a1, a2, a3, a4) r
@@ -254,7 +255,7 @@ instance (IsPdu a1 r, IsPdu a2 r, IsPdu a3 r, IsPdu a4 r) => IsPdu (a1, a2, a3, 
                   Nothing ->
                     Nothing
 
-instance (IsPdu a1 r, IsPdu a2 r, IsPdu a3 r, IsPdu a4 r, IsPdu a5 r) => IsPdu (a1, a2, a3, a4, a5) r where
+instance (HasPdu a1 r, HasPdu a2 r, HasPdu a3 r, HasPdu a4 r, HasPdu a5 r) => HasPdu (a1, a2, a3, a4, a5) r where
   data instance Pdu (a1, a2, a3, a4, a5) r where
     ToPdu1Of5 :: Pdu a1 r -> Pdu (a1, a2, a3, a4, a5) r
     ToPdu2Of5 :: Pdu a2 r -> Pdu (a1, a2, a3, a4, a5) r

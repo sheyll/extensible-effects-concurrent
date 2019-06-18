@@ -3,6 +3,7 @@
 ## 0.27.0
 - Improve/fix `EmbedProtocol` type class
 - Add a _this_ like parameter to the methods of `EffectfulServer`
+- Rename `IsPdu` to `HasPdu`
 
 ## 0.26.1
 - Documentation fixes

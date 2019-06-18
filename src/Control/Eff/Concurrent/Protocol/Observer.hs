@@ -54,7 +54,7 @@ import           GHC.Stack
 data Observer o where
   Observer
     :: ( Tangible o
-       , IsPdu p 'Asynchronous
+       , HasPdu p 'Asynchronous
        , Tangible (Endpoint p)
        , Typeable p
        )
@@ -65,7 +65,7 @@ data Observer o where
 --
 -- @since 0.24.0
 type TangibleObserver o =
-  ( Tangible o, IsPdu (Observer o) 'Asynchronous)
+  ( Tangible o, HasPdu (Observer o) 'Asynchronous)
 
 type instance ToPretty (Observer o) =
   PrettyParens ("observing" <:> ToPretty o)
@@ -98,7 +98,7 @@ registerObserver
      , Member Interrupts r
      , TangibleObserver o
      , EmbedProtocol x (ObserverRegistry o) 'Asynchronous
-     , IsPdu x 'Asynchronous
+     , HasPdu x 'Asynchronous
      )
   => Observer o
   -> Endpoint x
@@ -116,7 +116,7 @@ forgetObserver
      , Typeable o
      , NFData o
      , EmbedProtocol x (ObserverRegistry o) 'Asynchronous
-     , IsPdu x 'Asynchronous
+     , HasPdu x 'Asynchronous
      )
   => Observer o
   -> Endpoint x
@@ -131,7 +131,7 @@ forgetObserver observer observerRegistry =
 -- any other 'Asynchronous' 'Pdu' message type for receiving observations.
 --
 -- @since 0.16.0
-instance (NFData o, Show o, Typeable o, Typeable r) => IsPdu (Observer o) r where
+instance (NFData o, Show o, Typeable o, Typeable r) => HasPdu (Observer o) r where
   data instance Pdu (Observer o) r where
     -- | This message denotes that the given value was 'observed'.
     --
@@ -161,7 +161,7 @@ handleObservations k (Observed r) = k r
 -- @since 0.16.0
 toObserver
   :: forall o p
-  . ( IsPdu p 'Asynchronous
+  . ( HasPdu p 'Asynchronous
     , EmbedProtocol p (Observer o) 'Asynchronous
     , TangibleObserver o
     )
@@ -175,7 +175,7 @@ toObserver = toObserverFor (embedPdu @p . Observed)
 --
 -- @since 0.16.0
 toObserverFor
-  :: (TangibleObserver o, Typeable a, IsPdu a 'Asynchronous)
+  :: (TangibleObserver o, Typeable a, HasPdu a 'Asynchronous)
   => (o -> Pdu a 'Asynchronous)
   -> Endpoint a
   -> Observer o
@@ -193,7 +193,7 @@ data ObserverRegistry (o :: Type)
 type instance ToPretty (ObserverRegistry o) =
   PrettyParens ("observer registry" <:> ToPretty o)
 
-instance (Typeable o, Typeable r) => IsPdu (ObserverRegistry o) r where
+instance (Typeable o, Typeable r) => HasPdu (ObserverRegistry o) r where
   -- | Protocol for managing observers. This can be added to any server for any number of different observation types.
   -- The functions 'manageObservers' and 'handleObserverRegistration' are used to include observer handling;
   --

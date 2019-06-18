@@ -23,7 +23,7 @@ data Counter deriving Typeable
 
 type instance ToPretty Counter = PutStr "counter"
 
-instance Typeable x => IsPdu Counter x where
+instance Typeable x => HasPdu Counter x where
   data instance Pdu Counter x where
     Inc :: Pdu Counter 'Asynchronous
     Cnt :: Pdu Counter ('Synchronous Integer)
@@ -67,7 +67,7 @@ data SupiDupi deriving Typeable
 
 type instance ToPretty SupiDupi = PutStr "supi dupi"
 
-instance Typeable r => IsPdu SupiDupi r where
+instance Typeable r => HasPdu SupiDupi r where
   data instance Pdu SupiDupi r where
     Whoopediedoo :: Bool -> Pdu SupiDupi ('Synchronous (Maybe ()))
     deriving Typeable

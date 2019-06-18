@@ -23,7 +23,7 @@ data Small deriving Typeable
 
 type instance ToPretty Small = PutStr "small"
 
-instance Typeable r => IsPdu Small r where
+instance Typeable r => HasPdu Small r where
   data instance  Pdu Small r where
           SmallCall :: Bool -> Pdu Small ('Synchronous Bool)
           SmallCast :: String -> Pdu Small 'Asynchronous
@@ -58,7 +58,7 @@ data Big deriving (Typeable)
 
 type instance ToPretty Big = PutStr "big"
 
-instance Typeable r => IsPdu Big r where
+instance Typeable r => HasPdu Big r where
   data instance  Pdu Big r where
     BigCall :: Bool -> Pdu Big ('Synchronous Bool)
     BigCast :: String -> Pdu Big 'Asynchronous
