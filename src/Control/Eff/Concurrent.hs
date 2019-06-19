@@ -74,7 +74,12 @@ module Control.Eff.Concurrent
   )
 where
 
-import           Control.Eff.Concurrent.Process ( Process(..)
+import           Control.Eff.Concurrent.Process
+                                                ( Process(..)
+                                                , SafeProcesses
+                                                , Processes
+                                                , HasProcesses
+                                                , HasSafeProcesses
                                                 , ProcessTitle(..)
                                                 , fromProcessTitle
                                                 , ProcessDetails(..)
@@ -86,46 +91,42 @@ import           Control.Eff.Concurrent.Process ( Process(..)
                                                 , Serializer(..)
                                                 , ProcessId(..)
                                                 , fromProcessId
-                                                , SafeProcesses
-                                                , ResumeProcess(..)
-                                                , ProcessState(..)
                                                 , yieldProcess
                                                 , sendMessage
                                                 , sendAnyMessage
-                                                , sendShutdown
-                                                , sendInterrupt
                                                 , makeReference
-                                                , getProcessState
-                                                , updateProcessDetails
-                                                , receiveAnyMessage
                                                 , receiveMessage
                                                 , receiveSelectedMessage
                                                 , flushMessages
-                                                , receiveAnyLoop
+                                                , receiveAnyMessage
                                                 , receiveLoop
                                                 , receiveSelectedLoop
-                                                , MessageSelector
-                                                  ( runMessageSelector
-                                                  )
-                                                , selectMessage
+                                                , receiveAnyLoop
+                                                , MessageSelector(runMessageSelector)
                                                 , selectMessage
                                                 , filterMessage
-                                                , filterMessage
                                                 , selectMessageWith
-                                                , selectMessageWith
-                                                , selectDynamicMessage
                                                 , selectDynamicMessage
                                                 , selectAnyMessage
                                                 , self
                                                 , isProcessAlive
+                                                , getProcessState
+                                                , updateProcessDetails
                                                 , spawn
                                                 , spawn_
                                                 , spawnLink
                                                 , spawnRaw
                                                 , spawnRaw_
+                                                , ResumeProcess(..)
+                                                , executeAndResume
+                                                , executeAndResumeOrExit
+                                                , executeAndResumeOrThrow
+                                                , interrupt
+                                                , sendInterrupt
                                                 , exitBecause
                                                 , exitNormally
                                                 , exitWithError
+                                                , sendShutdown -- TODO rename to 'sendExit'
                                                 , linkProcess
                                                 , unlinkProcess
                                                 , monitor
@@ -136,23 +137,11 @@ import           Control.Eff.Concurrent.Process ( Process(..)
                                                 , MonitorReference(..)
                                                 , withMonitor
                                                 , receiveWithMonitor
-                                                , provideInterruptsShutdown
-                                                , handleInterrupts
-                                                , tryUninterrupted
-                                                , exitOnInterrupt
-                                                , logInterrupts
-                                                , provideInterrupts
-                                                , mergeEitherInterruptAndExitReason
-                                                , interrupt
-                                                , executeAndResume
-                                                , executeAndResumeOrExit
-                                                , executeAndResumeOrThrow
                                                 , Interrupt(..)
+                                                , Interrupts
                                                 , interruptToExit
                                                 , ExitRecovery(..)
                                                 , RecoverableInterrupt
-                                                , Interrupts
-                                                , Processes
                                                 , ExitSeverity(..)
                                                 , SomeExitReason(SomeExitReason)
                                                 , toExitRecovery
@@ -163,6 +152,13 @@ import           Control.Eff.Concurrent.Process ( Process(..)
                                                 , toCrashReason
                                                 , fromSomeExitReason
                                                 , logProcessExit
+                                                , provideInterruptsShutdown
+                                                , handleInterrupts
+                                                , tryUninterrupted
+                                                , exitOnInterrupt
+                                                , logInterrupts
+                                                , provideInterrupts
+                                                , mergeEitherInterruptAndExitReason
                                                 )
 import           Control.Eff.Concurrent.Process.Timer
                                                 ( Timeout(fromTimeoutMicros)

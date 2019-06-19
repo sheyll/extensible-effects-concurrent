@@ -38,8 +38,7 @@ import           GHC.Stack
 cast
   :: forall o' o r q
    . ( HasCallStack
-     , SetMember Process (Process q) r
-     , Member Interrupts r
+     , HasProcesses r q
      , HasPdu o' 'Asynchronous
      , HasPdu o 'Asynchronous
      , EmbedProtocol o' o 'Asynchronous
@@ -57,8 +56,7 @@ cast (Endpoint pid) castMsg = sendMessage pid (Cast (embedPdu @o' castMsg))
 -- __Always prefer 'callWithTimeout' over 'call'__
 call
   :: forall result protocol' protocol r q
-   . ( SetMember Process (Process q) r
-     , Member Interrupts r
+   . ( HasProcesses r q
      , TangiblePdu protocol' ( 'Synchronous result)
      , TangiblePdu protocol ( 'Synchronous result)
      , EmbedProtocol protocol' protocol ( 'Synchronous result)
@@ -100,8 +98,7 @@ call (Endpoint pidInternal) req = do
 -- @since 0.22.0
 callWithTimeout
   :: forall result protocol' protocol r q
-   . ( SetMember Process (Process q) r
-     , Member Interrupts r
+   . ( HasProcesses r q
      , TangiblePdu protocol' ( 'Synchronous result)
      , TangiblePdu protocol ( 'Synchronous result)
      , EmbedProtocol protocol' protocol ( 'Synchronous result)
@@ -146,9 +143,9 @@ callWithTimeout serverP@(Endpoint pidInternal) req timeOut = do
 -- only a __single server__ for a given 'Pdu' instance. This type alias is
 -- convenience to express that an effect has 'Process' and a reader for a
 -- 'Endpoint'.
-type ServesProtocol o r q =
+type ServesProtocol o r q =          -- TODO remove!
   ( Typeable o
-  , SetMember Process (Process q) r
+  , HasSafeProcesses r q
   , Member (EndpointReader o) r
   )
 
@@ -205,15 +202,14 @@ castEndpointReader method = do
 -- This function makes use of AmbigousTypes and TypeApplications.
 --
 -- When not working with an embedded 'Pdu' use 'callEndpointReader'.
--- 
+--
 -- @since 0.25.1
 callSingleton
   :: forall outer inner reply q e
   . ( HasCallStack
     , EmbedProtocol outer inner  ( 'Synchronous reply)
     , Member (EndpointReader outer) e
-    , SetMember Process (Process q) e
-    , Member Interrupts e
+    , HasProcesses e q
     , TangiblePdu outer ('Synchronous reply)
     , TangiblePdu inner ('Synchronous reply)
     , Tangible reply
@@ -234,8 +230,7 @@ castSingleton
   . ( HasCallStack
     , EmbedProtocol outer inner 'Asynchronous
     , Member (EndpointReader outer) e
-    , SetMember Process (Process q) e
-    , Member Interrupts e
+    , HasProcesses e q
     , HasPdu outer 'Asynchronous
     , HasPdu inner 'Asynchronous
     )

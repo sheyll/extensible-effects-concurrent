@@ -107,7 +107,7 @@ deriving instance Typeable (Pdu ReturnToSender x)
 
 returnToSender
   :: forall q r
-   . (HasCallStack, SetMember Process (Process q) r, Member Interrupts r)
+   . (HasCallStack, HasProcesses r q)
   => Endpoint ReturnToSender
   -> String
   -> Eff r Bool
@@ -119,7 +119,7 @@ returnToSender toP msg = do
 
 stopReturnToSender
   :: forall q r
-   . (HasCallStack, SetMember Process (Process q) r, Member Interrupts r)
+   . (HasCallStack, HasProcesses r q)
   => Endpoint ReturnToSender
   -> Eff r ()
 stopReturnToSender toP = call toP StopReturnToSender

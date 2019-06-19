@@ -39,8 +39,7 @@ receiveAfter
   :: forall a r q
    . ( Lifted IO q
      , HasCallStack
-     , SetMember Process (Process q) r
-     , Member Interrupts r
+     , HasProcesses r q
      , Typeable a
      , NFData a
      , Show a
@@ -59,8 +58,7 @@ receiveSelectedAfter
   :: forall a r q
    . ( Lifted IO q
      , HasCallStack
-     , SetMember Process (Process q) r
-     , Member Interrupts r
+     , HasProcesses r q
      , Show a
      )
   => MessageSelector a
@@ -80,8 +78,7 @@ receiveSelectedWithMonitorAfter
   :: forall a r q
    . ( Lifted IO q
      , HasCallStack
-     , SetMember Process (Process q) r
-     , Member Interrupts r
+     , HasProcesses r q
      , Show a
      )
   => ProcessId
@@ -150,8 +147,7 @@ sendAfter
   :: forall r q message
    . ( Lifted IO q
      , HasCallStack
-     , SetMember Process (Process q) r
-     , Member Interrupts r
+     , HasProcesses r q
      , Typeable message
      , NFData message
      )
@@ -179,8 +175,7 @@ startTimer
   :: forall r q
    . ( Lifted IO q
      , HasCallStack
-     , SetMember Process (Process q) r
-     , Member Interrupts r
+     , HasProcesses r q
      )
   => Timeout
   -> Eff r TimerReference
@@ -195,8 +190,7 @@ cancelTimer
   :: forall r q
    . ( Lifted IO q
      , HasCallStack
-     , SetMember Process (Process q) r
-     , Member Interrupts r
+     , HasProcesses r q
      )
   => TimerReference
   -> Eff r ()

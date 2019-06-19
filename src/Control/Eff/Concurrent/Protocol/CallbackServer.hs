@@ -71,8 +71,7 @@ data Server tag eLoop deriving Typeable
 -- @since 0.27.0
 type TangibleCallbacks tag eLoop e =
        ( LogIo e
-       , SetMember Process (Process e) eLoop
-       , Member Interrupts eLoop
+       , HasProcesses eLoop e
        , Typeable e
        , Typeable eLoop
        , Typeable tag

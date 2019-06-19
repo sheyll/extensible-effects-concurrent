@@ -270,8 +270,7 @@ startSupervisor = Server.start
 -- @since 0.23.0
 stopSupervisor
   :: ( HasCallStack
-     , Member Interrupts e
-     , SetMember Process (Process q0) e
+     , HasProcesses e q
      , Member Logs e
      , Lifted IO e
      , TangibleSup p
@@ -291,10 +290,9 @@ stopSupervisor ep = do
 isSupervisorAlive
   :: forall p q0 e .
      ( HasCallStack
-     , Member Interrupts e
      , Member Logs e
      , Typeable p
-     , SetMember Process (Process q0) e
+     , HasProcesses e q0
      )
   => Endpoint (Sup p)
   -> Eff e Bool
@@ -306,9 +304,8 @@ isSupervisorAlive x = isProcessAlive (_fromEndpoint x)
 monitorSupervisor
   :: forall p q0 e .
      ( HasCallStack
-     , Member Interrupts e
      , Member Logs e
-     , SetMember Process (Process q0) e
+     , HasProcesses e q0
      , TangibleSup p
      )
   => Endpoint (Sup p)
@@ -322,9 +319,8 @@ monitorSupervisor x = monitor (_fromEndpoint x)
 spawnChild
   :: forall p q0 e .
      ( HasCallStack
-     , Member Interrupts e
      , Member Logs e
-     , SetMember Process (Process q0) e
+     , HasProcesses e q0
      , TangibleSup p
      , Typeable (Protocol p)
      )
@@ -340,9 +336,8 @@ spawnChild ep cId = call ep (StartC cId)
 lookupChild ::
     forall p e q0 .
      ( HasCallStack
-     , Member Interrupts e
      , Member Logs e
-     , SetMember Process (Process q0) e
+     , HasProcesses e q0
      , TangibleSup p
      , Typeable (Protocol p)
      )
@@ -360,9 +355,8 @@ lookupChild ep cId = call ep (LookupC @p cId)
 stopChild ::
     forall p e q0 .
      ( HasCallStack
-     , Member Interrupts e
      , Member Logs e
-     , SetMember Process (Process q0) e
+     , HasProcesses e q0
      , TangibleSup p
      )
   => Endpoint (Sup p)
@@ -376,8 +370,7 @@ stopChild ep cId = call ep (StopC @p cId (TimeoutMicros 4000000))
 getDiagnosticInfo
   :: forall p e q0 .
      ( HasCallStack
-     , Member Interrupts e
-     , SetMember Process (Process q0) e
+     , HasProcesses e q0
      , TangibleSup p
      )
   => Endpoint (Sup p)
@@ -389,8 +382,7 @@ getDiagnosticInfo s = call s (GetDiagnosticInfo @p)
 stopOrKillChild
   :: forall p e q0 .
      ( HasCallStack
-     , SetMember Process (Process q0) e
-     , Member Interrupts e
+     , HasProcesses e q0
      , Lifted IO e
      , Lifted IO q0
      , Member Logs e
@@ -424,7 +416,7 @@ stopOrKillChild cId c stopTimeout =
 stopAllChildren
   :: forall p e q0 .
      ( HasCallStack
-     , SetMember Process (Process q0) e
+     , HasProcesses e q0
      , Lifted IO e
      , Lifted IO q0
      , Member Logs e

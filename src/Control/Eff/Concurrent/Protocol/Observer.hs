@@ -93,15 +93,16 @@ instance Eq (Observer o) where
 --
 -- @since 0.16.0
 registerObserver
-  :: ( SetMember Process (Process q) r
-     , HasCallStack
+  :: forall receiver sender q r .
+     ( HasCallStack
+     , HasSafeProcesses r q
      , Member Interrupts r
-     , TangibleObserver o
-     , EmbedProtocol x (ObserverRegistry o) 'Asynchronous
-     , HasPdu x 'Asynchronous
+     , TangibleObserver receiver
+     , EmbedProtocol sender (ObserverRegistry receiver) 'Asynchronous
+     , HasPdu sender 'Asynchronous
      )
-  => Observer o
-  -> Endpoint x
+  => Observer receiver
+  -> Endpoint sender
   -> Eff r ()
 registerObserver observer observerRegistry =
   cast observerRegistry (RegisterObserver observer)
@@ -110,7 +111,7 @@ registerObserver observer observerRegistry =
 --
 -- @since 0.16.0
 forgetObserver
-  :: ( SetMember Process (Process q) r
+  :: ( HasSafeProcesses r q
      , HasCallStack
      , Member Interrupts r
      , Typeable o
@@ -151,7 +152,7 @@ instance Show o => Show (Pdu (Observer o) r) where
 --
 -- @since 0.16.0
 handleObservations
-  :: (HasCallStack, Typeable o, SetMember Process (Process q) r, NFData (Observer o))
+  :: (HasCallStack, Typeable o, HasSafeProcesses r q, NFData (Observer o))
   => (o -> Eff r ())
   -> Pdu (Observer o) 'Asynchronous -> Eff r ()
 handleObservations k (Observed r) = k r
@@ -228,7 +229,7 @@ handleObserverRegistration
   :: forall o q r
    . ( HasCallStack
      , Typeable o
-     , SetMember Process (Process q) r
+     , HasSafeProcesses r q
      , Member (ObserverState o) r
      , Member Logs r
      )
@@ -281,7 +282,7 @@ observers = iso _observers Observers
 -- @since 0.16.0
 observed
   :: forall o r q
-   . ( SetMember Process (Process q) r
+   . ( HasSafeProcesses r q
      , Member (ObserverState o) r
      , Member Interrupts r
      , TangibleObserver o

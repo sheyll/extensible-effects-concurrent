@@ -1,5 +1,8 @@
 # Changelog for extensible-effects-concurrent
 
+## 0.27.1
+- Introduce `HasProcesses` and `HasSafeProcesses` everywhere
+
 ## 0.27.0
 - Improve/fix `EmbedProtocol` type class
 - Add a _this_ like parameter to the methods of `EffectfulServer`

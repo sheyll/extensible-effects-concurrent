@@ -87,8 +87,7 @@ start
     , Typeable a
     , Typeable (ServerPdu a)
     , LogsTo h (Processes q)
-    , SetMember Process (Process q) (ServerEffects a (Processes q))
-    , Member Interrupts             (ServerEffects a (Processes q))
+    , HasProcesses (ServerEffects a (Processes q)) q
     , HasCallStack)
   => Init a (Processes q)
   -> Eff (Processes q) (Endpoint (ServerPdu a))
@@ -103,8 +102,7 @@ startLink
     , Typeable (ServerPdu a)
     , Server a (Processes q)
     , LogsTo h (Processes q)
-    , SetMember Process (Process q) (ServerEffects a (Processes q))
-    , Member Interrupts (ServerEffects a (Processes q))
+    , HasProcesses (ServerEffects a (Processes q)) q
     , HasCallStack)
   => Init a (Processes q)
   -> Eff (Processes q) (Endpoint (ServerPdu a))
@@ -117,8 +115,7 @@ protocolServerLoop
      :: forall q h a
      . ( Server a (Processes q)
        , LogsTo h (Processes q)
-       , SetMember Process (Process q) (ServerEffects a (Processes q))
-       , Member Interrupts (ServerEffects a (Processes q))
+       , HasProcesses (ServerEffects a (Processes q)) q
        , Typeable a
        , Typeable (ServerPdu a)
        )

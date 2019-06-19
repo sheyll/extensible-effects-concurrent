@@ -13,9 +13,14 @@
 --    "Control.Eff.Concurrent.Process.SingleThreadedScheduler"
 module Control.Eff.Concurrent.Process
   ( -- * Process Effect
-    -- ** Effect Type Handling
     Process(..)
-    -- ** Process Info
+    -- ** Process Effect Aliases
+  , SafeProcesses
+  , Processes
+    -- ** Process Effect Contraints
+  , HasProcesses
+  , HasSafeProcesses
+      -- ** Process Info
   , ProcessTitle(..)
   , fromProcessTitle
   , ProcessDetails(..)
@@ -27,12 +32,9 @@ module Control.Eff.Concurrent.Process
   , unwrapStrictDynamic
   , Serializer(..)
 
-
     -- ** ProcessId Type
   , ProcessId(..)
   , fromProcessId
-  , SafeProcesses
-  , ResumeProcess(..)
   -- ** Process State
   , ProcessState(..)
   -- ** Yielding
@@ -40,8 +42,6 @@ module Control.Eff.Concurrent.Process
   -- ** Sending Messages
   , sendMessage
   , sendAnyMessage
-  , sendShutdown
-  , sendInterrupt
   -- ** Utilities
   , makeReference
   -- ** Receiving Messages
@@ -59,7 +59,7 @@ module Control.Eff.Concurrent.Process
   , selectMessageWith
   , selectDynamicMessage
   , selectAnyMessage
-  -- ** Process Life Cycle Management
+  -- ** Process State Reflection
   , self
   , isProcessAlive
   , getProcessState
@@ -70,14 +70,24 @@ module Control.Eff.Concurrent.Process
   , spawnLink
   , spawnRaw
   , spawnRaw_
-  -- ** Process Exit or Interrupt Recoverable
+  -- ** Process Operation Execution
+  , ResumeProcess(..)
+  , executeAndResume
+  , executeAndResumeOrExit
+  , executeAndResumeOrThrow
+  -- ** Exits and Interrupts
+  -- *** Interrupting Processes
+  , interrupt
+  , sendInterrupt
+  -- *** Exitting Processes
   , exitBecause
   , exitNormally
   , exitWithError
-  -- ** Links
+  , sendShutdown -- TODO rename to 'sendExit'
+  -- *** Linking Processes
   , linkProcess
   , unlinkProcess
-  -- ** Monitors
+  -- *** Monitor Processes
   , monitor
   , demonitor
   , ProcessDown(..)
@@ -86,26 +96,12 @@ module Control.Eff.Concurrent.Process
   , MonitorReference(..)
   , withMonitor
   , receiveWithMonitor
-  -- ** Process Interrupt Recoverable Handling
-  , provideInterruptsShutdown
-  , handleInterrupts
-  , tryUninterrupted
-  , exitOnInterrupt
-  , logInterrupts
-  , provideInterrupts
-  , mergeEitherInterruptAndExitReason
-  , interrupt
-  -- ** Process Operation Execution
-  , executeAndResume
-  , executeAndResumeOrExit
-  , executeAndResumeOrThrow
-  -- ** Exit Or Interrupt Recoverable Reasons
+  -- *** Exit and Interrupt Reasons
   , Interrupt(..)
+  , Interrupts
   , interruptToExit
   , ExitRecovery(..)
   , RecoverableInterrupt
-  , Interrupts
-  , Processes
   , ExitSeverity(..)
   , SomeExitReason(SomeExitReason)
   , toExitRecovery
@@ -116,6 +112,15 @@ module Control.Eff.Concurrent.Process
   , toCrashReason
   , fromSomeExitReason
   , logProcessExit
+  -- ** Control Flow
+  -- *** Process Interrupt Recoverable Handling
+  , provideInterruptsShutdown
+  , handleInterrupts
+  , tryUninterrupted
+  , exitOnInterrupt
+  , logInterrupts
+  , provideInterrupts
+  , mergeEitherInterruptAndExitReason
   )
 where
 
@@ -646,9 +651,31 @@ type RecoverableInterrupt = Interrupt 'Recoverable
 -- | This adds a layer of the 'Interrupts' effect on top of 'Processes'
 type Processes e = Interrupts ': SafeProcesses e
 
+-- | A constraint for an effect set that requires the presence of 'Processes'.
+--
+-- This constrains the effect list to look like this:
+-- @[e1 ... eN, 'Interrupts', 'Process' [e(N+1) .. e(N+k)], e(N+1) .. e(N+k)]@
+--
+-- It contrains @e@ beyond 'HasSafeProcesses' to encompass 'Interrupts'.
+--
+-- @since 0.27.1
+type HasProcesses e inner = (HasSafeProcesses e inner, Member Interrupts e)
+
 -- | /Cons/ 'Process' onto a list of effects. This is called @SafeProcesses@ because
 -- the the actions cannot be interrupted in.
 type SafeProcesses r = Process r ': r
+
+-- | A constraint for an effect set that requires the presence of 'SafeProcesses'.
+--
+-- This constrains the effect list to look like this:
+-- @[e1 ... eN, 'Process' [e(N+1) .. e(N+k)], e(N+1) .. e(N+k)]@
+--
+-- It contrains @e@ to support the (only) 'Process' effect.
+--
+-- This is more relaxed that 'HasProcesses' since it does not require 'Interrupts'.
+--
+-- @since 0.27.1
+type HasSafeProcesses e inner = (SetMember Process (Process inner) e)
 
 -- | 'Exc'eptions containing 'Interrupt's.
 -- See 'handleInterrupts', 'exitOnInterrupt' or 'provideInterrupts'
@@ -697,7 +724,7 @@ logInterrupts = handleInterrupts logProcessExit
 -- when a linked process crashes while we wait in a 'receiveSelectedMessage'
 -- via a call to 'interrupt'.
 exitOnInterrupt
-  :: (HasCallStack, Member Interrupts r, SetMember Process (Process q) r)
+  :: (HasCallStack, HasProcesses r q)
   => Eff r a
   -> Eff r a
 exitOnInterrupt = handleInterrupts (exitBecause . interruptToExit)
@@ -793,7 +820,7 @@ logProcessExit ex = withFrozenCallStack (logDebug (fromString (show ex)))
 -- whenever the exit reason satisfies 'isRecoverable', return the exit reason.
 executeAndResume
   :: forall q r v
-   . (SetMember Process (Process q) r, HasCallStack)
+   . (HasSafeProcesses r q, HasCallStack)
   => Process q (ResumeProcess v)
   -> Eff r (Either (Interrupt 'Recoverable) v)
 executeAndResume processAction = do
@@ -807,7 +834,7 @@ executeAndResume processAction = do
 -- interrupts.
 executeAndResumeOrExit
   :: forall r q v
-   . (SetMember Process (Process q) r, HasCallStack)
+   . (HasSafeProcesses r q, HasCallStack)
   => Process q (ResumeProcess v)
   -> Eff r v
 executeAndResumeOrExit processAction = do
@@ -821,7 +848,7 @@ executeAndResumeOrExit processAction = do
 -- interrupts.
 executeAndResumeOrThrow
   :: forall q r v
-   . (SetMember Process (Process q) r, HasCallStack, Member Interrupts r)
+   . (HasProcesses r q, HasCallStack)
   => Process q (ResumeProcess v)
   -> Eff r v
 executeAndResumeOrThrow processAction = do
@@ -836,7 +863,7 @@ executeAndResumeOrThrow processAction = do
 -- for more information.
 yieldProcess
   :: forall r q
-   . (SetMember Process (Process q) r, HasCallStack, Member Interrupts r)
+   . (HasProcesses r q, HasCallStack)
   => Eff r ()
 yieldProcess = executeAndResumeOrThrow YieldProcess
 
@@ -846,9 +873,8 @@ yieldProcess = executeAndResumeOrThrow YieldProcess
 -- The message will be reduced to normal form ('rnf') by/in the caller process.
 sendMessage
   :: forall r q o
-   . ( SetMember Process (Process q) r
+   . ( HasProcesses r q
      , HasCallStack
-     , Member Interrupts r
      , Typeable o
      , NFData o
      )
@@ -863,7 +889,7 @@ sendMessage pid message =
 -- See 'SendMessage'.
 sendAnyMessage
   :: forall r q
-   . (SetMember Process (Process q) r, HasCallStack, Member Interrupts r)
+   . (HasCallStack, HasProcesses r q)
   => ProcessId
   -> StrictDynamic
   -> Eff r ()
@@ -875,7 +901,7 @@ sendAnyMessage pid message =
 -- See 'SendShutdown'.
 sendShutdown
   :: forall r q
-   . (SetMember Process (Process q) r, HasCallStack, Member Interrupts r)
+   . (HasCallStack, HasProcesses r q)
   => ProcessId
   -> Interrupt 'NoRecovery
   -> Eff r ()
@@ -887,7 +913,7 @@ sendShutdown pid s =
 -- | Like 'sendInterrupt', but also return @True@ iff the process to exit exists.
 sendInterrupt
   :: forall r q
-   . (SetMember Process (Process q) r, HasCallStack, Member Interrupts r)
+   . (HasCallStack, HasProcesses r q)
   => ProcessId
   -> Interrupt 'Recoverable
   -> Eff r ()
@@ -901,7 +927,7 @@ sendInterrupt pid s =
 -- 'spawnRaw'.
 spawn
   :: forall r q
-   . (HasCallStack, SetMember Process (Process q) r, Member Interrupts r)
+   . (HasCallStack, HasProcesses r q)
   => ProcessTitle
   -> Eff (Processes q) ()
   -> Eff r ProcessId
@@ -911,7 +937,7 @@ spawn t child =
 -- | Like 'spawn' but return @()@.
 spawn_
   :: forall r q
-   . (HasCallStack, SetMember Process (Process q) r, Member Interrupts r)
+   . (HasCallStack, HasProcesses r q)
   => ProcessTitle
   -> Eff (Processes q) ()
   -> Eff r ()
@@ -922,7 +948,7 @@ spawn_ t child = void (spawn t child)
 -- @since 0.12.0
 spawnLink
   :: forall r q
-   . (HasCallStack, SetMember Process (Process q) r, Member Interrupts r)
+   . (HasCallStack, HasProcesses r q)
   => ProcessTitle
   -> Eff (Processes q) ()
   -> Eff r ProcessId
@@ -935,7 +961,7 @@ spawnLink t child =
 -- suited.
 spawnRaw
   :: forall r q
-   . (HasCallStack, SetMember Process (Process q) r, Member Interrupts r)
+   . (HasCallStack, HasProcesses r q)
   => ProcessTitle
   -> Eff (SafeProcesses q) ()
   -> Eff r ProcessId
@@ -944,7 +970,7 @@ spawnRaw t child = executeAndResumeOrThrow (Spawn @q t child)
 -- | Like 'spawnRaw' but return @()@.
 spawnRaw_
   :: forall r q
-   . (HasCallStack, SetMember Process (Process q) r, Member Interrupts r)
+   . (HasCallStack, HasProcesses r q)
   => ProcessTitle
   -> Eff (SafeProcesses q) ()
   -> Eff r ()
@@ -955,7 +981,7 @@ spawnRaw_ t = void . spawnRaw t
 -- @since 0.12.0
 isProcessAlive
   :: forall r q
-   . (HasCallStack, SetMember Process (Process q) r, Member Interrupts r)
+   . (HasCallStack, HasProcesses r q)
   => ProcessId
   -> Eff r Bool
 isProcessAlive pid = isJust <$> executeAndResumeOrThrow (GetProcessState pid)
@@ -967,7 +993,7 @@ isProcessAlive pid = isJust <$> executeAndResumeOrThrow (GetProcessState pid)
 -- @since 0.24.1
 getProcessState
   :: forall r q
-   . (HasCallStack, SetMember Process (Process q) r, Member Interrupts r)
+   . (HasCallStack, HasProcesses r q)
   => ProcessId
   -> Eff r (Maybe (ProcessTitle, ProcessDetails, ProcessState))
 getProcessState pid = executeAndResumeOrThrow (GetProcessState pid)
@@ -977,7 +1003,7 @@ getProcessState pid = executeAndResumeOrThrow (GetProcessState pid)
 -- @since 0.24.1
 updateProcessDetails
   :: forall r q
-   . (HasCallStack, SetMember Process (Process q) r, Member Interrupts r)
+   . (HasCallStack, HasProcesses r q)
   => ProcessDetails
   -> Eff r ()
 updateProcessDetails pd = executeAndResumeOrThrow (UpdateProcessDetails pd)
@@ -986,7 +1012,7 @@ updateProcessDetails pd = executeAndResumeOrThrow (UpdateProcessDetails pd)
 -- See 'ReceiveSelectedMessage' for more documentation.
 receiveAnyMessage
   :: forall r q
-   . (HasCallStack, SetMember Process (Process q) r, Member Interrupts r)
+   . (HasCallStack, HasProcesses r q)
   => Eff r StrictDynamic
 receiveAnyMessage =
   executeAndResumeOrThrow (ReceiveSelectedMessage selectAnyMessage)
@@ -998,8 +1024,7 @@ receiveSelectedMessage
   :: forall r q a
    . ( HasCallStack
      , Show a
-     , SetMember Process (Process q) r
-     , Member Interrupts r
+     , HasProcesses r q
      )
   => MessageSelector a
   -> Eff r a
@@ -1014,8 +1039,7 @@ receiveMessage
      , Typeable a
      , NFData a
      , Show a
-     , SetMember Process (Process q) r
-     , Member Interrupts r
+     , HasProcesses r q
      )
   => Eff r a
 receiveMessage = receiveSelectedMessage (MessageSelector fromStrictDynamic)
@@ -1026,7 +1050,7 @@ receiveMessage = receiveSelectedMessage (MessageSelector fromStrictDynamic)
 -- @since 0.12.0
 flushMessages
   :: forall r q
-   . (HasCallStack, SetMember Process (Process q) r, Member Interrupts r)
+   . (HasCallStack, HasProcesses r q)
   => Eff r [StrictDynamic]
 flushMessages = executeAndResumeOrThrow @q FlushMessages
 
@@ -1040,7 +1064,7 @@ flushMessages = executeAndResumeOrThrow @q FlushMessages
 -- See also 'ReceiveSelectedMessage' for more documentation.
 receiveSelectedLoop
   :: forall r q a endOfLoopResult
-   . (SetMember Process (Process q) r, HasCallStack)
+   . (HasSafeProcesses r q, HasCallStack)
   => MessageSelector a
   -> (Either (Interrupt 'Recoverable) a -> Eff r (Maybe endOfLoopResult))
   -> Eff r endOfLoopResult
@@ -1055,7 +1079,7 @@ receiveSelectedLoop selector handlers = do
 -- See also 'selectAnyMessage', 'receiveSelectedLoop'.
 receiveAnyLoop
   :: forall r q endOfLoopResult
-   . (SetMember Process (Process q) r, HasCallStack)
+   . (HasSafeProcesses r q, HasCallStack)
   => (Either (Interrupt 'Recoverable) StrictDynamic -> Eff r (Maybe endOfLoopResult))
   -> Eff r endOfLoopResult
 receiveAnyLoop = receiveSelectedLoop selectAnyMessage
@@ -1064,18 +1088,18 @@ receiveAnyLoop = receiveSelectedLoop selectAnyMessage
 -- using 'selectMessage'.
 receiveLoop
   :: forall r q a endOfLoopResult
-   . (SetMember Process (Process q) r, HasCallStack, NFData a, Typeable a)
+   . (HasSafeProcesses r q, HasCallStack, NFData a, Typeable a)
   => (Either (Interrupt 'Recoverable) a -> Eff r (Maybe endOfLoopResult))
   -> Eff r endOfLoopResult
 receiveLoop = receiveSelectedLoop selectMessage
 
 -- | Returns the 'ProcessId' of the current process.
-self :: (HasCallStack, SetMember Process (Process q) r) => Eff r ProcessId
+self :: (HasCallStack, HasSafeProcesses r q) => Eff r ProcessId
 self = executeAndResumeOrExit SelfPid
 
 -- | Generate a unique 'Int' for the current process.
 makeReference
-  :: (HasCallStack, SetMember Process (Process q) r, Member Interrupts r)
+  :: (HasCallStack, HasProcesses r q)
   => Eff r Int
 makeReference = executeAndResumeOrThrow MakeReference
 
@@ -1109,7 +1133,7 @@ instance Show MonitorReference where
 -- @since 0.12.0
 monitor
   :: forall r q
-   . (HasCallStack, SetMember Process (Process q) r, Member Interrupts r)
+   . (HasCallStack, HasProcesses r q)
   => ProcessId
   -> Eff r MonitorReference
 monitor = executeAndResumeOrThrow . Monitor . force
@@ -1119,7 +1143,7 @@ monitor = executeAndResumeOrThrow . Monitor . force
 -- @since 0.12.0
 demonitor
   :: forall r q
-   . (HasCallStack, SetMember Process (Process q) r, Member Interrupts r)
+   . (HasCallStack, HasProcesses r q)
   => MonitorReference
   -> Eff r ()
 demonitor = executeAndResumeOrThrow . Demonitor . force
@@ -1129,11 +1153,7 @@ demonitor = executeAndResumeOrThrow . Demonitor . force
 --
 -- @since 0.12.0
 withMonitor
-  :: ( HasCallStack
-     , Member Interrupts r
-     , SetMember Process (Process q) r
-     , Member Interrupts r
-     )
+  :: (HasCallStack, HasProcesses r q)
   => ProcessId
   -> (MonitorReference -> Eff r a)
   -> Eff r a
@@ -1145,9 +1165,7 @@ withMonitor pid e = monitor pid >>= \ref -> e ref <* demonitor ref
 -- @since 0.12.0
 receiveWithMonitor
   :: ( HasCallStack
-     , Member Interrupts r
-     , SetMember Process (Process q) r
-     , Member Interrupts r
+     , HasProcesses r q
      , Typeable a
      , Show a
      )
@@ -1208,7 +1226,7 @@ selectProcessDown ref0 =
 -- @since 0.12.0
 linkProcess
   :: forall r q
-   . (HasCallStack, SetMember Process (Process q) r, Member Interrupts r)
+   . (HasCallStack, HasProcesses r q)
   => ProcessId
   -> Eff r ()
 linkProcess = executeAndResumeOrThrow . Link . force
@@ -1218,7 +1236,7 @@ linkProcess = executeAndResumeOrThrow . Link . force
 -- @since 0.12.0
 unlinkProcess
   :: forall r q
-   . (HasCallStack, SetMember Process (Process q) r, Member Interrupts r)
+   . (HasCallStack, HasProcesses r q)
   => ProcessId
   -> Eff r ()
 unlinkProcess = executeAndResumeOrThrow . Unlink . force
@@ -1226,20 +1244,20 @@ unlinkProcess = executeAndResumeOrThrow . Unlink . force
 -- | Exit the process with a 'Interrupt'.
 exitBecause
   :: forall r q a
-   . (HasCallStack, SetMember Process (Process q) r)
+   . (HasCallStack, HasSafeProcesses r q)
   => Interrupt 'NoRecovery
   -> Eff r a
 exitBecause = send . Shutdown @q . force
 
 -- | Exit the process.
 exitNormally
-  :: forall r q a . (HasCallStack, SetMember Process (Process q) r) => Eff r a
+  :: forall r q a . (HasCallStack, HasSafeProcesses r q) => Eff r a
 exitNormally = exitBecause ExitNormally
 
 -- | Exit the process with an error.
 exitWithError
   :: forall r q a
-   . (HasCallStack, SetMember Process (Process q) r)
+   . (HasCallStack,HasSafeProcesses r q)
   => String
   -> Eff r a
 exitWithError = exitBecause . interruptToExit . ErrorInterrupt
