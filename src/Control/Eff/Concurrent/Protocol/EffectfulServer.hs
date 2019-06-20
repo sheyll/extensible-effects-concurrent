@@ -130,10 +130,10 @@ protocolServerLoop a = do
   where
     lmAddEp myEp = lmProcessId ?~ myEp
     sel :: MessageSelector (Event (ServerPdu a))
-    sel = onRequest <$> selectMessage @(Request (ServerPdu a))
-      <|> OnDown    <$> selectMessage @ProcessDown
-      <|> OnTimeOut <$> selectMessage @TimerElapsed
-      <|> OnMessage <$> selectAnyMessage
+    sel =  onRequest <$> selectMessage @(Request (ServerPdu a))
+       <|> OnDown    <$> selectMessage @ProcessDown
+       <|> OnTimeOut <$> selectMessage @TimerElapsed
+       <|> OnMessage <$> selectAnyMessage
       where
         onRequest :: Request (ServerPdu a) -> Event (ServerPdu a)
         onRequest (Call o m) = OnCall (replyTarget (MkSerializer toStrictDynamic) o) m

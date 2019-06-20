@@ -36,17 +36,17 @@ import           GHC.Stack
 --
 -- The message will be reduced to normal form ('rnf') in the caller process.
 cast
-  :: forall o' o r q
+  :: forall destination protocol r q
    . ( HasCallStack
      , HasProcesses r q
-     , HasPdu o' 'Asynchronous
-     , HasPdu o 'Asynchronous
-     , EmbedProtocol o' o 'Asynchronous
+     , HasPdu destination 'Asynchronous
+     , HasPdu protocol 'Asynchronous
+     , EmbedProtocol destination protocol 'Asynchronous
      )
-  => Endpoint o'
-  -> Pdu o 'Asynchronous
+  => Endpoint destination
+  -> Pdu protocol 'Asynchronous
   -> Eff r ()
-cast (Endpoint pid) castMsg = sendMessage pid (Cast (embedPdu @o' castMsg))
+cast (Endpoint pid) castMsg = sendMessage pid (Cast (embedPdu @destination castMsg))
 
 -- | Send a request 'Pdu' and wait for the server to return a result value.
 --
@@ -55,27 +55,27 @@ cast (Endpoint pid) castMsg = sendMessage pid (Cast (embedPdu @o' castMsg))
 --
 -- __Always prefer 'callWithTimeout' over 'call'__
 call
-  :: forall result protocol' protocol r q
+  :: forall result destination protocol r q
    . ( HasProcesses r q
-     , TangiblePdu protocol' ( 'Synchronous result)
+     , TangiblePdu destination ( 'Synchronous result)
      , TangiblePdu protocol ( 'Synchronous result)
-     , EmbedProtocol protocol' protocol ( 'Synchronous result)
+     , EmbedProtocol destination protocol ( 'Synchronous result)
      , Tangible result
      , HasCallStack
      )
-  => Endpoint protocol'
+  => Endpoint destination
   -> Pdu protocol ( 'Synchronous result)
   -> Eff r result
 call (Endpoint pidInternal) req = do
   callRef <- makeReference
   fromPid <- self
-  let requestMessage = Call origin $! (embedPdu @protocol' req)
-      origin = RequestOrigin @protocol' @result fromPid callRef
+  let requestMessage = Call origin $! (embedPdu @destination req)
+      origin = RequestOrigin @destination @result fromPid callRef
   sendMessage pidInternal requestMessage
   let selectResult :: MessageSelector result
       selectResult =
         let extractResult
-              :: Reply protocol' result -> Maybe result
+              :: Reply destination result -> Maybe result
             extractResult (Reply origin' result) =
               if origin == origin' then Just result else Nothing
         in  selectMessageWith extractResult
@@ -97,30 +97,30 @@ call (Endpoint pidInternal) req = do
 --
 -- @since 0.22.0
 callWithTimeout
-  :: forall result protocol' protocol r q
+  :: forall result destination protocol r q
    . ( HasProcesses r q
-     , TangiblePdu protocol' ( 'Synchronous result)
+     , TangiblePdu destination ( 'Synchronous result)
      , TangiblePdu protocol ( 'Synchronous result)
-     , EmbedProtocol protocol' protocol ( 'Synchronous result)
+     , EmbedProtocol destination protocol ( 'Synchronous result)
      , Tangible result
      , Member Logs r
      , Lifted IO q
      , Lifted IO r
      , HasCallStack
      )
-  => Endpoint protocol'
+  => Endpoint destination
   -> Pdu protocol ( 'Synchronous result)
   -> Timeout
   -> Eff r result
 callWithTimeout serverP@(Endpoint pidInternal) req timeOut = do
   fromPid <- self
   callRef <- makeReference
-  let requestMessage = Call origin $! embedPdu @protocol' req
-      origin = RequestOrigin @protocol' @result fromPid callRef
+  let requestMessage = Call origin $! embedPdu @destination req
+      origin = RequestOrigin @destination @result fromPid callRef
   sendMessage pidInternal requestMessage
   let selectResult =
         let extractResult
-              :: Reply protocol' result -> Maybe result
+              :: Reply destination result -> Maybe result
             extractResult (Reply origin' result) =
               if origin == origin' then Just result else Nothing
         in selectMessageWith extractResult
@@ -173,6 +173,7 @@ callEndpointReader
      , Tangible reply
      , TangiblePdu o ( 'Synchronous reply)
      , Member Interrupts r
+     
      )
   => Pdu o ( 'Synchronous reply)
   -> Eff r reply

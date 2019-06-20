@@ -141,6 +141,7 @@ import           Data.Functor.Contravariant     ()
 import           Data.Kind
 import           Data.Function
 import           Data.Maybe
+import           Data.Proxy
 import           Data.String                    ( IsString, fromString )
 import           Data.Text                      ( Text, pack, unpack)
 import qualified Data.Text                     as T
@@ -345,6 +346,12 @@ newtype Serializer message =
   MkSerializer
     { runSerializer :: message -> StrictDynamic
     } deriving (Typeable)
+
+instance NFData (Serializer message) where
+  rnf (MkSerializer !s) = s `seq` ()
+
+instance Typeable message => Show (Serializer message) where
+  showsPrec d x = showParen (d >= 10) (prettyTypeableShows (typeRep (Proxy @message)) . showString "-serializer")
 
 instance Contravariant Serializer where
   contramap f (MkSerializer b) = MkSerializer (b . f)

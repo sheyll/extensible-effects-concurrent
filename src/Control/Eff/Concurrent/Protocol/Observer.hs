@@ -6,13 +6,9 @@
 -- @since 0.16.0
 module Control.Eff.Concurrent.Protocol.Observer
   ( Observer(..)
-  , TangibleObserver
   , Pdu(RegisterObserver, ForgetObserver, Observed)
   , registerObserver
   , forgetObserver
-  , handleObservations
-  , toObserver
-  , toObserverFor
   , ObserverRegistry
   , ObserverState
   , Observers()
@@ -23,7 +19,7 @@ module Control.Eff.Concurrent.Protocol.Observer
   )
 where
 
-import           Control.DeepSeq               (NFData(rnf))
+import           Control.DeepSeq               ( NFData(rnf) )
 import           Control.Eff
 import           Control.Eff.Concurrent.Process
 import           Control.Eff.Concurrent.Protocol
@@ -39,52 +35,54 @@ import           Data.Proxy
 import           Data.Set                       ( Set )
 import qualified Data.Set                      as Set
 import           Data.Text                      ( pack )
-import           Data.Typeable                  ( typeRep )
+import           Data.Typeable                 hiding ( cast )
 import           Data.Type.Pretty
+import           GHC.Generics
 import           GHC.Stack
 
 -- * Observers
 
--- | Describes a process that observes another via 'Asynchronous' 'Pdu' messages.
+-- ** Observables
+
+-- | A /protocol/ to communicate 'Observed' events from a sources to many sinks.
 --
--- An observer consists of a filter and a process id. The filter converts an observation to
--- a message understood by the observer process, and the 'ProcessId' is used to send the message.
+-- A sink is any process that serves a protocol with a 'Pdu' instance that embeds
+-- the 'Observer' Pdu via an 'EmbedProtocol' instance.
 --
--- @since 0.16.0
-data Observer o where
-  Observer
-    :: ( Tangible o
-       , HasPdu p 'Asynchronous
-       , Tangible (Endpoint p)
-       , Typeable p
-       )
-    => (o -> Maybe (Pdu p 'Asynchronous)) -> Endpoint p -> Observer o
+-- @since 0.28.0
+data Observer event =
+  MkObserver { _observerSerializer :: Serializer event
+             , _observerProcessId  :: ProcessId
+             , _observerMonitorReference :: MonitorReference
+             }
+  deriving (Generic, Typeable)
 
+instance NFData event => NFData (Observer event)
 
--- | The constraints on the type parameters to an 'Observer'
---
--- @since 0.24.0
-type TangibleObserver o =
-  ( Tangible o, HasPdu (Observer o) 'Asynchronous)
+type instance ToPretty (Observer event) =
+  PrettyParens ("observing" <:> ToPretty event)
 
-type instance ToPretty (Observer o) =
-  PrettyParens ("observing" <:> ToPretty o)
+instance (Typeable r, Tangible event) => HasPdu (Observer event) (r :: Synchronicity) where
+  data Pdu (Observer event) r where
+    Observed :: event -> Pdu (Observer event) 'Asynchronous
+    deriving Typeable
 
-instance (NFData o) => NFData (Observer o) where
-  rnf (Observer k s) = rnf k `seq` rnf s
+instance NFData event => NFData (Pdu (Observer event) r) where
+  rnf (Observed event) = rnf event
 
-instance Show (Observer o) where
-  showsPrec d (Observer _ p) = showParen
-    (d >= 10)
-    (shows (typeRep (Proxy :: Proxy o)) . showString " observer: " . shows p)
+instance Show event => Show (Pdu (Observer event) r) where
+  showsPrec d (Observed event) =
+    showParen (d >= 10) (showString "observered: " . shows event)
 
-instance Ord (Observer o) where
-  compare (Observer _ s1) (Observer _ s2) =
-    compare (s1 ^. fromEndpoint) (s2 ^. fromEndpoint)
+type IsObservable eventSource event =
+  ( Tangible event
+  , EmbedProtocol eventSource (ObserverRegistry event) 'Asynchronous
+  )
 
-instance Eq (Observer o) where
-  (==) (Observer _ s1) (Observer _ s2) =
-    (==) (s1 ^. fromEndpoint) (s2 ^. fromEndpoint)
+type IsObserver eventSink event =
+  ( Tangible event
+  , EmbedProtocol eventSink (Observer event) 'Asynchronous
+  )
 
 -- | And an 'Observer' to the set of recipients for all observations reported by 'observed'.
 --   Note that the observers are keyed by the observing process, i.e. a previous entry for the process
@@ -93,94 +91,40 @@ instance Eq (Observer o) where
 --
 -- @since 0.16.0
 registerObserver
-  :: forall receiver sender q r .
+  :: forall eventSink eventSource event q r .
      ( HasCallStack
-     , HasSafeProcesses r q
-     , Member Interrupts r
-     , TangibleObserver receiver
-     , EmbedProtocol sender (ObserverRegistry receiver) 'Asynchronous
-     , HasPdu sender 'Asynchronous
+     , HasProcesses r q
+     , EmbedProtocol eventSource (ObserverRegistry event) 'Asynchronous
+     , EmbedProtocol eventSink (Observer event) 'Asynchronous
      )
-  => Observer receiver
-  -> Endpoint sender
+  => Endpoint eventSource
+  -> Endpoint eventSink
   -> Eff r ()
-registerObserver observer observerRegistry =
-  cast observerRegistry (RegisterObserver observer)
+registerObserver eventSource eventSink = do
+   monRef <- monitor eventSink'
+   cast eventSource (RegisterObserver (MkObserver serializer eventSink' monRef))
+    where
+       serializer = MkSerializer (toStrictDynamic . embedPdu @eventSink @(Observer event))
+       eventSink' = eventSink ^. fromEndpoint
+
 
 -- | Send the 'ForgetObserver' message
 --
 -- @since 0.16.0
 forgetObserver
-  :: ( HasSafeProcesses r q
+  :: forall eventSink eventSource event q r .
+     ( HasProcesses r q
      , HasCallStack
-     , Member Interrupts r
-     , Typeable o
-     , NFData o
-     , EmbedProtocol x (ObserverRegistry o) 'Asynchronous
-     , HasPdu x 'Asynchronous
+     , EmbedProtocol eventSource (ObserverRegistry event) 'Asynchronous
+     , EmbedProtocol eventSink (Observer event) 'Asynchronous
      )
-  => Observer o
-  -> Endpoint x
+  => Endpoint eventSource
+  -> Endpoint eventSink
   -> Eff r ()
-forgetObserver observer observerRegistry =
-  cast observerRegistry (ForgetObserver observer)
+forgetObserver eventSource eventSink =
+  cast eventSource (ForgetObserver eventSink)
 
 -- ** Observer Support Functions
-
--- | A minimal Protocol for handling observations.
--- This is one simple way of receiving observations - of course users can use
--- any other 'Asynchronous' 'Pdu' message type for receiving observations.
---
--- @since 0.16.0
-instance (NFData o, Show o, Typeable o, Typeable r) => HasPdu (Observer o) r where
-  data instance Pdu (Observer o) r where
-    -- | This message denotes that the given value was 'observed'.
-    --
-    -- @since 0.16.1
-    Observed :: o -> Pdu (Observer o) 'Asynchronous
-    deriving Typeable
-
-instance NFData o => NFData (Pdu (Observer o) r) where
-  rnf (Observed o) = rnf o
-
-instance Show o => Show (Pdu (Observer o) r) where
-  showsPrec d (Observed o) = showParen (d>=10) (showString "observered: " . shows o)
-
--- | Based on the 'Pdu' instance for 'Observer' this simplified writing
--- a callback handler for observations. In order to register to
--- and 'ObserverRegistry' use 'toObserver'.
---
--- @since 0.16.0
-handleObservations
-  :: (HasCallStack, Typeable o, HasSafeProcesses r q, NFData (Observer o))
-  => (o -> Eff r ())
-  -> Pdu (Observer o) 'Asynchronous -> Eff r ()
-handleObservations k (Observed r) = k r
-
--- | Use a 'Endpoint' as an 'Observer' for 'handleObservations'.
---
--- @since 0.16.0
-toObserver
-  :: forall o p
-  . ( HasPdu p 'Asynchronous
-    , EmbedProtocol p (Observer o) 'Asynchronous
-    , TangibleObserver o
-    )
-  => Endpoint p
-  -> Observer o
-toObserver = toObserverFor (embedPdu @p . Observed)
-
--- | Create an 'Observer' that conditionally accepts all observations of the
--- given type and applies the given function to them; the function takes an observation and returns an 'Pdu'
--- cast that the observer server is compatible to.
---
--- @since 0.16.0
-toObserverFor
-  :: (TangibleObserver o, Typeable a, HasPdu a 'Asynchronous)
-  => (o -> Pdu a 'Asynchronous)
-  -> Endpoint a
-  -> Observer o
-toObserverFor wrapper = Observer  (Just . wrapper)
 
 -- * Managing Observers
 
@@ -188,36 +132,40 @@ toObserverFor wrapper = Observer  (Just . wrapper)
 -- 'Observer's.
 --
 -- @since 0.16.0
-data ObserverRegistry (o :: Type)
+data ObserverRegistry (event :: Type)
   deriving Typeable
 
-type instance ToPretty (ObserverRegistry o) =
-  PrettyParens ("observer registry" <:> ToPretty o)
+type instance ToPretty (ObserverRegistry event) =
+  PrettyParens ("observer registry" <:> ToPretty event)
 
-instance (Typeable o, Typeable r) => HasPdu (ObserverRegistry o) r where
+instance (Tangible event, Typeable r) => HasPdu (ObserverRegistry event) r where
   -- | Protocol for managing observers. This can be added to any server for any number of different observation types.
   -- The functions 'manageObservers' and 'handleObserverRegistration' are used to include observer handling;
   --
   -- @since 0.16.0
-  data instance Pdu (ObserverRegistry o) r where
+  data instance Pdu (ObserverRegistry event) r where
     -- | This message denotes that the given 'Observer' should receive observations until 'ForgetObserver' is
     --   received.
     --
     -- @since 0.16.1
-    RegisterObserver :: NFData o => Observer o -> Pdu (ObserverRegistry o) 'Asynchronous
+    RegisterObserver :: Observer event -> Pdu (ObserverRegistry event) 'Asynchronous
     -- | This message denotes that the given 'Observer' should not receive observations anymore.
     --
     -- @since 0.16.1
-    ForgetObserver :: NFData o => Observer o -> Pdu (ObserverRegistry o) 'Asynchronous
+    ForgetObserver ::  Observer event -> Pdu (ObserverRegistry event) 'Asynchronous
+--    -- | This message denotes that a monitored process died
+--    --
+--    -- @since 0.28.0
+--    ObserverMightBeDown :: MonitorReference -> Pdu (ObserverRegistry event) ( 'Synchronous Bool)
     deriving Typeable
 
-instance NFData (Pdu (ObserverRegistry o) r) where
-  rnf (RegisterObserver o) = rnf o
-  rnf (ForgetObserver o) = rnf o
+instance NFData (Pdu (ObserverRegistry event) r) where
+  rnf (RegisterObserver event) = rnf event
+  rnf (ForgetObserver event) = rnf event
 
-instance Show (Pdu (ObserverRegistry o) r) where
-  showsPrec d (RegisterObserver o) = showParen (d >= 10) (showString "register observer: " . showsPrec 11 o)
-  showsPrec d (ForgetObserver o) = showParen (d >= 10) (showString "forget observer: " . showsPrec 11 o)
+instance Show (Pdu (ObserverRegistry event) r) where
+  showsPrec d (RegisterObserver event) = showParen (d >= 10) (showString "register observer: " . showsPrec 11 event)
+  showsPrec d (ForgetObserver event) = showParen (d >= 10) (showString "forget observer: " . showsPrec 11 event)
 
 -- ** Protocol for integrating 'ObserverRegistry' into processes.
 
@@ -226,25 +174,25 @@ instance Show (Pdu (ObserverRegistry o) r) where
 --
 -- @since 0.16.0
 handleObserverRegistration
-  :: forall o q r
+  :: forall event q r
    . ( HasCallStack
-     , Typeable o
+     , Typeable event
      , HasSafeProcesses r q
-     , Member (ObserverState o) r
+     , Member (ObserverState event) r
      , Member Logs r
      )
-  => Pdu (ObserverRegistry o) 'Asynchronous -> Eff r ()
+  => Pdu (ObserverRegistry event) 'Asynchronous -> Eff r ()
 handleObserverRegistration = \case
     RegisterObserver ob -> do
-      os <- get @(Observers o)
-      logDebug ("registering "
+      os <- get @(Observers event)
+      logDebug ( "registering "
                <> pack (show (typeOf ob))
-               <> " current number of observers: "
+               <> " current number of observers: "  -- TODO put this info into the process details
                <> pack (show (Set.size (view observers os))))
       put (over observers (Set.insert ob) os)
 
     ForgetObserver ob -> do
-      os <- get @(Observers o)
+      os <- get @(Observers event)
       logDebug ("forgetting "
                <> pack (show (typeOf ob))
                <> " current number of observers: "
@@ -256,24 +204,24 @@ handleObserverRegistration = \case
 -- Handle the 'ObserverState' introduced by 'handleObserverRegistration'.
 --
 -- @since 0.16.0
-manageObservers :: Eff (ObserverState o ': r) a -> Eff r a
+manageObservers :: HasCallStack => Eff (ObserverState event ': r) a -> Eff r a
 manageObservers = evalState (Observers Set.empty)
 
 -- | The empty 'ObserverState'
 --
 -- @since 0.24.0
-emptyObservers :: Observers o
+emptyObservers :: Observers event
 emptyObservers = Observers Set.empty
 
 -- | Internal state for 'manageObservers'
-newtype Observers o =
-  Observers { _observers :: Set (Observer o) }
+newtype Observers event =
+  Observers { _observers :: Set (Observer event) }
    deriving (Eq, Ord, Typeable, Show, NFData)
 
 -- | Alias for the effect that contains the observers managed by 'manageObservers'
-type ObserverState o = State (Observers o)
+type ObserverState event = State (Observers event)
 
-observers :: Iso' (Observers o) (Set (Observer o))
+observers :: Iso' (Observers event) (Set (Observer event))
 observers = iso _observers Observers
 
 -- | Report an observation to all observers.
@@ -281,17 +229,17 @@ observers = iso _observers Observers
 --
 -- @since 0.16.0
 observed
-  :: forall o r q
-   . ( HasSafeProcesses r q
-     , Member (ObserverState o) r
-     , Member Interrupts r
-     , TangibleObserver o
+  :: forall event r q
+   . ( HasProcesses r q
+     , Member (ObserverState event) r
+     , Tangible event
+     , HasCallStack
      )
-  => o
+  => event
   -> Eff r ()
 observed observation = do
   os <- view observers <$> get
   mapM_ notifySomeObserver os
  where
-  notifySomeObserver (Observer messageFilter receiver) =
+  notifySomeObserver (MkObserver serializer destination _) =
     traverse_ (cast receiver) (messageFilter observation)

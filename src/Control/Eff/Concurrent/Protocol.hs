@@ -63,7 +63,27 @@ import           Data.Type.Pretty
 import           Type.Reflection
 
 
--- | This data family defines the __protocol data units__ (PDU) of a /protocol/.
+-- | A server process for /protocol/.
+--
+-- Protocols are represented by phantom types, which are used in different places to
+-- index type families and type class instances.
+--
+-- A 'Process' can send and receive any messages. An 'Endpoint'
+-- wraps around a 'ProcessId' and carries a phantom type to indicate
+-- the kinds of messages accepted by the process.
+--
+-- As a metaphor, communication between processes can be thought of waiting for
+-- and sending __protocol data units__ belonging to some protocol.
+newtype Endpoint protocol = Endpoint { _fromEndpoint :: ProcessId }
+  deriving (Eq,Ord,Typeable, NFData)
+
+instance Typeable protocol => Show (Endpoint protocol) where
+  showsPrec d (Endpoint c) =
+    showParen (d>=10)
+    (prettyTypeableShows (SomeTypeRep (typeRep @protocol)) . showsPrec 10 c)
+
+-- | This type class and the associated data family defines the
+-- __protocol data units__ (PDU) of a /protocol/.
 --
 -- A Protocol in the sense of a communication interface description
 -- between processes.
@@ -80,7 +100,7 @@ import           Type.Reflection
 -- >
 -- > data BookShop deriving Typeable
 -- >
--- > instance HasPdu BookShop r where
+-- > instance Typeable r => HasPdu BookShop r where
 -- >   data instance Pdu BookShop r where
 -- >     RentBook  :: BookId   -> Pdu BookShop ('Synchronous (Either RentalError RentalId))
 -- >     BringBack :: RentalId -> Pdu BookShop 'Asynchronous
@@ -92,7 +112,7 @@ import           Type.Reflection
 -- >
 --
 -- @since 0.25.1
-class (NFData (Pdu protocol reply), Show (Pdu protocol reply), Typeable protocol, Typeable reply) => HasPdu (protocol :: Type) (reply :: Synchronicity) where
+class (Tangible (Pdu protocol reply), Typeable protocol, Typeable reply) => HasPdu (protocol :: Type) (reply :: Synchronicity) where
 
   -- | The __protocol data unit__ type for the given protocol.
   data family Pdu protocol reply
@@ -134,6 +154,7 @@ type TangiblePdu p r =
   ( Typeable p
   , Typeable r
   , Tangible (Pdu p r)
+  , HasPdu p r
   )
 
 -- | The (promoted) constructors of this type specify (at the type level) the
@@ -153,16 +174,6 @@ data Synchronicity =
 type family ProtocolReply (s :: Synchronicity) where
   ProtocolReply ('Synchronous t) = t
   ProtocolReply 'Asynchronous = ()
-
--- | This is a tag-type that wraps around a 'ProcessId' and holds an 'Pdu' index
--- type.
-newtype Endpoint protocol = Endpoint { _fromEndpoint :: ProcessId }
-  deriving (Eq,Ord,Typeable, NFData)
-
-instance Typeable protocol => Show (Endpoint protocol) where
-  showsPrec d (Endpoint c) =
-    showParen (d>=10)
-    (prettyTypeableShows (SomeTypeRep (typeRep @protocol)) . showsPrec 10 c)
 
 -- | This is equivalent to @'prettyTypeableShowsPrec' 0@
 --
@@ -302,10 +313,16 @@ asEndpoint = Endpoint
 -- Laws: @embeddedPdu = prism' embedPdu fromPdu@
 --
 -- @since 0.24.0
-class EmbedProtocol protocol embeddedProtocol (result :: Synchronicity) where
+class
+  ( HasPdu protocol         result
+  , HasPdu embeddedProtocol result
+  )
+  => EmbedProtocol protocol embeddedProtocol (result :: Synchronicity) where
+
   -- | A 'Prism' for the embedded 'Pdu's.
   embeddedPdu :: Prism' (Pdu protocol result) (Pdu embeddedProtocol result)
   embeddedPdu = prism' embedPdu fromPdu
+
   -- | Embed the 'Pdu' value of an embedded protocol into the corresponding
   --  'Pdu' value.
   embedPdu :: Pdu embeddedProtocol result -> Pdu protocol result
@@ -332,7 +349,7 @@ toEmbeddedEndpoint = coerce
 fromEmbeddedEndpoint ::  forall outer inner r . EmbedProtocol outer inner r => Endpoint inner -> Endpoint outer
 fromEmbeddedEndpoint = coerce
 
-instance EmbedProtocol a a r where
+instance HasPdu a r => EmbedProtocol a a r where
   embeddedPdu = prism' id Just
   embedPdu = id
   fromPdu = Just
@@ -345,12 +362,12 @@ instance (Show (Pdu a1 r), Show (Pdu a2 r)) => Show (Pdu (a1, a2) r) where
   showsPrec d (ToPduLeft x) = showsPrec d x
   showsPrec d (ToPduRight y) = showsPrec d y
 
-instance EmbedProtocol (a1, a2) a1 r where
+instance (HasPdu a1 r, HasPdu a2 r) => EmbedProtocol (a1, a2) a1 r where
   embedPdu = ToPduLeft
   fromPdu (ToPduLeft l) = Just l
   fromPdu _ = Nothing
 
-instance EmbedProtocol (a1, a2) a2 r where
+instance (HasPdu a1 r, HasPdu a2 r) => EmbedProtocol (a1, a2) a2 r where
   embeddedPdu =
     prism' ToPduRight $ \case
       ToPduRight r -> Just r
@@ -366,17 +383,17 @@ instance (Show (Pdu a1 r), Show (Pdu a2 r), Show (Pdu a3 r)) => Show (Pdu (a1, a
   showsPrec d (ToPdu2 y) = showsPrec d y
   showsPrec d (ToPdu3 z) = showsPrec d z
 
-instance EmbedProtocol (a1, a2, a3) a1 r where
+instance (HasPdu a1 r, HasPdu a2 r, HasPdu a3 r) => EmbedProtocol (a1, a2, a3) a1 r where
   embedPdu = ToPdu1
   fromPdu (ToPdu1 l) = Just l
   fromPdu _ = Nothing
 
-instance EmbedProtocol (a1, a2, a3) a2 r where
+instance (HasPdu a1 r, HasPdu a2 r, HasPdu a3 r) => EmbedProtocol (a1, a2, a3) a2 r where
   embedPdu = ToPdu2
   fromPdu (ToPdu2 l) = Just l
   fromPdu _ = Nothing
 
-instance EmbedProtocol (a1, a2, a3) a3 r where
+instance (HasPdu a1 r, HasPdu a2 r, HasPdu a3 r) => EmbedProtocol (a1, a2, a3) a3 r where
   embedPdu = ToPdu3
   fromPdu (ToPdu3 l) = Just l
   fromPdu _ = Nothing
@@ -393,22 +410,22 @@ instance (Show (Pdu a1 r), Show (Pdu a2 r), Show (Pdu a3 r), Show (Pdu a4 r)) =>
   showsPrec d (ToPdu3Of4 z) = showsPrec d z
   showsPrec d (ToPdu4Of4 w) = showsPrec d w
 
-instance EmbedProtocol (a1, a2, a3, a4) a1 r where
+instance (HasPdu a1 r, HasPdu a2 r, HasPdu a3 r, HasPdu a4 r) => EmbedProtocol (a1, a2, a3, a4) a1 r where
   embedPdu = ToPdu1Of4
   fromPdu (ToPdu1Of4 l) = Just l
   fromPdu _ = Nothing
 
-instance EmbedProtocol (a1, a2, a3, a4) a2 r where
+instance (HasPdu a1 r, HasPdu a2 r, HasPdu a3 r, HasPdu a4 r) => EmbedProtocol (a1, a2, a3, a4) a2 r where
   embedPdu = ToPdu2Of4
   fromPdu (ToPdu2Of4 l) = Just l
   fromPdu _ = Nothing
 
-instance EmbedProtocol (a1, a2, a3, a4) a3 r where
+instance (HasPdu a1 r, HasPdu a2 r, HasPdu a3 r, HasPdu a4 r) => EmbedProtocol (a1, a2, a3, a4) a3 r where
   embedPdu = ToPdu3Of4
   fromPdu (ToPdu3Of4 l) = Just l
   fromPdu _ = Nothing
 
-instance EmbedProtocol (a1, a2, a3, a4) a4 r where
+instance (HasPdu a1 r, HasPdu a2 r, HasPdu a3 r, HasPdu a4 r) => EmbedProtocol (a1, a2, a3, a4) a4 r where
   embedPdu = ToPdu4Of4
   fromPdu (ToPdu4Of4 l) = Just l
   fromPdu _ = Nothing
@@ -427,27 +444,27 @@ instance (Show (Pdu a1 r), Show (Pdu a2 r), Show (Pdu a3 r), Show (Pdu a4 r), Sh
   showsPrec d (ToPdu4Of5 w) = showsPrec d w
   showsPrec d (ToPdu5Of5 v) = showsPrec d v
 
-instance EmbedProtocol (a1, a2, a3, a4, a5) a1 r where
+instance (HasPdu a1 r, HasPdu a2 r, HasPdu a3 r, HasPdu a4 r, HasPdu a5 r) => EmbedProtocol (a1, a2, a3, a4, a5) a1 r where
   embedPdu = ToPdu1Of5
   fromPdu (ToPdu1Of5 l) = Just l
   fromPdu _ = Nothing
 
-instance EmbedProtocol (a1, a2, a3, a4, a5) a2 r where
+instance (HasPdu a1 r, HasPdu a2 r, HasPdu a3 r, HasPdu a4 r, HasPdu a5 r) => EmbedProtocol (a1, a2, a3, a4, a5) a2 r where
   embedPdu = ToPdu2Of5
   fromPdu (ToPdu2Of5 l) = Just l
   fromPdu _ = Nothing
 
-instance EmbedProtocol (a1, a2, a3, a4, a5) a3 r where
+instance (HasPdu a1 r, HasPdu a2 r, HasPdu a3 r, HasPdu a4 r, HasPdu a5 r) => EmbedProtocol (a1, a2, a3, a4, a5) a3 r where
   embedPdu = ToPdu3Of5
   fromPdu (ToPdu3Of5 l) = Just l
   fromPdu _ = Nothing
 
-instance EmbedProtocol (a1, a2, a3, a4, a5) a4 r where
+instance (HasPdu a1 r, HasPdu a2 r, HasPdu a3 r, HasPdu a4 r, HasPdu a5 r) => EmbedProtocol (a1, a2, a3, a4, a5) a4 r where
   embedPdu = ToPdu4Of5
   fromPdu (ToPdu4Of5 l) = Just l
   fromPdu _ = Nothing
 
-instance EmbedProtocol (a1, a2, a3, a4, a5) a5 r where
+instance (HasPdu a1 r, HasPdu a2 r, HasPdu a3 r, HasPdu a4 r, HasPdu a5 r) => EmbedProtocol (a1, a2, a3, a4, a5) a5 r where
   embedPdu = ToPdu5Of5
   fromPdu (ToPdu5Of5 l) = Just l
   fromPdu _ = Nothing
