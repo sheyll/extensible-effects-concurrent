@@ -203,16 +203,13 @@ import           Control.Eff.Concurrent.Protocol.Client
                                                 )
 import           Control.Eff.Concurrent.Protocol.Observer
                                                 ( Observer(..)
-                                                , Pdu
-                                                  ( RegisterObserver
-                                                  , ForgetObserver
-                                                  , Observed
-                                                  )
+                                                , ObservationSink(..)
+                                                , IsObservable
+                                                , CanObserve
+                                                , Pdu(RegisterObserver, ForgetObserver, Observed)
                                                 , registerObserver
                                                 , forgetObserver
-                                                , handleObservations
-                                                , toObserver
-                                                , toObserverFor
+                                                , forgetObserverUnsafe
                                                 , ObserverRegistry
                                                 , ObserverState
                                                 , Observers()

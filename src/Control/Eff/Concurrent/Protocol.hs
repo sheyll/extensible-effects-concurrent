@@ -47,11 +47,10 @@ module Control.Eff.Concurrent.Protocol
   , EmbedProtocol(..)
   , toEmbeddedEndpoint
   , fromEmbeddedEndpoint
-  , prettyTypeableShows
-  , prettyTypeableShowsPrec
   )
 where
 
+import           Control.Eff.Concurrent.Misc
 import           Control.DeepSeq
 import           Control.Eff.Concurrent.Process
 import           Control.Lens
@@ -80,7 +79,7 @@ newtype Endpoint protocol = Endpoint { _fromEndpoint :: ProcessId }
 instance Typeable protocol => Show (Endpoint protocol) where
   showsPrec d (Endpoint c) =
     showParen (d>=10)
-    (prettyTypeableShows (SomeTypeRep (typeRep @protocol)) . showsPrec 10 c)
+    (showSTypeRep (SomeTypeRep (typeRep @protocol)) . showsPrec 10 c)
 
 -- | This type class and the associated data family defines the
 -- __protocol data units__ (PDU) of a /protocol/.
@@ -175,35 +174,11 @@ type family ProtocolReply (s :: Synchronicity) where
   ProtocolReply ('Synchronous t) = t
   ProtocolReply 'Asynchronous = ()
 
--- | This is equivalent to @'prettyTypeableShowsPrec' 0@
---
--- @since 0.24.0
-prettyTypeableShows :: SomeTypeRep -> ShowS
-prettyTypeableShows = prettyTypeableShowsPrec 0
-
--- | An internal utility to print 'Typeable' without the kinds.
--- This is like 'showsPrec' in that it accepts a /precedence/ parameter,
--- and the result is in parentheses when the precedence is higher than 9.
---
--- @since 0.24.0
-prettyTypeableShowsPrec :: Int -> SomeTypeRep -> ShowS
-prettyTypeableShowsPrec d (SomeTypeRep tr) sIn =
-  let (con, conArgs) = splitApps tr
-   in case conArgs of
-        [] -> showString (tyConName con) sIn
-        _ ->
-          showParen
-            (d >= 10)
-            (showString (tyConName con) . showChar ':' .
-              foldr1 (\f acc -> showChar '-' . f . acc)
-                     (prettyTypeableShowsPrec 10 <$> conArgs))
-            sIn
-
 type instance ToPretty (Endpoint a) = ToPretty a <+> PutStr "endpoint"
 
 makeLenses ''Endpoint
 
-instance (HasPdu a1 r, HasPdu a2 r) => HasPdu (a1, a2) r where
+instance (Typeable r, HasPdu a1 r, HasPdu a2 r) => HasPdu (a1, a2) r where
   data instance Pdu (a1, a2) r where
           ToPduLeft :: Pdu a1 r -> Pdu (a1, a2) r
           ToPduRight :: Pdu a2 r -> Pdu (a1, a2) r
@@ -219,7 +194,7 @@ instance (HasPdu a1 r, HasPdu a2 r) => HasPdu (a1, a2) r where
           Nothing ->
             Nothing
 
-instance (HasPdu a1 r, HasPdu a2 r, HasPdu a3 r) => HasPdu (a1, a2, a3) r where
+instance (Typeable r, HasPdu a1 r, HasPdu a2 r, HasPdu a3 r) => HasPdu (a1, a2, a3) r where
   data instance Pdu (a1, a2, a3) r where
     ToPdu1 :: Pdu a1 r -> Pdu (a1, a2, a3) r
     ToPdu2 :: Pdu a2 r -> Pdu (a1, a2, a3) r
@@ -240,7 +215,7 @@ instance (HasPdu a1 r, HasPdu a2 r, HasPdu a3 r) => HasPdu (a1, a2, a3) r where
               Nothing ->
                 Nothing
 
-instance (HasPdu a1 r, HasPdu a2 r, HasPdu a3 r, HasPdu a4 r) => HasPdu (a1, a2, a3, a4) r where
+instance (Typeable r, HasPdu a1 r, HasPdu a2 r, HasPdu a3 r, HasPdu a4 r) => HasPdu (a1, a2, a3, a4) r where
   data instance Pdu (a1, a2, a3, a4) r where
     ToPdu1Of4 :: Pdu a1 r -> Pdu (a1, a2, a3, a4) r
     ToPdu2Of4 :: Pdu a2 r -> Pdu (a1, a2, a3, a4) r
@@ -266,7 +241,7 @@ instance (HasPdu a1 r, HasPdu a2 r, HasPdu a3 r, HasPdu a4 r) => HasPdu (a1, a2,
                   Nothing ->
                     Nothing
 
-instance (HasPdu a1 r, HasPdu a2 r, HasPdu a3 r, HasPdu a4 r, HasPdu a5 r) => HasPdu (a1, a2, a3, a4, a5) r where
+instance (Typeable r, HasPdu a1 r, HasPdu a2 r, HasPdu a3 r, HasPdu a4 r, HasPdu a5 r) => HasPdu (a1, a2, a3, a4, a5) r where
   data instance Pdu (a1, a2, a3, a4, a5) r where
     ToPdu1Of5 :: Pdu a1 r -> Pdu (a1, a2, a3, a4, a5) r
     ToPdu2Of5 :: Pdu a2 r -> Pdu (a1, a2, a3, a4, a5) r
@@ -362,12 +337,12 @@ instance (Show (Pdu a1 r), Show (Pdu a2 r)) => Show (Pdu (a1, a2) r) where
   showsPrec d (ToPduLeft x) = showsPrec d x
   showsPrec d (ToPduRight y) = showsPrec d y
 
-instance (HasPdu a1 r, HasPdu a2 r) => EmbedProtocol (a1, a2) a1 r where
+instance (Typeable r, HasPdu a1 r, HasPdu a2 r) => EmbedProtocol (a1, a2) a1 r where
   embedPdu = ToPduLeft
   fromPdu (ToPduLeft l) = Just l
   fromPdu _ = Nothing
 
-instance (HasPdu a1 r, HasPdu a2 r) => EmbedProtocol (a1, a2) a2 r where
+instance (Typeable r, HasPdu a1 r, HasPdu a2 r) => EmbedProtocol (a1, a2) a2 r where
   embeddedPdu =
     prism' ToPduRight $ \case
       ToPduRight r -> Just r
@@ -383,17 +358,17 @@ instance (Show (Pdu a1 r), Show (Pdu a2 r), Show (Pdu a3 r)) => Show (Pdu (a1, a
   showsPrec d (ToPdu2 y) = showsPrec d y
   showsPrec d (ToPdu3 z) = showsPrec d z
 
-instance (HasPdu a1 r, HasPdu a2 r, HasPdu a3 r) => EmbedProtocol (a1, a2, a3) a1 r where
+instance (Typeable r, HasPdu a1 r, HasPdu a2 r, HasPdu a3 r) => EmbedProtocol (a1, a2, a3) a1 r where
   embedPdu = ToPdu1
   fromPdu (ToPdu1 l) = Just l
   fromPdu _ = Nothing
 
-instance (HasPdu a1 r, HasPdu a2 r, HasPdu a3 r) => EmbedProtocol (a1, a2, a3) a2 r where
+instance (Typeable r, HasPdu a1 r, HasPdu a2 r, HasPdu a3 r) => EmbedProtocol (a1, a2, a3) a2 r where
   embedPdu = ToPdu2
   fromPdu (ToPdu2 l) = Just l
   fromPdu _ = Nothing
 
-instance (HasPdu a1 r, HasPdu a2 r, HasPdu a3 r) => EmbedProtocol (a1, a2, a3) a3 r where
+instance (Typeable r, HasPdu a1 r, HasPdu a2 r, HasPdu a3 r) => EmbedProtocol (a1, a2, a3) a3 r where
   embedPdu = ToPdu3
   fromPdu (ToPdu3 l) = Just l
   fromPdu _ = Nothing
@@ -410,27 +385,27 @@ instance (Show (Pdu a1 r), Show (Pdu a2 r), Show (Pdu a3 r), Show (Pdu a4 r)) =>
   showsPrec d (ToPdu3Of4 z) = showsPrec d z
   showsPrec d (ToPdu4Of4 w) = showsPrec d w
 
-instance (HasPdu a1 r, HasPdu a2 r, HasPdu a3 r, HasPdu a4 r) => EmbedProtocol (a1, a2, a3, a4) a1 r where
+instance (Typeable r, HasPdu a1 r, HasPdu a2 r, HasPdu a3 r, HasPdu a4 r) => EmbedProtocol (a1, a2, a3, a4) a1 r where
   embedPdu = ToPdu1Of4
   fromPdu (ToPdu1Of4 l) = Just l
   fromPdu _ = Nothing
 
-instance (HasPdu a1 r, HasPdu a2 r, HasPdu a3 r, HasPdu a4 r) => EmbedProtocol (a1, a2, a3, a4) a2 r where
+instance (Typeable r, HasPdu a1 r, HasPdu a2 r, HasPdu a3 r, HasPdu a4 r) => EmbedProtocol (a1, a2, a3, a4) a2 r where
   embedPdu = ToPdu2Of4
   fromPdu (ToPdu2Of4 l) = Just l
   fromPdu _ = Nothing
 
-instance (HasPdu a1 r, HasPdu a2 r, HasPdu a3 r, HasPdu a4 r) => EmbedProtocol (a1, a2, a3, a4) a3 r where
+instance (Typeable r, HasPdu a1 r, HasPdu a2 r, HasPdu a3 r, HasPdu a4 r) => EmbedProtocol (a1, a2, a3, a4) a3 r where
   embedPdu = ToPdu3Of4
   fromPdu (ToPdu3Of4 l) = Just l
   fromPdu _ = Nothing
 
-instance (HasPdu a1 r, HasPdu a2 r, HasPdu a3 r, HasPdu a4 r) => EmbedProtocol (a1, a2, a3, a4) a4 r where
+instance (Typeable r, HasPdu a1 r, HasPdu a2 r, HasPdu a3 r, HasPdu a4 r) => EmbedProtocol (a1, a2, a3, a4) a4 r where
   embedPdu = ToPdu4Of4
   fromPdu (ToPdu4Of4 l) = Just l
   fromPdu _ = Nothing
 
-instance (NFData (Pdu a1 r), NFData (Pdu a2 r), NFData (Pdu a3 r), NFData (Pdu a4 r), NFData (Pdu a5 r)) => NFData (Pdu (a1, a2, a3, a4, a5) r) where
+instance (Typeable r, NFData (Pdu a1 r), NFData (Pdu a2 r), NFData (Pdu a3 r), NFData (Pdu a4 r), NFData (Pdu a5 r)) => NFData (Pdu (a1, a2, a3, a4, a5) r) where
   rnf (ToPdu1Of5 x) = rnf x
   rnf (ToPdu2Of5 y) = rnf y
   rnf (ToPdu3Of5 z) = rnf z
@@ -444,27 +419,27 @@ instance (Show (Pdu a1 r), Show (Pdu a2 r), Show (Pdu a3 r), Show (Pdu a4 r), Sh
   showsPrec d (ToPdu4Of5 w) = showsPrec d w
   showsPrec d (ToPdu5Of5 v) = showsPrec d v
 
-instance (HasPdu a1 r, HasPdu a2 r, HasPdu a3 r, HasPdu a4 r, HasPdu a5 r) => EmbedProtocol (a1, a2, a3, a4, a5) a1 r where
+instance (Typeable r, HasPdu a1 r, HasPdu a2 r, HasPdu a3 r, HasPdu a4 r, HasPdu a5 r) => EmbedProtocol (a1, a2, a3, a4, a5) a1 r where
   embedPdu = ToPdu1Of5
   fromPdu (ToPdu1Of5 l) = Just l
   fromPdu _ = Nothing
 
-instance (HasPdu a1 r, HasPdu a2 r, HasPdu a3 r, HasPdu a4 r, HasPdu a5 r) => EmbedProtocol (a1, a2, a3, a4, a5) a2 r where
+instance (Typeable r, HasPdu a1 r, HasPdu a2 r, HasPdu a3 r, HasPdu a4 r, HasPdu a5 r) => EmbedProtocol (a1, a2, a3, a4, a5) a2 r where
   embedPdu = ToPdu2Of5
   fromPdu (ToPdu2Of5 l) = Just l
   fromPdu _ = Nothing
 
-instance (HasPdu a1 r, HasPdu a2 r, HasPdu a3 r, HasPdu a4 r, HasPdu a5 r) => EmbedProtocol (a1, a2, a3, a4, a5) a3 r where
+instance (Typeable r, HasPdu a1 r, HasPdu a2 r, HasPdu a3 r, HasPdu a4 r, HasPdu a5 r) => EmbedProtocol (a1, a2, a3, a4, a5) a3 r where
   embedPdu = ToPdu3Of5
   fromPdu (ToPdu3Of5 l) = Just l
   fromPdu _ = Nothing
 
-instance (HasPdu a1 r, HasPdu a2 r, HasPdu a3 r, HasPdu a4 r, HasPdu a5 r) => EmbedProtocol (a1, a2, a3, a4, a5) a4 r where
+instance (Typeable r, HasPdu a1 r, HasPdu a2 r, HasPdu a3 r, HasPdu a4 r, HasPdu a5 r) => EmbedProtocol (a1, a2, a3, a4, a5) a4 r where
   embedPdu = ToPdu4Of5
   fromPdu (ToPdu4Of5 l) = Just l
   fromPdu _ = Nothing
 
-instance (HasPdu a1 r, HasPdu a2 r, HasPdu a3 r, HasPdu a4 r, HasPdu a5 r) => EmbedProtocol (a1, a2, a3, a4, a5) a5 r where
+instance (Typeable r, HasPdu a1 r, HasPdu a2 r, HasPdu a3 r, HasPdu a4 r, HasPdu a5 r) => EmbedProtocol (a1, a2, a3, a4, a5) a5 r where
   embedPdu = ToPdu5Of5
   fromPdu (ToPdu5Of5 l) = Just l
   fromPdu _ = Nothing

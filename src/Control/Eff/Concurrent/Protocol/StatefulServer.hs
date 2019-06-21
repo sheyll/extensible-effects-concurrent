@@ -116,28 +116,30 @@ instance Server a q => Effectful.Server (Stateful a) q where
 --
 -- @since 0.24.0
 start
-  :: forall a q h
+  :: forall a r q h
   . ( HasCallStack
     , Typeable a
     , LogsTo h (Processes q)
     , Effectful.Server (Stateful a) (Processes q)
     , Server a (Processes q)
+    , HasProcesses r q
     )
-  => StartArgument a (Processes q) -> Eff (Processes q) (Endpoint (Protocol a))
+  => StartArgument a (Processes q) -> Eff r (Endpoint (Protocol a))
 start = Effectful.start . Init
 
 -- | Execute the server loop.
 --
 -- @since 0.24.0
 startLink
-  :: forall a q h
+  :: forall a r q h
   . ( HasCallStack
     , Typeable a
     , LogsTo h (Processes q)
     , Effectful.Server (Stateful a) (Processes q)
     , Server a (Processes q)
+    , HasProcesses r q
     )
-  => StartArgument a (Processes q) -> Eff (Processes q) (Endpoint (Protocol a))
+  => StartArgument a (Processes q) -> Eff r (Endpoint (Protocol a))
 startLink = Effectful.startLink . Init
 
 

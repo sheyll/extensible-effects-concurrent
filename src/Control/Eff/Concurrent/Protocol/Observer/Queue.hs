@@ -135,20 +135,21 @@ withObservationQueue queueLimit e = do
 --
 -- @since 0.18.0
 spawnLinkObservationQueueWriter
-  :: forall o q h
-   . ( TangibleObserver o
-     , HasPdu (Observer o) 'Asynchronous
-     , Member Logs q
+  :: forall o r q h
+   . ( Member Logs q
      , Lifted IO q
      , LogsTo h (Processes q)
-     , HasCallStack)
+     , HasProcesses r q
+     , Typeable o
+     , HasCallStack
+     , Server (ObservationQueue o) (Processes q)
+     )
   => ObservationQueue o
-  -> Eff (Processes q) (Observer o)
-spawnLinkObservationQueueWriter q = do
-  cbo <- startLink (MkObservationQueue q)
-  pure (toObserver cbo)
+  -> Eff r (Endpoint (Observer o))
+spawnLinkObservationQueueWriter q =
+  startLink @_ @r @q @h (MkObservationQueue q)
 
-instance (TangibleObserver o, HasPdu (Observer o) 'Asynchronous, Lifted IO q, Member Logs q) => Server (ObservationQueue o) (Processes q) where
+instance (Typeable o, Lifted IO q, Member Logs q) => Server (ObservationQueue o) (Processes q) where
   type Protocol (ObservationQueue o) = Observer o
 
   data instance StartArgument (ObservationQueue o) (Processes q) =
@@ -156,6 +157,6 @@ instance (TangibleObserver o, HasPdu (Observer o) 'Asynchronous, Lifted IO q,
 
   update _ (MkObservationQueue (ObservationQueue q)) =
     \case
-      OnCast r ->
-        handleObservations (lift . atomically . writeTBQueue q) r
+      OnCast (Observed !event) ->
+        (lift . atomically . writeTBQueue q) event
       otherMsg -> logError ("unexpected: " <> T.pack (show otherMsg))

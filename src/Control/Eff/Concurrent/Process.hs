@@ -125,6 +125,7 @@ module Control.Eff.Concurrent.Process
 where
 
 import           Control.Applicative
+import           Control.Eff.Concurrent.Misc
 import           Control.DeepSeq
 import           Control.Eff
 import           Control.Eff.Exception
@@ -141,7 +142,6 @@ import           Data.Functor.Contravariant     ()
 import           Data.Kind
 import           Data.Function
 import           Data.Maybe
-import           Data.Proxy
 import           Data.String                    ( IsString, fromString )
 import           Data.Text                      ( Text, pack, unpack)
 import qualified Data.Text                     as T
@@ -351,7 +351,7 @@ instance NFData (Serializer message) where
   rnf (MkSerializer !s) = s `seq` ()
 
 instance Typeable message => Show (Serializer message) where
-  showsPrec d x = showParen (d >= 10) (prettyTypeableShows (typeRep (Proxy @message)) . showString "-serializer")
+  showsPrec d _x = showParen (d >= 10) (showSTypeable @message . showString "-serializer")
 
 instance Contravariant Serializer where
   contramap f (MkSerializer b) = MkSerializer (b . f)

@@ -75,7 +75,7 @@ instance Show (Pdu Big r) where
   showsPrec d (BigCast x) = showParen (d > 10) (showString "SmallCast " . showString x)
   showsPrec d (BigSmall x) = showParen (d > 10) (showString "BigSmall " . showsPrec 11 x)
 
-instance EmbedProtocol Big Small r where
+instance  Typeable r => EmbedProtocol Big Small r where
   embeddedPdu =
     prism'
       BigSmall
@@ -94,11 +94,11 @@ instance LogIo e => S.Server Big (Processes e) where
             BigCall o -> do
               logNotice ("BigCall " <> pack (show o))
               sendReply rt o
-            BigSmall x -> S.update (toEmbeddedEndpoint me) MkSmall (S.OnCall (toEmbeddedReplyTarget rt) x)
+            BigSmall x -> S.update (toEmbeddedEndpoint @_ @_ @('Synchronous Bool) me) MkSmall (S.OnCall (toEmbeddedReplyTarget rt) x)
     E.OnCast req ->
         case req of
           BigCast o -> S.putModel @Big o
-          BigSmall x -> S.update (toEmbeddedEndpoint me) MkSmall (S.OnCast x)
+          BigSmall x -> S.update (toEmbeddedEndpoint @_ @_ @('Asynchronous) me) MkSmall (S.OnCast x)
     other ->
       interrupt (ErrorInterrupt (show other))
 -- ----------------------------------------------------------------------------

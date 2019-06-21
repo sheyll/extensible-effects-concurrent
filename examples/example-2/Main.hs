@@ -41,7 +41,7 @@ counterExample = do
   lift (threadDelay 500000)
   o <- logCounterObservations
   lift (threadDelay 500000)
-  registerObserver o c
+  registerObserver @CounterChanged c o
   lift (threadDelay 500000)
   cast c Inc
   lift (threadDelay 500000)
@@ -131,10 +131,8 @@ deriving instance Show (Pdu Counter x)
 
 logCounterObservations
   :: (LogIo q, Typeable q)
-  => Eff (Processes q) (Observer CounterChanged)
-logCounterObservations = do
-  svr <- start OCCStart
-  pure (toObserver svr)
+  => Eff (Processes q) (Endpoint (Observer CounterChanged))
+logCounterObservations = start OCCStart
 
 instance Member Logs q => Server (Observer CounterChanged) (Processes q) where
   data StartArgument (Observer CounterChanged) (Processes q) = OCCStart
@@ -142,5 +140,5 @@ instance Member Logs q => Server (Observer CounterChanged) (Processes q) where
   setup _ _ = pure (emptyObservers, ())
   update _ _ =
     \case
-      OnCast r -> handleObservations (\msg -> logInfo' ("observed: " ++ show msg)) r
+      OnCast (Observed msg) -> logInfo' ("observed: " ++ show msg)
       wtf -> logNotice (T.pack (show wtf))

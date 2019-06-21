@@ -13,6 +13,7 @@ module Control.Eff.Concurrent.Protocol.EffectfulServer
 import Control.Applicative
 import Control.DeepSeq
 import Control.Eff
+import Control.Eff.Concurrent.Misc
 import Control.Eff.Extend ()
 import Control.Eff.Concurrent.Process
 import Control.Eff.Concurrent.Process.Timer
@@ -63,7 +64,7 @@ class Server (a :: Type) (e :: [Type -> Type])
   serverTitle :: Init a e -> ProcessTitle
 
   default serverTitle :: Typeable (ServerPdu a) => Init a e -> ProcessTitle
-  serverTitle _ = fromString $ prettyTypeableShows (typeRep (Proxy @(ServerPdu a))) "-server"
+  serverTitle _ = fromString $ showSTypeable @(ServerPdu a) "-server"
 
   -- | Process the effects of the implementation
   runEffects :: Endpoint (ServerPdu a) -> Init a e -> Eff (ServerEffects a e) x -> Eff e x
@@ -82,30 +83,32 @@ class Server (a :: Type) (e :: [Type -> Type])
 --
 -- @since 0.24.0
 start
-  :: forall a q h
+  :: forall a r q h
   . ( Server a (Processes q)
     , Typeable a
     , Typeable (ServerPdu a)
     , LogsTo h (Processes q)
     , HasProcesses (ServerEffects a (Processes q)) q
+    , HasProcesses r q
     , HasCallStack)
   => Init a (Processes q)
-  -> Eff (Processes q) (Endpoint (ServerPdu a))
+  -> Eff r (Endpoint (ServerPdu a))
 start a = asEndpoint <$> spawn (serverTitle a) (protocolServerLoop a)
 
 -- | Execute the server loop.
 --
 -- @since 0.24.0
 startLink
-  :: forall a q h
+  :: forall a r q h
   . ( Typeable a
     , Typeable (ServerPdu a)
     , Server a (Processes q)
     , LogsTo h (Processes q)
     , HasProcesses (ServerEffects a (Processes q)) q
+    , HasProcesses r q
     , HasCallStack)
   => Init a (Processes q)
-  -> Eff (Processes q) (Endpoint (ServerPdu a))
+  -> Eff r (Endpoint (ServerPdu a))
 startLink a = asEndpoint <$> spawnLink (serverTitle a) (protocolServerLoop a)
 
 -- | Execute the server loop.

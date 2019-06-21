@@ -99,6 +99,7 @@ library
                   Control.Eff.Concurrent.Protocol.Observer
                   Control.Eff.Concurrent.Protocol.Observer.Queue
   other-modules:
+                Control.Eff.Concurrent.Misc,
                 Control.Eff.Concurrent.Protocol.Supervisor.InternalState,
                 Paths_extensible_effects_concurrent
   default-extensions:

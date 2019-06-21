@@ -16,11 +16,12 @@ module Control.Eff.Concurrent.Protocol.CallbackServer
 
 import Control.DeepSeq
 import Control.Eff
-import Control.Eff.Extend ()
+import Control.Eff.Concurrent.Misc
 import Control.Eff.Concurrent.Process
 import Control.Eff.Concurrent.Protocol
 import qualified Control.Eff.Concurrent.Protocol.EffectfulServer as E
 import Control.Eff.Concurrent.Protocol.EffectfulServer (Event(..))
+import Control.Eff.Extend ()
 import Control.Eff.Log
 import Data.Kind
 import Data.String
@@ -90,7 +91,7 @@ instance (Typeable tag) => Show (ServerId tag) where
       (d >= 10)
       (showString (T.unpack x)
       . showString " :: "
-      . prettyTypeableShows (typeOf px)
+      . showSTypeRep (typeOf px)
       )
 
 instance (TangibleCallbacks tag eLoop e) => E.Server (Server (tag :: Type) eLoop) (Processes e) where
@@ -112,7 +113,7 @@ instance (TangibleCallbacks tag eLoop e) => Show (E.Init (Server (tag :: Type) e
   showsPrec d svr =
     showParen (d>=10)
       ( showsPrec 11 (genServerId svr)
-      . showChar ' ' . prettyTypeableShows (typeRep (Proxy @tag))
+      . showChar ' ' . showSTypeRep (typeRep (Proxy @tag))
       . showString " callback-server"
       )
 
