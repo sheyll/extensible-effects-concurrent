@@ -8,6 +8,7 @@ import Control.DeepSeq
 import Control.Eff
 import Control.Eff.Concurrent
 import qualified Control.Eff.Concurrent.Protocol.EffectfulServer as S
+import qualified Control.Eff.Concurrent.Protocol.Observer.Queue as OQ
 import qualified Control.Eff.Concurrent.Protocol.StatefulServer as M
 import Control.Lens
 import Control.Monad
@@ -18,11 +19,11 @@ import Test.Tasty.HUnit
 
 
 test_observer :: HasCallStack => TestTree
-test_observer = testGroup "observer" observerQueueTests
+test_observer = testGroup "observer" (basicTests ++ [observerQueueTests])
 
 
-observerQueueTests :: HasCallStack => [TestTree]
-observerQueueTests =
+basicTests :: HasCallStack => [TestTree]
+basicTests =
   [runTestCase "when no observer is present, nothing crashes"
       $ do
             testObservable <- S.start TestObservableServerInit
@@ -162,6 +163,102 @@ observerQueueTests =
             lift (["4", "5"] @=? es1)
             cast testObservable StopTestObservable
             void $ awaitProcessDown (testObservable ^. fromEndpoint)
+  ]
+
+observerQueueTests :: TestTree
+observerQueueTests =
+  testGroup "observer-queue"
+  [ runTestCase "tryRead"
+      $ do
+          testObservable <- S.start TestObservableServerInit
+          let len :: Int
+              len = 1
+          OQ.observe  @String len testObservable $ do
+            OQ.tryRead @String >>= lift . (Nothing @=?)
+            call testObservable (SendTestEvent "1")
+            OQ.tryRead @String >>= lift . (Just "1" @=?)
+
+          cast testObservable StopTestObservable
+          void $ awaitProcessDown (testObservable ^. fromEndpoint)
+  , runTestCase "observe then read"
+      $ do
+          testObservable <- S.start TestObservableServerInit
+          let len :: Int
+              len = 1
+          OQ.observe  @String len testObservable $ do
+            call testObservable (SendTestEvent "1")
+            OQ.await @String >>= lift . ("1" @=?)
+            call testObservable (SendTestEvent "2")
+            OQ.await @String >>= lift . ("2" @=?)
+            call testObservable (SendTestEvent "3")
+            OQ.await @String >>= lift . ("3" @=?)
+
+          cast testObservable StopTestObservable
+          void $ awaitProcessDown (testObservable ^. fromEndpoint)
+  , runTestCase "FIFO"
+      $ do
+          testObservable <- S.start TestObservableServerInit
+          let len :: Int
+              len = 3
+          OQ.observe  @String len testObservable $ do
+            call testObservable (SendTestEvent "1")
+            call testObservable (SendTestEvent "2")
+            call testObservable (SendTestEvent "3")
+            OQ.await @String >>= lift . ("1" @=?)
+            OQ.await @String >>= lift . ("2" @=?)
+            OQ.await @String >>= lift . ("3" @=?)
+
+          cast testObservable StopTestObservable
+          void $ awaitProcessDown (testObservable ^. fromEndpoint)
+  , runTestCase "flush"
+      $ do
+          testObservable <- S.start TestObservableServerInit
+          let len :: Int
+              len = 3
+          OQ.observe  @String len testObservable $ do
+            call testObservable (SendTestEvent "1")
+            call testObservable (SendTestEvent "2")
+            call testObservable (SendTestEvent "3")
+            OQ.flush @String >>= lift . (["1", "2", "3"] @=?)
+            OQ.tryRead @String >>= lift . (Nothing @=?)
+
+          cast testObservable StopTestObservable
+          void $ awaitProcessDown (testObservable ^. fromEndpoint)
+  , runTestCase "when the queue is full, new observations are dropped"
+      $ do
+            testObservable <- S.start TestObservableServerInit
+            let len :: Int
+                len = 2
+            OQ.observe  @String len testObservable $ do
+              call testObservable (SendTestEvent "1")
+              call testObservable (SendTestEvent "2")
+              call testObservable (SendTestEvent "3")
+              call testObservable (SendTestEvent "4")
+              OQ.await @String >>= lift . ("1" @=?)
+              OQ.await @String >>= lift . ("2" @=?)
+              OQ.tryRead @String >>= lift . (Nothing @=?)
+
+            cast testObservable StopTestObservable
+            void $ awaitProcessDown (testObservable ^. fromEndpoint)
+  , runTestCase "flush after queue full"
+      $ do
+          testObservable <- S.start TestObservableServerInit
+          let len :: Int
+              len = 3
+          OQ.observe  @String len testObservable $ do
+            call testObservable (SendTestEvent "1")
+            call testObservable (SendTestEvent "2")
+            call testObservable (SendTestEvent "3")
+            call testObservable (SendTestEvent "4")
+            call testObservable (SendTestEvent "5")
+            OQ.flush @String >>= lift . (["1", "2", "3"] @=?)
+            OQ.flush @String >>= lift . ([] @=?)
+            OQ.tryRead @String >>= lift . (Nothing @=?)
+            call testObservable (SendTestEvent "6")
+            OQ.await @String >>= lift . ("6" @=?)
+
+          cast testObservable StopTestObservable
+          void $ awaitProcessDown (testObservable ^. fromEndpoint)
   ]
 
 

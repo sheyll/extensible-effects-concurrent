@@ -3,6 +3,11 @@
 -- This module supports the implementation of observerRegistry and observables. Expected use
 -- case is event propagation.
 --
+-- The observable event sources and the observers are usually server processes for a
+-- protocol that embeds the 'ObserverRegistry' and 'Observer' 'Pdu's respectively.
+--
+-- A generic FIFO queue based observer can be found in "Control.Eff.Concurrent.Protocol.Observer.Queue".
+--
 -- @since 0.16.0
 module Control.Eff.Concurrent.Protocol.Observer
   ( Observer(..)

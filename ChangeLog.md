@@ -1,7 +1,8 @@
 # Changelog for extensible-effects-concurrent
 
 ## 0.28.0
-- Simplify `Observer` registration API
+- Simplify `Protocol.Observer` registration API
+- Rewrite `Protocol.Observer.Queue` API
 - Add the `ProcessId` to the `ProcessDown` message
 
 ## 0.27.1

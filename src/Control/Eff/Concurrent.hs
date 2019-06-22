@@ -37,9 +37,6 @@ module Control.Eff.Concurrent
     -- ** /Observer/ Functions for Events and Event Listener
     module Control.Eff.Concurrent.Protocol.Observer
   ,
-    -- *** Capture /Observation/ in a FIFO Queue
-    module Control.Eff.Concurrent.Protocol.Observer.Queue
-  ,
     -- * Utilities
     -- ** Logging Effect
     module Control.Eff.Log
@@ -204,7 +201,7 @@ import           Control.Eff.Concurrent.Protocol.Client
                                                 )
 import           Control.Eff.Concurrent.Protocol.Observer
                                                 ( Observer(..)
-                                                , ObservationSink(..)
+                                                , ObservationSink
                                                 , IsObservable
                                                 , CanObserve
                                                 , Pdu(RegisterObserver, ForgetObserver, Observed)
@@ -218,15 +215,6 @@ import           Control.Eff.Concurrent.Protocol.Observer
                                                 , observerRegistryHandlePdu
                                                 , observerRegistryRemoveProcess
                                                 , observerRegistryNotify
-                                                )
-import           Control.Eff.Concurrent.Protocol.Observer.Queue
-                                                ( ObservationQueue()
-                                                , ObservationQueueReader
-                                                , readObservationQueue
-                                                , tryReadObservationQueue
-                                                , flushObservationQueue
-                                                , withObservationQueue
-                                                , spawnLinkObservationQueueWriter
                                                 )
 import           Control.Eff.Concurrent.Protocol.Wrapper
                                                 ( Request(..)
