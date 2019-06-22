@@ -92,6 +92,7 @@ module Control.Eff.Concurrent.Process
   , demonitor
   , ProcessDown(..)
   , selectProcessDown
+  , selectProcessDownByProcessId
   , becauseProcessIsDown
   , MonitorReference(..)
   , withMonitor
@@ -1194,6 +1195,7 @@ data ProcessDown =
   ProcessDown
     { downReference :: !MonitorReference
     , downReason    :: !SomeExitReason
+    , downProcess   :: !ProcessId
     }
   deriving (Typeable, Generic, Eq, Ord)
 
@@ -1211,9 +1213,11 @@ instance Show ProcessDown where
   showsPrec d =
     showParen (d >= 10)
       . (\case
-          ProcessDown ref reason ->
-            showString "monitored process down "
-              . showsPrec 11 ref
+          ProcessDown ref reason pid ->
+            showString "down: "
+              . shows pid
+              . showChar ' '
+              . shows ref
               . showChar ' '
               . showsPrec 11 reason
         )
@@ -1221,10 +1225,22 @@ instance Show ProcessDown where
 -- | A 'MessageSelector' for the 'ProcessDown' message of a specific
 -- process.
 --
+-- The parameter is the value obtained by 'monitor'.
+--
 -- @since 0.12.0
 selectProcessDown :: MonitorReference -> MessageSelector ProcessDown
 selectProcessDown ref0 =
-  filterMessage (\(ProcessDown ref _reason) -> ref0 == ref)
+  filterMessage (\(ProcessDown ref _reason _pid) -> ref0 == ref)
+
+-- | A 'MessageSelector' for the 'ProcessDown' message. of a specific
+-- process.
+--
+-- In contrast to 'selectProcessDown' this function matches the 'ProcessId'.
+--
+-- @since 0.28.0
+selectProcessDownByProcessId :: ProcessId -> MessageSelector ProcessDown
+selectProcessDownByProcessId pid0 =
+  filterMessage (\(ProcessDown _ref _reason pid) -> pid0 == pid)
 
 -- | Connect the calling process to another process, such that
 -- if one of the processes crashes (i.e. 'isCrash' returns 'True'), the other

@@ -821,12 +821,12 @@ linkingTests schedulerFactory = setTravisTestOptions
         l <- receiveMessage
         _ <- monitor l
         sendMessage l ()
-        pL@(ProcessDown _ _) <- receiveMessage
+        pL@(ProcessDown _ _ _) <- receiveMessage
         logCritical' ("linked process down: " <> show pL)
         _ <- monitor u
         mpU <- receiveAfter (TimeoutMicros 1000)
         case mpU of
-          Just (pU@(ProcessDown _ _)) ->
+          Just (pU@(ProcessDown _ _ _)) ->
             error ("unlinked process down: " <> show pU)
           Nothing ->  logInfo "passed"
 
@@ -845,12 +845,12 @@ linkingTests schedulerFactory = setTravisTestOptions
         l <- receiveMessage
         _ <- monitor l
         sendMessage l ()
-        pL@(ProcessDown _ _) <- receiveMessage
+        pL@(ProcessDown _ _ _) <- receiveMessage
         logCritical' ("linked process down: " <> show pL)
         _ <- monitor u
         mpU <- receiveAfter (TimeoutMicros 1000)
         case mpU of
-          Just (pU@(ProcessDown _ _)) ->
+          Just (pU@(ProcessDown _ _ _)) ->
             logInfo' ("unlinked process down: " <> show pU)
           Nothing ->  error "linked process not exited!"
 

@@ -133,6 +133,7 @@ import           Control.Eff.Concurrent.Process
                                                 , demonitor
                                                 , ProcessDown(..)
                                                 , selectProcessDown
+                                                , selectProcessDownByProcessId
                                                 , becauseProcessIsDown
                                                 , MonitorReference(..)
                                                 , withMonitor
@@ -210,13 +211,13 @@ import           Control.Eff.Concurrent.Protocol.Observer
                                                 , registerObserver
                                                 , forgetObserver
                                                 , forgetObserverUnsafe
-                                                , ObserverRegistry
-                                                , ObserverState
-                                                , Observers()
-                                                , emptyObservers
-                                                , handleObserverRegistration
-                                                , manageObservers
-                                                , observed
+                                                , ObserverRegistry(..)
+                                                , ObserverRegistryState
+                                                , evalObserverRegistryState
+                                                , emptyObserverRegistry
+                                                , observerRegistryHandlePdu
+                                                , observerRegistryRemoveProcess
+                                                , observerRegistryNotify
                                                 )
 import           Control.Eff.Concurrent.Protocol.Observer.Queue
                                                 ( ObservationQueue()

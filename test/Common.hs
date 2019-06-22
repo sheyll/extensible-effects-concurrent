@@ -8,7 +8,7 @@ import Control.Eff.Concurrent.Process.ForkIOScheduler as Scheduler
 import Control.Eff.Extend
 import Control.Monad (void)
 import GHC.Stack
-import Test.Tasty 
+import Test.Tasty
 import Test.Tasty.HUnit
 import Test.Tasty.Runners
 
@@ -58,3 +58,9 @@ applySchedulerFactory ::
 applySchedulerFactory factory procAction = do
   scheduler <- factory
   scheduler (procAction >> lift (threadDelay 20000))
+
+awaitProcessDown :: (HasCallStack, HasProcesses r q) => ProcessId -> Eff r ProcessDown
+awaitProcessDown p = do
+  m <- monitor p
+  receiveSelectedMessage (selectProcessDown m)
+

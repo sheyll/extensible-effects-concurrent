@@ -131,7 +131,7 @@ logSchedulerState s = do
 -- | Add monitor: If the process is dead, enqueue a 'ProcessDown' message into the
 -- owners message queue
 addMonitoring
-  :: ProcessId -> ProcessId -> SchedulerState -> STM MonitorReference
+  :: HasCallStack => ProcessId -> ProcessId -> SchedulerState -> STM MonitorReference
 addMonitoring target owner schedulerState = do
   aNewMonitorIndex <- readTVar (schedulerState ^. nextMonitorIndex)
   modifyTVar' (schedulerState ^. nextMonitorIndex) (+ 1)
@@ -143,13 +143,13 @@ addMonitoring target owner schedulerState = do
                        (Set.insert (monitorRef, owner))
       else
         let processDownMessage =
-              ProcessDown monitorRef (SomeExitReason (OtherProcessNotRunning target))
+              ProcessDown monitorRef (SomeExitReason (OtherProcessNotRunning target)) target
         in  enqueueMessageOtherProcess owner
                                        (toStrictDynamic processDownMessage)
                                        schedulerState
   return monitorRef
 
-removeMonitoring :: MonitorReference -> SchedulerState -> STM ()
+removeMonitoring :: HasCallStack => MonitorReference -> SchedulerState -> STM ()
 removeMonitoring monitorRef schedulerState = modifyTVar'
   (schedulerState ^. processMonitors)
   (Set.filter (\(ref, _) -> ref /= monitorRef))
@@ -163,7 +163,7 @@ triggerAndRemoveMonitor downPid reason schedulerState = do
   go (mr, owner) = when
     (monitoredProcess mr == downPid)
     (do
-      let processDownMessage = ProcessDown mr reason
+      let processDownMessage = ProcessDown mr reason downPid
       enqueueMessageOtherProcess owner (toStrictDynamic processDownMessage) schedulerState
       removeMonitoring mr schedulerState
     )
@@ -191,8 +191,7 @@ newSchedulerState =
 
 -- | Create a new 'SchedulerState' run an IO action, catching all exceptions,
 -- and when the actions returns, clean up and kill all processes.
-withNewSchedulerState
-  :: (HasCallStack) => Eff BaseEffects () -> Eff LoggingAndIo ()
+withNewSchedulerState :: HasCallStack => Eff BaseEffects () -> Eff LoggingAndIo ()
 withNewSchedulerState mainProcessAction = Safe.bracketWithError
   (lift (atomically newSchedulerState))
   (\exceptions schedulerState -> do

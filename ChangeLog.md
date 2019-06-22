@@ -2,6 +2,7 @@
 
 ## 0.28.0
 - Simplify `Observer` registration API
+- Add the `ProcessId` to the `ProcessDown` message
 
 ## 0.27.1
 - Introduce `HasProcesses` and `HasSafeProcesses` everywhere

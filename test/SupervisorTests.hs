@@ -47,11 +47,11 @@ test_Supervisor =
              logInfo ("still alive 2: " <> pack (show supAliveAfter2))
              lift (supAliveAfter2 @=? True)
              sendMessage testWorker ()
-             _ <- monitor testWorker
-             d1@(ProcessDown _ _) <- receiveMessage
+             testWorkerMonitorRef <- monitor testWorker
+             d1 <- receiveSelectedMessage (selectProcessDown testWorkerMonitorRef)
              logInfo ("got test worker down: " <> pack (show d1))
-             _ <- monitorSupervisor sup
-             d2@(ProcessDown _ _) <- receiveMessage
+             testSupervisorMonitorRef <- monitorSupervisor sup
+             d2 <- receiveSelectedMessage (selectProcessDown testSupervisorMonitorRef)
              logInfo ("got supervisor down: " <> pack (show d2))
              supAliveAfterOwnerExited <- isSupervisorAlive sup
              logInfo ("still alive after owner exited: " <> pack (show supAliveAfterOwnerExited))
@@ -60,19 +60,19 @@ test_Supervisor =
              "Diagnostics"
              [ runTestCase "When only time passes the diagnostics do not change" $ do
                  sup <- startTestSup
-                 diag1 <- Sup.getDiagnosticInfo sup
+                 info1 <- Sup.getDiagnosticInfo sup
                  lift (threadDelay 10000)
-                 diag2 <- Sup.getDiagnosticInfo sup
-                 lift (assertEqual "diagnostics should not differ: " diag1 diag2)
+                 info2 <- Sup.getDiagnosticInfo sup
+                 lift (assertEqual "diagnostics should not differ: " info1 info2)
              , runTestCase "When a child is started the diagnostics change" $ do
                  sup <- startTestSup
-                 diag1 <- Sup.getDiagnosticInfo sup
-                 logInfo ("got diagnostics: " <> diag1)
+                 info1 <- Sup.getDiagnosticInfo sup
+                 logInfo ("got diagnostics: " <> info1)
                  let childId = 1
                  _child <- fromRight (error "failed to spawn child") <$> Sup.spawnChild sup childId
-                 diag2 <- Sup.getDiagnosticInfo sup
-                 logInfo ("got diagnostics: " <> diag2)
-                 lift $ assertBool ("diagnostics should differ: " ++ show (diag1, diag2)) (diag1 /= diag2)
+                 info2 <- Sup.getDiagnosticInfo sup
+                 logInfo ("got diagnostics: " <> info2)
+                 lift $ assertBool ("diagnostics should differ: " ++ show (info1, info2)) (info1 /= info2)
              ]
          , let childId = 1
             in testGroup
@@ -87,10 +87,10 @@ test_Supervisor =
                      isSupervisorAlive sup >>= lift . assertBool "supervisor process not running"
                      call child (TestGetStringLength "123") >>= lift . assertEqual "child not working" 3
                      stopSupervisor sup
-                     d1@(ProcessDown mon1 er1) <-
+                     d1@(ProcessDown mon1 er1 _) <-
                        fromMaybe (error "receive timeout 1") <$> receiveAfter (TimeoutMicros 1000000)
                      logInfo ("got process down: " <> pack (show d1))
-                     d2@(ProcessDown mon2 er2) <-
+                     d2@(ProcessDown mon2 er2 _) <-
                        fromMaybe (error "receive timeout 2") <$> receiveAfter (TimeoutMicros 1000000)
                      logInfo ("got process down: " <> pack (show d2))
                      case if mon1 == supMon && mon2 == childMon
@@ -119,10 +119,10 @@ test_Supervisor =
                      isSupervisorAlive sup >>= lift . assertBool "supervisor process not running"
                      call child (TestGetStringLength "123") >>= lift . assertEqual "child not working" 3
                      stopSupervisor sup
-                     d1@(ProcessDown mon1 er1) <-
+                     d1@(ProcessDown mon1 er1 _) <-
                        fromMaybe (error "receive timeout 1") <$> receiveAfter (TimeoutMicros 1000000)
                      logInfo ("got process down: " <> pack (show d1))
-                     d2@(ProcessDown mon2 er2) <-
+                     d2@(ProcessDown mon2 er2 _) <-
                        fromMaybe (error "receive timeout 2") <$> receiveAfter (TimeoutMicros 1000000)
                      logInfo ("got process down: " <> pack (show d2))
                      case if mon1 == supMon && mon2 == childMon
@@ -180,7 +180,7 @@ test_Supervisor =
                          [ runTestCase "When a child is started it can be stopped" $ do
                              (sup, cm) <- startTestSupAndChild
                              Sup.stopChild sup i >>= lift . assertBool "child not found"
-                             (ProcessDown _ r) <- receiveSelectedMessage (selectProcessDown cm)
+                             (ProcessDown _ r _) <- receiveSelectedMessage (selectProcessDown cm)
                              lift (assertEqual "bad exit reason" (SomeExitReason ExitNormally) r)
                          , runTestCase
                              "When a child is stopped but doesn't exit voluntarily, it is kill after some time" $ do
@@ -188,7 +188,7 @@ test_Supervisor =
                              c <- spawnTestChild sup i
                              cm <- monitor (_fromEndpoint c)
                              Sup.stopChild sup i >>= lift . assertBool "child not found"
-                             (ProcessDown _ r) <- receiveSelectedMessage (selectProcessDown cm)
+                             (ProcessDown _ r _) <- receiveSelectedMessage (selectProcessDown cm)
                              case r of
                                SomeExitReason (ExitUnhandledError _) -> return ()
                                _ -> lift (assertFailure ("bad exit reason: " ++ show r))
@@ -215,26 +215,26 @@ test_Supervisor =
                          [ runTestCase "When a child exits normally, lookupChild will not find it" $ do
                              (sup, c, cm) <- startTestSupAndChild
                              cast c (TestInterruptWith NormalExitRequested)
-                             (ProcessDown _ r) <- receiveSelectedMessage (selectProcessDown cm)
+                             (ProcessDown _ r _) <- receiveSelectedMessage (selectProcessDown cm)
                              lift (assertEqual "bad exit reason" (SomeExitReason ExitNormally) r)
                              x <- Sup.lookupChild sup i
                              lift (assertEqual "lookup should not find a child" Nothing x)
                          , runTestCase "When a child exits with an error, lookupChild will not find it" $ do
                              (sup, c, cm) <- startTestSupAndChild
                              cast c (TestInterruptWith (ErrorInterrupt "test error reason"))
-                             (ProcessDown _ _) <- receiveSelectedMessage (selectProcessDown cm)
+                             (ProcessDown _ _ _) <- receiveSelectedMessage (selectProcessDown cm)
                              x <- Sup.lookupChild sup i
                              lift (assertEqual "lookup should not find a child" Nothing x)
                          , runTestCase "When a child is interrupted from another process and dies, lookupChild will not find it" $ do
                              (sup, c, cm) <- startTestSupAndChild
                              sendInterrupt (_fromEndpoint c) NormalExitRequested
-                             (ProcessDown _ _) <- receiveSelectedMessage (selectProcessDown cm)
+                             (ProcessDown _ _ _) <- receiveSelectedMessage (selectProcessDown cm)
                              x <- Sup.lookupChild sup i
                              lift (assertEqual "lookup should not find a child" Nothing x)
                          , runTestCase "When a child is shutdown from another process and dies, lookupChild will not find it" $ do
                              (sup, c, cm) <- startTestSupAndChild
                              sendShutdown (_fromEndpoint c) ExitProcessCancelled
-                             (ProcessDown _ _) <- receiveSelectedMessage (selectProcessDown cm)
+                             (ProcessDown _ _ _) <- receiveSelectedMessage (selectProcessDown cm)
                              x <- Sup.lookupChild sup i
                              lift (assertEqual "lookup should not find a child" Nothing x)
                          ]

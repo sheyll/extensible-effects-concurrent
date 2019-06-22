@@ -277,6 +277,7 @@ test-suite extensible-effects-concurrent-test
               , LoggingTests
               , LogMessageIdeaTest
               , LoopTests
+              , ObserverTests
               , ProcessBehaviourTestCases
               , SupervisorTests
               , SingleThreadedScheduler

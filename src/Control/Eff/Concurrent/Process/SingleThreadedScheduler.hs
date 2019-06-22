@@ -154,7 +154,7 @@ receiveMsg pid messageSelector sts =
         (\res -> Just (res, acc Seq.>< msgRest))
         (runMessageSelector messageSelector m)
 
--- | Add monitor: If the process is dead, enqueue a ProcessDown message into the
+-- | Add monitor: If the process is dead, enqueue a 'ProcessDown' message into the
 -- owners message queue
 addMonitoring
   :: ProcessId -> ProcessId -> STS m r -> (MonitorReference, STS m r)
@@ -166,7 +166,7 @@ addMonitoring owner target =
       pt <- use msgQs
       if Map.member target pt
         then monitors %= Set.insert (mref, owner)
-        else let pdown = ProcessDown mref (SomeExitReason (OtherProcessNotRunning target))
+        else let pdown = ProcessDown mref (SomeExitReason (OtherProcessNotRunning target)) target
               in State.modify' (enqueueMsg owner (toStrictDynamic pdown))
     return mref
 
@@ -180,7 +180,7 @@ triggerAndRemoveMonitor downPid reason = State.execState $ do
  where
   go (mr, owner) = when
     (monitoredProcess mr == downPid)
-    (let pdown = ProcessDown mr reason
+    (let pdown = ProcessDown mr reason downPid
      in  State.modify' (enqueueMsg owner (toStrictDynamic pdown) . removeMonitoring mr)
     )
 

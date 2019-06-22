@@ -1,25 +1,25 @@
 -- | Observer Effects
 --
--- This module supports the implementation of observers and observables. Expected use
+-- This module supports the implementation of observerRegistry and observables. Expected use
 -- case is event propagation.
 --
 -- @since 0.16.0
 module Control.Eff.Concurrent.Protocol.Observer
   ( Observer(..)
-  , ObservationSink(..)
+  , ObservationSink()
   , IsObservable
   , CanObserve
   , Pdu(RegisterObserver, ForgetObserver, Observed)
   , registerObserver
   , forgetObserver
   , forgetObserverUnsafe
-  , ObserverRegistry
-  , ObserverState
-  , Observers()
-  , emptyObservers
-  , handleObserverRegistration
-  , manageObservers
-  , observed
+  , ObserverRegistry(..)
+  , ObserverRegistryState
+  , observerRegistryNotify
+  , evalObserverRegistryState
+  , emptyObserverRegistry
+  , observerRegistryHandlePdu
+  , observerRegistryRemoveProcess
   )
 where
 
@@ -29,11 +29,12 @@ import           Control.Eff.Concurrent.Misc
 import           Control.Eff.Concurrent.Process
 import           Control.Eff.Concurrent.Protocol
 import           Control.Eff.Concurrent.Protocol.Client
+import           Control.Eff.Concurrent.Protocol.Wrapper (Request(Cast))
 import           Control.Eff.State.Strict
 import           Control.Eff.Log
 import           Control.Lens
+import           Control.Monad
 import           Data.Dynamic
-import           Data.Foldable
 import           Data.Kind
 import           Data.Semigroup
 import           Data.Map                       ( Map )
@@ -117,8 +118,8 @@ type CanObserve eventSink event =
   , EmbedProtocol eventSink (Observer event) 'Asynchronous
   )
 
--- | And an 'Observer' to the set of recipients for all observations reported by 'observed'.
---   Note that the observers are keyed by the observing process, i.e. a previous entry for the process
+-- | And an 'Observer' to the set of recipients for all observations reported by 'observerRegistryNotify'.
+--   Note that the observerRegistry are keyed by the observing process, i.e. a previous entry for the process
 --   contained in the 'Observer' is overwritten. If you want multiple entries for a single process, just
 --   combine several filter functions.
 --
@@ -133,12 +134,15 @@ registerObserver
   => Endpoint eventSource
   -> Endpoint eventSink
   -> Eff r ()
-registerObserver eventSource eventSink = do
-   monRef <- monitor eventSink'
-   cast eventSource (RegisterObserver (MkObserver (Arg eventSink' (MkObservationSink serializer monRef))))
+registerObserver eventSource eventSink =
+   cast eventSource (RegisterObserver serializer (eventSink ^. fromEndpoint))
     where
-       serializer = MkSerializer (toStrictDynamic . embedPdu @eventSink @(Observer event) @( 'Asynchronous ))
-       eventSink' = eventSink ^. fromEndpoint
+       serializer =
+        MkSerializer
+          ( toStrictDynamic
+          . Cast
+          . embedPdu @eventSink @(Observer event) @( 'Asynchronous )
+          )
 
 
 -- | Send the 'ForgetObserver' message
@@ -179,8 +183,9 @@ forgetObserverUnsafe eventSource eventSink =
 -- | A protocol for managing 'Observer's, encompassing  registration and de-registration of
 -- 'Observer's.
 --
--- @since 0.16.0
-data ObserverRegistry (event :: Type)
+-- @since 0.28.0
+data ObserverRegistry (event :: Type) = MkObserverRegistry
+  { _observerRegistry :: Map ProcessId (ObservationSink event) }
   deriving Typeable
 
 type instance ToPretty (ObserverRegistry event) =
@@ -188,15 +193,15 @@ type instance ToPretty (ObserverRegistry event) =
 
 instance (Tangible event, Typeable r) => HasPdu (ObserverRegistry event) r where
   -- | Protocol for managing observers. This can be added to any server for any number of different observation types.
-  -- The functions 'manageObservers' and 'handleObserverRegistration' are used to include observer handling;
+  -- The functions 'evalObserverRegistryState' and 'observerRegistryHandlePdu' are used to include observer handling;
   --
   -- @since 0.16.0
   data instance Pdu (ObserverRegistry event) r where
     -- | This message denotes that the given 'Observer' should receive observations until 'ForgetObserver' is
     --   received.
     --
-    -- @since 0.16.1
-    RegisterObserver :: Observer event -> Pdu (ObserverRegistry event) 'Asynchronous
+    -- @since 0.28.0
+    RegisterObserver :: Serializer (Pdu (Observer event) 'Asynchronous) -> ProcessId -> Pdu (ObserverRegistry event) 'Asynchronous
     -- | This message denotes that the given 'Observer' should not receive observations anymore.
     --
     -- @since 0.16.1
@@ -208,88 +213,112 @@ instance (Tangible event, Typeable r) => HasPdu (ObserverRegistry event) r where
     deriving Typeable
 
 instance NFData (Pdu (ObserverRegistry event) r) where
-  rnf (RegisterObserver event) = rnf event
-  rnf (ForgetObserver event) = rnf event
+  rnf (RegisterObserver ser pid) = rnf ser `seq` rnf pid
+  rnf (ForgetObserver pid) = rnf pid
 
 instance Typeable event => Show (Pdu (ObserverRegistry event) r) where
-  showsPrec d (RegisterObserver observer) = showParen (d >= 10) (showString "register observer: " . showsPrec 11 observer)
-  showsPrec d (ForgetObserver p) = showParen (d >= 10) (showString "forget observer: " . showsPrec 11 p)
+  showsPrec d (RegisterObserver ser pid) = showParen (d >= 10) (showString "register observer: " . shows ser . showChar ' ' . shows pid)
+  showsPrec d (ForgetObserver p) = showParen (d >= 10) (showString "forget observer: " . shows p)
 
 -- ** Protocol for integrating 'ObserverRegistry' into processes.
 
 -- | Provide the implementation for the 'ObserverRegistry' Protocol, this handled 'RegisterObserver' and 'ForgetObserver'
--- messages. It also adds the 'ObserverState' constraint to the effect list.
+-- messages. It also adds the 'ObserverRegistryState' constraint to the effect list.
 --
--- @since 0.16.0
-handleObserverRegistration
+-- @since 0.28.0
+observerRegistryHandlePdu
   :: forall event q r
    . ( HasCallStack
      , Typeable event
      , HasProcesses r q
-     , Member (ObserverState event) r
+     , Member (ObserverRegistryState event) r
      , Member Logs r
      )
   => Pdu (ObserverRegistry event) 'Asynchronous -> Eff r ()
-handleObserverRegistration = \case
-    RegisterObserver observer@(MkObserver (Arg pid sink)) -> do
-      modify @(Observers event) (over observers (Map.insert pid sink))
-      os <- get @(Observers event)
+observerRegistryHandlePdu = \case
+    RegisterObserver ser pid -> do
+      monRef <- monitor pid
+      let sink = MkObservationSink ser monRef
+          observer = MkObserver (Arg pid sink)
+      modify @(ObserverRegistry event) (over observerRegistry (Map.insert pid sink))
+      os <- get @(ObserverRegistry event)
       logDebug ( "registered "
                <> pack (show observer)
                <> " current number of observers: "  -- TODO put this info into the process details
-               <> pack (show (Map.size (view observers os))))
+               <> pack (show (Map.size (view observerRegistry os))))
 
     ForgetObserver ob -> do
-      mSink <- view (observers . at ob) <$> get @(Observers event)
-      modify @(Observers event) (observers . at ob .~ Nothing)
-      os <- get @(Observers event)
-      logDebug ("forgot "
-               <> (maybe
-                      (pack (show ("unknown observer " ++ show ob)))
-                      (pack . show . MkObserver . Arg ob)
-                      mSink
-                    )
-               <> " current number of observers: "
-               <> pack (show (Map.size (view observers os))))
-      traverse_ (\ (MkObservationSink _ monRef) -> demonitor monRef) mSink
+      wasRemoved <- observerRegistryRemoveProcess @event ob
+      unless wasRemoved $
+        logDebug (pack (show ("unknown observer " ++ show ob)))
+
+
+-- | Remove the entry in the 'ObserverRegistry' for the 'ProcessId'
+-- and return 'True' if there was an entry, 'False' otherwise.
+--
+-- @since 0.28.0
+observerRegistryRemoveProcess
+  :: forall event q r
+   . ( HasCallStack
+     , Typeable event
+     , HasProcesses r q
+     , Member (ObserverRegistryState event) r
+     , Member Logs r
+     )
+  => ProcessId -> Eff r Bool
+observerRegistryRemoveProcess ob = do
+  mSink <- view (observerRegistry . at ob) <$> get @(ObserverRegistry event)
+  modify @(ObserverRegistry event) (observerRegistry . at ob .~ Nothing)
+  os <- get @(ObserverRegistry event)
+  maybe
+    (pure False)
+    (foundIt os)
+    mSink
+ where
+  foundIt os sink@(MkObservationSink _ monRef) = do
+    demonitor monRef
+    logDebug (  "removed: "
+           <> (pack $ show $ MkObserver $ Arg ob sink)
+           <> " current number of observers: "
+           <> pack (show (Map.size (view observerRegistry os))))
+    pure True
+
 -- | Keep track of registered 'Observer's.
 --
--- Handle the 'ObserverState' introduced by 'handleObserverRegistration'.
+-- Handle the 'ObserverRegistryState' effect, i.e. run 'evalState' on an 'emptyObserverRegistry'.
 --
--- @since 0.16.0
-manageObservers :: HasCallStack => Eff (ObserverState event ': r) a -> Eff r a
-manageObservers = evalState (Observers Map.empty)
+-- @since 0.28.0
+evalObserverRegistryState :: HasCallStack => Eff (ObserverRegistryState event ': r) a -> Eff r a
+evalObserverRegistryState = evalState emptyObserverRegistry
 
--- | The empty 'ObserverState'
+-- | The empty 'ObserverRegistryState'
 --
--- @since 0.24.0
-emptyObservers :: Observers event
-emptyObservers = Observers Map.empty
+-- @since 0.28.0
+emptyObserverRegistry :: ObserverRegistry event
+emptyObserverRegistry = MkObserverRegistry Map.empty
 
--- | Internal state for 'manageObservers'
-newtype Observers event = Observers { _observers :: Map ProcessId (ObservationSink event) }
+-- | Alias for the effect that contains the observers managed by 'evalObserverRegistryState'
+type ObserverRegistryState event = State (ObserverRegistry event)
 
--- | Alias for the effect that contains the observers managed by 'manageObservers'
-type ObserverState event = State (Observers event)
-
-observers :: Iso' (Observers event) (Map ProcessId (ObservationSink event))
-observers = iso _observers Observers
+-- | An 'Iso' for the 'Map' used internally.
+observerRegistry :: Iso' (ObserverRegistry event) (Map ProcessId (ObservationSink event))
+observerRegistry = iso _observerRegistry MkObserverRegistry
 
 -- | Report an observation to all observers.
--- The process needs to 'manageObservers' and to 'handleObserverRegistration'.
+-- The process needs to 'evalObserverRegistryState' and to 'observerRegistryHandlePdu'.
 --
--- @since 0.16.0
-observed
+-- @since 0.28.0
+observerRegistryNotify
   :: forall event r q
    . ( HasProcesses r q
-     , Member (ObserverState event) r
+     , Member (ObserverRegistryState event) r
      , Tangible event
      , HasCallStack
      )
   => event
   -> Eff r ()
-observed observation = do
-  os <- view observers <$> get
+observerRegistryNotify observation = do
+  os <- view observerRegistry <$> get
   mapM_ notifySomeObserver (Map.assocs os)
  where
   notifySomeObserver (destination,  (MkObservationSink serializer _)) =

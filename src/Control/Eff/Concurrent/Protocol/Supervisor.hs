@@ -199,20 +199,12 @@ instance
           Just existingChild ->
             sendReply rt (Left (AlreadyStarted i (existingChild ^. childEndpoint)))
 
-  update _ _supConfig (OnDown (ProcessDown mrChild reason)) = do
-      oldEntry <- lookupAndRemoveChildByMonitor @(ChildId p) @p mrChild
+  update _ _supConfig (OnDown pd) = do
+      oldEntry <- lookupAndRemoveChildByMonitor @(ChildId p) @p (downReference pd)
       case oldEntry of
-        Nothing ->
-          logWarning ("unexpected process down: "
-                     <> pack (show mrChild)
-                     <> " reason: "
-                     <> pack (show reason)
-                     )
+        Nothing -> logWarning ("unexpected: " <> pack (show pd))
         Just (i, c) -> do
-          logInfo (  "process down: "
-                  <> pack (show mrChild)
-                  <> " reason: "
-                  <> pack (show reason)
+          logInfo (  pack (show pd)
                   <> " for child "
                   <> pack (show i)
                   <> " => "

@@ -55,7 +55,7 @@ readObservationQueue = do
 
 -- | Read queued observations captured and enqueued in the shared 'TBQueue' by 'spawnLinkObservationQueueWriter'.
 -- Return the oldest enqueued observation immediately or 'Nothing' if the queue is empty.
--- Use 'readObservationQueue' to block until an observation is observed.
+-- Use 'readObservationQueue' to block until an observation is observerRegistryNotify.
 tryReadObservationQueue
   :: forall o r
    . ( Member (ObservationQueueReader o) r

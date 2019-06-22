@@ -92,13 +92,13 @@ instance (LogIo q) => Server SupiCounter (Processes q) where
 
   type instance Model SupiCounter =
     ( Integer
-    , Observers CounterChanged
+    , ObserverRegistry CounterChanged
     , Maybe (ReplyTarget SupiCounter (Maybe ()))
     )
 
   data instance StartArgument SupiCounter (Processes q) = MkEmptySupiCounter
 
-  setup _ _ = return ((0, emptyObservers, Nothing), ())
+  setup _ _ = return ((0, emptyObserverRegistry, Nothing), ())
 
   update _ _ = \case
     OnCall rt callReq ->
@@ -113,13 +113,19 @@ instance (LogIo q) => Server SupiCounter (Processes q) where
       case castReq of
         ToPdu1 Inc -> do
           val' <- view _1 <$> modifyAndGetModel @SupiCounter (_1 %~ (+ 1))
-          zoomModel @SupiCounter _2 (observed (CounterChanged val'))
+          zoomModel @SupiCounter _2 (observerRegistryNotify (CounterChanged val'))
           when (val' > 5) $
             getAndModifyModel @SupiCounter (_3 .~ Nothing)
             >>= traverse_ (\rt' -> sendReply rt' (Just ())) . view _3
         ToPdu2 x ->
-          zoomModel @SupiCounter _2 (handleObserverRegistration x)
+          zoomModel @SupiCounter _2 (observerRegistryHandlePdu x)
         ToPdu3 _ -> error "unreachable"
+
+    OnDown pd -> do
+      wasRemoved <- zoomModel @SupiCounter _2 (observerRegistryRemoveProcess @CounterChanged (downProcess pd))
+      if wasRemoved
+        then logDebug ("removed: "    <> T.pack (show pd))
+        else logError ("unexpected: " <> T.pack (show pd))
 
     other -> logWarning (T.pack (show other))
 
@@ -136,9 +142,7 @@ logCounterObservations = start OCCStart
 
 instance Member Logs q => Server (Observer CounterChanged) (Processes q) where
   data StartArgument (Observer CounterChanged) (Processes q) = OCCStart
-  type Model (Observer CounterChanged) = Observers CounterChanged
-  setup _ _ = pure (emptyObservers, ())
-  update _ _ =
-    \case
-      OnCast (Observed msg) -> logInfo' ("observed: " ++ show msg)
-      wtf -> logNotice (T.pack (show wtf))
+  update _ _ e =
+    case e of
+      OnCast (Observed msg) -> logInfo' ("observerRegistryNotify: " ++ show msg)
+      _ -> logNotice (T.pack (show e))
