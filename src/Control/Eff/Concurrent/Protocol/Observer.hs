@@ -113,6 +113,8 @@ instance NFData (ObservationSink event) where
 type IsObservable eventSource event =
   ( Tangible event
   , EmbedProtocol eventSource (ObserverRegistry event) 'Asynchronous
+  , Embeds eventSource (ObserverRegistry event)
+  , HasPdu eventSource 'Asynchronous
   )
 
 -- | Convenience type alias.
@@ -121,6 +123,8 @@ type IsObservable eventSource event =
 type CanObserve eventSink event =
   ( Tangible event
   , EmbedProtocol eventSink (Observer event) 'Asynchronous
+  , Embeds eventSink (Observer event)
+  , HasPdu eventSink 'Asynchronous
   )
 
 -- | And an 'Observer' to the set of recipients for all observations reported by 'observerRegistryNotify'.
@@ -197,6 +201,7 @@ type instance ToPretty (ObserverRegistry event) =
   PrettyParens ("observer registry" <:> ToPretty event)
 
 instance (Tangible event, Typeable r) => HasPdu (ObserverRegistry event) r where
+
   -- | Protocol for managing observers. This can be added to any server for any number of different observation types.
   -- The functions 'evalObserverRegistryState' and 'observerRegistryHandlePdu' are used to include observer handling;
   --

@@ -1,3 +1,4 @@
+{-# LANGUAGE UndecidableInstances, QuantifiedConstraints #-}
 -- | Types and functions for type-safe(er) interaction between processes.
 --
 -- All messages sent between processes are eventually converted to 'Dynamic' values
@@ -35,6 +36,7 @@
 --
 module Control.Eff.Concurrent.Protocol
   ( HasPdu(..)
+  , Embeds
   , Pdu(..)
   , Synchronicity(..)
   , ProtocolReply
@@ -112,6 +114,13 @@ instance Typeable protocol => Show (Endpoint protocol) where
 --
 -- @since 0.25.1
 class (Tangible (Pdu protocol reply), Typeable protocol, Typeable reply) => HasPdu (protocol :: Type) (reply :: Synchronicity) where
+  -- | A type level list Protocol phantom types included in the associated 'Pdu' instance.
+  --
+  -- Use 'Embeds' as a constraint.
+  --
+  -- @since 0.29.0
+  type family EmbeddedProtocols protocol :: [Type]
+  type instance EmbeddedProtocols protocol = '[]
 
   -- | The __protocol data unit__ type for the given protocol.
   data family Pdu protocol reply
@@ -124,9 +133,34 @@ class (Tangible (Pdu protocol reply), Typeable protocol, Typeable reply) => HasP
   default deserializePdu :: (Typeable (Pdu protocol reply)) => Dynamic -> Maybe (Pdu protocol reply)
   deserializePdu = fromDynamic
 
-  --  type family PrettyPdu protocol reply :: PrettyType
-  --  type instance PrettyPdu protocol reply =
-  --      PrettySurrounded (PutStr "<") (PutStr ">") ("protocol" <:> ToPretty protocol <+> ToPretty reply)
+-- | A constraint that requires that the @outer@ 'Pdu' has a clause to embed values from the @inner@ 'Pdu'.
+--
+-- This is provided by 'HasPdu' instances. The instances are required to provide a list of embedded 'Pdu'
+-- values in 'EmbeddedProtocols'.
+--
+-- Note that every type embeds itself, so @Embeds x x@ always holds.
+--
+-- @since 0.29.0
+type family Embeds outer inner :: Constraint where
+  Embeds outer outer = ()
+  Embeds outer inner =
+    IsProtocolOneOf
+      inner
+      (EmbeddedProtocols outer)
+      (EmbeddedProtocols outer)
+    ~ 'IsEmbeddedProtocol
+
+-- ---------- Type Machinery:
+
+data IsEmbeddedProtocol k  = IsEmbeddedProtocol | IsNotAnEmbeddedProtocol k [k]
+
+type family IsProtocolOneOf (x :: k) (xs :: [k]) (orig :: [k]) :: IsEmbeddedProtocol k where
+  IsProtocolOneOf x '[] orig = 'IsNotAnEmbeddedProtocol x orig
+  IsProtocolOneOf x (x ': xs) orig = 'IsEmbeddedProtocol
+  IsProtocolOneOf x (y ': xs) orig = IsProtocolOneOf x xs orig
+
+-- --------------------------
+
 
 type instance ToPretty (Pdu x y) =
   PrettySurrounded (PutStr "<") (PutStr ">") ("protocol" <:> ToPretty x <+> ToPretty y)
@@ -179,6 +213,7 @@ type instance ToPretty (Endpoint a) = ToPretty a <+> PutStr "endpoint"
 makeLenses ''Endpoint
 
 instance (Typeable r, HasPdu a1 r, HasPdu a2 r) => HasPdu (a1, a2) r where
+  type instance EmbeddedProtocols (a1, a2) = '[a1, a2]
   data instance Pdu (a1, a2) r where
           ToPduLeft :: Pdu a1 r -> Pdu (a1, a2) r
           ToPduRight :: Pdu a2 r -> Pdu (a1, a2) r
@@ -186,15 +221,16 @@ instance (Typeable r, HasPdu a1 r, HasPdu a2 r) => HasPdu (a1, a2) r where
   deserializePdu d =
     case deserializePdu d of
       Just (x :: Pdu a1 r) ->
-        Just (embedPdu x)
+        Just (ToPduLeft x)
       Nothing ->
         case deserializePdu d of
           Just (x :: Pdu a2 r) ->
-            Just (embedPdu x)
+            Just (ToPduRight x)
           Nothing ->
             Nothing
 
 instance (Typeable r, HasPdu a1 r, HasPdu a2 r, HasPdu a3 r) => HasPdu (a1, a2, a3) r where
+  type instance EmbeddedProtocols (a1, a2, a3) = '[a1, a2, a3]
   data instance Pdu (a1, a2, a3) r where
     ToPdu1 :: Pdu a1 r -> Pdu (a1, a2, a3) r
     ToPdu2 :: Pdu a2 r -> Pdu (a1, a2, a3) r
@@ -203,19 +239,20 @@ instance (Typeable r, HasPdu a1 r, HasPdu a2 r, HasPdu a3 r) => HasPdu (a1, a2, 
   deserializePdu d =
     case deserializePdu d of
       Just (x :: Pdu a1 r) ->
-        Just (embedPdu x)
+        Just (ToPdu1 x)
       Nothing ->
         case deserializePdu d of
           Just (x :: Pdu a2 r) ->
-            Just (embedPdu x)
+            Just (ToPdu2 x)
           Nothing ->
             case deserializePdu d of
               Just (x :: Pdu a3 r) ->
-                Just (embedPdu x)
+                Just (ToPdu3 x)
               Nothing ->
                 Nothing
 
 instance (Typeable r, HasPdu a1 r, HasPdu a2 r, HasPdu a3 r, HasPdu a4 r) => HasPdu (a1, a2, a3, a4) r where
+  type instance EmbeddedProtocols (a1, a2, a3, a4) = '[a1, a2, a3, a4]
   data instance Pdu (a1, a2, a3, a4) r where
     ToPdu1Of4 :: Pdu a1 r -> Pdu (a1, a2, a3, a4) r
     ToPdu2Of4 :: Pdu a2 r -> Pdu (a1, a2, a3, a4) r
@@ -225,23 +262,24 @@ instance (Typeable r, HasPdu a1 r, HasPdu a2 r, HasPdu a3 r, HasPdu a4 r) => Has
   deserializePdu d =
     case deserializePdu d of
       Just (x :: Pdu a1 r) ->
-        Just (embedPdu x)
+        Just (ToPdu1Of4 x)
       Nothing ->
         case deserializePdu d of
           Just (x :: Pdu a2 r) ->
-            Just (embedPdu x)
+            Just (ToPdu2Of4 x)
           Nothing ->
             case deserializePdu d of
               Just (x :: Pdu a3 r) ->
-                Just (embedPdu x)
+                Just (ToPdu3Of4 x)
               Nothing ->
                 case deserializePdu d of
                   Just (x :: Pdu a4 r) ->
-                    Just (embedPdu x)
+                    Just (ToPdu4Of4 x)
                   Nothing ->
                     Nothing
 
 instance (Typeable r, HasPdu a1 r, HasPdu a2 r, HasPdu a3 r, HasPdu a4 r, HasPdu a5 r) => HasPdu (a1, a2, a3, a4, a5) r where
+  type instance EmbeddedProtocols (a1, a2, a3, a4, a5) = '[a1, a2, a3, a4, a5]
   data instance Pdu (a1, a2, a3, a4, a5) r where
     ToPdu1Of5 :: Pdu a1 r -> Pdu (a1, a2, a3, a4, a5) r
     ToPdu2Of5 :: Pdu a2 r -> Pdu (a1, a2, a3, a4, a5) r
@@ -252,23 +290,23 @@ instance (Typeable r, HasPdu a1 r, HasPdu a2 r, HasPdu a3 r, HasPdu a4 r, HasPdu
   deserializePdu d =
     case deserializePdu d of
       Just (x :: Pdu a1 r) ->
-        Just (embedPdu x)
+        Just (ToPdu1Of5 x)
       Nothing ->
         case deserializePdu d of
           Just (x :: Pdu a2 r) ->
-            Just (embedPdu x)
+            Just (ToPdu2Of5 x)
           Nothing ->
             case deserializePdu d of
               Just (x :: Pdu a3 r) ->
-                Just (embedPdu x)
+                Just (ToPdu3Of5 x)
               Nothing ->
                 case deserializePdu d of
                   Just (x :: Pdu a4 r) ->
-                    Just (embedPdu x)
+                    Just (ToPdu4Of5 x)
                   Nothing ->
                     case deserializePdu d of
                       Just (x :: Pdu a5 r) ->
-                        Just (embedPdu x)
+                        Just (ToPdu5Of5 x)
                       Nothing ->
                         Nothing
 
@@ -289,24 +327,24 @@ asEndpoint = Endpoint
 --
 -- @since 0.24.0
 class
-  ( HasPdu protocol         result
-  , HasPdu embeddedProtocol result
-  )
+--  ( HasPdu protocol result
+--  , HasPdu embeddedProtocol result
+--  )
+ (Typeable protocol, Typeable embeddedProtocol, Typeable result)
   => EmbedProtocol protocol embeddedProtocol (result :: Synchronicity) where
 
   -- | A 'Prism' for the embedded 'Pdu's.
-  embeddedPdu :: Prism' (Pdu protocol result) (Pdu embeddedProtocol result)
+  embeddedPdu :: Embeds protocol embeddedProtocol => Prism' (Pdu protocol result) (Pdu embeddedProtocol result)
   embeddedPdu = prism' embedPdu fromPdu
 
   -- | Embed the 'Pdu' value of an embedded protocol into the corresponding
   --  'Pdu' value.
-  embedPdu :: Pdu embeddedProtocol result -> Pdu protocol result
+  embedPdu :: Embeds protocol embeddedProtocol => Pdu embeddedProtocol result -> Pdu protocol result
   embedPdu = review embeddedPdu
   -- | Examine a 'Pdu' value from the outer protocol, and return it, if it embeds a 'Pdu' of
   -- embedded protocol, otherwise return 'Nothing'/
-  fromPdu :: Pdu protocol result -> Maybe (Pdu embeddedProtocol result)
+  fromPdu :: Embeds protocol embeddedProtocol => Pdu protocol result -> Maybe (Pdu embeddedProtocol result)
   fromPdu = preview embeddedPdu
-
 
 -- | Convert an 'Endpoint' to an endpoint for an embedded protocol.
 --

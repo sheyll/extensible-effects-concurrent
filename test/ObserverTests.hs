@@ -265,6 +265,7 @@ observerQueueTests =
 data TestObservable deriving Typeable
 
 instance Typeable r => HasPdu TestObservable r  where
+     type instance EmbeddedProtocols TestObservable = '[ObserverRegistry String]
      data Pdu TestObservable r where
       SendTestEvent :: String -> Pdu TestObservable ('Synchronous ())
       StopTestObservable :: Pdu TestObservable 'Asynchronous
@@ -310,6 +311,7 @@ instance (LogIo r, HasProcesses r q) => S.Server TestObservable r where
 data TestObserver deriving Typeable
 
 instance Typeable r => HasPdu TestObserver r where
+  type EmbeddedProtocols TestObserver = '[Observer String]
   data Pdu TestObserver r where
     GetCapturedEvents :: Pdu TestObserver ('Synchronous [String])
     OnTestEvent :: Pdu (Observer String) 'Asynchronous -> Pdu TestObserver 'Asynchronous

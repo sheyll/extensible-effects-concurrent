@@ -1,5 +1,8 @@
 # Changelog for extensible-effects-concurrent
 
+## 0.29.0
+- Simplify embedding mechanism
+
 ## 0.28.0
 - Simplify `Protocol.Observer` registration API
 - Rewrite `Protocol.Observer.Queue` API

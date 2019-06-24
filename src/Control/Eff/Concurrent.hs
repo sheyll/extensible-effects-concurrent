@@ -173,6 +173,7 @@ import           Control.Eff.Concurrent.Process.Timer
 
 import           Control.Eff.Concurrent.Protocol
                                                 ( HasPdu(..)
+                                                , Embeds
                                                 , Pdu(..)
                                                 , Synchronicity(..)
                                                 , ProtocolReply

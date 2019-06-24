@@ -41,6 +41,7 @@ cast
      , HasProcesses r q
      , HasPdu destination 'Asynchronous
      , HasPdu protocol 'Asynchronous
+     , Embeds destination protocol
      , EmbedProtocol destination protocol 'Asynchronous
      )
   => Endpoint destination
@@ -61,6 +62,7 @@ call
      , TangiblePdu protocol ( 'Synchronous result)
      , EmbedProtocol destination protocol ( 'Synchronous result)
      , Tangible result
+     , Embeds destination protocol
      , HasCallStack
      )
   => Endpoint destination
@@ -107,6 +109,7 @@ callWithTimeout
      , Lifted IO q
      , Lifted IO r
      , HasCallStack
+     , Embeds destination protocol
      )
   => Endpoint destination
   -> Pdu protocol ( 'Synchronous result)
@@ -172,8 +175,8 @@ callEndpointReader
      , HasCallStack
      , Tangible reply
      , TangiblePdu o ( 'Synchronous reply)
-     , Member Interrupts r
-     
+     , HasProcesses r q
+     , Embeds o o
      )
   => Pdu o ( 'Synchronous reply)
   -> Eff r reply
@@ -188,9 +191,10 @@ callEndpointReader method = do
 castEndpointReader
   :: forall o r q .
      ( ServesProtocol o r q
+     , HasProcesses r q
      , HasCallStack
-     , Member Interrupts r
      , HasPdu o 'Asynchronous
+     , Embeds o o
      )
   => Pdu o 'Asynchronous
   -> Eff r ()
@@ -210,6 +214,8 @@ callSingleton
   . ( HasCallStack
     , EmbedProtocol outer inner  ( 'Synchronous reply)
     , Member (EndpointReader outer) e
+    , Embeds outer inner
+    , Embeds outer outer
     , HasProcesses e q
     , TangiblePdu outer ('Synchronous reply)
     , TangiblePdu inner ('Synchronous reply)
@@ -234,6 +240,8 @@ castSingleton
     , HasProcesses e q
     , HasPdu outer 'Asynchronous
     , HasPdu inner 'Asynchronous
+    , Embeds outer inner
+    , Embeds outer outer
     )
   => Pdu inner 'Asynchronous
   -> Eff e ()
