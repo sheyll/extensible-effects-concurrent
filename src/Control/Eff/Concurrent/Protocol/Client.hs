@@ -4,7 +4,9 @@
 module Control.Eff.Concurrent.Protocol.Client
   ( -- * Calling APIs directly
     cast
+  , cast2
   , call
+  , call2
   , callWithTimeout
   -- * Server Process Registration
   , castSingleton
@@ -49,6 +51,27 @@ cast
   -> Eff r ()
 cast (Endpoint pid) castMsg = sendMessage pid (Cast (embedPdu @destination castMsg))
 
+-- | Send a request 'Pdu' that has no reply and return immediately.
+--
+-- The type signature enforces that the corresponding 'Pdu' clause is
+-- 'Asynchronous'. The operation never fails, if it is important to know if the
+-- message was delivered, use 'call' instead.
+--
+-- The message will be reduced to normal form ('rnf') in the caller process.
+cast2
+  :: forall destination protocol r q
+   . ( HasCallStack
+     , HasProcesses r q
+     , HasPdu destination 'Asynchronous
+     , HasPdu protocol 'Asynchronous
+     , Embeds destination protocol
+     , EmbedProtocol2 destination protocol
+     )
+  => Endpoint destination
+  -> Pdu protocol 'Asynchronous
+  -> Eff r ()
+cast2 (Endpoint pid) castMsg = sendMessage pid (Cast (embedPdu2 @destination castMsg))
+
 -- | Send a request 'Pdu' and wait for the server to return a result value.
 --
 -- The type signature enforces that the corresponding 'Pdu' clause is
@@ -84,6 +107,41 @@ call (Endpoint pidInternal) req = do
   resultOrError <- receiveWithMonitor pidInternal selectResult
   either (interrupt . becauseProcessIsDown) return resultOrError
 
+
+-- | Send a request 'Pdu' and wait for the server to return a result value.
+--
+-- The type signature enforces that the corresponding 'Pdu' clause is
+-- 'Synchronous'.
+--
+-- __Always prefer 'callWithTimeout' over 'call'__
+call2
+  :: forall result destination protocol r q
+   . ( HasProcesses r q
+     , TangiblePdu destination ( 'Synchronous result)
+     , TangiblePdu protocol ( 'Synchronous result)
+     , EmbedProtocol2 destination protocol
+     , Tangible result
+     , Embeds destination protocol
+     , HasCallStack
+     )
+  => Endpoint destination
+  -> Pdu protocol ( 'Synchronous result)
+  -> Eff r result
+call2 (Endpoint pidInternal) req = do
+  callRef <- makeReference
+  fromPid <- self
+  let requestMessage = Call origin $! (embedPdu2 @destination req)
+      origin = RequestOrigin @destination @result fromPid callRef
+  sendMessage pidInternal requestMessage
+  let selectResult :: MessageSelector result
+      selectResult =
+        let extractResult
+              :: Reply destination result -> Maybe result
+            extractResult (Reply origin' result) =
+              if origin == origin' then Just result else Nothing
+        in  selectMessageWith extractResult
+  resultOrError <- receiveWithMonitor pidInternal selectResult
+  either (interrupt . becauseProcessIsDown) return resultOrError
 
 -- | Send an request 'Pdu' and wait for the server to return a result value.
 --

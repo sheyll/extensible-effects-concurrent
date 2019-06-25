@@ -1,6 +1,6 @@
 cabal-version:  2.0
 name:           extensible-effects-concurrent
-version:        0.28.0
+version:        0.29.0
 description:    Please see the README on GitHub at <https://github.com/sheyll/extensible-effects-concurrent#readme>
 synopsis:       Message passing concurrency as extensible-effect
 homepage:       https://github.com/sheyll/extensible-effects-concurrent#readme
@@ -248,6 +248,39 @@ executable extensible-effects-concurrent-example-4
   default-language: Haskell2010
   default-extensions:   AllowAmbiguousTypes
                       , BangPatterns
+                      , DataKinds
+                      , FlexibleContexts
+                      , FlexibleInstances
+                      , FunctionalDependencies
+                      , GADTs
+                      , GeneralizedNewtypeDeriving
+                      , LambdaCase
+                      , OverloadedStrings
+                      , RankNTypes
+                      , ScopedTypeVariables
+                      , StandaloneDeriving
+                      , TemplateHaskell
+                      , TypeApplications
+                      , TypeFamilies
+                      , TypeOperators
+
+
+executable extensible-effects-concurrent-example-embedded-protocols
+  main-is: Main.hs
+  hs-source-dirs: examples/example-embedded-protocols
+  build-depends:
+                base
+              , deepseq
+              , extensible-effects-concurrent
+              , extensible-effects
+              , lens
+              , pretty-types >= 0.2.3.1 && < 0.4
+              , text
+  ghc-options: -Wall -threaded -fno-full-laziness
+  default-language: Haskell2010
+  default-extensions:   AllowAmbiguousTypes
+                      , BangPatterns
+                      , ConstraintKinds
                       , DataKinds
                       , FlexibleContexts
                       , FlexibleInstances

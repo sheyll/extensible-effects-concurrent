@@ -112,7 +112,7 @@ instance NFData (ObservationSink event) where
 -- @since 0.28.0
 type IsObservable eventSource event =
   ( Tangible event
-  , EmbedProtocol eventSource (ObserverRegistry event) 'Asynchronous
+  , EmbedProtocol2 eventSource (ObserverRegistry event)
   , Embeds eventSource (ObserverRegistry event)
   , HasPdu eventSource 'Asynchronous
   )
@@ -122,7 +122,7 @@ type IsObservable eventSource event =
 -- @since 0.28.0
 type CanObserve eventSink event =
   ( Tangible event
-  , EmbedProtocol eventSink (Observer event) 'Asynchronous
+  , EmbedProtocol2 eventSink (Observer event)
   , Embeds eventSink (Observer event)
   , HasPdu eventSink 'Asynchronous
   )
@@ -144,13 +144,13 @@ registerObserver
   -> Endpoint eventSink
   -> Eff r ()
 registerObserver eventSource eventSink =
-   cast eventSource (RegisterObserver serializer (eventSink ^. fromEndpoint))
+   cast2 eventSource (RegisterObserver serializer (eventSink ^. fromEndpoint))
     where
        serializer =
         MkSerializer
           ( toStrictDynamic
           . Cast
-          . embedPdu @eventSink @(Observer event) @( 'Asynchronous )
+          . embedPdu2 @eventSink @(Observer event) @( 'Asynchronous )
           )
 
 
@@ -183,7 +183,7 @@ forgetObserverUnsafe
   -> ProcessId
   -> Eff r ()
 forgetObserverUnsafe eventSource eventSink =
-  cast eventSource (ForgetObserver @event eventSink)
+  cast2 eventSource (ForgetObserver @event eventSink)
 
 -- ** Observer Support Functions
 

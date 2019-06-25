@@ -7,6 +7,7 @@ import Common
 import Control.DeepSeq
 import Control.Eff
 import Control.Eff.Concurrent
+import Control.Eff.Concurrent.Protocol
 import qualified Control.Eff.Concurrent.Protocol.EffectfulServer as S
 import qualified Control.Eff.Concurrent.Protocol.Observer.Queue as OQ
 import qualified Control.Eff.Concurrent.Protocol.StatefulServer as M
@@ -269,14 +270,13 @@ instance Typeable r => HasPdu TestObservable r  where
      data Pdu TestObservable r where
       SendTestEvent :: String -> Pdu TestObservable ('Synchronous ())
       StopTestObservable :: Pdu TestObservable 'Asynchronous
-      TestObsReg :: Pdu (ObserverRegistry String) 'Asynchronous -> Pdu TestObservable 'Asynchronous
+      TestObsReg :: Pdu (ObserverRegistry String) r -> Pdu TestObservable r
       deriving (Typeable)
 
-instance EmbedProtocol TestObservable (ObserverRegistry String) 'Asynchronous where
-  embeddedPdu = prism' TestObsReg $
-    \case
-      TestObsReg e -> Just e
-      _ -> Nothing
+instance EmbedProtocol2 TestObservable (ObserverRegistry String) where
+  embedPdu2 = TestObsReg
+  fromPdu2 (TestObsReg x) = Just x
+  fromPdu2 _ = Nothing
 
 instance Typeable r => NFData (Pdu TestObservable r) where
   rnf (SendTestEvent s) = rnf s
@@ -297,6 +297,7 @@ instance (LogIo r, HasProcesses r q) => S.Server TestObservable r where
       S.OnCall rt e ->
         case e of
           SendTestEvent x -> observerRegistryNotify x >> sendReply rt ()
+          TestObsReg x -> logError ("unexpected: " <> pack (show x))
       S.OnCast (TestObsReg x) -> observerRegistryHandlePdu x
       S.OnCast StopTestObservable -> exitNormally
       S.OnDown pd -> do
@@ -314,7 +315,7 @@ instance Typeable r => HasPdu TestObserver r where
   type EmbeddedProtocols TestObserver = '[Observer String]
   data Pdu TestObserver r where
     GetCapturedEvents :: Pdu TestObserver ('Synchronous [String])
-    OnTestEvent :: Pdu (Observer String) 'Asynchronous -> Pdu TestObserver 'Asynchronous
+    OnTestEvent :: Pdu (Observer String) r -> Pdu TestObserver r
     deriving Typeable
 
 instance NFData (Pdu TestObserver r) where
@@ -325,10 +326,10 @@ instance Show (Pdu TestObserver r) where
   showsPrec _ GetCapturedEvents = showString "GetCapturedEvents"
   showsPrec d (OnTestEvent e) = showParen (d>=10) (showString "OnTestEvent " . shows e)
 
-instance EmbedProtocol TestObserver (Observer String) 'Asynchronous where
-  embeddedPdu = prism' OnTestEvent $
-    \case
-      OnTestEvent e -> Just e
+instance EmbedProtocol2 TestObserver (Observer String) where
+  embedPdu2 = OnTestEvent
+  fromPdu2 (OnTestEvent e) = Just e
+  fromPdu2 _ = Nothing
 
 
 instance (LogIo r, HasProcesses r q) => M.Server TestObserver r where
