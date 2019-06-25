@@ -122,6 +122,10 @@ module Control.Eff.Concurrent.Process
   , logInterrupts
   , provideInterrupts
   , mergeEitherInterruptAndExitReason
+  -- ** Typed ProcessIds: Receiver
+  , sendToReceiver
+  , Receiver(..)
+  , receiverPid
   )
 where
 
@@ -146,6 +150,7 @@ import           Data.Maybe
 import           Data.String                    ( IsString, fromString )
 import           Data.Text                      ( Text, pack, unpack)
 import qualified Data.Text                     as T
+import           Type.Reflection                ( SomeTypeRep(..), typeRep )
 import           GHC.Stack
 import           GHC.Generics                    ( Generic
                                                  , Generic1
@@ -1301,3 +1306,43 @@ instance Show ProcessId where
   showsPrec _ (ProcessId !c) = showChar '!' . shows c
 
 makeLenses ''ProcessId
+
+-- | Serialize and send a message to the process in a 'Receiver'.
+--
+-- EXPERIMENTAL
+--
+-- @since 0.29.0
+sendToReceiver :: (NFData o, HasProcesses r q) => Receiver o -> o -> Eff r ()
+sendToReceiver (Receiver pid serializer) message =
+  rnf message `seq` sendMessage pid (toStrictDynamic (serializer message))
+
+-- | A 'ProcessId' and a 'Serializer'. EXPERIMENTAL
+--
+-- See 'sendToReceiver'.
+--
+-- @since 0.29.0
+data Receiver a =
+  forall out . (NFData out, Typeable out, Show out) =>
+    Receiver { _receiverPid :: ProcessId
+             , _receiverSerializer :: a -> out
+             }
+  deriving (Typeable)
+
+instance NFData (Receiver o) where
+  rnf (Receiver e f) = f `seq` rnf e
+
+instance Eq (Receiver o) where
+  (==) = (==) `on` _receiverPid
+
+instance Ord (Receiver o) where
+  compare = compare `on` _receiverPid
+
+instance Contravariant Receiver where
+  contramap f (Receiver p s) = Receiver p (s . f)
+
+instance Typeable protocol => Show (Receiver protocol) where
+  showsPrec d (Receiver c _) =
+    showParen (d>=10)
+    (showSTypeRep (SomeTypeRep (Type.Reflection.typeRep @protocol)) . showsPrec 10 c)
+
+makeLenses ''Receiver

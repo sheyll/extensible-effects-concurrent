@@ -157,6 +157,9 @@ import           Control.Eff.Concurrent.Process
                                                 , logInterrupts
                                                 , provideInterrupts
                                                 , mergeEitherInterruptAndExitReason
+                                                , sendToReceiver
+                                                , Receiver(..)
+                                                , receiverPid
                                                 )
 import           Control.Eff.Concurrent.Process.Timer
                                                 ( Timeout(fromTimeoutMicros)
@@ -195,7 +198,7 @@ import           Control.Eff.Concurrent.Protocol.Client
                                                 , castEndpointReader
                                                 , callSingleton
                                                 , callEndpointReader
-                                                , ServesProtocol
+                                                , HasEndpointReader
                                                 , runEndpointReader
                                                 , askEndpoint
                                                 , EndpointReader

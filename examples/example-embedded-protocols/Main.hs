@@ -1,18 +1,20 @@
+{-# LANGUAGE QuantifiedConstraints #-}
 {-# LANGUAGE UndecidableInstances #-}
 -- | Another  example for the library that uses embedded protocols with multiple server back
 -- ends and a polymorphic client.
+--
+-- @since 0.29.0
 module Main where
 
-import           Data.Dynamic
+import           Control.DeepSeq
 import           Control.Eff
 import           Control.Eff.Concurrent
-import           Control.Eff.Concurrent.Protocol
-import           Control.Eff.Concurrent.Protocol.Client
 import           Control.Eff.Concurrent.Protocol.StatefulServer as Server
-import           Control.Monad
-import           Data.Foldable
 import           Control.Lens
-import           Control.DeepSeq
+import           Control.Monad
+import           Data.Dynamic
+import           Data.Foldable
+import           Data.Functor.Contravariant (contramap)
 import qualified Data.Text as T
 
 main :: IO ()
@@ -79,7 +81,7 @@ instance Server.Server App Effects where
 data App deriving Typeable
 
 instance HasPdu App where
-  type EmbeddedProtocols App = '[Observer BackendEvent]
+  type EmbeddedPduList App = '[Observer BackendEvent]
   data Pdu App r where
     SetBackend :: Maybe SomeBackend -> Pdu App ('Synchronous ())
     DoThis :: Pdu App 'Asynchronous
@@ -96,15 +98,10 @@ instance Show (Pdu App r) where
   show DoThis = "doing this"
   show (AppBackendEvent e) = "got backend event: " ++ show e
 
-instance EmbedProtocol App (Observer BackendEvent) 'Asynchronous where
+instance EmbedProtocol App (Observer BackendEvent) where
   embedPdu = AppBackendEvent
   fromPdu (AppBackendEvent e) = Just e
   fromPdu _ = Nothing
-
-instance EmbedProtocol2 App (Observer BackendEvent) where
-  embedPdu2 = AppBackendEvent
-  fromPdu2 (AppBackendEvent e) = Just e
-  fromPdu2 _ = Nothing
 
 -- Backend
 data Backend deriving Typeable
@@ -131,7 +128,7 @@ type IsBackend b =
   ( HasPdu b
 --  , EmbedProtocol b Backend 'Asynchronous
 --  , EmbedProtocol b Backend ('Synchronous String)
-  , EmbedProtocol2 b Backend
+  , EmbedProtocol b Backend
   , Embeds b Backend
   , IsObservable b BackendEvent
   , Tangible (Pdu b ('Synchronous String))
@@ -150,7 +147,7 @@ withSomeBackend (SomeBackend x) f = f x
 backendRegisterObserver
   :: ( HasProcesses e q
      , CanObserve m BackendEvent
-     , EmbedProtocol2 m (Observer BackendEvent)
+     , EmbedProtocol m (Observer BackendEvent)
      , Tangible (Pdu m 'Asynchronous))
   => SomeBackend
   -> Endpoint m
@@ -160,7 +157,7 @@ backendRegisterObserver (SomeBackend x) o = registerObserver @BackendEvent x o
 backendForgetObserver
   :: ( HasProcesses e q
      , CanObserve m BackendEvent
-     , EmbedProtocol2 m (Observer BackendEvent)
+     , EmbedProtocol m (Observer BackendEvent)
      , Tangible (Pdu m 'Asynchronous)
      )
   => SomeBackend
@@ -169,10 +166,10 @@ backendForgetObserver
 backendForgetObserver (SomeBackend x) o = forgetObserver @BackendEvent x o
 
 getSomeBackendInfo :: HasProcesses e q => SomeBackend -> Eff e String
-getSomeBackendInfo (SomeBackend x) = call2 x GetBackendInfo
+getSomeBackendInfo (SomeBackend x) = call x GetBackendInfo
 
 doSomeBackendWork ::  HasProcesses e q => SomeBackend -> Eff e ()
-doSomeBackendWork (SomeBackend x) = cast2 x BackendWork
+doSomeBackendWork (SomeBackend x) = cast x BackendWork
 
 -------------------------
 
@@ -210,7 +207,7 @@ instance Server.Server Backend1 Effects where
 data Backend2 deriving Typeable
 
 instance HasPdu Backend2 where
-  type instance EmbeddedProtocols Backend2 = '[Backend, ObserverRegistry BackendEvent]
+  type instance EmbeddedPduList Backend2 = '[Backend, ObserverRegistry BackendEvent]
   data instance Pdu Backend2 r where
     B2ObserverRegistry :: Pdu (ObserverRegistry BackendEvent) r -> Pdu Backend2 r
     B2BackendWork :: Pdu Backend r -> Pdu Backend2 r
@@ -224,15 +221,15 @@ instance Show (Pdu Backend2 r) where
   show (B2BackendWork w) = show w
   show (B2ObserverRegistry x) = show x
 
-instance EmbedProtocol2 Backend2 Backend where
-  embedPdu2 = B2BackendWork
-  fromPdu2 (B2BackendWork x) = Just x
-  fromPdu2 _ = Nothing
+instance EmbedProtocol Backend2 Backend where
+  embedPdu = B2BackendWork
+  fromPdu (B2BackendWork x) = Just x
+  fromPdu _ = Nothing
 
-instance EmbedProtocol2 Backend2 (ObserverRegistry BackendEvent) where
-  embedPdu2 = B2ObserverRegistry
-  fromPdu2 (B2ObserverRegistry x) = Just x
-  fromPdu2 _ = Nothing
+instance EmbedProtocol Backend2 (ObserverRegistry BackendEvent) where
+  embedPdu = B2ObserverRegistry
+  fromPdu (B2ObserverRegistry x) = Just x
+  fromPdu _ = Nothing
 
 instance Server.Server Backend2 Effects where
   type instance Model Backend2 = (Int, ObserverRegistry BackendEvent)
@@ -257,3 +254,24 @@ instance Server.Server Backend2 Effects where
         when wasObserver $
           logNotice "observer removed"
       _ -> logWarning ("unexpected: " <> T.pack (show e))
+
+-- EXPERIMENTING
+data EP a where
+  EP :: forall a (r :: Synchronicity) . (NFData (Pdu a r), Typeable r) => Receiver (Pdu a r) -> EP a
+
+sendEPCast
+  :: forall a e q
+  . (HasProcesses e q)
+  => EP a
+  -> (forall x . Pdu a x)
+  -> Eff e ()
+sendEPCast (EP r) p = sendToReceiver r p
+
+embeddedReceiver
+  :: forall  a b
+  . (EmbedProtocol a b, Embeds a b, (forall (r :: Synchronicity) . Typeable r => NFData (Pdu b r) ))
+  => EP a
+  -> EP b
+embeddedReceiver (EP r) = EP (contramap embedPdu r)
+
+

@@ -266,17 +266,17 @@ observerQueueTests =
 data TestObservable deriving Typeable
 
 instance HasPdu TestObservable where
-     type instance EmbeddedProtocols TestObservable = '[ObserverRegistry String]
+     type instance EmbeddedPduList TestObservable = '[ObserverRegistry String]
      data Pdu TestObservable r where
       SendTestEvent :: String -> Pdu TestObservable ('Synchronous ())
       StopTestObservable :: Pdu TestObservable 'Asynchronous
       TestObsReg :: Pdu (ObserverRegistry String) r -> Pdu TestObservable r
       deriving (Typeable)
 
-instance EmbedProtocol2 TestObservable (ObserverRegistry String) where
-  embedPdu2 = TestObsReg
-  fromPdu2 (TestObsReg x) = Just x
-  fromPdu2 _ = Nothing
+instance EmbedProtocol TestObservable (ObserverRegistry String) where
+  embedPdu = TestObsReg
+  fromPdu (TestObsReg x) = Just x
+  fromPdu _ = Nothing
 
 instance Typeable r => NFData (Pdu TestObservable r) where
   rnf (SendTestEvent s) = rnf s
@@ -312,7 +312,7 @@ instance (LogIo r, HasProcesses r q) => S.Server TestObservable r where
 data TestObserver deriving Typeable
 
 instance HasPdu TestObserver where
-  type EmbeddedProtocols TestObserver = '[Observer String]
+  type EmbeddedPduList TestObserver = '[Observer String]
   data Pdu TestObserver r where
     GetCapturedEvents :: Pdu TestObserver ('Synchronous [String])
     OnTestEvent :: Pdu (Observer String) r -> Pdu TestObserver r
@@ -326,10 +326,10 @@ instance Show (Pdu TestObserver r) where
   showsPrec _ GetCapturedEvents = showString "GetCapturedEvents"
   showsPrec d (OnTestEvent e) = showParen (d>=10) (showString "OnTestEvent " . shows e)
 
-instance EmbedProtocol2 TestObserver (Observer String) where
-  embedPdu2 = OnTestEvent
-  fromPdu2 (OnTestEvent e) = Just e
-  fromPdu2 _ = Nothing
+instance EmbedProtocol TestObserver (Observer String) where
+  embedPdu = OnTestEvent
+  fromPdu (OnTestEvent e) = Just e
+  fromPdu _ = Nothing
 
 
 instance (LogIo r, HasProcesses r q) => M.Server TestObserver r where

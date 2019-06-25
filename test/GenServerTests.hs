@@ -8,6 +8,7 @@ import Control.DeepSeq
 import Control.Eff
 import Control.Eff.Concurrent
 import Control.Eff.Concurrent.Protocol.Supervisor as Sup
+import Control.Eff.Concurrent.Protocol
 import qualified Control.Eff.Concurrent.Protocol.EffectfulServer as E
 import qualified Control.Eff.Concurrent.Protocol.StatefulServer as S
 import Control.Lens
@@ -75,13 +76,10 @@ instance Show (Pdu Big r) where
   showsPrec d (BigCast x) = showParen (d > 10) (showString "SmallCast " . showString x)
   showsPrec d (BigSmall x) = showParen (d > 10) (showString "BigSmall " . showsPrec 11 x)
 
-instance  Typeable r => EmbedProtocol Big Small r where
-  embeddedPdu =
-    prism'
-      BigSmall
-      (\case
-         (BigSmall x) -> Just x
-         _ -> Nothing)
+instance EmbedProtocol Big Small where
+  embedPdu = BigSmall
+  fromPdu (BigSmall x) = Just x
+  fromPdu _ = Nothing
 
 -- ----------------------------------------------------------------------------
 
@@ -94,11 +92,11 @@ instance LogIo e => S.Server Big (Processes e) where
             BigCall o -> do
               logNotice ("BigCall " <> pack (show o))
               sendReply rt o
-            BigSmall x -> S.update (toEmbeddedEndpoint @_ @_ @('Synchronous Bool) me) MkSmall (S.OnCall (toEmbeddedReplyTarget rt) x)
+            BigSmall x -> S.update (toEmbeddedEndpoint me) MkSmall (S.OnCall (toEmbeddedReplyTarget rt) x)
     E.OnCast req ->
         case req of
           BigCast o -> S.putModel @Big o
-          BigSmall x -> S.update (toEmbeddedEndpoint @_ @_ @('Asynchronous) me) MkSmall (S.OnCast x)
+          BigSmall x -> S.update (toEmbeddedEndpoint me) MkSmall (S.OnCast x)
     other ->
       interrupt (ErrorInterrupt (show other))
 -- ----------------------------------------------------------------------------
