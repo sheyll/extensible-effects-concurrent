@@ -171,8 +171,8 @@ selectiveReceiveTests schedulerFactory = setTravisTestOptions
             traverse_ (sendMessage destination) [1 .. nMax]
 
         me          <- self
-        receiverPid <- spawn "reciever loop" (receiverLoop me)
-        spawn_ "sender loop" (senderLoop receiverPid)
+        receiverPid2 <- spawn "reciever loop" (receiverLoop me)
+        spawn_ "sender loop" (senderLoop receiverPid2)
         ok <- receiveMessage @Bool
         lift (ok @? "selective receive failed")
     , testCase "receive a message while waiting for a call reply"

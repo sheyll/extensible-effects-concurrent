@@ -186,7 +186,7 @@ import           Control.Eff.Concurrent.Protocol
                                                 , fromEndpoint
                                                 , proxyAsEndpoint
                                                 , asEndpoint
-                                                , EmbedProtocol(..)
+                                                , HasPduPrism(..)
                                                 , toEmbeddedEndpoint
                                                 , fromEmbeddedEndpoint
                                                 )

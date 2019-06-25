@@ -8,10 +8,8 @@ import Control.DeepSeq
 import Control.Eff
 import Control.Eff.Concurrent
 import Control.Eff.Concurrent.Protocol.Supervisor as Sup
-import Control.Eff.Concurrent.Protocol
 import qualified Control.Eff.Concurrent.Protocol.EffectfulServer as E
 import qualified Control.Eff.Concurrent.Protocol.StatefulServer as S
-import Control.Lens
 import Data.Text as T
 import Data.Type.Pretty
 import Data.Typeable (Typeable)
@@ -60,6 +58,7 @@ data Big deriving (Typeable)
 type instance ToPretty Big = PutStr "big"
 
 instance HasPdu Big where
+  type instance EmbeddedPduList Big = '[Small]
   data instance  Pdu Big r where
     BigCall :: Bool -> Pdu Big ('Synchronous Bool)
     BigCast :: String -> Pdu Big 'Asynchronous
@@ -76,7 +75,7 @@ instance Show (Pdu Big r) where
   showsPrec d (BigCast x) = showParen (d > 10) (showString "SmallCast " . showString x)
   showsPrec d (BigSmall x) = showParen (d > 10) (showString "BigSmall " . showsPrec 11 x)
 
-instance EmbedProtocol Big Small where
+instance HasPduPrism Big Small where
   embedPdu = BigSmall
   fromPdu (BigSmall x) = Just x
   fromPdu _ = Nothing

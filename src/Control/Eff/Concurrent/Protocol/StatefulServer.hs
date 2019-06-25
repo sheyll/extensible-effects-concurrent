@@ -44,7 +44,7 @@ import GHC.Stack (HasCallStack)
 --
 -- Instances can by /index types/ for 'Pdu' family directly, or indirectly via the 'ServerPdu' type family.
 --
--- To builder servers serving multiple protocols, use the generic 'Pdu' instances, for which 'EmbedProtocol'
+-- To builder servers serving multiple protocols, use the generic 'Pdu' instances, for which 'Embeds'
 -- instances exist, like 2-,3-,4-, or 5-tuple.
 --
 -- The naming is inspired by The Elm Architecture, without the @view@ callback.

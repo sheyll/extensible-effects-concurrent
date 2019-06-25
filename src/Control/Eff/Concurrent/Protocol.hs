@@ -47,7 +47,7 @@ module Control.Eff.Concurrent.Protocol
   , fromEndpoint
   , proxyAsEndpoint
   , asEndpoint
-  , EmbedProtocol(..)
+  , HasPduPrism(..)
   , toEmbeddedEndpoint
   , fromEmbeddedEndpoint
   )
@@ -58,8 +58,6 @@ import           Control.DeepSeq
 import           Control.Eff.Concurrent.Process
 import           Control.Lens
 import           Data.Dynamic
-import           Data.Function
-import           Data.Ord
 import           Data.Kind
 import           Data.Typeable ()
 import           Data.Type.Pretty
@@ -120,7 +118,7 @@ class (Typeable protocol) =>
   -- | A type level list Protocol phantom types included in the associated 'Pdu' instance.
   --
   -- This is just a helper for better compiler error messages.
-  -- It relies on 'EmbedProtocol' to add the constraint 'Embeds'.
+  -- It relies on 'Embeds' to add the constraint 'HasPduPrism'.
   --
   -- @since 0.29.0
   type family EmbeddedPduList protocol :: [Type]
@@ -135,26 +133,33 @@ class (Typeable protocol) =>
 deserializePdu :: (Typeable (Pdu protocol reply)) => Dynamic -> Maybe (Pdu protocol reply)
 deserializePdu = fromDynamic
 
--- | A constraint that requires that the @outer@ 'Pdu' has a clause to embed values from the @inner@ 'Pdu'.
+-- | A constraint that requires that the @outer@ 'Pdu' has a clause to
+-- embed values from the @inner@ 'Pdu'.
 --
--- This generates better compiler error messages, when an embedding of a 'Pdu' into ano.
+-- Also, this constraint requires a 'HasPduPrism' instance, as a proof for
+-- a possible conversion
+-- of an embedded 'Pdu' value into to the enclosing 'Pdu'.
 --
--- This is provided by 'HasPdu' instances. The instances are required to provide a list of embedded 'Pdu'
--- values in 'EmbeddedPduList'.
+-- This generates better compiler error messages, when an embedding of a 'Pdu'
+-- into another.
+--
+-- This is provided by 'HasPdu' instances. The instances are required to
+-- provide a list of embedded 'Pdu' values in 'EmbeddedPduList'.
 --
 -- Note that every type embeds itself, so @Embeds x x@ always holds.
 --
 -- @since 0.29.0
-type family Embeds outer inner :: Constraint where
-  Embeds outer outer = ()
-  Embeds outer inner =
+type Embeds outer inner = (HasPduPrism outer inner, CheckEmbeds outer inner)
+
+-- ---------- Type Machinery:
+type family CheckEmbeds outer inner :: Constraint where
+  CheckEmbeds outer outer = ()
+  CheckEmbeds outer inner =
     IsProtocolOneOf
       inner
       (EmbeddedPduList outer)
       (EmbeddedPduList outer)
     ~ 'IsEmbeddedProtocol
-
--- ---------- Type Machinery:
 
 data IsEmbeddedProtocol k  = IsEmbeddedProtocol | IsNotAnEmbeddedProtocol k [k]
 
@@ -214,7 +219,6 @@ type family ProtocolReply (s :: Synchronicity) where
 
 type instance ToPretty (Endpoint a) = ToPretty a <+> PutStr "endpoint"
 
-makeLenses ''Endpoint
 
 instance (HasPdu a1, HasPdu a2) => HasPdu (a1, a2) where
   type instance EmbeddedPduList (a1, a2) = '[a1, a2]
@@ -259,6 +263,13 @@ asEndpoint = Endpoint
 
 
 -- | A class for 'Pdu' instances that embed other 'Pdu'.
+--
+-- This is a part of 'Embeds' provide instances for your
+-- 'Pdu's but in client code use the 'Embeds' constraint.
+--
+-- Instances of this class serve as proof to 'Embeds' that
+-- a conversion into another 'Pdu' actually exists.
+--
 -- A 'Prism' for the embedded 'Pdu' is the center of this class
 --
 -- Laws: @embeddedPdu = prism' embedPdu fromPdu@
@@ -266,73 +277,70 @@ asEndpoint = Endpoint
 -- @since 0.29.0
 class
  (Typeable protocol, Typeable embeddedProtocol)
-  => EmbedProtocol protocol embeddedProtocol where
+  => HasPduPrism protocol embeddedProtocol where
 
   -- | A 'Prism' for the embedded 'Pdu's.
   embeddedPdu
     :: forall (result :: Synchronicity)
-    . (Embeds protocol embeddedProtocol)
-    => Prism' (Pdu protocol result) (Pdu embeddedProtocol result)
+    . Prism' (Pdu protocol result) (Pdu embeddedProtocol result)
   embeddedPdu = prism' embedPdu fromPdu
 
   -- | Embed the 'Pdu' value of an embedded protocol into the corresponding
   --  'Pdu' value.
   embedPdu
     :: forall (result :: Synchronicity)
-    . (Embeds protocol embeddedProtocol)
-    => Pdu embeddedProtocol result -> Pdu protocol result
+    . Pdu embeddedProtocol result -> Pdu protocol result
   embedPdu = review embeddedPdu
   -- | Examine a 'Pdu' value from the outer protocol, and return it, if it embeds a 'Pdu' of
   -- embedded protocol, otherwise return 'Nothing'/
   fromPdu
     :: forall (result :: Synchronicity)
-    . (Embeds protocol embeddedProtocol)
-    => Pdu protocol result -> Maybe (Pdu embeddedProtocol result)
+    . Pdu protocol result -> Maybe (Pdu embeddedProtocol result)
   fromPdu = preview embeddedPdu
 
 -- | Convert an 'Endpoint' to an endpoint for an embedded protocol.
 --
--- See 'EmbedProtocol', 'fromEmbeddedEndpoint'.
+-- See 'Embeds', 'fromEmbeddedEndpoint'.
 --
 -- @since 0.25.1
-toEmbeddedEndpoint :: forall inner outer . EmbedProtocol outer inner => Endpoint outer -> Endpoint inner
+toEmbeddedEndpoint :: forall inner outer . Embeds outer inner => Endpoint outer -> Endpoint inner
 toEmbeddedEndpoint (Endpoint e) = Endpoint e
 
 -- | Convert an 'Endpoint' to an endpoint for a server, that embeds the protocol.
 --
--- See 'EmbedProtocol', 'toEmbeddedEndpoint'.
+-- See 'Embeds', 'toEmbeddedEndpoint'.
 --
 -- @since 0.25.1
-fromEmbeddedEndpoint ::  forall outer inner . EmbedProtocol outer inner => Endpoint inner -> Endpoint outer
+fromEmbeddedEndpoint ::  forall outer inner . HasPduPrism outer inner => Endpoint inner -> Endpoint outer
 fromEmbeddedEndpoint (Endpoint e) = Endpoint e
 
-instance (Typeable a) => EmbedProtocol a a where
+instance (Typeable a) => HasPduPrism a a where
   embeddedPdu = prism' id Just
   embedPdu = id
   fromPdu = Just
 
-instance (Typeable a1, Typeable a2) => EmbedProtocol (a1, a2) a1 where
+instance (Typeable a1, Typeable a2) => HasPduPrism (a1, a2) a1 where
   embedPdu = ToPduLeft
   fromPdu (ToPduLeft l) = Just l
   fromPdu _ = Nothing
 
-instance (Typeable a1, Typeable a2) => EmbedProtocol (a1, a2) a2 where
+instance (Typeable a1, Typeable a2) => HasPduPrism (a1, a2) a2 where
   embeddedPdu =
     prism' ToPduRight $ \case
       ToPduRight r -> Just r
       ToPduLeft _ -> Nothing
 
-instance (Typeable a1, Typeable a2, Typeable a3) => EmbedProtocol (a1, a2, a3) a1 where
+instance (Typeable a1, Typeable a2, Typeable a3) => HasPduPrism (a1, a2, a3) a1 where
   embedPdu = ToPdu1
   fromPdu (ToPdu1 l) = Just l
   fromPdu _ = Nothing
 
-instance (Typeable a1, Typeable a2, Typeable a3) => EmbedProtocol (a1, a2, a3) a2 where
+instance (Typeable a1, Typeable a2, Typeable a3) => HasPduPrism (a1, a2, a3) a2 where
   embedPdu = ToPdu2
   fromPdu (ToPdu2 l) = Just l
   fromPdu _ = Nothing
 
-instance (Typeable a1, Typeable a2, Typeable a3) => EmbedProtocol (a1, a2, a3) a3 where
+instance (Typeable a1, Typeable a2, Typeable a3) => HasPduPrism (a1, a2, a3) a3 where
   embedPdu = ToPdu3
   fromPdu (ToPdu3 l) = Just l
   fromPdu _ = Nothing
@@ -368,22 +376,22 @@ instance (Show (Pdu a1 r), Show (Pdu a2 r), Show (Pdu a3 r), Show (Pdu a4 r)) =>
   showsPrec d (ToPdu3Of4 z) = showsPrec d z
   showsPrec d (ToPdu4Of4 w) = showsPrec d w
 
-instance (HasPdu a1, HasPdu a2, HasPdu a3, HasPdu a4) => EmbedProtocol (a1, a2, a3, a4) a1 where
+instance (HasPdu a1, HasPdu a2, HasPdu a3, HasPdu a4) => HasPduPrism (a1, a2, a3, a4) a1 where
   embedPdu = ToPdu1Of4
   fromPdu (ToPdu1Of4 l) = Just l
   fromPdu _ = Nothing
 
-instance (HasPdu a1, HasPdu a2, HasPdu a3, HasPdu a4) => EmbedProtocol (a1, a2, a3, a4) a2 where
+instance (HasPdu a1, HasPdu a2, HasPdu a3, HasPdu a4) => HasPduPrism (a1, a2, a3, a4) a2 where
   embedPdu = ToPdu2Of4
   fromPdu (ToPdu2Of4 l) = Just l
   fromPdu _ = Nothing
 
-instance (HasPdu a1, HasPdu a2, HasPdu a3, HasPdu a4) => EmbedProtocol (a1, a2, a3, a4) a3 where
+instance (HasPdu a1, HasPdu a2, HasPdu a3, HasPdu a4) => HasPduPrism (a1, a2, a3, a4) a3 where
   embedPdu = ToPdu3Of4
   fromPdu (ToPdu3Of4 l) = Just l
   fromPdu _ = Nothing
 
-instance (HasPdu a1, HasPdu a2, HasPdu a3, HasPdu a4) => EmbedProtocol (a1, a2, a3, a4) a4 where
+instance (HasPdu a1, HasPdu a2, HasPdu a3, HasPdu a4) => HasPduPrism (a1, a2, a3, a4) a4 where
   embedPdu = ToPdu4Of4
   fromPdu (ToPdu4Of4 l) = Just l
   fromPdu _ = Nothing
@@ -402,27 +410,29 @@ instance (Show (Pdu a1 r), Show (Pdu a2 r), Show (Pdu a3 r), Show (Pdu a4 r), Sh
   showsPrec d (ToPdu4Of5 w) = showsPrec d w
   showsPrec d (ToPdu5Of5 v) = showsPrec d v
 
-instance (HasPdu a1, HasPdu a2, HasPdu a3, HasPdu a4, HasPdu a5) => EmbedProtocol (a1, a2, a3, a4, a5) a1 where
+instance (HasPdu a1, HasPdu a2, HasPdu a3, HasPdu a4, HasPdu a5) => HasPduPrism (a1, a2, a3, a4, a5) a1 where
   embedPdu = ToPdu1Of5
   fromPdu (ToPdu1Of5 l) = Just l
   fromPdu _ = Nothing
 
-instance (HasPdu a1, HasPdu a2, HasPdu a3, HasPdu a4, HasPdu a5) => EmbedProtocol (a1, a2, a3, a4, a5) a2 where
+instance (HasPdu a1, HasPdu a2, HasPdu a3, HasPdu a4, HasPdu a5) => HasPduPrism (a1, a2, a3, a4, a5) a2 where
   embedPdu = ToPdu2Of5
   fromPdu (ToPdu2Of5 l) = Just l
   fromPdu _ = Nothing
 
-instance (HasPdu a1, HasPdu a2, HasPdu a3, HasPdu a4, HasPdu a5) => EmbedProtocol (a1, a2, a3, a4, a5) a3 where
+instance (HasPdu a1, HasPdu a2, HasPdu a3, HasPdu a4, HasPdu a5) => HasPduPrism (a1, a2, a3, a4, a5) a3 where
   embedPdu = ToPdu3Of5
   fromPdu (ToPdu3Of5 l) = Just l
   fromPdu _ = Nothing
 
-instance (HasPdu a1, HasPdu a2, HasPdu a3, HasPdu a4, HasPdu a5) => EmbedProtocol (a1, a2, a3, a4, a5) a4 where
+instance (HasPdu a1, HasPdu a2, HasPdu a3, HasPdu a4, HasPdu a5) => HasPduPrism (a1, a2, a3, a4, a5) a4 where
   embedPdu = ToPdu4Of5
   fromPdu (ToPdu4Of5 l) = Just l
   fromPdu _ = Nothing
 
-instance (HasPdu a1, HasPdu a2, HasPdu a3, HasPdu a4, HasPdu a5) => EmbedProtocol (a1, a2, a3, a4, a5) a5 where
+instance (HasPdu a1, HasPdu a2, HasPdu a3, HasPdu a4, HasPdu a5) => HasPduPrism (a1, a2, a3, a4, a5) a5 where
   embedPdu = ToPdu5Of5
   fromPdu (ToPdu5Of5 l) = Just l
   fromPdu _ = Nothing
+
+makeLenses ''Endpoint

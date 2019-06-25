@@ -98,7 +98,7 @@ instance Show (Pdu App r) where
   show DoThis = "doing this"
   show (AppBackendEvent e) = "got backend event: " ++ show e
 
-instance EmbedProtocol App (Observer BackendEvent) where
+instance HasPduPrism App (Observer BackendEvent) where
   embedPdu = AppBackendEvent
   fromPdu (AppBackendEvent e) = Just e
   fromPdu _ = Nothing
@@ -126,9 +126,6 @@ newtype BackendEvent where
 
 type IsBackend b =
   ( HasPdu b
---  , EmbedProtocol b Backend 'Asynchronous
---  , EmbedProtocol b Backend ('Synchronous String)
-  , EmbedProtocol b Backend
   , Embeds b Backend
   , IsObservable b BackendEvent
   , Tangible (Pdu b ('Synchronous String))
@@ -147,7 +144,7 @@ withSomeBackend (SomeBackend x) f = f x
 backendRegisterObserver
   :: ( HasProcesses e q
      , CanObserve m BackendEvent
-     , EmbedProtocol m (Observer BackendEvent)
+     , Embeds m (Observer BackendEvent)
      , Tangible (Pdu m 'Asynchronous))
   => SomeBackend
   -> Endpoint m
@@ -157,7 +154,7 @@ backendRegisterObserver (SomeBackend x) o = registerObserver @BackendEvent x o
 backendForgetObserver
   :: ( HasProcesses e q
      , CanObserve m BackendEvent
-     , EmbedProtocol m (Observer BackendEvent)
+     , Embeds m (Observer BackendEvent)
      , Tangible (Pdu m 'Asynchronous)
      )
   => SomeBackend
@@ -221,12 +218,12 @@ instance Show (Pdu Backend2 r) where
   show (B2BackendWork w) = show w
   show (B2ObserverRegistry x) = show x
 
-instance EmbedProtocol Backend2 Backend where
+instance HasPduPrism Backend2 Backend where
   embedPdu = B2BackendWork
   fromPdu (B2BackendWork x) = Just x
   fromPdu _ = Nothing
 
-instance EmbedProtocol Backend2 (ObserverRegistry BackendEvent) where
+instance HasPduPrism Backend2 (ObserverRegistry BackendEvent) where
   embedPdu = B2ObserverRegistry
   fromPdu (B2ObserverRegistry x) = Just x
   fromPdu _ = Nothing
@@ -269,7 +266,7 @@ sendEPCast (EP r) p = sendToReceiver r p
 
 embeddedReceiver
   :: forall  a b
-  . (EmbedProtocol a b, Embeds a b, (forall (r :: Synchronicity) . Typeable r => NFData (Pdu b r) ))
+  . (Embeds a b, (forall (r :: Synchronicity) . Typeable r => NFData (Pdu b r) ))
   => EP a
   -> EP b
 embeddedReceiver (EP r) = EP (contramap embedPdu r)

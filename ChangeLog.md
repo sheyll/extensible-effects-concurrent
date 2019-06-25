@@ -1,7 +1,12 @@
 # Changelog for extensible-effects-concurrent
 
 ## 0.29.0
-- Simplify embedding mechanism
+- Remove the reply type parameter from `HasPdu` 
+- Make a new constraint `Embeds` that replaces `EmbedProtocol`
+- Rename `EmbedProtocol` to `HasPduPrism`
+- Add `EmbeddedPduList` to `HasPdu`
+- Add embedded protocols example
+- Rename and change `ServesProtocol` to `HasEndpointReader`
 
 ## 0.28.0
 - Simplify `Protocol.Observer` registration API

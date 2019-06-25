@@ -95,7 +95,7 @@ makeRequestOrigin = RequestOrigin <$> self <*> makeReference
 
 instance NFData (RequestOrigin p r)
 
--- | Turn an 'RequestOrigin' to an origin for an embedded request (See 'EmbedProtocol').
+-- | Turn an 'RequestOrigin' to an origin for an embedded request (See 'Embeds').
 --
 -- This is useful of a server delegates the @calls@ and @casts@ for an embedded protocol
 -- to functions, that require the 'Serializer' and 'RequestOrigin' in order to call
@@ -105,7 +105,7 @@ instance NFData (RequestOrigin p r)
 --
 -- @since 0.24.3
 toEmbeddedOrigin
-  :: forall outer inner reply . EmbedProtocol outer inner
+  :: forall outer inner reply . Embeds outer inner
   => RequestOrigin outer reply
   -> RequestOrigin inner reply
 toEmbeddedOrigin (RequestOrigin !pid !ref) = RequestOrigin pid ref
@@ -117,7 +117,7 @@ toEmbeddedOrigin (RequestOrigin !pid !ref) = RequestOrigin pid ref
 -- This function is strict in all parameters.
 --
 -- @since 0.24.2
-embedRequestOrigin :: forall outer inner reply . EmbedProtocol outer inner => RequestOrigin inner reply -> RequestOrigin outer reply
+embedRequestOrigin :: forall outer inner reply . Embeds outer inner => RequestOrigin inner reply -> RequestOrigin outer reply
 embedRequestOrigin (RequestOrigin !pid !ref) = RequestOrigin pid ref
 
 -- | Turn a 'Serializer' for a 'Pdu' instance that contains embedded 'Pdu' values
@@ -130,7 +130,7 @@ embedRequestOrigin (RequestOrigin !pid !ref) = RequestOrigin pid ref
 -- See also 'toEmbeddedOrigin'.
 --
 -- @since 0.24.2
-embedReplySerializer :: forall outer inner reply . EmbedProtocol outer inner => Serializer (Reply outer reply) -> Serializer (Reply inner reply)
+embedReplySerializer :: forall outer inner reply . Embeds outer inner => Serializer (Reply outer reply) -> Serializer (Reply inner reply)
 embedReplySerializer = contramap embedReply
 
 -- | Turn an /embedded/ 'Reply' to a 'Reply' for the /bigger/ request.
@@ -138,7 +138,7 @@ embedReplySerializer = contramap embedReply
 -- This function is strict in all parameters.
 --
 -- @since 0.24.2
-embedReply :: forall outer inner reply . EmbedProtocol outer inner => Reply inner reply -> Reply outer reply
+embedReply :: forall outer inner reply . Embeds outer inner => Reply inner reply -> Reply outer reply
 embedReply (Reply (RequestOrigin !pid !ref) !v) = Reply (RequestOrigin pid ref) v
 
 
@@ -180,7 +180,7 @@ instance NFData (ReplyTarget p r) where
 
 -- | Smart constructor for a 'ReplyTarget'.
 --
--- To build a @ReplyTarget@ for an 'EmbedProtocol' instance use 'embeddedReplyTarget'.
+-- To build a @ReplyTarget@ for an 'Embeds' instance use 'embeddedReplyTarget'.
 --
 -- @since 0.26.0
 replyTarget :: Serializer (Reply p reply) -> RequestOrigin p reply -> ReplyTarget p reply
@@ -205,7 +205,7 @@ replyTargetSerializer f (MkReplyTarget (Arg x o)) =
 -- This combines 'replyTarget' and 'toEmbeddedReplyTarget'.
 --
 -- @since 0.26.0
-embeddedReplyTarget :: EmbedProtocol outer inner => Serializer (Reply outer reply) -> RequestOrigin outer reply -> ReplyTarget inner reply
+embeddedReplyTarget :: Embeds outer inner => Serializer (Reply outer reply) -> RequestOrigin outer reply -> ReplyTarget inner reply
 embeddedReplyTarget ser orig = toEmbeddedReplyTarget $ replyTarget ser orig
 
 -- | Convert a 'ReplyTarget' to be usable for /embedded/ replies.
@@ -214,6 +214,6 @@ embeddedReplyTarget ser orig = toEmbeddedReplyTarget $ replyTarget ser orig
 -- 'ReplyTarget' that can be passed to functions defined soley on an embedded protocol.
 --
 -- @since 0.26.0
-toEmbeddedReplyTarget :: EmbedProtocol outer inner => ReplyTarget outer reply -> ReplyTarget inner reply
+toEmbeddedReplyTarget :: Embeds outer inner => ReplyTarget outer reply -> ReplyTarget inner reply
 toEmbeddedReplyTarget (MkReplyTarget (Arg orig ser)) =
   MkReplyTarget (Arg (toEmbeddedOrigin orig) (embedReplySerializer ser))

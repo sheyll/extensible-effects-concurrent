@@ -7,7 +7,6 @@ import Common
 import Control.DeepSeq
 import Control.Eff
 import Control.Eff.Concurrent
-import Control.Eff.Concurrent.Protocol
 import qualified Control.Eff.Concurrent.Protocol.EffectfulServer as S
 import qualified Control.Eff.Concurrent.Protocol.Observer.Queue as OQ
 import qualified Control.Eff.Concurrent.Protocol.StatefulServer as M
@@ -273,7 +272,7 @@ instance HasPdu TestObservable where
       TestObsReg :: Pdu (ObserverRegistry String) r -> Pdu TestObservable r
       deriving (Typeable)
 
-instance EmbedProtocol TestObservable (ObserverRegistry String) where
+instance HasPduPrism TestObservable (ObserverRegistry String) where
   embedPdu = TestObsReg
   fromPdu (TestObsReg x) = Just x
   fromPdu _ = Nothing
@@ -326,7 +325,7 @@ instance Show (Pdu TestObserver r) where
   showsPrec _ GetCapturedEvents = showString "GetCapturedEvents"
   showsPrec d (OnTestEvent e) = showParen (d>=10) (showString "OnTestEvent " . shows e)
 
-instance EmbedProtocol TestObserver (Observer String) where
+instance HasPduPrism TestObserver (Observer String) where
   embedPdu = OnTestEvent
   fromPdu (OnTestEvent e) = Just e
   fromPdu _ = Nothing

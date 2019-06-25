@@ -56,7 +56,7 @@ import           GHC.Stack
 -- | A /protocol/ to communicate 'Observed' events from a sources to many sinks.
 --
 -- A sink is any process that serves a protocol with a 'Pdu' instance that embeds
--- the 'Observer' Pdu via an 'EmbedProtocol' instance.
+-- the 'Observer' Pdu via an 'HasPduPrism' instance.
 --
 -- This type has /dual use/, for one it serves as type-index for 'Pdu', i.e.
 -- 'HasPdu' respectively, and secondly it contains an 'ObservationSink' and
@@ -112,7 +112,6 @@ instance NFData (ObservationSink event) where
 -- @since 0.28.0
 type IsObservable eventSource event =
   ( Tangible event
-  , EmbedProtocol eventSource (ObserverRegistry event)
   , Embeds eventSource (ObserverRegistry event)
   , HasPdu eventSource
   )
@@ -122,7 +121,6 @@ type IsObservable eventSource event =
 -- @since 0.28.0
 type CanObserve eventSink event =
   ( Tangible event
-  , EmbedProtocol eventSink (Observer event)
   , Embeds eventSink (Observer event)
   , HasPdu eventSink
   )
