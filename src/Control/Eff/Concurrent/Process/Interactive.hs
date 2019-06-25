@@ -132,6 +132,7 @@ submitCast
   :: forall o r
    . ( SetMember Lift (Lift IO) r
      , HasPdu o 'Asynchronous
+     , Tangible (Pdu o 'Asynchronous)
      , Member Interrupts r)
   => SchedulerSession r
   -> Endpoint o
@@ -144,6 +145,7 @@ submitCall
   :: forall o q r
    . ( SetMember Lift (Lift IO) r
      , Member Interrupts r
+     , Tangible (Pdu o ('Synchronous q))
      , HasPdu o ('Synchronous q)
      , Tangible q
      )

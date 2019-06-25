@@ -117,7 +117,10 @@ instance Typeable protocol => Show (Endpoint protocol) where
 -- >
 --
 -- @since 0.25.1
-class (Tangible (Pdu protocol reply), Typeable reply, Typeable protocol) => HasPdu (protocol :: Type) (reply :: Synchronicity) where
+class
+  -- (Tangible (Pdu protocol reply), Typeable reply, Typeable protocol)  =>
+  (Typeable protocol)  =>
+   HasPdu (protocol :: Type) (reply :: Synchronicity) where
   -- | A type level list Protocol phantom types included in the associated 'Pdu' instance.
   --
   -- Use 'Embeds' as a constraint.

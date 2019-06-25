@@ -138,6 +138,8 @@ registerObserver
      ( HasCallStack
      , HasProcesses r q
      , IsObservable eventSource event
+     , Tangible (Pdu eventSource 'Asynchronous)
+     , Tangible (Pdu eventSink 'Asynchronous)
      , CanObserve eventSink event
      )
   => Endpoint eventSource
@@ -161,6 +163,8 @@ forgetObserver
   :: forall event eventSink eventSource r q .
      ( HasProcesses r q
      , HasCallStack
+     , Tangible (Pdu eventSource 'Asynchronous)
+     , Tangible (Pdu eventSink 'Asynchronous)
      , IsObservable eventSource event
      , CanObserve eventSink event
      )
@@ -177,6 +181,7 @@ forgetObserverUnsafe
   :: forall event eventSource r q .
      ( HasProcesses r q
      , HasCallStack
+     , Tangible (Pdu eventSource 'Asynchronous)
      , IsObservable eventSource event
      )
   => Endpoint eventSource

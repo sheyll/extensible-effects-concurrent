@@ -141,8 +141,9 @@ logCounterObservations
 logCounterObservations = start OCCStart
 
 instance Member Logs q => Server (Observer CounterChanged) (Processes q) where
-  data StartArgument (Observer CounterChanged) (Processes q) = OCCStart
+  data instance StartArgument (Observer CounterChanged) (Processes q) = OCCStart
   update _ _ e =
     case e of
       OnCast (Observed msg) -> logInfo' ("observerRegistryNotify: " ++ show msg)
       _ -> logNotice (T.pack (show e))
+

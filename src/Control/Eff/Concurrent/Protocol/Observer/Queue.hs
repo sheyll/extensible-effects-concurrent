@@ -131,6 +131,7 @@ observe
     , IsObservable eventSource event
     , Integral len
     , Server (ObservationQueue event) (Processes q)
+    , Tangible (Pdu eventSource 'Asynchronous)
     )
   => len
   -> Endpoint eventSource
@@ -201,6 +202,7 @@ withWriter
     , LogIo q
     , IsObservable eventSource event
     , Member (ObservationQueueReader event) e
+    , Tangible (Pdu eventSource 'Asynchronous)
     )
   => Endpoint eventSource
   -> Eff e b
@@ -216,7 +218,7 @@ withWriter eventSource e = do
 
 
 instance (Typeable event, Lifted IO q, Member Logs q) => Server (ObservationQueue event) (Processes q) where
-  type Protocol (ObservationQueue event) = Observer event
+  type instance Protocol (ObservationQueue event) = Observer event
 
   data instance StartArgument (ObservationQueue event) (Processes q) =
      MkObservationQueue (ObservationQueue event)

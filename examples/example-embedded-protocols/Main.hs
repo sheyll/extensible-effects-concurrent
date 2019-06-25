@@ -122,6 +122,8 @@ type IsBackend b =
   , EmbedProtocol2 b Backend
   , Embeds b Backend
   , IsObservable b BackendEvent
+  , Tangible (Pdu b ('Synchronous String))
+  , Tangible (Pdu b 'Asynchronous)
   )
 
 data SomeBackend =
@@ -134,14 +136,21 @@ withSomeBackend ::
 withSomeBackend (SomeBackend x) f = f x
 
 backendRegisterObserver
-  :: (HasProcesses e q, CanObserve m BackendEvent, EmbedProtocol2 m (Observer BackendEvent))
+  :: ( HasProcesses e q
+     , CanObserve m BackendEvent
+     , EmbedProtocol2 m (Observer BackendEvent)
+     , Tangible (Pdu m 'Asynchronous))
   => SomeBackend
   -> Endpoint m
   -> Eff e ()
 backendRegisterObserver (SomeBackend x) o = registerObserver @BackendEvent x o
 
 backendForgetObserver
-  :: (HasProcesses e q, CanObserve m BackendEvent, EmbedProtocol2 m (Observer BackendEvent))
+  :: ( HasProcesses e q
+     , CanObserve m BackendEvent
+     , EmbedProtocol2 m (Observer BackendEvent)
+     , Tangible (Pdu m 'Asynchronous)
+     )
   => SomeBackend
   -> Endpoint m
   -> Eff e ()
