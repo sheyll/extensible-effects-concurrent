@@ -80,7 +80,7 @@ instance Typeable event => Show (Observer event) where
 type instance ToPretty (Observer event) =
   PrettyParens ("observing" <:> ToPretty event)
 
-instance (Typeable r, Tangible event) => HasPdu (Observer event) (r :: Synchronicity) where
+instance (Tangible event) => HasPdu (Observer event) where
   data Pdu (Observer event) r where
     Observed :: event -> Pdu (Observer event) 'Asynchronous
     deriving Typeable
@@ -114,7 +114,7 @@ type IsObservable eventSource event =
   ( Tangible event
   , EmbedProtocol2 eventSource (ObserverRegistry event)
   , Embeds eventSource (ObserverRegistry event)
-  , HasPdu eventSource 'Asynchronous
+  , HasPdu eventSource
   )
 
 -- | Convenience type alias.
@@ -124,7 +124,7 @@ type CanObserve eventSink event =
   ( Tangible event
   , EmbedProtocol2 eventSink (Observer event)
   , Embeds eventSink (Observer event)
-  , HasPdu eventSink 'Asynchronous
+  , HasPdu eventSink
   )
 
 -- | And an 'Observer' to the set of recipients for all observations reported by 'observerRegistryNotify'.
@@ -205,7 +205,7 @@ data ObserverRegistry (event :: Type) = MkObserverRegistry
 type instance ToPretty (ObserverRegistry event) =
   PrettyParens ("observer registry" <:> ToPretty event)
 
-instance (Tangible event, Typeable r) => HasPdu (ObserverRegistry event) r where
+instance (Tangible event) => HasPdu (ObserverRegistry event) where
 
   -- | Protocol for managing observers. This can be added to any server for any number of different observation types.
   -- The functions 'evalObserverRegistryState' and 'observerRegistryHandlePdu' are used to include observer handling;

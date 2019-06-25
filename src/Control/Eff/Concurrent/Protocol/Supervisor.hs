@@ -100,7 +100,7 @@ import Control.Applicative ((<|>))
 -- @since 0.24.0
 data Sup (p :: Type) deriving Typeable
 
-instance (Tangible (Pdu (Sup p) r), Typeable p, Typeable r) => HasPdu (Sup p) r where
+instance Typeable p => HasPdu (Sup p) where
   -- | The 'Pdu' instance contains methods to start, stop and lookup a child
   -- process, as well as a diagnostic callback.
   --

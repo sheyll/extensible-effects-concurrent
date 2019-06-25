@@ -22,12 +22,25 @@ main =
 embeddedExample :: Eff Effects ()
 embeddedExample = do
   b1 <- Server.start InitBackend1
+  b2 <- Server.start InitBackend2
   app <- Server.start InitApp
   cast app DoThis
   cast app DoThis
   cast app DoThis
   call app (SetBackend (Just (SomeBackend b1)))
   cast app DoThis
+  cast app DoThis
+  cast app DoThis
+  cast app DoThis
+  call app (SetBackend Nothing)
+  cast app DoThis
+  cast app DoThis
+  cast app DoThis
+  call app (SetBackend (Just (SomeBackend b1)))
+  cast app DoThis
+  cast app DoThis
+  cast app DoThis
+  call app (SetBackend (Just (SomeBackend b2)))
   cast app DoThis
   cast app DoThis
   cast app DoThis
@@ -65,7 +78,7 @@ instance Server.Server App Effects where
 
 data App deriving Typeable
 
-instance Typeable r => HasPdu App r where
+instance HasPdu App where
   type EmbeddedProtocols App = '[Observer BackendEvent]
   data Pdu App r where
     SetBackend :: Maybe SomeBackend -> Pdu App ('Synchronous ())
@@ -96,7 +109,7 @@ instance EmbedProtocol2 App (Observer BackendEvent) where
 -- Backend
 data Backend deriving Typeable
 
-instance Typeable r => HasPdu Backend r where
+instance HasPdu Backend where
   data Pdu Backend r where
     BackendWork :: Pdu Backend 'Asynchronous
     GetBackendInfo :: Pdu Backend ('Synchronous String)
@@ -115,8 +128,7 @@ newtype BackendEvent where
     deriving (NFData, Show, Typeable)
 
 type IsBackend b =
-  ( HasPdu b ('Synchronous String)
-  , HasPdu b 'Asynchronous
+  ( HasPdu b
 --  , EmbedProtocol b Backend 'Asynchronous
 --  , EmbedProtocol b Backend ('Synchronous String)
   , EmbedProtocol2 b Backend
@@ -174,7 +186,6 @@ instance Server.Server Backend1 Effects where
   data instance StartArgument Backend1 Effects = InitBackend1
   setup _ _ = pure ( (0, emptyObserverRegistry), () )
   update me _ e = do
-    logInfo ("got event: " <> T.pack (show e))
     model <- getModel @Backend1
     case e of
       OnCall rt (ToPduLeft GetBackendInfo) ->
@@ -190,6 +201,59 @@ instance Server.Server Backend1 Effects where
       OnDown pd -> do
         logWarning (T.pack (show pd))
         wasObserver <- zoomModel @Backend1 _2 (observerRegistryRemoveProcess @BackendEvent (downProcess pd))
+        when wasObserver $
+          logNotice "observer removed"
+      _ -> logWarning ("unexpected: " <> T.pack (show e))
+
+-- Backend 2
+
+data Backend2 deriving Typeable
+
+instance HasPdu Backend2 where
+  type instance EmbeddedProtocols Backend2 = '[Backend, ObserverRegistry BackendEvent]
+  data instance Pdu Backend2 r where
+    B2ObserverRegistry :: Pdu (ObserverRegistry BackendEvent) r -> Pdu Backend2 r
+    B2BackendWork :: Pdu Backend r -> Pdu Backend2 r
+    deriving Typeable
+
+instance NFData (Pdu Backend2 r) where
+  rnf (B2BackendWork w) = rnf w
+  rnf (B2ObserverRegistry x) = rnf x
+
+instance Show (Pdu Backend2 r) where
+  show (B2BackendWork w) = show w
+  show (B2ObserverRegistry x) = show x
+
+instance EmbedProtocol2 Backend2 Backend where
+  embedPdu2 = B2BackendWork
+  fromPdu2 (B2BackendWork x) = Just x
+  fromPdu2 _ = Nothing
+
+instance EmbedProtocol2 Backend2 (ObserverRegistry BackendEvent) where
+  embedPdu2 = B2ObserverRegistry
+  fromPdu2 (B2ObserverRegistry x) = Just x
+  fromPdu2 _ = Nothing
+
+instance Server.Server Backend2 Effects where
+  type instance Model Backend2 = (Int, ObserverRegistry BackendEvent)
+  data instance StartArgument Backend2 Effects = InitBackend2
+  setup _ _ = pure ( (0, emptyObserverRegistry), () )
+  update me _ e = do
+    model <- getModel @Backend2
+    case e of
+      OnCall rt (B2BackendWork GetBackendInfo) ->
+        sendReply rt ("Backend2 " <> show me <> " " <> show (model ^. _1))
+      OnCast (B2BackendWork BackendWork) -> do
+        logInfo "working..."
+        oldM <- getAndModifyModel @Backend2 (over _1 (+ 1))
+        when (fst oldM `mod` 2 == 0)
+          (zoomModel @Backend2 _2 (observerRegistryNotify (BackendEvent "even!")))
+      OnCast (B2ObserverRegistry x) -> do
+        logInfo "event registration stuff ..."
+        zoomModel @Backend2 _2 (observerRegistryHandlePdu x)
+      OnDown pd -> do
+        logWarning (T.pack (show pd))
+        wasObserver <- zoomModel @Backend2 _2 (observerRegistryRemoveProcess @BackendEvent (downProcess pd))
         when wasObserver $
           logNotice "observer removed"
       _ -> logWarning ("unexpected: " <> T.pack (show e))

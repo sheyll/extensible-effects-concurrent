@@ -18,7 +18,7 @@ data TestProtocol
 
 type instance ToPretty TestProtocol = PutStr "test"
 
-instance Typeable x => HasPdu TestProtocol x where
+instance HasPdu TestProtocol where
   data instance Pdu TestProtocol x where
     SayHello :: String -> Pdu TestProtocol ('Synchronous Bool)
     Shout :: String -> Pdu TestProtocol 'Asynchronous
