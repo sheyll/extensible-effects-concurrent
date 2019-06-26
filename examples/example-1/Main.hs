@@ -76,7 +76,7 @@ example = do
   go
 
 testServerLoop :: Eff Effects (Endpoint TestProtocol)
-testServerLoop = Callback.start (\ _ e -> e) handleReq "test-server-1"
+testServerLoop = Callback.start (Callback.callbacks handleReq "test-server-1")
  where
   handleReq :: Endpoint TestProtocol -> Event TestProtocol -> Eff Effects ()
   handleReq me (OnCall rt cm) =

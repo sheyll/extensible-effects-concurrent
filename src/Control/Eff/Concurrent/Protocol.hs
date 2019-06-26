@@ -113,8 +113,7 @@ instance Typeable protocol => Show (Endpoint protocol) where
 -- >
 --
 -- @since 0.25.1
-class (Typeable protocol) =>
-   HasPdu (protocol :: Type) where
+class Typeable protocol => HasPdu (protocol :: Type) where
   -- | A type level list Protocol phantom types included in the associated 'Pdu' instance.
   --
   -- This is just a helper for better compiler error messages.
@@ -148,8 +147,12 @@ deserializePdu = fromDynamic
 --
 -- Note that every type embeds itself, so @Embeds x x@ always holds.
 --
--- @since 0.29.0
-type Embeds outer inner = (HasPduPrism outer inner, CheckEmbeds outer inner)
+-- @since 0.29.1
+type Embeds outer inner =
+  ( HasPduPrism outer inner
+  , CheckEmbeds outer inner
+  , HasPdu outer
+  )
 
 -- ---------- Type Machinery:
 type family CheckEmbeds outer inner :: Constraint where

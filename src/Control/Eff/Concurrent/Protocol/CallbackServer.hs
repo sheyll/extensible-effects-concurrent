@@ -11,6 +11,12 @@ module Control.Eff.Concurrent.Protocol.CallbackServer
   , ServerId(..)
   , Event(..)
   , TangibleCallbacks
+  , Callbacks
+  , callbacks
+  , onEvent
+  , CallbacksEff
+  , callbacksEff
+  , onEventEff
   )
   where
 
@@ -29,38 +35,37 @@ import Data.Typeable
 import qualified Data.Text as T
 import GHC.Stack (HasCallStack)
 
-
--- | Execute the server loop.
+-- | Execute the server loop, that dispatches incoming events
+-- to either a set of 'Callbacks' or 'CallbacksEff'.
 --
--- @since 0.27.0
+-- @since 0.29.1
 start
-  :: forall tag eLoop q h.
+  :: forall (tag :: Type) eLoop q h e.
      ( HasCallStack
      , TangibleCallbacks tag eLoop q
      , E.Server (Server tag eLoop) (Processes q)
-     , LogsTo h (Processes q)
+     , LogsTo h e
+     , HasProcesses e q
      )
-  => (forall x . Endpoint tag -> Eff eLoop x -> Eff (Processes q) x)
-  -> (Endpoint tag -> Event tag -> Eff eLoop ())
-  -> ServerId tag
-  -> Eff (Processes q) (Endpoint tag)
-start initCb eventCb serverId = E.start (MkServer serverId initCb eventCb)
+  => CallbacksEff tag eLoop q
+  -> Eff e (Endpoint tag)
+start = E.start
 
--- | Execute the server loop.
+-- | Execute the server loop, that dispatches incoming events
+-- to either a set of 'Callbacks' or 'CallbacksEff'.
 --
--- @since 0.27.0
+-- @since 0.29.1
 startLink
-  :: forall tag eLoop q h.
+  :: forall (tag :: Type) eLoop q h e.
      ( HasCallStack
      , TangibleCallbacks tag eLoop q
      , E.Server (Server tag eLoop) (Processes q)
-     , LogsTo h (Processes q)
+     , LogsTo h e
+     , HasProcesses e q
      )
-  => (forall x . Endpoint tag -> Eff eLoop x -> Eff (Processes q) x)
-  -> (Endpoint tag -> Event tag -> Eff eLoop ())
-  -> ServerId tag
-  -> Eff (Processes q) (Endpoint tag)
-startLink initCb eventCb serverId = E.startLink (MkServer serverId initCb eventCb)
+  => CallbacksEff tag eLoop q
+  -> Eff e (Endpoint tag)
+startLink = E.startLink
 
 -- | Phantom type to indicate a callback based 'E.Server' instance.
 --
@@ -116,4 +121,85 @@ instance (TangibleCallbacks tag eLoop e) => Show (E.Init (Server (tag :: Type) e
       . showChar ' ' . showSTypeRep (typeRep (Proxy @tag))
       . showString " callback-server"
       )
+
+
+-- ** Smart Constructors for 'Callbacks'
+
+-- | A convenience type alias for callbacks that do not
+-- need a custom effect.
+--
+-- @since 0.29.1
+type Callbacks tag e = CallbacksEff tag (Processes e) e
+
+
+-- | A smart constructor for 'Callbacks'.
+--
+-- @since 0.29.1
+callbacks
+  :: forall tag q h.
+     ( HasCallStack
+     , TangibleCallbacks tag (Processes q) q
+     , E.Server (Server tag (Processes q)) (Processes q)
+     , LogsTo h q
+     )
+  => (Endpoint tag -> Event tag -> Eff (Processes q) ())
+  -> ServerId tag
+  -> Callbacks tag q
+callbacks evtCb i = callbacksEff (const id) evtCb i
+
+-- | A simple smart constructor for 'Callbacks'.
+--
+-- @since 0.29.1
+onEvent
+  :: forall tag q h.
+     ( HasCallStack
+     , TangibleCallbacks tag (Processes q) q
+     , E.Server (Server tag (Processes q)) (Processes q)
+     , LogsTo h q
+     )
+  => (Event tag -> Eff (Processes q) ())
+  -> ServerId (tag :: Type)
+  -> Callbacks tag q
+onEvent = onEventEff id
+
+-- ** Smart Constructors for 'CallbacksEff'
+
+-- | A convenience type alias for __effectful__ callback based 'E.Server' instances.
+--
+-- See 'Callbacks'.
+--
+-- @since 0.29.1
+type CallbacksEff tag eLoop e = E.Init (Server tag eLoop) (Processes e)
+
+-- | A smart constructor for 'CallbacksEff'.
+--
+-- @since 0.29.1
+callbacksEff
+  :: forall tag eLoop q h.
+     ( HasCallStack
+     , TangibleCallbacks tag eLoop q
+     , E.Server (Server tag eLoop) (Processes q)
+     , LogsTo h q
+     )
+  => (forall x . Endpoint tag -> Eff eLoop x -> Eff (Processes q) x)
+  -> (Endpoint tag -> Event tag -> Eff eLoop ())
+  -> ServerId tag
+  -> CallbacksEff tag eLoop q
+callbacksEff a b c = MkServer c a b
+
+-- | A simple smart constructor for 'CallbacksEff'.
+--
+-- @since 0.29.1
+onEventEff
+  ::
+    ( HasCallStack
+    , TangibleCallbacks tag eLoop q
+    , E.Server (Server tag eLoop) (Processes q)
+    , LogsTo h q
+    )
+  => (forall a. Eff eLoop a -> Eff (Processes q) a)
+  -> (Event tag -> Eff eLoop ())
+  -> ServerId (tag :: Type)
+  -> CallbacksEff tag eLoop q
+onEventEff h f i = callbacksEff (const h) (const f) i
 

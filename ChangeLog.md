@@ -1,5 +1,9 @@
 # Changelog for extensible-effects-concurrent
 
+## 0.29.1
+- Add more constraints to `Embeds`
+- Improve the `CallbackServer`
+
 ## 0.29.0
 - Remove the reply type parameter from `HasPdu` 
 - Make a new constraint `Embeds` that replaces `EmbedProtocol`
