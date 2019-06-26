@@ -26,12 +26,12 @@ import qualified Data.Text.IO                  as T
 -- apply something to the extra type argument @\@IO@.
 --
 -- Example use cases for this function are the 'consoleLogWriter' and the 'ioHandleLogWriter'.
-mkLogWriterIO :: HasCallStack => (LogMessage -> IO ()) -> LogWriter IO
-mkLogWriterIO = MkLogWriter
+mkLogWriterIO :: HasCallStack => (LogMessage -> IO ()) -> LogWriter (Lift IO)
+mkLogWriterIO f = MkLogWriter (IOLogWriter . f)
 
 -- | A 'LogWriter' that renders 'LogMessage's to strings via 'renderLogMessageConsoleLog'
 -- and prints them to an 'IO.Handle' using 'hPutStrLn'.
-ioHandleLogWriter :: HasCallStack => IO.Handle -> LogWriter IO
+ioHandleLogWriter :: HasCallStack => IO.Handle -> LogWriter (Lift IO)
 ioHandleLogWriter h =
   mkLogWriterIO (T.hPutStrLn h . renderLogMessageConsoleLog)
 
@@ -49,12 +49,12 @@ ioHandleLogWriter h =
 -- >   $ logInfo "Oh, hi there"
 --
 withIoLogging
-  :: SetMember Lift (Lift IO) e
-  => LogWriter IO -- ^ The 'LogWriter' that will be used to write log messages.
+  :: Lifted IO e
+  => LogWriter (Lift IO) -- ^ The 'LogWriter' that will be used to write log messages.
   -> Text -- ^ The default application name to put into the 'lmAppName' field.
   -> Facility -- ^ The default RFC-5424 facility to put into the 'lmFacility' field.
   -> LogPredicate -- ^ The inital predicate for log messages, there are some pre-defined in "Control.Eff.Log.Message#PredefinedPredicates"
-  -> Eff (Logs : LogWriterReader IO : e) a
+  -> Eff (Logs : LogWriterReader (Lift IO) : e) a
   -> Eff e a
 withIoLogging lw appName facility defaultPredicate =
   withLogging (defaultIoLogWriter appName facility lw)
@@ -71,11 +71,11 @@ withIoLogging lw appName facility defaultPredicate =
 defaultIoLogWriter
   :: Text -- ^ The default application name to put into the 'lmAppName' field.
   -> Facility -- ^ The default RFC-5424 facility to put into the 'lmFacility' field.
-  -> LogWriter IO -- ^ The IO based writer to decorate
-  -> LogWriter IO
+  -> LogWriter (Lift IO )-- ^ The IO based writer to decorate
+  -> LogWriter (Lift IO)
 defaultIoLogWriter appName facility = mappingLogWriterM
-  (   setLogMessageTimestamp
-  >=> setLogMessageHostname
+  (   (IOLogWriter . setLogMessageTimestamp)
+  >=> (IOLogWriter . setLogMessageHostname)
   >=> pure
   .   set lmFacility facility
   .   set lmAppName  (Just appName)
