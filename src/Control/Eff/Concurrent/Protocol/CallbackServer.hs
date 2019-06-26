@@ -1,3 +1,4 @@
+{-# LANGUAGE UndecidableInstances #-}
 -- | Build a "Control.Eff.Concurrent.EffectfulServer" from callbacks.
 --
 -- This module contains in instance of 'E.Server' that delegates to
@@ -44,7 +45,7 @@ start
      ( HasCallStack
      , TangibleCallbacks tag eLoop q
      , E.Server (Server tag eLoop) (Processes q)
-     , LogsTo h e
+     , LogsTo h (Processes q)
      , HasProcesses e q
      )
   => CallbacksEff tag eLoop q
@@ -60,7 +61,7 @@ startLink
      ( HasCallStack
      , TangibleCallbacks tag eLoop q
      , E.Server (Server tag eLoop) (Processes q)
-     , LogsTo h e
+     , LogsTo h (Processes q)
      , HasProcesses e q
      )
   => CallbacksEff tag eLoop q
@@ -76,8 +77,7 @@ data Server tag eLoop deriving Typeable
 --
 -- @since 0.27.0
 type TangibleCallbacks tag eLoop e =
-       ( LogIo e
-       , HasProcesses eLoop e
+       ( HasProcesses eLoop e
        , Typeable e
        , Typeable eLoop
        , Typeable tag

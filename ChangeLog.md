@@ -3,6 +3,7 @@
 ## 0.29.1
 - Add more constraints to `Embeds`
 - Improve the `CallbackServer`
+- Add `LogWriterEffects`
 
 ## 0.29.0
 - Remove the reply type parameter from `HasPdu` 

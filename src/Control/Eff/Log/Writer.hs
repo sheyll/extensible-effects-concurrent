@@ -141,23 +141,32 @@ instance (Applicative m, LiftedBase m e, Catch.MonadMask (Eff e))
 -- * 'LogWriter' Zoo
 
 -- | The instances of this class are the monads that define (side-) effect(s) of writting logs.
-class HandleLogWriter (writerEff :: Type -> Type) e where
+class HandleLogWriter (writer :: Type -> Type) where
+  -- | The 'Eff'ects required by the 'handleLogWriterEffect' method.
+  --
+  -- @since 0.29.1
+  type family LogWriterEffects writer :: [Type -> Type]
+  type instance LogWriterEffects writer = '[writer]
 
   -- | Run the side effect of a 'LogWriter' in a compatible 'Eff'.
-  handleLogWriterEffect :: writerEff () -> Eff e ()
+  handleLogWriterEffect :: (LogWriterEffects writer <:: e) => writer () -> Eff e ()
 
   -- | Write a message using the 'LogWriter' found in the environment.
   --
   -- The semantics of this function are a combination of 'runLogWriter' and 'handleLogWriterEffect',
   -- with the 'LogWriter' read from a 'LogWriterReader'.
-  liftWriteLogMessage :: ( SetMember LogWriterReader (LogWriterReader writerEff) e)
+  liftWriteLogMessage :: ( SetMember LogWriterReader (LogWriterReader writer) e
+                         , LogWriterEffects writer <:: e
+                         )
                       => LogMessage
                       -> Eff e ()
   liftWriteLogMessage m = do
     w <- askLogWriter
     handleLogWriterEffect (runLogWriter w m)
 
-instance (Lifted IO e) => HandleLogWriter IO e where
+
+instance HandleLogWriter IO where
+  type instance LogWriterEffects IO = '[Lift IO]
   handleLogWriterEffect = send . Lift
 
 -- ** Pure Log Writers
@@ -167,7 +176,8 @@ newtype PureLogWriter a = MkPureLogWriter { runPureLogWriter :: Identity a }
   deriving (Applicative, Functor, Monad)
 
 -- | A 'LogWriter' monad for 'Debug.Trace' based pure logging.
-instance HandleLogWriter PureLogWriter e where
+instance HandleLogWriter PureLogWriter where
+  type instance LogWriterEffects PureLogWriter = '[]
   handleLogWriterEffect lw = return (force (runIdentity (force (runPureLogWriter lw))))
 
 -- | This 'LogWriter' will discard all messages.

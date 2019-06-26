@@ -31,7 +31,8 @@ newtype CaptureLogs a = MkCaptureLogs { unCaptureLogs :: Eff '[CaptureLogWriter]
 -- | A 'LogWriter' monad for pure logging.
 --
 -- The 'HandleLogWriter' instance for this type assumes a 'Writer' effect.
-instance Member CaptureLogWriter e => HandleLogWriter CaptureLogs e where
+instance HandleLogWriter CaptureLogs where
+  type LogWriterEffects CaptureLogs = '[CaptureLogWriter]
   handleLogWriterEffect =
     traverse_ (tell @LogMessage) . snd . run . runListWriter . unCaptureLogs
 
