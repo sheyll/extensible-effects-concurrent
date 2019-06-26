@@ -82,7 +82,7 @@ defaultIoLogWriter appName facility = mappingLogWriterM
   )
 
 -- | The concrete list of 'Eff'ects for logging with an IO based 'LogWriter', and a 'LogWriterReader'.
-type LoggingAndIo = '[Logs, LogWriterReader IO, Lift IO]
+type LoggingAndIo = '[Logs, LogWriterReader (Lift IO), Lift IO]
 
 -- | Render a 'LogMessage' but set the timestamp and thread id fields.
 printLogMessage :: LogMessage -> IO ()

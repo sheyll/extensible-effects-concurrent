@@ -180,7 +180,7 @@ instance (Applicative m, LiftedBase m e, Catch.MonadMask (Eff e), LogsTo m (Logs
 type LogsTo h e =
   ( Member Logs e
   , HandleLogWriter h
-  , LogWriterEffects h <:: e
+  , Member h e
   , SetMember LogWriterReader (LogWriterReader h) e
   )
 
@@ -203,7 +203,7 @@ type LogIo e = (LogsTo IO e, Lifted IO e)
 -- >   $ logDebug "Oh, hi there"
 --
 withLogging ::
-     forall h e a. (Applicative h, LogsTo h (Logs ': LogWriterReader h ': e))
+     forall h e a. (Applicative (LogWriterM h), LogsTo h (Logs ': LogWriterReader h ': e))
   => LogWriter h -> Eff (Logs ': LogWriterReader h ': e) a -> Eff e a
 withLogging lw = runLogWriterReader lw . runLogs allLogMessages
 
@@ -224,7 +224,7 @@ withLogging lw = runLogWriterReader lw . runLogs allLogMessages
 --
 withSomeLogging ::
      forall h e a.
-     (Applicative h, LogsTo h (Logs ': LogWriterReader h ': e))
+     (Applicative (LogWriterM h), LogsTo h (Logs ': LogWriterReader h ': e))
   => Eff (Logs ': LogWriterReader h ': e) a
   -> Eff e a
 withSomeLogging = withLogging (noOpLogWriter @h)
@@ -600,7 +600,7 @@ sendLogMessageToLogWriter = respondToLogMessage liftWriteLogMessage
 -- | Change the current 'LogWriter'.
 modifyLogWriter
   :: forall h e a
-   . LogsTo h e
+   . (LogsTo h e)
   => (LogWriter h -> LogWriter h)
   -> Eff e a
   -> Eff e a
@@ -608,13 +608,13 @@ modifyLogWriter f = localLogWriterReader f . sendLogMessageToLogWriter
 
 -- | Replace the current 'LogWriter'.
 -- To add an additional log message consumer use 'addLogWriter'
-setLogWriter :: forall h e a. LogsTo h e => LogWriter h -> Eff e a -> Eff e a
+setLogWriter :: forall h e a. (LogsTo h e) => LogWriter h -> Eff e a -> Eff e a
 setLogWriter = modifyLogWriter  . const
 
 -- | Modify the the 'LogMessage's written in the given sub-expression.
 --
 -- Note: This is equivalent to @'modifyLogWriter' . 'mappingLogWriter'@
-censorLogs :: LogsTo h e => (LogMessage -> LogMessage) -> Eff e a -> Eff e a
+censorLogs :: (LogsTo h e) => (LogMessage -> LogMessage) -> Eff e a -> Eff e a
 censorLogs = modifyLogWriter . mappingLogWriter
 
 -- | Modify the the 'LogMessage's written in the given sub-expression, as in 'censorLogs'
@@ -622,8 +622,8 @@ censorLogs = modifyLogWriter . mappingLogWriter
 --
 -- Note: This is equivalent to @'modifyLogWriter' . 'mappingLogWriterM'@
 censorLogsM
-  :: (LogsTo h e, Monad h)
-  => (LogMessage -> h LogMessage) -> Eff e a -> Eff e a
+  :: (LogsTo h e, Monad (LogWriterM h))
+  => (LogMessage -> LogWriterM h LogMessage) -> Eff e a -> Eff e a
 censorLogsM = modifyLogWriter . mappingLogWriterM
 
 -- | Combine the effects of a given 'LogWriter' and the existing one.
@@ -651,6 +651,6 @@ censorLogsM = modifyLogWriter . mappingLogWriterM
 -- >
 --
 addLogWriter :: forall h e a .
-     (HasCallStack, LogsTo h e, Monad h)
+     (HasCallStack, LogsTo h e, Monad (LogWriterM h))
   => LogWriter h -> Eff e a -> Eff e a
 addLogWriter lw2 = modifyLogWriter (\lw1 -> MkLogWriter (\m -> runLogWriter lw1 m >> runLogWriter lw2 m))

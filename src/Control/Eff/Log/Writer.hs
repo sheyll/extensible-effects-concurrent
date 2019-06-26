@@ -15,8 +15,8 @@ module Control.Eff.Log.Writer
   , runLogWriterReader
   -- * LogWriter Handler Class
   , HandleLogWriter(..)
+  , LogWriterM(..)
   , noOpLogWriter
-  , PureLogWriter(..)
   -- ** Writer Combinator
   -- *** Pure Writer Combinator
   , filteringLogWriter
@@ -31,8 +31,6 @@ import           Control.Eff.Extend
 import           Control.Eff.Log.Message
 import           Data.Default
 import           Data.Function                  ( fix )
-import           Data.Functor.Identity          ( Identity )
-import           Control.DeepSeq                ( force )
 import           Control.Monad                  ( (>=>)
                                                 , when
                                                 )
@@ -44,16 +42,17 @@ import           Control.Monad.Trans.Control    ( MonadBaseControl
                                                   , StM
                                                   )
                                                 )
+import           Control.Eff.Writer.Strict      ( Writer, tell, runListWriter )
 import           Data.Kind
-import           Control.Lens
+import           Data.Foldable                  (traverse_)
 
 -- | A function that takes a log message and returns an effect that
 -- /logs/ the message.
 newtype LogWriter writerM = MkLogWriter
-  { runLogWriter :: LogMessage -> writerM ()
+  { runLogWriter :: LogMessage -> LogWriterM writerM ()
   }
 
-instance Applicative w => Default (LogWriter w) where
+instance Applicative (LogWriterM w) => Default (LogWriter w) where
   def = MkLogWriter (const (pure ()))
 
 -- | Provide the 'LogWriter'
@@ -84,7 +83,7 @@ localLogWriterReader f m =
 -- The existing @Reader@ couldn't be used together with 'SetMember', so this
 -- lazy reader was written, specialized to reading 'LogWriter'.
 data LogWriterReader h v where
-  AskLogWriter ::LogWriterReader h (LogWriter h)
+  AskLogWriter :: LogWriterReader h (LogWriter h)
 
 instance Handle (LogWriterReader h) e a (LogWriter h -> k) where
   handle k q AskLogWriter lw = k (q ^$ lw) lw
@@ -145,18 +144,17 @@ class HandleLogWriter (writer :: Type -> Type) where
   -- | The 'Eff'ects required by the 'handleLogWriterEffect' method.
   --
   -- @since 0.29.1
-  type family LogWriterEffects writer :: [Type -> Type]
-  type instance LogWriterEffects writer = '[writer]
+  data family LogWriterM writer a
 
   -- | Run the side effect of a 'LogWriter' in a compatible 'Eff'.
-  handleLogWriterEffect :: (LogWriterEffects writer <:: e) => writer () -> Eff e ()
+  handleLogWriterEffect :: (Member writer e) => LogWriterM writer () -> Eff e ()
 
   -- | Write a message using the 'LogWriter' found in the environment.
   --
   -- The semantics of this function are a combination of 'runLogWriter' and 'handleLogWriterEffect',
   -- with the 'LogWriter' read from a 'LogWriterReader'.
   liftWriteLogMessage :: ( SetMember LogWriterReader (LogWriterReader writer) e
-                         , LogWriterEffects writer <:: e
+                         , Member writer e
                          )
                       => LogMessage
                       -> Eff e ()
@@ -165,30 +163,32 @@ class HandleLogWriter (writer :: Type -> Type) where
     handleLogWriterEffect (runLogWriter w m)
 
 
-instance HandleLogWriter IO where
-  type instance LogWriterEffects IO = '[Lift IO]
-  handleLogWriterEffect = send . Lift
+instance HandleLogWriter (Lift IO) where
+  newtype instance LogWriterM (Lift IO) a = IOLogWriter { runIOLogWriter :: IO a }
+          deriving (Applicative, Functor, Monad)
+  handleLogWriterEffect = send . Lift . runIOLogWriter
 
--- ** Pure Log Writers
 
--- | A phantom type for the 'HandleLogWriter' class for /pure/ 'LogWriter's
-newtype PureLogWriter a = MkPureLogWriter { runPureLogWriter :: Identity a }
-  deriving (Applicative, Functor, Monad)
+-- | A 'LogWriter' monad for pure logging.
+--
+-- The 'HandleLogWriter' instance for this type assumes a 'Writer' effect.
+instance HandleLogWriter (Writer LogMessage) where
+  -- | A 'LogWriter' monad that provides pure logging by capturing via the 'Writer' effect.
+  newtype LogWriterM (Writer LogMessage) a = MkCaptureLogs { unCaptureLogs :: Eff '[Writer LogMessage] a }
+    deriving (Functor, Applicative, Monad)
+  handleLogWriterEffect =
+    traverse_ (tell @LogMessage) . snd . run . runListWriter . unCaptureLogs
 
--- | A 'LogWriter' monad for 'Debug.Trace' based pure logging.
-instance HandleLogWriter PureLogWriter where
-  type instance LogWriterEffects PureLogWriter = '[]
-  handleLogWriterEffect lw = return (force (runIdentity (force (runPureLogWriter lw))))
 
 -- | This 'LogWriter' will discard all messages.
 --
 -- NOTE: This is just an alias for 'def'
-noOpLogWriter :: Applicative m => LogWriter m
+noOpLogWriter :: Applicative (LogWriterM m) => LogWriter m
 noOpLogWriter = def
 
 -- | A 'LogWriter' that applies a predicate to the 'LogMessage' and delegates to
 -- to the given writer of the predicate is satisfied.
-filteringLogWriter :: Monad e => LogPredicate -> LogWriter e -> LogWriter e
+filteringLogWriter :: Monad (LogWriterM e) => LogPredicate -> LogWriter e -> LogWriter e
 filteringLogWriter p lw =
   MkLogWriter (\msg -> when (p msg) (runLogWriter lw msg))
 
@@ -199,5 +199,5 @@ mappingLogWriter f lw = MkLogWriter (runLogWriter lw . f)
 
 -- | Like 'mappingLogWriter' allow the function that changes the 'LogMessage' to have effects.
 mappingLogWriterM
-  :: Monad e => (LogMessage -> e LogMessage) -> LogWriter e -> LogWriter e
+  :: Monad (LogWriterM e) => (LogMessage -> LogWriterM e LogMessage) -> LogWriter e -> LogWriter e
 mappingLogWriterM f lw = MkLogWriter (f >=> runLogWriter lw)
