@@ -20,6 +20,56 @@ I know about cloud-haskell and transient, but I wanted something based on
 The fundamental approach to modelling applications in Erlang is
 based on the concept of concurrent, communicating processes.
 
+
+### Example Code
+
+```haskell
+module Main where
+
+import           Control.Eff
+import           Control.Eff.Concurrent
+
+main :: IO ()
+main = defaultMain example
+
+example :: Eff Effects ()
+example = do
+  person <- spawn "alice" alice
+  replyToMe <- self
+  sendMessage person replyToMe
+  personName <- receiveMessage
+  logInfo' ("I just met " ++ personName)
+
+alice :: Eff Effects ()
+alice = do
+  logInfo "I am waiting for someone to ask me..."
+  sender <- receiveMessage
+  sendMessage sender ("Alice" :: String)
+  logInfo' (show sender ++ " message received.")
+
+```
+This is taken from [example-4](./examples/example-4/Main.hs).
+
+
+**Running** this example causes this output:
+
+```text
+DEBUG      no proc  scheduler loop entered                                       at ForkIOScheduler.hs:209
+DEBUG        init!1 enter process                                                at ForkIOScheduler.hs:691
+NOTICE       init!1 ++++++++ main process started ++++++++                       at ForkIOScheduler.hs:579
+DEBUG       alice!2 enter process                                                at ForkIOScheduler.hs:691
+INFO        alice!2 I am waiting for someone to ask me...                        at Main.hs:19
+INFO        alice!2 !1 message received.                                         at Main.hs:22
+DEBUG       alice!2 exit: Process finished successfully                          at ForkIOScheduler.hs:729
+INFO         init!1 I just met Alice                                             at Main.hs:15
+NOTICE       init!1 ++++++++ main process returned ++++++++                      at ForkIOScheduler.hs:581
+DEBUG        init!1 exit: Process finished successfully                          at ForkIOScheduler.hs:729
+DEBUG      no proc  scheduler loop returned                                      at ForkIOScheduler.hs:211
+DEBUG      no proc  scheduler cleanup begin                                      at ForkIOScheduler.hs:205
+NOTICE     no proc  cancelling processes: []                                     at ForkIOScheduler.hs:222
+NOTICE     no proc  all processes cancelled                                      at ForkIOScheduler.hs:239
+```
+
 The mental model of the programming framework regards objects as **processes**
 with an isolated internal state. 
 
@@ -79,58 +129,11 @@ applications, resilient to runtime errors.
 
 ### Additional services
 
-Currently a custom **logging effect** is also part of the code base.
+Currently a **logging effect** is also part of the code base.
 
 ## Usage and Implementation
 
-### Example Code
-
-```haskell
-module Main where
-
-import           Control.Eff
-import           Control.Eff.Concurrent
-
-main :: IO ()
-main = defaultMain example
-
-example :: Eff Effects ()
-example = do
-  person <- spawn "alice" alice
-  replyToMe <- self
-  sendMessage person replyToMe
-  personName <- receiveMessage
-  logInfo' ("I just met " ++ personName)
-
-alice :: Eff Effects ()
-alice = do
-  logInfo "I am waiting for someone to ask me..."
-  sender <- receiveMessage
-  sendMessage sender ("Alice" :: String)
-  logInfo' (show sender ++ " message received.")
-
-```
-This is taken from [example-4](./examples/example-4/Main.hs).
-
-
-**Running** this example causes this output:
-
-```text
-DEBUG     scheduler loop entered                                                   ForkIOScheduler.hs line 157
-DEBUG            !1 enter process                                                            ForkIOScheduler.hs line 549
-NOTICE           !1 ++++++++ main process started ++++++++                                   ForkIOScheduler.hs line 461
-DEBUG            !2 enter process                                                            ForkIOScheduler.hs line 549
-INFO             !2 I am waiting for someone to ask me...                                               Main.hs line 26
-INFO             !2 !1 just needed to know it.                                                          Main.hs line 29
-DEBUG            !2 exit normally                                                            ForkIOScheduler.hs line 568
-INFO             !1 I just met Alice                                                                    Main.hs line 34
-NOTICE           !1 ++++++++ main process returned ++++++++                                  ForkIOScheduler.hs line 463
-DEBUG            !1 exit normally                                                            ForkIOScheduler.hs line 568
-DEBUG     scheduler loop returned                                                  ForkIOScheduler.hs line 159
-DEBUG     scheduler cleanup begin                                                  ForkIOScheduler.hs line 154
-NOTICE    cancelling processes: []                                                 ForkIOScheduler.hs line 168
-NOTICE    all processes cancelled                                                  ForkIOScheduler.hs line 179
-```
+Should work with `stack`, `cabal` and `nix`. 
 
 ### Required GHC Extensions
 

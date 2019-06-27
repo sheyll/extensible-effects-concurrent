@@ -17,7 +17,7 @@ module Control.Eff.Concurrent.Process
     -- ** Process Effect Aliases
   , SafeProcesses
   , Processes
-    -- ** Process Effect Contraints
+    -- ** Process Effect Constraints
   , HasProcesses
   , HasSafeProcesses
       -- ** Process Info
@@ -79,7 +79,7 @@ module Control.Eff.Concurrent.Process
   -- *** Interrupting Processes
   , interrupt
   , sendInterrupt
-  -- *** Exitting Processes
+  -- *** Exiting Processes
   , exitBecause
   , exitNormally
   , exitWithError
@@ -236,9 +236,18 @@ data Process (r :: [Type -> Type]) b where
   -- if one of the processes crashes (i.e. 'isCrash' returns 'True'), the other
   -- is shutdown with the 'Interrupt' 'LinkedProcessCrashed'.
   --
+  -- You might wonder: Why not tearing down the linked process when exiting
+  -- normally?
+  -- I thought about this. If a process exits normally, it should have the
+  -- opportunity to shutdown stuff explicitly.
+  -- And if you want to make sure that there are no dangling child processes
+  -- after e.g. a supervisor crash, you can always use 'monitor'.
+  --
   -- @since 0.12.0
   Link :: ProcessId -> Process r (ResumeProcess ())
   -- | Unlink the calling process from the other process.
+  --
+  -- See 'Link' for a discussion on linking.
   --
   -- @since 0.12.0
   Unlink :: ProcessId -> Process r (ResumeProcess ())
@@ -557,7 +566,7 @@ data Interrupt (t :: ExitRecovery) where
     -- | A 'Recoverable' timeout has occurred.
     TimeoutInterrupt
       :: String -> Interrupt 'Recoverable
-    -- | A linked process is down
+    -- | A linked process is down, see 'Link' for a discussion on linking.
     LinkedProcessCrashed
       :: ProcessId -> Interrupt 'Recoverable
     -- | An exit reason that has an error message and is 'Recoverable'.
@@ -669,7 +678,7 @@ type Processes e = Interrupts ': SafeProcesses e
 -- This constrains the effect list to look like this:
 -- @[e1 ... eN, 'Interrupts', 'Process' [e(N+1) .. e(N+k)], e(N+1) .. e(N+k)]@
 --
--- It contrains @e@ beyond 'HasSafeProcesses' to encompass 'Interrupts'.
+-- It constrains @e@ beyond 'HasSafeProcesses' to encompass 'Interrupts'.
 --
 -- @since 0.27.1
 type HasProcesses e inner = (HasSafeProcesses e inner, Member Interrupts e)
@@ -683,7 +692,7 @@ type SafeProcesses r = Process r ': r
 -- This constrains the effect list to look like this:
 -- @[e1 ... eN, 'Process' [e(N+1) .. e(N+k)], e(N+1) .. e(N+k)]@
 --
--- It contrains @e@ to support the (only) 'Process' effect.
+-- It constrains @e@ to support the (only) 'Process' effect.
 --
 -- This is more relaxed that 'HasProcesses' since it does not require 'Interrupts'.
 --
@@ -957,6 +966,8 @@ spawn_
 spawn_ t child = void (spawn t child)
 
 -- | Start a new process, and immediately link to it.
+--
+-- See 'Link' for a discussion on linking.
 --
 -- @since 0.12.0
 spawnLink
@@ -1251,6 +1262,8 @@ selectProcessDownByProcessId pid0 =
 -- if one of the processes crashes (i.e. 'isCrash' returns 'True'), the other
 -- is shutdown with the 'Interrupt' 'LinkedProcessCrashed'.
 --
+-- See 'Link' for a discussion on linking.
+--
 -- @since 0.12.0
 linkProcess
   :: forall r q
@@ -1260,6 +1273,8 @@ linkProcess
 linkProcess = executeAndResumeOrThrow . Link . force
 
 -- | Unlink the calling process from the other process.
+--
+-- See 'Link' for a discussion on linking.
 --
 -- @since 0.12.0
 unlinkProcess
