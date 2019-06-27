@@ -41,7 +41,7 @@ withFileLogging
   -> Text -- ^ The default application name to put into the 'lmAppName' field.
   -> Facility -- ^ The default RFC-5424 facility to put into the 'lmFacility' field.
   -> LogPredicate -- ^ The inital predicate for log messages, there are some pre-defined in "Control.Eff.Log.Message#PredefinedPredicates"
-  -> Eff (Logs : LogWriterReader IO : e) a
+  -> Eff (Logs : LogWriterReader (Lift IO) : e) a
   -> Eff e a
 withFileLogging fnIn a f p e =
   liftBaseOp (withOpenedLogFile fnIn) (\lw -> withIoLogging lw a f p e)
@@ -59,14 +59,14 @@ withFileLogging fnIn a f p e =
 -- >   $ withFileLogWriter "test.log"
 -- >   $ logInfo "Oh, hi there"
 withFileLogWriter
-  :: (Lifted IO e, LogsTo IO e, MonadBaseControl IO (Eff e))
+  :: (LogIo e, MonadBaseControl IO (Eff e))
   => FilePath -- ^ Path to the log-file.
   -> Eff e b
   -> Eff e b
 withFileLogWriter fnIn e =
   liftBaseOp (withOpenedLogFile fnIn) (`addLogWriter` e)
 
-withOpenedLogFile :: HasCallStack => FilePath -> (LogWriter IO -> IO a) -> IO a
+withOpenedLogFile :: HasCallStack => FilePath -> (LogWriter (Lift IO) -> IO a) -> IO a
 withOpenedLogFile fnIn ioE = Safe.bracket
   (do
     fnCanon <- canonicalizePath fnIn

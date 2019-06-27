@@ -29,7 +29,7 @@ withTraceLogging
   => Text -- ^ The default application name to put into the 'lmAppName' field.
   -> Facility -- ^ The default RFC-5424 facility to put into the 'lmFacility' field.
   -> LogPredicate -- ^ The inital predicate for log messages, there are some pre-defined in "Control.Eff.Log.Message#PredefinedPredicates"
-  -> Eff (Logs : LogWriterReader IO : e) a
+  -> Eff (Logs : LogWriterReader (Lift IO) : e) a
   -> Eff e a
 withTraceLogging = withIoLogging (debugTraceLogWriter renderLogMessageConsoleLog)
 
@@ -47,9 +47,9 @@ withTraceLogging = withIoLogging (debugTraceLogWriter renderLogMessageConsoleLog
 -- >   $ withSomeLogging @IO
 -- >   $ withTraceLogWriter
 -- >   $ logInfo "Oh, hi there"
-withTraceLogWriter :: forall h e a . (Monad h, LogsTo h e) => Eff e a -> Eff e a
+withTraceLogWriter :: forall h e a . (Monad (LogWriterM h), LogsTo h e) => Eff e a -> Eff e a
 withTraceLogWriter = addLogWriter @h (debugTraceLogWriter renderLogMessageConsoleLog)
 
 -- | Write 'LogMessage's  via 'traceM'.
-debugTraceLogWriter :: forall h . (Monad h) => LogMessageRenderer Text -> LogWriter h
+debugTraceLogWriter :: forall h . (Monad (LogWriterM h)) => LogMessageRenderer Text -> LogWriter h
 debugTraceLogWriter render = MkLogWriter (traceM . T.unpack . render)

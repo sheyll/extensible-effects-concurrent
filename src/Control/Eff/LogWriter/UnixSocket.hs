@@ -31,7 +31,7 @@ withUnixSocketLogging
   -> Text -- ^ The default application name to put into the 'lmAppName' field.
   -> Facility -- ^ The default RFC-5424 facility to put into the 'lmFacility' field.
   -> LogPredicate -- ^ The inital predicate for log messages, there are some pre-defined in "Control.Eff.Log.Message#PredefinedPredicates"
-  -> Eff (Logs : LogWriterReader IO : e) a
+  -> Eff (Logs : LogWriterReader (Lift IO) : e) a
   -> Eff e a
 withUnixSocketLogging render socketPath a f p e = liftBaseOp
   (withUnixSocketSocket render socketPath)
@@ -41,7 +41,7 @@ withUnixSocketLogging render socketPath a f p e = liftBaseOp
 --
 -- See 'Control.Eff.Log.Examples.exampleDevLogSyslogLogging'
 withUnixSocketLogWriter
-  :: (Lifted IO e, LogsTo IO e, MonadBaseControl IO (Eff e), HasCallStack)
+  :: (LogIo e, MonadBaseControl IO (Eff e), HasCallStack)
   => LogMessageRenderer Text -- ^ 'LogMessage' rendering function
   -> FilePath -- ^ Path to the socket file
   -> Eff e b
@@ -53,7 +53,7 @@ withUnixSocketSocket
   :: HasCallStack
   => LogMessageRenderer Text -- ^ 'LogMessage' rendering function
   -> FilePath -- ^ Path to the socket file
-  -> (LogWriter IO -> IO a)
+  -> (LogWriter (Lift IO) -> IO a)
   -> IO a
 withUnixSocketSocket render socketPath ioE = Safe.bracket
   (socket AF_UNIX Datagram defaultProtocol)

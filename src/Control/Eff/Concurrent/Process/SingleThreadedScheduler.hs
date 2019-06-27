@@ -218,9 +218,9 @@ diskontinue sts k e = (sts ^. runEff) (k (Interrupted e))
 --
 -- @since 0.3.0.2
 schedulePure
-  :: Eff (Processes '[Logs, LogWriterReader PureLogWriter]) a
+  :: Eff (Processes '[Logs, LogWriterReader Logs]) a
   -> Either (Interrupt 'NoRecovery) a
-schedulePure e = run (scheduleM (withSomeLogging @PureLogWriter) (return ()) e)
+schedulePure e = run (scheduleM (withSomeLogging @Logs) (return ()) e)
 
 -- | Invoke 'scheduleM' with @lift 'Control.Concurrent.yield'@ as yield effect.
 -- @scheduleIO runEff == 'scheduleM' (runLift . runEff) (liftIO 'yield')@
@@ -254,7 +254,7 @@ scheduleMonadIOEff = -- schedule (lift yield)
 -- @since 0.4.0.0
 scheduleIOWithLogging
   :: HasCallStack
-  => LogWriter IO
+  => LogWriter (Lift IO)
   -> Eff EffectsIo a
   -> IO (Either (Interrupt 'NoRecovery) a)
 scheduleIOWithLogging h = scheduleIO (withLogging h)
@@ -590,7 +590,7 @@ defaultMain =
 -- All logging is written using the given 'LogWriter'.
 --
 -- @since 0.25.0
-defaultMainWithLogWriter :: HasCallStack => LogWriter IO -> Eff EffectsIo () -> IO ()
+defaultMainWithLogWriter :: HasCallStack => LogWriter (Lift IO) -> Eff EffectsIo () -> IO ()
 defaultMainWithLogWriter lw =
   void
     . runLift
@@ -617,7 +617,7 @@ type PureSafeEffects = SafeProcesses PureBaseEffects
 -- 'Logs' and the 'LogWriterReader' for 'PureLogWriter'.
 --
 -- @since 0.25.0
-type PureBaseEffects = '[Logs, LogWriterReader PureLogWriter]
+type PureBaseEffects = '[Logs, LogWriterReader Logs]
 
 -- | Constraint for the existence of the underlying scheduler effects.
 --

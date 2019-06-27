@@ -26,13 +26,13 @@ basics =
       logInfo "jo"
       logDebug "oh"
 
-    pureLogs :: Eff '[Logs, LogWriterReader CaptureLogs, CaptureLogWriter] a -> [LogMessage]
+    pureLogs :: Eff '[Logs, LogWriterReader CaptureLogWriter, CaptureLogWriter] a -> [LogMessage]
     pureLogs =
         snd
       . run
       . runCaptureLogWriter
       . withLogging captureLogWriter
-      . censorLogs @CaptureLogs (lmSrcLoc .~ Nothing)
+      . censorLogs @CaptureLogWriter (lmSrcLoc .~ Nothing)
 
 strictness :: HasCallStack => TestTree
 strictness =

@@ -51,7 +51,7 @@ scheduleAndAssert schedulerFactory testCaseAction =
     assertBool title result
 
 applySchedulerFactory ::
-     forall r. (Lifted IO r, LogsTo IO r)
+     forall r. (LogIo r)
   => IO (Eff (Processes r) () -> IO ())
   -> Eff (Processes r) ()
   -> IO ()

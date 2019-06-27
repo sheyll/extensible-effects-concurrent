@@ -4,6 +4,8 @@
 - Add more constraints to `Embeds`
 - Improve the `CallbackServer`
 - Add `LogWriterEffects`
+- Rewrite `HandleLogWriter` so that the instance types have to be effects.
+  TL,DR; This allows shorter type signatures than before.  
 
 ## 0.29.0
 - Remove the reply type parameter from `HasPdu` 

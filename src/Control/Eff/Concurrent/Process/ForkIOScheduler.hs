@@ -271,7 +271,7 @@ defaultMain = defaultMainWithLogWriter consoleLogWriter
 -- | Start the message passing concurrency system then execute a 'Process' on
 -- top of 'BaseEffects' effect. All logging is sent to standard output.
 defaultMainWithLogWriter
-  :: HasCallStack => LogWriter IO -> Eff Effects () -> IO ()
+  :: HasCallStack => LogWriter (Lift IO) -> Eff Effects () -> IO ()
 defaultMainWithLogWriter lw =
   runLift . withLogging lw . withAsyncLogWriter (1024 :: Int) . schedule
 
@@ -624,7 +624,7 @@ spawnNewProcess mLinkedParent title mfa = do
     let addProcessId = over
           lmProcessId
           (maybe (Just (T.pack (printf "% 9s" (show pid)))) Just)
-    in  censorLogs @IO addProcessId
+    in  censorLogs @(Lift IO) addProcessId
   triggerProcessLinksAndMonitors
     :: ProcessId -> Interrupt e -> TVar (Set ProcessId) -> Eff BaseEffects ()
   triggerProcessLinksAndMonitors !pid !reason !linkSetVar = do

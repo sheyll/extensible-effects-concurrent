@@ -48,7 +48,7 @@ import GHC.Stack (HasCallStack)
 -- @since 0.25.0
 schedule
   :: HasCallStack
-  => LogWriter IO
+  => LogWriter (Lift IO)
   -> Eff Effects a
   -> IO (Either (Interrupt 'NoRecovery) a)
 schedule = scheduleIOWithLogging

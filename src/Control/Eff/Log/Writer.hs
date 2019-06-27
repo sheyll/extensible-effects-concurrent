@@ -162,14 +162,16 @@ class HandleLogWriter (writer :: Type -> Type) where
     w <- askLogWriter
     handleLogWriterEffect (runLogWriter w m)
 
-
+-- | Embed 'IO' actions consuming all 'LogMessage's
+--
+-- @since 0.29.1
 instance HandleLogWriter (Lift IO) where
   newtype instance LogWriterM (Lift IO) a = IOLogWriter { runIOLogWriter :: IO a }
           deriving (Applicative, Functor, Monad)
   handleLogWriterEffect = send . Lift . runIOLogWriter
 
 
--- | A 'LogWriter' monad for pure logging.
+-- | A 'LogWriter' monad for capturing messages using a 'Writer'.
 --
 -- The 'HandleLogWriter' instance for this type assumes a 'Writer' effect.
 instance HandleLogWriter (Writer LogMessage) where
@@ -178,7 +180,6 @@ instance HandleLogWriter (Writer LogMessage) where
     deriving (Functor, Applicative, Monad)
   handleLogWriterEffect =
     traverse_ (tell @LogMessage) . snd . run . runListWriter . unCaptureLogs
-
 
 -- | This 'LogWriter' will discard all messages.
 --

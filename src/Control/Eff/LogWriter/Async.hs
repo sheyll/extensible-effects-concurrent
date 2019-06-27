@@ -36,16 +36,16 @@ import           Data.Text                     as T
 --
 withAsyncLogging
   :: (Lifted IO e, MonadBaseControl IO (Eff e), Integral len)
-  => LogWriter IO
+  => LogWriter (Lift IO)
   -> len -- ^ Size of the log message input queue. If the queue is full, message
          -- are dropped silently.
   -> Text -- ^ The default application name to put into the 'lmAppName' field.
   -> Facility -- ^ The default RFC-5424 facility to put into the 'lmFacility' field.
   -> LogPredicate -- ^ The inital predicate for log messages, there are some pre-defined in "Control.Eff.Log.Message#PredefinedPredicates"
-  -> Eff (Logs : LogWriterReader IO : e) a
+  -> Eff (Logs : LogWriterReader (Lift IO) : e) a
   -> Eff e a
 withAsyncLogging lw queueLength a f p e = liftBaseOp
-  (withAsyncLogChannel queueLength (runLogWriter lw . force))
+  (withAsyncLogChannel queueLength (runIOLogWriter . runLogWriter lw . force))
   (\lc -> withIoLogging (makeLogChannelWriter lc) a f p e)
 
 
@@ -72,14 +72,14 @@ withAsyncLogging lw queueLength a f p e = liftBaseOp
 -- >
 --
 withAsyncLogWriter
-  :: (LogsTo IO e, Lifted IO e, MonadBaseControl IO (Eff e), Integral len)
+  :: (LogIo e, MonadBaseControl IO (Eff e), Integral len)
   => len -- ^ Size of the log message input queue. If the queue is full, message
          -- are dropped silently.
   -> Eff e a
   -> Eff e a
 withAsyncLogWriter queueLength e = do
   lw <- askLogWriter
-  liftBaseOp (withAsyncLogChannel queueLength (runLogWriter lw . force))
+  liftBaseOp (withAsyncLogChannel queueLength (runIOLogWriter . runLogWriter lw . force))
              (\lc -> setLogWriter (makeLogChannelWriter lc) e)
 
 withAsyncLogChannel
@@ -101,7 +101,7 @@ withAsyncLogChannel queueLen ioWriter action = do
     traverse_ ioWriter ms
     logLoop tq
 
-makeLogChannelWriter :: LogChannel -> LogWriter IO
+makeLogChannelWriter :: LogChannel -> LogWriter (Lift IO)
 makeLogChannelWriter lc = mkLogWriterIO logChannelPutIO
  where
   logChannelPutIO (force -> me) = do

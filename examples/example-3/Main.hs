@@ -10,7 +10,7 @@ import           Control.Lens
 main :: IO ()
 main =
   runLift
-  $  withSomeLogging @IO
+  $  withSomeLogging @(Lift IO)
   $  withFileLogWriter  "extensible-effects-concurrent-example-3.log"
   $  addLogWriter (filteringLogWriter severeMessages (mappingLogWriter (lmMessage %~ ("traced: " <>)) (debugTraceLogWriter renderRFC5424)))
   $  modifyLogWriter (defaultIoLogWriter "example-3" local0)

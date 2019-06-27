@@ -246,8 +246,7 @@ instance NFData (ChildId p) => NFData (SpawnErr p)
 startSupervisor
   :: forall p e
   . ( HasCallStack
-    , LogsTo IO (Processes e)
-    , Lifted IO e
+    , LogIo (Processes e)
     , TangibleSup p
     , Server (Sup p) (Processes e)
     )

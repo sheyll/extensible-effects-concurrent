@@ -58,11 +58,10 @@ exampleWithLogging =
 -- | Example code for:
 --
 --  * 'withSomeLogging'
---  * 'PureLogWriter'
 --  * 'logDebug'
 exampleWithSomeLogging :: HasCallStack => ()
 exampleWithSomeLogging =
-  run $ withSomeLogging @PureLogWriter $ logDebug "Oh, hi there"
+  run $ withSomeLogging @Logs $ logDebug "Oh, hi there"
 
 -- | Example code for:
 --
@@ -76,7 +75,7 @@ exampleWithSomeLogging =
 exampleLogPredicate :: HasCallStack => IO Int
 exampleLogPredicate =
   runLift
-    $ withSomeLogging @IO
+    $ withSomeLogging @(Lift IO)
     $ setLogWriter consoleLogWriter
     $ logPredicatesExampleClient
 
@@ -129,7 +128,7 @@ exampleAsyncLogging =
 exampleRFC5424Logging :: IO Int
 exampleRFC5424Logging =
   runLift
-    $ withSomeLogging @IO
+    $ withSomeLogging @(Lift IO)
     $ setLogWriter
         (defaultIoLogWriter "myapp" local2 (debugTraceLogWriter renderRFC5424))
     $ logPredicatesExampleClient
@@ -138,7 +137,7 @@ exampleRFC5424Logging =
 exampleRFC3164WithRFC5424TimestampsLogging :: IO Int
 exampleRFC3164WithRFC5424TimestampsLogging =
   runLift
-    $ withSomeLogging @IO
+    $ withSomeLogging @(Lift IO)
     $ setLogWriter
         (defaultIoLogWriter "myapp" local2 (debugTraceLogWriter renderRFC3164WithRFC5424Timestamps))
     $ logPredicatesExampleClient
@@ -187,7 +186,7 @@ exampleUdpRFC3164Logging =
 --  * 'logWarning'
 --  * 'logCritical'
 --  * 'lmMessage'
-loggingExampleClient :: (HasCallStack, Monad h, LogsTo h e) => Eff e ()
+loggingExampleClient :: (HasCallStack, Monad (LogWriterM h), LogsTo h e) => Eff e ()
 loggingExampleClient = do
   logDebug "test 1.1"
   logError "test 1.2"
@@ -210,7 +209,7 @@ loggingExampleClient = do
 --  * 'lmSeverityIsAtLeast'
 --  * 'includeLogMessages'
 --  * 'excludeLogMessages'
-logPredicatesExampleClient :: (HasCallStack, Monad h, LogsTo h e) => Eff e Int
+logPredicatesExampleClient :: (HasCallStack, Monad (LogWriterM h), LogsTo h e) => Eff e Int
 logPredicatesExampleClient = do
   logInfo "test"
   setLogPredicate

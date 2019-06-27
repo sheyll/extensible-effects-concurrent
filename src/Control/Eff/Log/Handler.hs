@@ -106,34 +106,34 @@ instance forall e a k. Handle Logs e a (LogPredicate -> k) where
 -- | This instance allows lifting the 'Logs' effect into a base monad, e.g. 'IO'.
 -- This instance needs a 'LogWriterReader' in the base monad,
 -- that is capable to handle 'logMsg' invocations.
-instance forall m e. (MonadBase m m, LiftedBase m e, LogsTo m (Logs ': e))
+instance forall m e. (MonadBase m m, LiftedBase m e, LogsTo (Lift m) (Logs ': e))
   => MonadBaseControl m (Eff (Logs ': e)) where
     type StM (Eff (Logs ': e)) a =  StM (Eff e) a
     liftBaseWith f = do
       lf <- askLogPredicate
-      raise (liftBaseWith (\runInBase -> f (runInBase . runLogs @m lf)))
+      raise (liftBaseWith (\runInBase -> f (runInBase . runLogs @(Lift m) lf)))
     restoreM = raise . restoreM
 
 instance (LiftedBase m e, Catch.MonadThrow (Eff e))
   => Catch.MonadThrow (Eff (Logs ': e)) where
   throwM exception = raise (Catch.throwM exception)
 
-instance (Applicative m, LiftedBase m e, Catch.MonadCatch (Eff e), LogsTo m (Logs ': e))
+instance (Applicative m, LiftedBase m e, Catch.MonadCatch (Eff e), LogsTo (Lift m) (Logs ': e))
   => Catch.MonadCatch (Eff (Logs ': e)) where
   catch effect handler = do
     lf <- askLogPredicate
-    let lower                   = runLogs @m lf
+    let lower                   = runLogs @(Lift m) lf
         nestedEffects           = lower effect
         nestedHandler exception = lower (handler exception)
     raise (Catch.catch nestedEffects nestedHandler)
 
-instance (Applicative m, LiftedBase m e, Catch.MonadMask (Eff e), LogsTo m (Logs ': e))
+instance (Applicative m, LiftedBase m e, Catch.MonadMask (Eff e), LogsTo (Lift m) (Logs ': e))
   => Catch.MonadMask (Eff (Logs ': e)) where
   mask maskedEffect = do
     lf <- askLogPredicate
     let
       lower :: Eff (Logs ': e) a -> Eff e a
-      lower = runLogs @m lf
+      lower = runLogs @(Lift m) lf
     raise
         (Catch.mask
           (\nestedUnmask -> lower
@@ -146,7 +146,7 @@ instance (Applicative m, LiftedBase m e, Catch.MonadMask (Eff e), LogsTo m (Logs
     lf <- askLogPredicate
     let
       lower :: Eff (Logs ': e) a -> Eff e a
-      lower = runLogs @m lf
+      lower = runLogs @(Lift m) lf
     raise
         (Catch.uninterruptibleMask
           (\nestedUnmask -> lower
@@ -159,7 +159,7 @@ instance (Applicative m, LiftedBase m e, Catch.MonadMask (Eff e), LogsTo m (Logs
     lf <- askLogPredicate
     let
       lower :: Eff (Logs ': e) a -> Eff e a
-      lower = runLogs @m lf
+      lower = runLogs @(Lift m) lf
     raise
         (Catch.generalBracket
           (lower acquire)
@@ -184,10 +184,24 @@ type LogsTo h e =
   , SetMember LogWriterReader (LogWriterReader h) e
   )
 
+-- | This instance is for pure logging - i.e. discarding all messages.
+--
+-- @since 0.29.1
+instance HandleLogWriter Logs where
+  data LogWriterM Logs a = MkPureLogging deriving (Functor)
+  handleLogWriterEffect = const (pure ())
+
+instance Applicative (LogWriterM Logs) where
+  pure = const MkPureLogging
+  MkPureLogging <*> MkPureLogging = MkPureLogging
+
+instance Monad (LogWriterM Logs) where
+  MkPureLogging >>= _ = MkPureLogging
+
 -- | A constraint that required @'LogsTo' 'IO' e@ and @'Lifted' 'IO' e@.
 --
 -- @since 0.24.0
-type LogIo e = (LogsTo IO e, Lifted IO e)
+type LogIo e = (LogsTo (Lift IO) e, Lifted IO e)
 
 -- | Handle the 'Logs' and 'LogWriterReader' effects.
 --

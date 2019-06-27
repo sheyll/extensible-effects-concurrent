@@ -32,7 +32,7 @@ withUDPLogging
   -> Text -- ^ The default application name to put into the 'lmAppName' field.
   -> Facility -- ^ The default RFC-5424 facility to put into the 'lmFacility' field.
   -> LogPredicate -- ^ The inital predicate for log messages, there are some pre-defined in "Control.Eff.Log.Message#PredefinedPredicates"
-  -> Eff (Logs : LogWriterReader IO : e) a
+  -> Eff (Logs : LogWriterReader (Lift IO) : e) a
   -> Eff e a
 withUDPLogging render hostname port a f p e = liftBaseOp
   (withUDPSocket render hostname port)
@@ -43,7 +43,7 @@ withUDPLogging render hostname port a f p e = liftBaseOp
 --
 -- See 'Control.Eff.Log.Examples.exampleUdpRFC3164Logging'
 withUDPLogWriter
-  :: (Lifted IO e, LogsTo IO e, MonadBaseControl IO (Eff e), HasCallStack)
+  :: (LogIo e, MonadBaseControl IO (Eff e), HasCallStack)
   => (LogMessage -> Text) -- ^ 'LogMessage' rendering function
   -> String -- ^ Hostname or IP
   -> String -- ^ Port e.g. @"514"@
@@ -58,7 +58,7 @@ withUDPSocket
   => (LogMessage -> Text) -- ^ 'LogMessage' rendering function
   -> String -- ^ Hostname or IP
   -> String -- ^ Port e.g. @"514"@
-  -> (LogWriter IO -> IO a)
+  -> (LogWriter (Lift IO) -> IO a)
   -> IO a
 withUDPSocket render hostname port ioE = Safe.bracket
   (do

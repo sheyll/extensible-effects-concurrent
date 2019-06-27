@@ -31,7 +31,7 @@ withConsoleLogging
   => Text -- ^ The default application name to put into the 'lmAppName' field.
   -> Facility -- ^ The default RFC-5424 facility to put into the 'lmFacility' field.
   -> LogPredicate -- ^ The inital predicate for log messages, there are some pre-defined in "Control.Eff.Log.Message#PredefinedPredicates"
-  -> Eff (Logs : LogWriterReader IO : e) a
+  -> Eff (Logs : LogWriterReader (Lift IO) : e) a
   -> Eff e a
 withConsoleLogging = withIoLogging consoleLogWriter
 
@@ -49,16 +49,16 @@ withConsoleLogging = withIoLogging consoleLogWriter
 -- >   $ withConsoleLogWriter
 -- >   $ logInfo "Oh, hi there"
 withConsoleLogWriter
-  :: (LogsTo IO e, Lifted IO e)
+  :: (LogIo e)
   => Eff e a -> Eff e a
 withConsoleLogWriter = addLogWriter consoleLogWriter
 
 -- | Write 'LogMessage's to standard output, formatted with 'printLogMessage'.
 --
 -- It uses 'stdoutLogWriter' with 'renderLogMessageConsoleLog'.
-consoleLogWriter :: LogWriter IO
+consoleLogWriter :: LogWriter (Lift IO)
 consoleLogWriter = mkLogWriterIO (T.putStrLn . renderLogMessageConsoleLog)
 
 -- | A 'LogWriter' that uses a 'LogMessageRenderer' to render, and 'T.putStrLn' to print it.
-stdoutLogWriter :: LogMessageRenderer Text -> LogWriter IO
+stdoutLogWriter :: LogMessageRenderer Text -> LogWriter (Lift IO)
 stdoutLogWriter render = mkLogWriterIO (T.putStrLn . render)
