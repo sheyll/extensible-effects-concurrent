@@ -4,7 +4,7 @@ import Control.DeepSeq
 import Control.Eff as Eff
 import Control.Eff.Concurrent.Process
 import Control.Eff.Concurrent.Protocol
-import Control.Eff.Concurrent.Protocol.StatefulServer
+import Control.Eff.Concurrent.Protocol.EffectfulServer
 import Control.Eff.State.Strict as Eff
 import Control.Lens hiding ((.=), use)
 import Data.Default
@@ -14,14 +14,14 @@ import GHC.Generics (Generic)
 
 
 data Child p = MkChild
-  { _childEndpoint :: Endpoint (Protocol p)
+  { _childEndpoint :: Endpoint (ServerPdu p)
   , _childMonitoring :: MonitorReference
   }
   deriving (Generic, Typeable, Eq, Ord)
 
 instance NFData (Child o)
 
-instance Typeable (Protocol p) => Show (Child p) where
+instance Typeable (ServerPdu p) => Show (Child p) where
   showsPrec d c = showParen (d>=10)
     (showString "supervised process: " . shows (_childEndpoint c)  . showChar ' ' . shows (_childMonitoring c) )
 

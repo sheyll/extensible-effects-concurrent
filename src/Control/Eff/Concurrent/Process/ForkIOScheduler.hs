@@ -623,7 +623,7 @@ spawnNewProcess mLinkedParent title mfa = do
   logAppendProcInfo pid =
     let addProcessId = over
           lmProcessId
-          (maybe (Just (T.pack (printf "% 9s" (show pid)))) Just)
+          (maybe (Just (T.pack (printf "% 9s" (show title ++ show pid)))) Just)
     in  censorLogs @(Lift IO) addProcessId
   triggerProcessLinksAndMonitors
     :: ProcessId -> Interrupt e -> TVar (Set ProcessId) -> Eff BaseEffects ()

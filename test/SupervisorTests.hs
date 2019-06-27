@@ -7,7 +7,8 @@ import Control.Concurrent (threadDelay)
 import Control.DeepSeq
 import Control.Eff
 import Control.Eff.Concurrent
-import Control.Eff.Concurrent.Protocol.StatefulServer as Server
+import Control.Eff.Concurrent.Protocol.EffectfulServer (Event(..))
+import qualified Control.Eff.Concurrent.Protocol.StatefulServer as Stateful
 import Control.Eff.Concurrent.Protocol.Supervisor as Sup
 import Control.Eff.Concurrent.Process.Timer
 import Data.Either (fromRight, isLeft, isRight)
@@ -24,7 +25,7 @@ test_Supervisor =
   testGroup
     "Supervisor"
     (let startTestSup = startTestSupWith ExitWhenRequested (TimeoutMicros 500000)
-         startTestSupWith e t = Sup.startSupervisor (MkSupConfig t (TestServerArgs e))
+         startTestSupWith e t = Sup.startSupervisor (MkSupConfig t (Stateful.Init . TestServerArgs e))
          spawnTestChild sup i = Sup.spawnChild sup i >>= either (lift . assertFailure . show) pure
       in [ runTestCase "The supervisor starts and is shut down" $ do
              outerSelf <- self
@@ -37,7 +38,7 @@ test_Supervisor =
                  () <- receiveMessage
                  Sup.stopSupervisor sup
              unlinkProcess testWorker
-             sup <- receiveMessage :: Eff Effects  (Endpoint (Sup.Sup TestProtocol))
+             sup <- receiveMessage :: Eff Effects  (Endpoint (Sup.Sup (Stateful.Stateful TestProtocol)))
              supAliveAfter1 <- isSupervisorAlive sup
              logInfo ("still alive 1: " <> pack (show supAliveAfter1))
              lift (supAliveAfter1 @=? True)
@@ -265,7 +266,7 @@ data TestProtocolServerMode
   | ExitWhenRequested
   deriving Eq
 
-instance Server TestProtocol Effects where
+instance Stateful.Server TestProtocol Effects where
   update _me (TestServerArgs testMode tId) evt =
     case evt of
       OnCast (TestInterruptWith i) -> do
@@ -286,4 +287,5 @@ instance Server TestProtocol Effects where
         logDebug (pack (show tId) <> ": got some info: " <> pack (show evt))
   data instance StartArgument TestProtocol Effects = TestServerArgs TestProtocolServerMode Int
 
-type instance ChildId TestProtocol = Int
+type instance ChildId (Stateful.Stateful TestProtocol) = Int
+

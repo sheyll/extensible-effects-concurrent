@@ -1,5 +1,9 @@
 # Changelog for extensible-effects-concurrent
 
+## 0.29.2
+- Improve `Supervisor` API: Use `Init` from the effectful server as start
+  argument type.
+
 ## 0.29.1
 - Add more constraints to `Embeds`
 - Improve the `CallbackServer`

@@ -1,39 +1,56 @@
 {-# LANGUAGE QuantifiedConstraints #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE NumericUnderscores #-}
 -- | Another  example for the library that uses embedded protocols with multiple server back
--- ends and a polymorphic client.
+-- ends and a polymorphic client, as well as the 'Supervisor.Sup' module to start multiple
+-- back-ends.
 --
 -- @since 0.29.0
 module Main where
 
 import           Control.DeepSeq
 import           Control.Eff
+import           Control.Eff.State.Lazy as State
 import           Control.Eff.Concurrent
-import           Control.Eff.Concurrent.Protocol.StatefulServer as Server
+import           Control.Eff.Concurrent.Process.Timer
+import           Control.Eff.Concurrent.Protocol.EffectfulServer as Effectful
+import           Control.Eff.Concurrent.Protocol.StatefulServer as Stateful
+import           Control.Eff.Concurrent.Protocol.Supervisor as Supervisor
 import           Control.Lens
 import           Control.Monad
 import           Data.Dynamic
 import           Data.Foldable
 import           Data.Functor.Contravariant (contramap)
+import           Data.String
 import qualified Data.Text as T
+import GHC.Stack (HasCallStack)
 
 main :: IO ()
 main =
   defaultMain (void embeddedExample)
 
-embeddedExample :: Eff Effects ()
+embeddedExample :: HasCallStack => Eff Effects ()
 embeddedExample = do
-  b1 <- Server.start InitBackend1
-  b2 <- Server.start InitBackend2
-  app <- Server.start InitApp
+  b1 <- Stateful.start InitBackend1
+  b2Sup <- startBackend2Sup
+  b2 <- Supervisor.spawnOrLookup @Backend2 b2Sup 1
+  _ <- Supervisor.spawnOrLookup b2Sup 2
+  b2_2 <- Supervisor.spawnOrLookup b2Sup 2
+  b2_3 <- Supervisor.spawnOrLookup b2Sup 3
+  app <- Stateful.start InitApp
   cast app DoThis
   cast app DoThis
   cast app DoThis
   call app (SetBackend (Just (SomeBackend b1)))
   cast app DoThis
   cast app DoThis
-  cast app DoThis
-  cast app DoThis
+  spawn_ "sub-process" $ do
+    logNotice "spawned sub process"
+    b1_2 <- Stateful.startLink InitBackend1
+    call app (SetBackend (Just (SomeBackend b1_2)))
+    cast app DoThis
+    cast app DoThis
+    exitWithError "test-error"
   call app (SetBackend Nothing)
   cast app DoThis
   cast app DoThis
@@ -41,18 +58,26 @@ embeddedExample = do
   call app (SetBackend (Just (SomeBackend b1)))
   cast app DoThis
   cast app DoThis
+  call app (SetBackend Nothing)
   cast app DoThis
   call app (SetBackend (Just (SomeBackend b2)))
   cast app DoThis
   cast app DoThis
+  call app (SetBackend (Just (SomeBackend b2_2)))
   cast app DoThis
-  call app (SetBackend Nothing)
+  _ <- Supervisor.stopChild b2Sup 2
+  cast app DoThis
+  call app (SetBackend (Just (SomeBackend b2_3)))
+  cast app DoThis
+  Supervisor.stopSupervisor b2Sup
+  cast app DoThis
+
 
 ------------------------------ Server Instances
 
 -- Application layer
 
-instance Server.Server App Effects where
+instance Stateful.Server App Effects where
   type instance Model App = Maybe SomeBackend
   data instance StartArgument App Effects = InitApp
   update me _x e =
@@ -63,11 +88,13 @@ instance Server.Server App Effects where
         traverse_ (`backendForgetObserver` me) oldB
         traverse_ (`backendRegisterObserver` me) b
         sendReply rt ()
+      OnCast (AppBackendEvent be) ->
+        logInfo ("got backend event: " <> T.pack (show be))
       OnCast DoThis ->
         do m <- getModel @App
            case m of
             Nothing -> logInfo "doing this without backend"
-            Just b -> do
+            Just b -> handleInterrupts (logWarning . T.pack . show) $ do
                 doSomeBackendWork b
                 bi <- getSomeBackendInfo b
                 logInfo ("doing this. Backend: " <> T.pack bi)
@@ -174,7 +201,7 @@ doSomeBackendWork (SomeBackend x) = cast x BackendWork
 
 data Backend1 deriving Typeable
 
-instance Server.Server Backend1 Effects where
+instance Stateful.Server Backend1 Effects where
   type instance Protocol Backend1 = (Backend, ObserverRegistry BackendEvent)
   type instance Model Backend1 = (Int, ObserverRegistry BackendEvent)
   data instance StartArgument Backend1 Effects = InitBackend1
@@ -184,7 +211,7 @@ instance Server.Server Backend1 Effects where
     case e of
       OnCall rt (ToPduLeft GetBackendInfo) ->
         sendReply
-          (toEmbeddedReplyTarget @(Server.Protocol Backend1) @Backend rt)
+          (toEmbeddedReplyTarget @(Stateful.Protocol Backend1) @Backend rt)
           ("Backend1 " <> show me <> " " <> show (model ^. _1))
       OnCast (ToPduLeft BackendWork) -> do
         logInfo "working..."
@@ -199,7 +226,7 @@ instance Server.Server Backend1 Effects where
           logNotice "observer removed"
       _ -> logWarning ("unexpected: " <> T.pack (show e))
 
--- Backend 2
+-- Backend 2 is behind a supervisor
 
 data Backend2 deriving Typeable
 
@@ -228,29 +255,41 @@ instance HasPduPrism Backend2 (ObserverRegistry BackendEvent) where
   fromPdu (B2ObserverRegistry x) = Just x
   fromPdu _ = Nothing
 
-instance Server.Server Backend2 Effects where
-  type instance Model Backend2 = (Int, ObserverRegistry BackendEvent)
-  data instance StartArgument Backend2 Effects = InitBackend2
-  setup _ _ = pure ( (0, emptyObserverRegistry), () )
-  update me _ e = do
-    model <- getModel @Backend2
+instance Effectful.Server Backend2 Effects where
+  type instance ServerEffects Backend2 Effects = State Int ': ObserverRegistryState BackendEvent ': Effects
+  data instance Init Backend2 Effects = InitBackend2 Int
+  serverTitle (InitBackend2 x) = fromString ("backend-2: " ++ show x)
+  runEffects _me _ e =  evalObserverRegistryState (evalState 0 e)
+  onEvent me _ e = do
+    myIndex <- get @Int
     case e of
       OnCall rt (B2BackendWork GetBackendInfo) ->
-        sendReply rt ("Backend2 " <> show me <> " " <> show (model ^. _1))
+        sendReply rt ("Backend2 " <> show me <> " " <> show myIndex)
       OnCast (B2BackendWork BackendWork) -> do
         logInfo "working..."
-        oldM <- getAndModifyModel @Backend2 (over _1 (+ 1))
-        when (fst oldM `mod` 2 == 0)
-          (zoomModel @Backend2 _2 (observerRegistryNotify (BackendEvent "even!")))
+        put @Int (myIndex + 1)
+        when (myIndex `mod` 2 == 0)
+          (observerRegistryNotify (BackendEvent "even!"))
       OnCast (B2ObserverRegistry x) -> do
         logInfo "event registration stuff ..."
-        zoomModel @Backend2 _2 (observerRegistryHandlePdu x)
+        observerRegistryHandlePdu @BackendEvent x
+      OnInterrupt NormalExitRequested
+        | even myIndex -> do
+          logNotice "Kindly exitting -_-"
+          exitNormally
+        | otherwise ->
+          logNotice "Ignoring exit request! :P"
       OnDown pd -> do
         logWarning (T.pack (show pd))
-        wasObserver <- zoomModel @Backend2 _2 (observerRegistryRemoveProcess @BackendEvent (downProcess pd))
+        wasObserver <- observerRegistryRemoveProcess @BackendEvent (downProcess pd)
         when wasObserver $
           logNotice "observer removed"
       _ -> logWarning ("unexpected: " <> T.pack (show e))
+
+type instance Supervisor.ChildId Backend2 = Int
+
+startBackend2Sup :: Eff Effects (Endpoint (Supervisor.Sup Backend2))
+startBackend2Sup = Supervisor.startSupervisor (Supervisor.MkSupConfig (TimeoutMicros 1_000_000) InitBackend2)
 
 -- EXPERIMENTING
 data EP a where

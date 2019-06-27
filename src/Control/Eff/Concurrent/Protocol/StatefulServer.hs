@@ -3,6 +3,8 @@
 -- @since 0.24.0
 module Control.Eff.Concurrent.Protocol.StatefulServer
   ( Server(..)
+  , Stateful
+  , Effectful.Init(..)
   , start
   , startLink
   , ModelState

@@ -48,19 +48,20 @@
 --
 -- @since 0.23.0
 module Control.Eff.Concurrent.Protocol.Supervisor
-  ( Sup()
-  , ChildId
-  , StartArgument(MkSupConfig)
-  , supConfigChildStopTimeout
-  , SpawnErr(AlreadyStarted)
-  , startSupervisor
+  ( startSupervisor
   , stopSupervisor
   , isSupervisorAlive
   , monitorSupervisor
   , getDiagnosticInfo
   , spawnChild
+  , spawnOrLookup
   , lookupChild
   , stopChild
+  , Sup()
+  , ChildId
+  , Stateful.StartArgument(MkSupConfig)
+  , supConfigChildStopTimeout
+  , SpawnErr(AlreadyStarted)
   ) where
 
 import Control.DeepSeq (NFData(rnf))
@@ -68,7 +69,8 @@ import Control.Eff as Eff
 import Control.Eff.Concurrent.Protocol
 import Control.Eff.Concurrent.Protocol.Client
 import Control.Eff.Concurrent.Protocol.Wrapper
-import Control.Eff.Concurrent.Protocol.StatefulServer as Server
+import qualified Control.Eff.Concurrent.Protocol.EffectfulServer as Effectful
+import qualified Control.Eff.Concurrent.Protocol.StatefulServer as Stateful
 import Control.Eff.Concurrent.Protocol.Supervisor.InternalState
 import Control.Eff.Concurrent.Process
 import Control.Eff.Concurrent.Process.Timer
@@ -88,156 +90,10 @@ import GHC.Stack
 import Control.Applicative ((<|>))
 
 -- * Supervisor Server API
--- ** Types
-
--- | The index type of 'Server' supervisors.
---
--- A @'Sup' p@ manages the life cycle of the processes, running the @'Server' p@
--- methods of that specific type.
---
--- The supervisor maps an identifier value of type @'ChildId' p@ to an @'Endpoint' p@.
---
--- @since 0.24.0
-data Sup (p :: Type) deriving Typeable
-
-instance Typeable p => HasPdu (Sup p) where
-  -- | The 'Pdu' instance contains methods to start, stop and lookup a child
-  -- process, as well as a diagnostic callback.
-  --
-  -- @since 0.23.0
-  data instance  Pdu (Sup p) r where
-          StartC :: ChildId p -> Pdu (Sup p) ('Synchronous (Either (SpawnErr p) (Endpoint (Protocol p))))
-          StopC :: ChildId p -> Timeout -> Pdu (Sup p) ('Synchronous Bool)
-          LookupC :: ChildId p -> Pdu (Sup p) ('Synchronous (Maybe (Endpoint (Protocol p))))
-          GetDiagnosticInfo :: Pdu (Sup p) ('Synchronous Text)
-      deriving Typeable
-
-instance (Show (ChildId p)) => Show (Pdu (Sup p) ('Synchronous r)) where
-  showsPrec d (StartC c) = showParen (d >= 10) (showString "StartC " . showsPrec 10 c)
-  showsPrec d (StopC c t) = showParen (d >= 10) (showString "StopC " . showsPrec 10 c . showChar ' ' . showsPrec 10 t)
-  showsPrec d (LookupC c) = showParen (d >= 10) (showString "LookupC " . showsPrec 10 c)
-  showsPrec _ GetDiagnosticInfo = showString "GetDiagnosticInfo"
-
-instance (NFData (ChildId p)) => NFData (Pdu (Sup p) ('Synchronous r)) where
-  rnf (StartC ci) = rnf ci
-  rnf (StopC ci t) = rnf ci `seq` rnf t
-  rnf (LookupC ci) = rnf ci
-  rnf GetDiagnosticInfo = ()
-
-type instance ToPretty (Sup p) = "supervisor" <:> ToPretty p
-
--- | The type of value used to index running 'Server' processes managed by a 'Sup'.
---
--- Note, that the type you provide must be 'Tangible'.
---
--- @since 0.24.0
-type family ChildId p
-
--- | Constraints on the parameters to 'Sup'.
---
--- @since 0.24.0
-type TangibleSup p =
-  ( Tangible (ChildId p)
-  , Ord (ChildId p)
-  , Typeable p
-  )
-
-
-instance
-  ( LogIo q
-  , TangibleSup p
-  , Tangible (ChildId p)
-  , Server p (Processes q)
-  ) => Server (Sup p) (Processes q) where
-
-  -- | Options that control the 'Sup p' process.
-  --
-  -- This contains:
-  --
-  -- * a 'SpawnFun'
-  -- * the 'Timeout' after requesting a normal child exit before brutally killing the child.
-  --
-  -- @since 0.24.0
-  data StartArgument (Sup p) (Processes q) = MkSupConfig
-    {
-      -- , supConfigChildRestartPolicy :: ChildRestartPolicy
-      -- , supConfigResilience :: Resilience
-      supConfigChildStopTimeout :: Timeout
-    , supConfigStartFun :: ChildId p -> Server.StartArgument p (Processes q)
-    }
-
-  type Model (Sup p) = Children (ChildId p) p
-
-  setup _ _cfg = pure (def, ())
-  update _ supConfig (OnCall rt req) =
-    case req of
-      GetDiagnosticInfo ->  do
-        p <- (pack . show <$> getChildren @(ChildId p) @p)
-        sendReply rt p
-
-      LookupC i -> do
-        p <- fmap _childEndpoint <$> lookupChildById @(ChildId p) @p i
-        sendReply rt p
-
-      StopC i t -> do
-        mExisting <- lookupAndRemoveChildById @(ChildId p) @p i
-        case mExisting of
-          Nothing -> sendReply rt False
-          Just existingChild -> do
-            stopOrKillChild i existingChild t
-            sendReply rt True
-
-      StartC i -> do
-        mExisting <- lookupChildById @(ChildId p) @p i
-        case mExisting of
-          Nothing -> do
-            childEp <- raise (raise (Server.start (supConfigStartFun supConfig i)))
-            let childPid = _fromEndpoint childEp
-            cMon <- monitor childPid
-            putChild i (MkChild @p childEp cMon)
-            sendReply rt (Right childEp)
-          Just existingChild ->
-            sendReply rt (Left (AlreadyStarted i (existingChild ^. childEndpoint)))
-
-  update _ _supConfig (OnDown pd) = do
-      oldEntry <- lookupAndRemoveChildByMonitor @(ChildId p) @p (downReference pd)
-      case oldEntry of
-        Nothing -> logWarning ("unexpected: " <> pack (show pd))
-        Just (i, c) -> do
-          logInfo (  pack (show pd)
-                  <> " for child "
-                  <> pack (show i)
-                  <> " => "
-                  <> pack (show (_childEndpoint c))
-                  )
-  update _ supConfig (OnInterrupt e) = do
-      let (logSev, exitReason) =
-            case e of
-              NormalExitRequested ->
-                (debugSeverity, ExitNormally)
-              _ ->
-                (warningSeverity, interruptToExit (ErrorInterrupt ("supervisor interrupted: " <> show e)))
-      stopAllChildren @p (supConfigChildStopTimeout supConfig)
-      logWithSeverity logSev ("supervisor stopping: " <> pack (show e))
-      exitBecause exitReason
-
-  update _ _supConfig o = logWarning ("unexpected: " <> pack (show o))
-
-
--- | Runtime-Errors occurring when spawning child-processes.
---
--- @since 0.23.0
-data SpawnErr p = AlreadyStarted (ChildId p) (Endpoint (Protocol p))
-  deriving (Typeable, Generic)
-
-deriving instance Eq (ChildId p) => Eq (SpawnErr p)
-deriving instance Ord (ChildId p) => Ord (SpawnErr p)
-deriving instance (Typeable (Protocol p), Show (ChildId p)) => Show (SpawnErr p)
-
-instance NFData (ChildId p) => NFData (SpawnErr p)
 
 
 -- ** Functions
+
 -- | Start and link a new supervisor process with the given 'SpawnFun'unction.
 --
 -- To spawn new child processes use 'spawnChild'.
@@ -248,11 +104,11 @@ startSupervisor
   . ( HasCallStack
     , LogIo (Processes e)
     , TangibleSup p
-    , Server (Sup p) (Processes e)
+    , Stateful.Server (Sup p) (Processes e)
     )
-  => StartArgument (Sup p) (Processes e)
+  => Stateful.StartArgument (Sup p) (Processes e)
   -> Eff (Processes e) (Endpoint (Sup p))
-startSupervisor = Server.start
+startSupervisor = Stateful.start
 
 -- | Stop the supervisor and shutdown all processes.
 --
@@ -303,7 +159,7 @@ monitorSupervisor
   -> Eff e MonitorReference
 monitorSupervisor x = monitor (_fromEndpoint x)
 
--- | Start, link and monitor a new child process using the 'SpawnFun' passed
+-- | Start and monitor a new child process using the 'SpawnFun' passed
 -- to 'startSupervisor'.
 --
 -- @since 0.23.0
@@ -313,12 +169,37 @@ spawnChild
      , Member Logs e
      , HasProcesses e q0
      , TangibleSup p
-     , Typeable (Protocol p)
+     , Typeable (Effectful.ServerPdu p)
      )
   => Endpoint (Sup p)
   -> ChildId p
-  -> Eff e (Either (SpawnErr p) (Endpoint (Protocol p)))
+  -> Eff e (Either (SpawnErr p) (Endpoint (Effectful.ServerPdu p)))
 spawnChild ep cId = call ep (StartC cId)
+
+-- | Start and monitor a new child process using the 'SpawnFun' passed
+-- to 'startSupervisor'.
+--
+-- Call 'spawnChild' and unpack the 'Either' result,
+-- ignoring the 'AlreadyStarted' error.
+--
+-- @since 0.29.2
+spawnOrLookup
+  :: forall p q0 e .
+     ( HasCallStack
+     , Member Logs e
+     , HasProcesses e q0
+     , TangibleSup p
+     , Typeable (Effectful.ServerPdu p)
+     )
+  => Endpoint (Sup p)
+  -> ChildId p
+  -> Eff e (Endpoint (Effectful.ServerPdu p))
+spawnOrLookup supEp cId =
+  do res <- spawnChild supEp cId
+     pure $
+      case res of
+        Left (AlreadyStarted _ ep) -> ep
+        Right ep -> ep
 
 -- | Lookup the given child-id and return the output value of the 'SpawnFun'
 --   if the client process exists.
@@ -330,11 +211,11 @@ lookupChild ::
      , Member Logs e
      , HasProcesses e q0
      , TangibleSup p
-     , Typeable (Protocol p)
+     , Typeable (Effectful.ServerPdu p)
      )
   => Endpoint (Sup p)
   -> ChildId p
-  -> Eff e (Maybe (Endpoint (Protocol p)))
+  -> Eff e (Maybe (Endpoint (Effectful.ServerPdu p)))
 lookupChild ep cId = call ep (LookupC @p cId)
 
 -- | Stop a child process, and block until the child has exited.
@@ -368,6 +249,156 @@ getDiagnosticInfo
   -> Eff e Text
 getDiagnosticInfo s = call s (GetDiagnosticInfo @p)
 
+-- ** Types
+
+-- | The index type of 'Server' supervisors.
+--
+-- A @'Sup' p@ manages the life cycle of the processes, running the @'Server' p@
+-- methods of that specific type.
+--
+-- The supervisor maps an identifier value of type @'ChildId' p@ to an @'Endpoint' p@.
+--
+-- @since 0.24.0
+data Sup (p :: Type) deriving Typeable
+
+instance Typeable p => HasPdu (Sup p) where
+  -- | The 'Pdu' instance contains methods to start, stop and lookup a child
+  -- process, as well as a diagnostic callback.
+  --
+  -- @since 0.23.0
+  data instance  Pdu (Sup p) r where
+          StartC :: ChildId p -> Pdu (Sup p) ('Synchronous (Either (SpawnErr p) (Endpoint (Effectful.ServerPdu p))))
+          StopC :: ChildId p -> Timeout -> Pdu (Sup p) ('Synchronous Bool)
+          LookupC :: ChildId p -> Pdu (Sup p) ('Synchronous (Maybe (Endpoint (Effectful.ServerPdu p))))
+          GetDiagnosticInfo :: Pdu (Sup p) ('Synchronous Text)
+      deriving Typeable
+
+instance (Show (ChildId p)) => Show (Pdu (Sup p) ('Synchronous r)) where
+  showsPrec d (StartC c) = showParen (d >= 10) (showString "StartC " . showsPrec 10 c)
+  showsPrec d (StopC c t) = showParen (d >= 10) (showString "StopC " . showsPrec 10 c . showChar ' ' . showsPrec 10 t)
+  showsPrec d (LookupC c) = showParen (d >= 10) (showString "LookupC " . showsPrec 10 c)
+  showsPrec _ GetDiagnosticInfo = showString "GetDiagnosticInfo"
+
+instance (NFData (ChildId p)) => NFData (Pdu (Sup p) ('Synchronous r)) where
+  rnf (StartC ci) = rnf ci
+  rnf (StopC ci t) = rnf ci `seq` rnf t
+  rnf (LookupC ci) = rnf ci
+  rnf GetDiagnosticInfo = ()
+
+type instance ToPretty (Sup p) = "supervisor" <:> ToPretty p
+
+-- | The type of value used to index running 'Server' processes managed by a 'Sup'.
+--
+-- Note, that the type you provide must be 'Tangible'.
+--
+-- @since 0.24.0
+type family ChildId p
+
+-- | Constraints on the parameters to 'Sup'.
+--
+-- @since 0.24.0
+type TangibleSup p =
+  ( Tangible (ChildId p)
+  , Ord (ChildId p)
+  , Typeable p
+  )
+
+
+instance
+  ( LogIo q
+  , TangibleSup p
+  , Tangible (ChildId p)
+  , Typeable (Effectful.ServerPdu p)
+  , Effectful.Server p (Processes q)
+  , HasProcesses (Effectful.ServerEffects p (Processes q)) q
+  ) => Stateful.Server (Sup p) (Processes q) where
+
+  -- | Options that control the 'Sup p' process.
+  --
+  -- This contains:
+  --
+  -- * a 'SpawnFun'
+  -- * the 'Timeout' after requesting a normal child exit before brutally killing the child.
+  --
+  -- @since 0.24.0
+  data StartArgument (Sup p) (Processes q) = MkSupConfig
+    {
+      -- , supConfigChildRestartPolicy :: ChildRestartPolicy
+      -- , supConfigResilience :: Resilience
+      supConfigChildStopTimeout :: Timeout
+    , supConfigStartFun :: ChildId p -> Effectful.Init p (Processes q)
+    }
+
+  type Model (Sup p) = Children (ChildId p) p
+
+  setup _ _cfg = pure (def, ())
+  update _ supConfig (Stateful.OnCall rt req) =
+    case req of
+      GetDiagnosticInfo ->  do
+        p <- (pack . show <$> getChildren @(ChildId p) @p)
+        sendReply rt p
+
+      LookupC i -> do
+        p <- fmap _childEndpoint <$> lookupChildById @(ChildId p) @p i
+        sendReply rt p
+
+      StopC i t -> do
+        mExisting <- lookupAndRemoveChildById @(ChildId p) @p i
+        case mExisting of
+          Nothing -> sendReply rt False
+          Just existingChild -> do
+            stopOrKillChild i existingChild t
+            sendReply rt True
+
+      StartC i -> do
+        mExisting <- lookupChildById @(ChildId p) @p i
+        case mExisting of
+          Nothing -> do
+            childEp <- raise (raise (Effectful.start (supConfigStartFun supConfig i)))
+            let childPid = _fromEndpoint childEp
+            cMon <- monitor childPid
+            putChild i (MkChild @p childEp cMon)
+            sendReply rt (Right childEp)
+          Just existingChild ->
+            sendReply rt (Left (AlreadyStarted i (existingChild ^. childEndpoint)))
+
+  update _ _supConfig (Stateful.OnDown pd) = do
+      oldEntry <- lookupAndRemoveChildByMonitor @(ChildId p) @p (downReference pd)
+      case oldEntry of
+        Nothing -> logWarning ("unexpected: " <> pack (show pd))
+        Just (i, c) -> do
+          logInfo (  pack (show pd)
+                  <> " for child "
+                  <> pack (show i)
+                  <> " => "
+                  <> pack (show (_childEndpoint c))
+                  )
+  update _ supConfig (Stateful.OnInterrupt e) = do
+      let (logSev, exitReason) =
+            case e of
+              NormalExitRequested ->
+                (debugSeverity, ExitNormally)
+              _ ->
+                (warningSeverity, interruptToExit (ErrorInterrupt ("supervisor interrupted: " <> show e)))
+      stopAllChildren @p (supConfigChildStopTimeout supConfig)
+      logWithSeverity logSev ("supervisor stopping: " <> pack (show e))
+      exitBecause exitReason
+
+  update _ _supConfig o = logWarning ("unexpected: " <> pack (show o))
+
+
+-- | Runtime-Errors occurring when spawning child-processes.
+--
+-- @since 0.23.0
+data SpawnErr p = AlreadyStarted (ChildId p) (Endpoint (Effectful.ServerPdu p))
+  deriving (Typeable, Generic)
+
+deriving instance Eq (ChildId p) => Eq (SpawnErr p)
+deriving instance Ord (ChildId p) => Ord (SpawnErr p)
+deriving instance (Typeable (Effectful.ServerPdu p), Show (ChildId p)) => Show (SpawnErr p)
+
+instance NFData (ChildId p) => NFData (SpawnErr p)
+
 -- Internal Functions
 
 stopOrKillChild
@@ -379,7 +410,7 @@ stopOrKillChild
      , Member Logs e
      , Member (State (Children (ChildId p) p)) e
      , TangibleSup p
-     , Typeable (Protocol p)
+     , Typeable (Effectful.ServerPdu p)
      )
   => ChildId p
   -> Child p
@@ -392,6 +423,8 @@ stopOrKillChild cId c stopTimeout =
         sendInterrupt (_fromEndpoint (c^.childEndpoint)) NormalExitRequested
         r1 <- receiveSelectedMessage (   Right <$> selectProcessDown (c^.childMonitoring)
                                      <|> Left  <$> selectTimerElapsed t )
+        demonitor (c^.childMonitoring)
+        unlinkProcess (_fromEndpoint (c^.childEndpoint))
         case r1 of
           Left timerElapsed -> do
             logWarning (pack (show timerElapsed) <> ": child "<> pack (show cId) <>" => " <> pack(show (c^.childEndpoint)) <>" did not shutdown in time")
@@ -413,7 +446,7 @@ stopAllChildren
      , Member Logs e
      , Member (State (Children (ChildId p) p)) e
      , TangibleSup p
-     , Typeable (Protocol p)
+     , Typeable (Effectful.ServerPdu p)
      )
   => Timeout -> Eff e ()
 stopAllChildren stopTimeout = removeAllChildren @(ChildId p) @p >>= pure . Map.assocs >>= traverse_ xxx
