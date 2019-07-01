@@ -2,39 +2,19 @@ module ProcessBehaviourTestCases where
 
 import           Common
 import           Control.Exception
-import           Control.Concurrent
-import           Control.Concurrent.STM
-import           Control.Eff.Concurrent.Process
-import           Control.Eff.Concurrent.Process.Timer
-import           Control.Eff.Concurrent.Protocol
-import           Control.Eff.Concurrent.Protocol.Wrapper
-import           Control.Eff.Concurrent.Protocol.Client
 import qualified Control.Eff.Concurrent.Protocol.CallbackServer as Callback
 import           Control.Eff.Concurrent.Protocol.EffectfulServer
 import qualified Control.Eff.Concurrent.Process.ForkIOScheduler
                                                as ForkIO
 import qualified Control.Eff.Concurrent.Process.SingleThreadedScheduler
                                                as SingleThreaded
-import           Control.Eff
-import           Control.Eff.Extend
-import           Control.Eff.Log
-import           Control.Eff.LogWriter.Async
-import           Control.Eff.LogWriter.Console
-import           Control.Eff.LogWriter.IO
-import           Control.Eff.Loop
-import           Control.Monad
 import           Control.Applicative
 import           Control.Lens (view)
-import           Control.DeepSeq
 import           Data.List                      ( sort )
 import           Data.Foldable                  ( traverse_ )
 import           Data.Maybe
-import           Data.Typeable
-import           Data.Type.Pretty
 import           Data.Void
-import           Test.Tasty
-import           Test.Tasty.HUnit
-import GHC.Generics (Generic)
+import           GHC.Generics (Generic)
 
 
 testInterruptReason :: Interrupt 'Recoverable
@@ -943,7 +923,7 @@ monitoringTests schedulerFactory = setTravisTestOptions
         let badPid = 132123
         ref <- monitor badPid
         pd  <- receiveSelectedMessage (selectProcessDown ref)
-        lift (downReason pd @?= SomeExitReason (OtherProcessNotRunning badPid))
+        lift (downReason pd @?= ExitOtherProcessNotRunning badPid)
         lift (threadDelay 10000)
     , testCase "monitored process exit normally"
     $ applySchedulerFactory schedulerFactory
@@ -952,7 +932,7 @@ monitoringTests schedulerFactory = setTravisTestOptions
         ref    <- monitor target
         sendMessage target ExitNormally
         pd <- receiveSelectedMessage (selectProcessDown ref)
-        lift (downReason pd @?= SomeExitReason ExitNormally)
+        lift (downReason pd @?= ExitNormally)
         lift (threadDelay 10000)
     , testCase "multiple monitors some demonitored"
     $ applySchedulerFactory schedulerFactory
@@ -967,11 +947,11 @@ monitoringTests schedulerFactory = setTravisTestOptions
         demonitor ref5
         sendMessage target ExitNormally
         pd1 <- receiveSelectedMessage (selectProcessDown ref1)
-        lift (downReason pd1 @?= SomeExitReason ExitNormally)
+        lift (downReason pd1 @?= ExitNormally)
         pd2 <- receiveSelectedMessage (selectProcessDown ref2)
-        lift (downReason pd2 @?= SomeExitReason ExitNormally)
+        lift (downReason pd2 @?= ExitNormally)
         pd4 <- receiveSelectedMessage (selectProcessDown ref4)
-        lift (downReason pd4 @?= SomeExitReason ExitNormally)
+        lift (downReason pd4 @?= ExitNormally)
         lift (threadDelay 10000)
     , testCase "monitored process killed"
     $ applySchedulerFactory schedulerFactory
@@ -980,7 +960,7 @@ monitoringTests schedulerFactory = setTravisTestOptions
         ref    <- monitor target
         sendMessage target ExitProcessCancelled
         pd <- receiveSelectedMessage (selectProcessDown ref)
-        lift (downReason pd @?= SomeExitReason ExitProcessCancelled)
+        lift (downReason pd @?= ExitProcessCancelled)
         lift (threadDelay 10000)
     , testCase "demonitored process killed"
     $ applySchedulerFactory schedulerFactory

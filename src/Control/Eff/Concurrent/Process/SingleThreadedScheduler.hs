@@ -44,6 +44,7 @@ import           Data.Monoid
 import qualified Control.Monad.State.Strict    as State
 import Data.Function (fix)
 import Data.Dynamic (dynTypeRep)
+import Data.Text (pack)
 
 -- -----------------------------------------------------------------------------
 --  STS and ProcessInfo
@@ -166,14 +167,14 @@ addMonitoring owner target =
       pt <- use msgQs
       if Map.member target pt
         then monitors %= Set.insert (mref, owner)
-        else let pdown = ProcessDown mref (SomeExitReason (OtherProcessNotRunning target)) target
+        else let pdown = ProcessDown mref (ExitOtherProcessNotRunning target) target
               in State.modify' (enqueueMsg owner (toStrictDynamic pdown))
     return mref
 
 removeMonitoring :: MonitorReference -> STS m r -> STS m r
 removeMonitoring mref = monitors %~ Set.filter (\(ref, _) -> ref /= mref)
 
-triggerAndRemoveMonitor :: ProcessId -> SomeExitReason -> STS m r -> STS m r
+triggerAndRemoveMonitor :: ProcessId -> Interrupt 'NoRecovery -> STS m r -> STS m r
 triggerAndRemoveMonitor downPid reason = State.execState $ do
   monRefs <- use monitors
   traverse_ go monRefs
@@ -426,7 +427,12 @@ handleProcess sts allProcs@((!processState, !pid) :<| rest) =
             handleProcess
               (dropMsgQ
                  pid
-                 (triggerAndRemoveMonitor pid (either SomeExitReason (const (SomeExitReason ExitNormally)) res) stsNew))
+                 (triggerAndRemoveMonitor
+                  pid
+                  (either
+                    (ExitUnhandledError . pack . show)
+                    (const ExitNormally) res)
+                    stsNew))
               nextTargets
    in case processState of
         OnDone r -> handleExit (Right r)

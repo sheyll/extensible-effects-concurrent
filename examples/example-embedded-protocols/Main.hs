@@ -24,6 +24,7 @@ import           Data.Functor.Contravariant (contramap)
 import           Data.String
 import qualified Data.Text as T
 import GHC.Stack (HasCallStack)
+import Data.Default
 
 main :: IO ()
 main =
@@ -78,20 +79,20 @@ embeddedExample = do
 -- Application layer
 
 instance Stateful.Server App Effects where
-  type instance Model App = Maybe SomeBackend
+  newtype instance Model App = MkApp (Maybe SomeBackend) deriving Default
   data instance StartArgument App Effects = InitApp
   update me _x e =
     case e of
       OnCall rt (SetBackend b) -> do
         logInfo "setting backend"
-        oldB <- getAndPutModel @App b
+        MkApp oldB <- getAndPutModel @App (MkApp b)
         traverse_ (`backendForgetObserver` me) oldB
         traverse_ (`backendRegisterObserver` me) b
         sendReply rt ()
       OnCast (AppBackendEvent be) ->
         logInfo ("got backend event: " <> T.pack (show be))
       OnCast DoThis ->
-        do m <- getModel @App
+        do MkApp m <- getModel @App
            case m of
             Nothing -> logInfo "doing this without backend"
             Just b -> handleInterrupts (logWarning . T.pack . show) $ do
@@ -203,28 +204,31 @@ data Backend1 deriving Typeable
 
 instance Stateful.Server Backend1 Effects where
   type instance Protocol Backend1 = (Backend, ObserverRegistry BackendEvent)
-  type instance Model Backend1 = (Int, ObserverRegistry BackendEvent)
+  newtype instance Model Backend1 = MkBackend1 (Int, ObserverRegistry BackendEvent)
   data instance StartArgument Backend1 Effects = InitBackend1
-  setup _ _ = pure ( (0, emptyObserverRegistry), () )
+  setup _ _ = pure ( MkBackend1 (0, emptyObserverRegistry), () )
   update me _ e = do
     model <- getModel @Backend1
     case e of
       OnCall rt (ToPduLeft GetBackendInfo) ->
         sendReply
           (toEmbeddedReplyTarget @(Stateful.Protocol Backend1) @Backend rt)
-          ("Backend1 " <> show me <> " " <> show (model ^. _1))
+          ("Backend1 " <> show me <> " " <> show (model ^. modelBackend1 . _1))
       OnCast (ToPduLeft BackendWork) -> do
         logInfo "working..."
-        modifyModel @Backend1 (over _1 (+ 1))
+        modifyModel @Backend1 (over (modelBackend1 . _1) (+ 1))
       OnCast (ToPduRight x) -> do
         logInfo "event registration stuff ..."
-        zoomModel @Backend1 _2 (observerRegistryHandlePdu x)
+        zoomModel @Backend1 (modelBackend1 . _2) (observerRegistryHandlePdu x)
       OnDown pd -> do
         logWarning (T.pack (show pd))
-        wasObserver <- zoomModel @Backend1 _2 (observerRegistryRemoveProcess @BackendEvent (downProcess pd))
+        wasObserver <- zoomModel @Backend1 (modelBackend1 . _2) (observerRegistryRemoveProcess @BackendEvent (downProcess pd))
         when wasObserver $
           logNotice "observer removed"
       _ -> logWarning ("unexpected: " <> T.pack (show e))
+
+modelBackend1 :: Iso' (Model Backend1)  (Int, ObserverRegistry BackendEvent)
+modelBackend1 = iso (\(MkBackend1 x) -> x) MkBackend1
 
 -- Backend 2 is behind a supervisor
 

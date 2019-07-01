@@ -3,21 +3,10 @@ module SupervisorTests
   ) where
 
 import Common
-import Control.Concurrent (threadDelay)
-import Control.DeepSeq
-import Control.Eff
-import Control.Eff.Concurrent
 import Control.Eff.Concurrent.Protocol.EffectfulServer (Event(..))
 import qualified Control.Eff.Concurrent.Protocol.StatefulServer as Stateful
 import Control.Eff.Concurrent.Protocol.Supervisor as Sup
-import Control.Eff.Concurrent.Process.Timer
-import Data.Either (fromRight, isLeft, isRight)
-import Data.Maybe (fromMaybe)
-import Data.Text (pack)
-import Data.Type.Pretty
-import Data.Typeable (Typeable)
-import Test.Tasty
-import Test.Tasty.HUnit
+import qualified Control.Eff.Concurrent.Protocol.Observer.Queue as OQ
 
 test_Supervisor :: HasCallStack => TestTree
 test_Supervisor =
@@ -106,8 +95,8 @@ test_Supervisor =
                                            ", childMon: " <>
                                            show childMon) of
                        Right (supER, childER) -> do
-                         lift (assertEqual "bad supervisor exit reason" (SomeExitReason ExitNormally) supER)
-                         lift (assertEqual "bad child exit reason" (SomeExitReason ExitNormally) childER)
+                         lift (assertEqual "bad supervisor exit reason" ExitNormally supER)
+                         lift (assertEqual "bad child exit reason" ExitNormally childER)
                        Left x -> lift (assertFailure x)
                  , runTestCase
                      "When a supervisor is shut down, children that won't shutdown, are killed after some time" $ do
@@ -127,9 +116,9 @@ test_Supervisor =
                        fromMaybe (error "receive timeout 2") <$> receiveAfter (TimeoutMicros 1000000)
                      logInfo ("got process down: " <> pack (show d2))
                      case if mon1 == supMon && mon2 == childMon
-                            then Right (er1, er2)
+                            then Right er1
                             else if mon1 == childMon && mon2 == supMon
-                                   then Right (er2, er1)
+                                   then Right er2
                                    else Left
                                           ("unexpected monitor down: first: " <> show (mon1, er1) <> ", and then: " <>
                                            show (mon2, er2) <>
@@ -137,9 +126,8 @@ test_Supervisor =
                                            show supMon <>
                                            ", childMon: " <>
                                            show childMon) of
-                       Right (supER, childER) -> do
-                         lift (assertEqual "bad supervisor exit reason" (SomeExitReason ExitNormally) supER)
-                         lift (assertBool "bad child exit reason" (isLeft (fromSomeExitReason childER)))
+                       Right supER -> do
+                         lift (assertEqual "bad supervisor exit reason" ExitNormally supER)
                        Left x -> lift (assertFailure x)
                  ]
          , let i = 123
@@ -182,7 +170,7 @@ test_Supervisor =
                              (sup, cm) <- startTestSupAndChild
                              Sup.stopChild sup i >>= lift . assertBool "child not found"
                              (ProcessDown _ r _) <- receiveSelectedMessage (selectProcessDown cm)
-                             lift (assertEqual "bad exit reason" (SomeExitReason ExitNormally) r)
+                             lift (assertEqual "bad exit reason" ExitNormally r)
                          , runTestCase
                              "When a child is stopped but doesn't exit voluntarily, it is kill after some time" $ do
                              sup <- startTestSupWith IgnoreNormalExitRequest (TimeoutMicros 5000)
@@ -191,7 +179,7 @@ test_Supervisor =
                              Sup.stopChild sup i >>= lift . assertBool "child not found"
                              (ProcessDown _ r _) <- receiveSelectedMessage (selectProcessDown cm)
                              case r of
-                               SomeExitReason (ExitUnhandledError _) -> return ()
+                               ExitUnhandledError _ -> return ()
                                _ -> lift (assertFailure ("bad exit reason: " ++ show r))
                          , runTestCase "When a stopChild is called with an unallocated ID, False is returned" $ do
                              (sup, _) <- startTestSupAndChild
@@ -217,7 +205,7 @@ test_Supervisor =
                              (sup, c, cm) <- startTestSupAndChild
                              cast c (TestInterruptWith NormalExitRequested)
                              (ProcessDown _ r _) <- receiveSelectedMessage (selectProcessDown cm)
-                             lift (assertEqual "bad exit reason" (SomeExitReason ExitNormally) r)
+                             lift (assertEqual "bad exit reason" ExitNormally r)
                              x <- Sup.lookupChild sup i
                              lift (assertEqual "lookup should not find a child" Nothing x)
                          , runTestCase "When a child exits with an error, lookupChild will not find it" $ do
@@ -239,6 +227,77 @@ test_Supervisor =
                              x <- Sup.lookupChild sup i
                              lift (assertEqual "lookup should not find a child" Nothing x)
                          ]
+                 , testGroup "supervisor events"
+                     [ runTestCase "when a child starts the oberser is notified" $ do
+                         sup <- startTestSup
+                         OQ.observe @(Sup.ChildEvent (Stateful.Stateful TestProtocol)) (100 :: Int) sup $ do
+                           c <- Sup.spawnChild @(Stateful.Stateful TestProtocol) sup i >>= either (lift . assertFailure . show) pure
+                           e <- OQ.await @(Sup.ChildEvent (Stateful.Stateful TestProtocol))
+                           case e of
+                            Sup.OnChildSpawned i' c' -> do
+                              lift (assertEqual "lookupChild returned wrong child" c c')
+                              lift (assertEqual "lookupChild returned wrong child-id" i i')
+                            _ ->
+                              lift (assertFailure ("unexpected event: " ++ show e))
+                    , runTestCase "when a child starts or stops the oberser is notified" $ do
+                         sup <- startTestSup
+                         OQ.observe @(Sup.ChildEvent (Stateful.Stateful TestProtocol)) (100 :: Int) sup $ do
+                           c <- Sup.spawnChild @(Stateful.Stateful TestProtocol) sup i >>= either (lift . assertFailure . show) pure
+                           Sup.stopChild sup i >>= lift . assertBool "child not found"
+                           OQ.await @(Sup.ChildEvent (Stateful.Stateful TestProtocol))
+                            >>= \case
+                                    Sup.OnChildSpawned i' c' -> do
+                                      lift (assertEqual "lookupChild returned wrong child" c c')
+                                      lift (assertEqual "lookupChild returned wrong child-id" i i')
+                                    e ->
+                                      lift (assertFailure ("unexpected event: " ++ show e))
+                           OQ.await @(Sup.ChildEvent (Stateful.Stateful TestProtocol))
+                            >>= \case
+                                    Sup.OnChildDown i' c' e -> do
+                                      lift (assertEqual "lookupChild returned wrong child" c c')
+                                      lift (assertEqual "lookupChild returned wrong child-id" i i')
+                                      lift (assertEqual "bad exit reason" ExitNormally e)
+                                    e ->
+                                      lift (assertFailure ("unexpected event: " ++ show e))
+
+                    , runTestCase "when a child crashes the oberser is notified" $ do
+                         sup <- startTestSup
+                         OQ.observe @(Sup.ChildEvent (Stateful.Stateful TestProtocol)) (100 :: Int) sup $ do
+                           c <- Sup.spawnChild @(Stateful.Stateful TestProtocol) sup i >>= either (lift . assertFailure . show) pure
+                           let expectedError = ExitUnhandledError "test error"
+                           sendShutdown (_fromEndpoint c) expectedError
+                           OQ.await @(Sup.ChildEvent (Stateful.Stateful TestProtocol))
+                            >>= \case
+                                    Sup.OnChildSpawned i' c' -> do
+                                      lift (assertEqual "lookupChild returned wrong child" c c')
+                                      lift (assertEqual "lookupChild returned wrong child-id" i i')
+                                    e ->
+                                      lift (assertFailure ("unexpected event: " ++ show e))
+                           OQ.await @(Sup.ChildEvent (Stateful.Stateful TestProtocol))
+                            >>= \case
+                                    Sup.OnChildDown i' c' e -> do
+                                      lift (assertEqual "lookupChild returned wrong child" c c')
+                                      lift (assertEqual "lookupChild returned wrong child-id" i i')
+                                      lift (assertEqual "bad exit reason" expectedError e)
+                                    e ->
+                                      lift (assertFailure ("unexpected event: " ++ show e))
+                    , runTestCase "when a child does not stop when requested and is killed, the oberser is notified correspondingly" $ do
+                         sup <- startTestSupWith IgnoreNormalExitRequest (TimeoutMicros 5000)
+                         c <- spawnTestChild sup i
+                         OQ.observe @(Sup.ChildEvent (Stateful.Stateful TestProtocol)) (100 :: Int) sup $ do
+                           cm <- monitor (_fromEndpoint c)
+                           Sup.stopChild sup i >>= lift . assertBool "child not found"
+                           (ProcessDown _ expectedError _) <- receiveSelectedMessage (selectProcessDown cm)
+                           OQ.await @(Sup.ChildEvent (Stateful.Stateful TestProtocol))
+                            >>= \case
+                                    Sup.OnChildDown i' c' e -> do
+                                      lift (assertEqual "lookupChild returned wrong child" c c')
+                                      lift (assertEqual "lookupChild returned wrong child-id" i i')
+                                      lift (assertEqual "bad exit reason" expectedError e)
+                                    e ->
+                                      lift (assertFailure ("unexpected event: " ++ show e))
+
+                    ]
                  ]
          ])
 
@@ -267,6 +326,7 @@ data TestProtocolServerMode
   deriving Eq
 
 instance Stateful.Server TestProtocol Effects where
+  newtype instance Model TestProtocol = TestProtocolModel () deriving Default
   update _me (TestServerArgs testMode tId) evt =
     case evt of
       OnCast (TestInterruptWith i) -> do
@@ -287,5 +347,5 @@ instance Stateful.Server TestProtocol Effects where
         logDebug (pack (show tId) <> ": got some info: " <> pack (show evt))
   data instance StartArgument TestProtocol Effects = TestServerArgs TestProtocolServerMode Int
 
-type instance ChildId (Stateful.Stateful TestProtocol) = Int
+type instance ChildId TestProtocol = Int
 

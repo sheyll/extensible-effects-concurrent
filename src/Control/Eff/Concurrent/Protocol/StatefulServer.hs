@@ -19,25 +19,30 @@ module Control.Eff.Concurrent.Protocol.StatefulServer
   , SettingsReader
   , askSettings
   , viewSettings
+  , mapEffects
+  , coerceEffects
   -- * Re-exports
   , Effectful.Event(..)
   )
   where
 
 import Control.Eff
-import Control.Eff.Extend ()
+import Control.Eff.Concurrent.Misc
 import Control.Eff.Concurrent.Process
 import Control.Eff.Concurrent.Protocol
 import qualified Control.Eff.Concurrent.Protocol.EffectfulServer as Effectful
+import Control.Eff.Extend ()
 import Control.Eff.Log
 import Control.Eff.Reader.Strict
 import Control.Eff.State.Strict
 import Control.Lens
+import Data.Coerce
 import Data.Default
 import Data.Kind
+import Data.String (fromString)
 import Data.Typeable
 import GHC.Stack (HasCallStack)
-
+import Control.Eff.Extend (raise)
 -- | A type class for server loops.
 --
 -- This class serves as interface for other mechanisms, for example /process supervision/
@@ -68,11 +73,20 @@ class (Typeable (Protocol a)) => Server (a :: Type) q where
   -- via the 'ModelState' effect.
   -- The /model/ of a server loop is changed through incoming 'Event's.
   -- It is initially calculated by 'setup'.
-  type Model a :: Type
-  type Model a = ()
+  data family Model a :: Type
+
   -- | Type of read-only state.
   type Settings a :: Type
   type Settings a = ()
+
+  -- | Return a new 'ProcessTitle' for the stateful process,
+  -- while it is running.
+  --
+  -- @since 0.29.3
+  title :: StartArgument a q -> ProcessTitle
+
+  default title :: Typeable (Protocol a) => StartArgument a q -> ProcessTitle
+  title _ = fromString $ showSTypeable @(Protocol a) "-server"
 
   -- | Return an initial 'Model' and 'Settings'
   setup ::
@@ -113,6 +127,7 @@ instance Server a q => Effectful.Server (Stateful a) q where
 
   onEvent selfEndpoint (Init sa) = update selfEndpoint sa
 
+  serverTitle (Init startArg) = title startArg
 
 -- | Execute the server loop.
 --
@@ -218,3 +233,57 @@ askSettings = ask
 -- @since 0.24.0
 viewSettings :: forall a b e . Member (SettingsReader a) e =>  Getting b (Settings a) b -> Eff e b
 viewSettings l = view l <$> askSettings @a
+
+-- | Map 'ModelState' and 'SettingsReader' effects.
+-- Use this to embed 'update' from another 'Server' instance.
+--
+-- @since 0.29.3
+mapEffects
+  :: forall inner outer a e.
+     (Settings outer -> Settings inner) -- ^ A function to get the /inner/ settings out of the /outer/ settings
+  -> Lens' (Model outer) (Model inner)  -- ^ A 'Lens' to get and set the /inner/ model inside the /outer/ model
+  -> Eff (ModelState inner : SettingsReader inner : e) a
+  -> Eff (ModelState outer : SettingsReader outer : e) a
+mapEffects innerSettings innerStateLens innerEff =
+  do st0 <- getModel @outer
+     s0 <- askSettings @outer
+     (res, st1) <-
+      raise
+        (raise
+          (runReader
+            @(Settings inner)
+            (innerSettings s0)
+            (runState
+              @(Model inner)
+              (st0 ^. innerStateLens)
+              innerEff)))
+     modifyModel @outer (innerStateLens .~ st1)
+     return res
+
+
+-- | Coerce 'Coercible' 'ModelState' and 'SettingsReader' effects.
+-- Use this to embed 'update' from a /similar/ 'Server' instance.
+--
+-- @since 0.29.3
+coerceEffects
+  :: forall inner outer a e.
+     ( Coercible (Model inner) (Model outer)
+     , Coercible (Model outer) (Model inner)
+     , Coercible (Settings outer) (Settings inner)
+     )
+  => Eff (ModelState inner : SettingsReader inner : e) a
+  -> Eff (ModelState outer : SettingsReader outer : e) a
+coerceEffects innerEff =
+  do st0 <- getModel @outer
+     s0 <- askSettings @outer
+     (res, st1) <-
+      raise
+        (raise
+          (runReader
+            @(Settings inner)
+            (coerce s0)
+            (runState
+              (coerce @(Model outer) st0)
+              innerEff)))
+     putModel @outer (coerce st1)
+     return res

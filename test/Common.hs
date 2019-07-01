@@ -1,27 +1,58 @@
-module Common where
+module Common
+  ( module Common
+  , module Test.Tasty
+  , module Test.Tasty.HUnit
+  , module Test.Tasty.Runners
+  , module Control.Eff.Extend
+  , module Control.Monad
+  , module GHC.Stack
+  , module Control.Concurrent
+  , module Control.Concurrent.STM
+  , module Control.DeepSeq
+  , module Control.Eff
+  , module Control.Eff.Concurrent
+  , module Control.Eff.Concurrent.Misc
+  , module Data.Default
+  , module Data.Foldable
+  , module Data.Typeable
+  , module Data.Text
+  , module Data.Either
+  , module Data.Maybe
+  , module Data.Type.Pretty
+  ) where
 
 import Control.Concurrent
 import Control.Concurrent.STM
+import Control.DeepSeq
 import Control.Eff
-import Control.Eff.Concurrent hiding (Timeout)
+import Control.Eff.Concurrent
+import Control.Eff.Concurrent.Misc
 import Control.Eff.Concurrent.Process.ForkIOScheduler as Scheduler
 import Control.Eff.Extend
-import Control.Monad (void)
+import Control.Monad
+import Data.Default
+import Data.Foldable
+import Data.Text (Text, pack)
+import Data.Typeable hiding (cast)
 import GHC.Stack
-import Test.Tasty
+import Test.Tasty hiding (Timeout, defaultMain)
+import qualified Test.Tasty as Tasty
 import Test.Tasty.HUnit
 import Test.Tasty.Runners
+import Data.Either (fromRight, isLeft, isRight)
+import Data.Maybe (fromMaybe)
+import Data.Type.Pretty
 
 setTravisTestOptions :: TestTree -> TestTree
 setTravisTestOptions = localOption (timeoutSeconds 60) . localOption (NumThreads 1)
 
-timeoutSeconds :: Integer -> Timeout
-timeoutSeconds seconds = Timeout (seconds * 1000000) (show seconds ++ "s")
+timeoutSeconds :: Integer -> Tasty.Timeout
+timeoutSeconds seconds = Tasty.Timeout (seconds * 1000000) (show seconds ++ "s")
 
 runTestCase :: TestName -> Eff Effects () -> TestTree
 runTestCase msg =
   testCase msg .
-  runLift . withTraceLogging "unit-tests" local0 allLogMessages . Scheduler.schedule . handleInterrupts onInt
+  runLift . withConsoleLogging "unit-tests" local0 allLogMessages . Scheduler.schedule . handleInterrupts onInt
   where
     onInt = lift . assertFailure . show
 
@@ -63,4 +94,3 @@ awaitProcessDown :: (HasCallStack, HasProcesses r q) => ProcessId -> Eff r Proce
 awaitProcessDown p = do
   m <- monitor p
   receiveSelectedMessage (selectProcessDown m)
-

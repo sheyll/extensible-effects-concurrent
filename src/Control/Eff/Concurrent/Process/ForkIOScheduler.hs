@@ -143,7 +143,7 @@ addMonitoring target owner schedulerState = do
                        (Set.insert (monitorRef, owner))
       else
         let processDownMessage =
-              ProcessDown monitorRef (SomeExitReason (OtherProcessNotRunning target)) target
+              ProcessDown monitorRef (ExitOtherProcessNotRunning target) target
         in  enqueueMessageOtherProcess owner
                                        (toStrictDynamic processDownMessage)
                                        schedulerState
@@ -155,7 +155,7 @@ removeMonitoring monitorRef schedulerState = modifyTVar'
   (Set.filter (\(ref, _) -> ref /= monitorRef))
 
 triggerAndRemoveMonitor
-  :: ProcessId -> SomeExitReason -> SchedulerState -> STM ()
+  :: ProcessId -> Interrupt 'NoRecovery -> SchedulerState -> STM ()
 triggerAndRemoveMonitor downPid reason schedulerState = do
   monRefs <- readTVar (schedulerState ^. processMonitors)
   traverse_ go monRefs
@@ -626,11 +626,11 @@ spawnNewProcess mLinkedParent title mfa = do
           (maybe (Just (T.pack (printf "% 9s" (show title ++ show pid)))) Just)
     in  censorLogs @(Lift IO) addProcessId
   triggerProcessLinksAndMonitors
-    :: ProcessId -> Interrupt e -> TVar (Set ProcessId) -> Eff BaseEffects ()
+    :: ProcessId -> Interrupt 'NoRecovery -> TVar (Set ProcessId) -> Eff BaseEffects ()
   triggerProcessLinksAndMonitors !pid !reason !linkSetVar = do
     schedulerState <- getSchedulerState
     lift $ atomically $ triggerAndRemoveMonitor pid
-                                                (SomeExitReason reason)
+                                                reason
                                                 schedulerState
     let exitSeverity = toExitSeverity reason
         sendIt !linkedPid = do

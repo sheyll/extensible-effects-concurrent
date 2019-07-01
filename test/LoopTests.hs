@@ -4,13 +4,7 @@ module LoopTests
     )
 where
 
-import           Control.DeepSeq
-import           Control.Eff
-import           Control.Eff.Concurrent
 import           Control.Eff.State.Strict
-import           Control.Monad
-import           Test.Tasty
-import           Test.Tasty.HUnit
 import           Common
 import           Control.Eff.Concurrent.Process.SingleThreadedScheduler
                                                as Scheduler

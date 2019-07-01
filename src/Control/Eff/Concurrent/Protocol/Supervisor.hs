@@ -49,6 +49,7 @@
 -- @since 0.23.0
 module Control.Eff.Concurrent.Protocol.Supervisor
   ( startSupervisor
+  , statefulChild
   , stopSupervisor
   , isSupervisorAlive
   , monitorSupervisor
@@ -58,10 +59,12 @@ module Control.Eff.Concurrent.Protocol.Supervisor
   , lookupChild
   , stopChild
   , Sup()
+  , Pdu(StartC, StopC, LookupC, GetDiagnosticInfo)
   , ChildId
   , Stateful.StartArgument(MkSupConfig)
   , supConfigChildStopTimeout
   , SpawnErr(AlreadyStarted)
+  , ChildEvent(OnChildSpawned, OnChildDown)
   ) where
 
 import Control.DeepSeq (NFData(rnf))
@@ -69,6 +72,7 @@ import Control.Eff as Eff
 import Control.Eff.Concurrent.Protocol
 import Control.Eff.Concurrent.Protocol.Client
 import Control.Eff.Concurrent.Protocol.Wrapper
+import Control.Eff.Concurrent.Protocol.Observer
 import qualified Control.Eff.Concurrent.Protocol.EffectfulServer as Effectful
 import qualified Control.Eff.Concurrent.Protocol.StatefulServer as Stateful
 import Control.Eff.Concurrent.Protocol.Supervisor.InternalState
@@ -88,9 +92,9 @@ import Data.Type.Pretty
 import GHC.Generics (Generic)
 import GHC.Stack
 import Control.Applicative ((<|>))
+import Control.Monad (void)
 
 -- * Supervisor Server API
-
 
 -- ** Functions
 
@@ -109,6 +113,23 @@ startSupervisor
   => Stateful.StartArgument (Sup p) (Processes e)
   -> Eff (Processes e) (Endpoint (Sup p))
 startSupervisor = Stateful.start
+
+-- | A smart constructor for 'MkSupConfig' that makes it easy to start a 'Stateful.Server' instance.
+--
+-- The user needs to instantiate @'ChildId' p@.
+--
+-- @since 0.29.3
+statefulChild
+  :: forall p e
+  . ( HasCallStack
+    , LogIo (Processes e)
+    , TangibleSup (Stateful.Stateful p)
+    , Stateful.Server (Sup (Stateful.Stateful p)) (Processes e)
+    )
+  => Timeout
+  -> (ChildId p -> Stateful.StartArgument p (Processes e))
+  -> Stateful.StartArgument (Sup (Stateful.Stateful p)) (Processes e)
+statefulChild t f = MkSupConfig t (Stateful.Init . f)
 
 -- | Stop the supervisor and shutdown all processes.
 --
@@ -262,6 +283,7 @@ getDiagnosticInfo s = call s (GetDiagnosticInfo @p)
 data Sup (p :: Type) deriving Typeable
 
 instance Typeable p => HasPdu (Sup p) where
+  type instance EmbeddedPduList (Sup p) = '[ObserverRegistry (ChildEvent p)]
   -- | The 'Pdu' instance contains methods to start, stop and lookup a child
   -- process, as well as a diagnostic callback.
   --
@@ -271,21 +293,59 @@ instance Typeable p => HasPdu (Sup p) where
           StopC :: ChildId p -> Timeout -> Pdu (Sup p) ('Synchronous Bool)
           LookupC :: ChildId p -> Pdu (Sup p) ('Synchronous (Maybe (Endpoint (Effectful.ServerPdu p))))
           GetDiagnosticInfo :: Pdu (Sup p) ('Synchronous Text)
+          ChildEventObserverRegistry :: Pdu (ObserverRegistry (ChildEvent p)) r -> Pdu (Sup p) r
       deriving Typeable
 
-instance (Show (ChildId p)) => Show (Pdu (Sup p) ('Synchronous r)) where
+instance (Typeable p, Show (ChildId p)) => Show (Pdu (Sup p) r) where
   showsPrec d (StartC c) = showParen (d >= 10) (showString "StartC " . showsPrec 10 c)
   showsPrec d (StopC c t) = showParen (d >= 10) (showString "StopC " . showsPrec 10 c . showChar ' ' . showsPrec 10 t)
   showsPrec d (LookupC c) = showParen (d >= 10) (showString "LookupC " . showsPrec 10 c)
   showsPrec _ GetDiagnosticInfo = showString "GetDiagnosticInfo"
+  showsPrec d (ChildEventObserverRegistry c) = showParen (d >= 10) (showString "ChildEventObserverRegistry " . showsPrec 10 c)
 
-instance (NFData (ChildId p)) => NFData (Pdu (Sup p) ('Synchronous r)) where
+instance (NFData (ChildId p)) => NFData (Pdu (Sup p) r) where
   rnf (StartC ci) = rnf ci
   rnf (StopC ci t) = rnf ci `seq` rnf t
   rnf (LookupC ci) = rnf ci
   rnf GetDiagnosticInfo = ()
+  rnf (ChildEventObserverRegistry x) = rnf x
+
+instance Typeable p => HasPduPrism (Sup p) (ObserverRegistry (ChildEvent p)) where
+ embedPdu = ChildEventObserverRegistry
+ fromPdu (ChildEventObserverRegistry x) = Just x
+ fromPdu _ = Nothing
 
 type instance ToPretty (Sup p) = "supervisor" <:> ToPretty p
+
+-- | The event type to indicate that a child was started or stopped.
+--
+-- The need for this type originated for the watchdog functionality introduced
+-- in 0.29.3.
+-- The watch dog shall restart a crashed child, and in order to do so, it
+-- must somehow monitor the child.
+-- Since no order is specified in which processes get the 'ProcessDown' events,
+-- a watchdog cannot monitor a child and restart it immediately, because it might
+-- have received the process down event before the supervisor.
+-- So instead the watchdog can simply use the supervisor events, and monitor only the
+-- supervisor process.
+--
+-- @since 0.29.3
+data ChildEvent p where
+  OnChildSpawned :: ChildId p -> Endpoint (Effectful.ServerPdu p) -> ChildEvent p
+  OnChildDown :: ChildId p -> Endpoint (Effectful.ServerPdu p) -> Interrupt 'NoRecovery -> ChildEvent p
+  deriving (Typeable, Generic)
+
+instance (NFData (ChildId p)) => NFData (ChildEvent p)
+
+instance (Typeable (Effectful.ServerPdu p), Show (ChildId p)) => Show (ChildEvent p) where
+  showsPrec d x =
+    case x of
+     OnChildSpawned i e ->
+        showParen (d >= 10)
+          (showString "child-spawned: " . shows i . showChar ' ' . shows e)
+     OnChildDown i e r ->
+        showParen (d >= 10)
+          (showString "child-down: " . shows i . showChar ' ' . shows e . showChar ' ' . showsPrec 10 r)
 
 -- | The type of value used to index running 'Server' processes managed by a 'Sup'.
 --
@@ -293,6 +353,8 @@ type instance ToPretty (Sup p) = "supervisor" <:> ToPretty p
 --
 -- @since 0.24.0
 type family ChildId p
+
+type instance ChildId (Stateful.Stateful p) = ChildId p
 
 -- | Constraints on the parameters to 'Sup'.
 --
@@ -321,7 +383,7 @@ instance
   -- * the 'Timeout' after requesting a normal child exit before brutally killing the child.
   --
   -- @since 0.24.0
-  data StartArgument (Sup p) (Processes q) = MkSupConfig
+  data instance StartArgument (Sup p) (Processes q) = MkSupConfig
     {
       -- , supConfigChildRestartPolicy :: ChildRestartPolicy
       -- , supConfigResilience :: Resilience
@@ -329,41 +391,59 @@ instance
     , supConfigStartFun :: ChildId p -> Effectful.Init p (Processes q)
     }
 
-  type Model (Sup p) = Children (ChildId p) p
+  data instance Model (Sup p) =
+    SupModel { _children :: Children (ChildId p) p
+             , _childEventObserver :: ObserverRegistry (ChildEvent p)
+             }
+      deriving Typeable
 
-  setup _ _cfg = pure (def, ())
+  setup _ _cfg = pure (SupModel def emptyObserverRegistry, ())
+  update _ _supConfig (Stateful.OnCast req) =
+    case  req of
+      ChildEventObserverRegistry x ->
+        Stateful.zoomModel @(Sup p) childEventObserverLens (observerRegistryHandlePdu x)
+
   update _ supConfig (Stateful.OnCall rt req) =
     case req of
-      GetDiagnosticInfo ->  do
+      ChildEventObserverRegistry x ->
+        logEmergency ("unreachable: " <> pack (show x))
+
+      GetDiagnosticInfo -> zoomToChildren @p $ do
         p <- (pack . show <$> getChildren @(ChildId p) @p)
         sendReply rt p
 
-      LookupC i -> do
+      LookupC i -> zoomToChildren @p $ do
         p <- fmap _childEndpoint <$> lookupChildById @(ChildId p) @p i
         sendReply rt p
 
-      StopC i t -> do
+      StopC i t -> zoomToChildren @p $ do
         mExisting <- lookupAndRemoveChildById @(ChildId p) @p i
         case mExisting of
           Nothing -> sendReply rt False
           Just existingChild -> do
-            stopOrKillChild i existingChild t
+            reason <- stopOrKillChild i existingChild t
             sendReply rt True
+            Stateful.zoomModel @(Sup p)
+              childEventObserverLens
+              (observerRegistryNotify @(ChildEvent p) (OnChildDown i (existingChild^.childEndpoint) reason))
 
       StartC i -> do
-        mExisting <- lookupChildById @(ChildId p) @p i
+        mExisting <- zoomToChildren @p $ lookupChildById @(ChildId p) @p i
         case mExisting of
           Nothing -> do
             childEp <- raise (raise (Effectful.start (supConfigStartFun supConfig i)))
             let childPid = _fromEndpoint childEp
             cMon <- monitor childPid
-            putChild i (MkChild @p childEp cMon)
+            zoomToChildren @p $ putChild i (MkChild @p childEp cMon)
             sendReply rt (Right childEp)
+            Stateful.zoomModel @(Sup p)
+              childEventObserverLens
+              (observerRegistryNotify @(ChildEvent p) (OnChildSpawned i childEp))
           Just existingChild ->
             sendReply rt (Left (AlreadyStarted i (existingChild ^. childEndpoint)))
 
   update _ _supConfig (Stateful.OnDown pd) = do
-      oldEntry <- lookupAndRemoveChildByMonitor @(ChildId p) @p (downReference pd)
+      oldEntry <- zoomToChildren @p $ lookupAndRemoveChildByMonitor @(ChildId p) @p (downReference pd)
       case oldEntry of
         Nothing -> logWarning ("unexpected: " <> pack (show pd))
         Just (i, c) -> do
@@ -373,7 +453,10 @@ instance
                   <> " => "
                   <> pack (show (_childEndpoint c))
                   )
-  update _ supConfig (Stateful.OnInterrupt e) = do
+          Stateful.zoomModel @(Sup p)
+              childEventObserverLens
+              (observerRegistryNotify @(ChildEvent p) (OnChildDown i (c^.childEndpoint) (downReason pd)))
+  update _ supConfig (Stateful.OnInterrupt e) = zoomToChildren @p $ do
       let (logSev, exitReason) =
             case e of
               NormalExitRequested ->
@@ -386,6 +469,18 @@ instance
 
   update _ _supConfig o = logWarning ("unexpected: " <> pack (show o))
 
+
+zoomToChildren :: forall p c e
+  . Member (Stateful.ModelState (Sup p)) e
+  => Eff (State (Children (ChildId p) p) ': e) c
+  -> Eff e c
+zoomToChildren = Stateful.zoomModel @(Sup p) childrenLens
+
+childrenLens :: Lens' (Stateful.Model (Sup p)) (Children (ChildId p) p)
+childrenLens = lens _children (\(SupModel _ o) c -> SupModel c o)
+
+childEventObserverLens :: Lens' (Stateful.Model (Sup p)) (ObserverRegistry (ChildEvent p))
+childEventObserverLens = lens _childEventObserver (\(SupModel o _) c -> SupModel o c)
 
 -- | Runtime-Errors occurring when spawning child-processes.
 --
@@ -415,7 +510,7 @@ stopOrKillChild
   => ChildId p
   -> Child p
   -> Timeout
-  -> Eff e ()
+  -> Eff e (Interrupt 'NoRecovery)
 stopOrKillChild cId c stopTimeout =
       do
         sup <- asEndpoint @(Sup p) <$> self
@@ -428,14 +523,14 @@ stopOrKillChild cId c stopTimeout =
         case r1 of
           Left timerElapsed -> do
             logWarning (pack (show timerElapsed) <> ": child "<> pack (show cId) <>" => " <> pack(show (c^.childEndpoint)) <>" did not shutdown in time")
-            sendShutdown
-              (_fromEndpoint (c^.childEndpoint))
-              (interruptToExit
-                (TimeoutInterrupt
-                  ("child did not shut down in time and was terminated by the "
-                    ++ show sup)))
-          Right downMsg ->
+            let reason = interruptToExit (TimeoutInterrupt
+                                           ("child did not shut down in time and was terminated by the "
+                                             ++ show sup))
+            sendShutdown (_fromEndpoint (c^.childEndpoint)) reason
+            return reason
+          Right downMsg -> do
             logInfo ("child "<> pack (show cId) <>" => " <> pack(show (c^.childEndpoint)) <>" terminated: " <> pack (show (downReason downMsg)))
+            return (downReason downMsg)
 
 stopAllChildren
   :: forall p e q0 .
@@ -451,7 +546,7 @@ stopAllChildren
   => Timeout -> Eff e ()
 stopAllChildren stopTimeout = removeAllChildren @(ChildId p) @p >>= pure . Map.assocs >>= traverse_ xxx
   where
-    xxx (cId, c) = provideInterrupts (stopOrKillChild cId c stopTimeout) >>= either crash return
+    xxx (cId, c) = provideInterrupts (void (stopOrKillChild cId c stopTimeout)) >>= either crash return
       where
         crash e = do
           logError (pack (show e) <> " while stopping child: " <> pack (show cId) <> " " <> pack (show c))

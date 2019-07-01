@@ -513,15 +513,17 @@ instance Show ExitRecovery where
 
 -- | Get the 'ExitRecovery'
 toExitRecovery :: Interrupt r -> ExitRecovery
-toExitRecovery = \case
-  NormalExitRequested           -> Recoverable
-  (OtherProcessNotRunning    _)  -> Recoverable
-  (TimeoutInterrupt       _)  -> Recoverable
-  (LinkedProcessCrashed _)  -> Recoverable
-  (ErrorInterrupt         _)  -> Recoverable
-  ExitNormally              -> NoRecovery
-  (ExitUnhandledError _) -> NoRecovery
-  ExitProcessCancelled                    -> NoRecovery
+toExitRecovery =
+  \case
+    NormalExitRequested -> Recoverable
+    (OtherProcessNotRunning _) -> Recoverable
+    (TimeoutInterrupt _) -> Recoverable
+    (LinkedProcessCrashed _) -> Recoverable
+    (ErrorInterrupt _) -> Recoverable
+    ExitNormally -> NoRecovery
+    (ExitUnhandledError _) -> NoRecovery
+    ExitProcessCancelled -> NoRecovery
+    (ExitOtherProcessNotRunning _) -> NoRecovery
 
 -- | This value indicates whether a process exited in way consistent with
 -- the planned behaviour or not.
@@ -584,6 +586,9 @@ data Interrupt (t :: ExitRecovery) where
     -- | A process shall exit immediately, without any cleanup was cancelled (e.g. killed, in 'Async.cancel')
     ExitProcessCancelled
       :: Interrupt 'NoRecovery
+    -- | A process that is vital to the crashed process was not running
+    ExitOtherProcessNotRunning
+      :: ProcessId -> Interrupt 'NoRecovery
   deriving Typeable
 
 -- | Return either 'ExitNormally' or 'interruptToExit' from a 'Recoverable' 'Interrupt';
@@ -607,20 +612,22 @@ instance Show (Interrupt x) where
           ExitUnhandledError w ->
             showString "exit: Unhandled " . showString (unpack w)
           ExitProcessCancelled -> showString "exit: The process was cancelled"
+          ExitOtherProcessNotRunning p    -> showString "exit: Another process is not running: " . showsPrec 10 p
         )
 
 instance Exc.Exception (Interrupt 'Recoverable)
 instance Exc.Exception (Interrupt 'NoRecovery )
 
 instance NFData (Interrupt x) where
-  rnf NormalExitRequested               = rnf ()
-  rnf (OtherProcessNotRunning    !l)     = rnf l
+  rnf NormalExitRequested             = rnf ()
+  rnf (OtherProcessNotRunning    !l)  = rnf l
   rnf (TimeoutInterrupt       !l)     = rnf l
-  rnf (LinkedProcessCrashed !l)     = rnf l
+  rnf (LinkedProcessCrashed !l)       = rnf l
   rnf (ErrorInterrupt         !l)     = rnf l
-  rnf ExitNormally                  = rnf ()
-  rnf (ExitUnhandledError !l) = rnf l
-  rnf ExitProcessCancelled                        = rnf ()
+  rnf ExitNormally                    = rnf ()
+  rnf (ExitUnhandledError !l)         = rnf l
+  rnf ExitProcessCancelled            = rnf ()
+  rnf (ExitOtherProcessNotRunning !l) = rnf l
 
 instance Ord (Interrupt x) where
   compare NormalExitRequested          NormalExitRequested         = EQ
@@ -642,30 +649,35 @@ instance Ord (Interrupt x) where
   compare (ExitUnhandledError l) (ExitUnhandledError r)            = compare l r
   compare (ExitUnhandledError _ ) _                                = LT
   compare _                         (ExitUnhandledError _)         = GT
+  compare (ExitOtherProcessNotRunning _ ) _                        = LT
+  compare _                         (ExitOtherProcessNotRunning _) = GT
   compare ExitProcessCancelled  ExitProcessCancelled               = EQ
 
 instance Eq (Interrupt x) where
-  (==) NormalExitRequested          NormalExitRequested          = True
-  (==) (OtherProcessNotRunning l)    (OtherProcessNotRunning r)    = (==) l r
-  (==) ExitNormally             ExitNormally             = True
-  (==) (TimeoutInterrupt l)       (TimeoutInterrupt r)       = l == r
+  (==) NormalExitRequested NormalExitRequested = True
+  (==) (OtherProcessNotRunning l) (OtherProcessNotRunning r) = (==) l r
+  (==) ExitNormally ExitNormally = True
+  (==) (TimeoutInterrupt l) (TimeoutInterrupt r) = l == r
   (==) (LinkedProcessCrashed l) (LinkedProcessCrashed r) = l == r
-  (==) (ErrorInterrupt         l) (ErrorInterrupt         r) = (==) l r
+  (==) (ErrorInterrupt l) (ErrorInterrupt r) = (==) l r
   (==) (ExitUnhandledError l) (ExitUnhandledError r) = (==) l r
+  (==) (ExitOtherProcessNotRunning l) (ExitOtherProcessNotRunning r) = (==) l r
   (==) ExitProcessCancelled ExitProcessCancelled = True
-  (==) _      _      = False
+  (==) _ _ = False
 
 -- | A predicate for linked process __crashes__.
 isProcessDownInterrupt :: Maybe ProcessId -> Interrupt r -> Bool
-isProcessDownInterrupt mOtherProcess = \case
-  NormalExitRequested         -> False
-  OtherProcessNotRunning    _  -> False
-  TimeoutInterrupt       _  -> False
-  LinkedProcessCrashed p  -> maybe True (== p) mOtherProcess
-  ErrorInterrupt         _  -> False
-  ExitNormally            -> False
-  ExitUnhandledError _ -> False
-  ExitProcessCancelled -> False
+isProcessDownInterrupt mOtherProcess =
+  \case
+    NormalExitRequested -> False
+    OtherProcessNotRunning _ -> False
+    TimeoutInterrupt _ -> False
+    LinkedProcessCrashed p -> maybe True (== p) mOtherProcess
+    ErrorInterrupt _ -> False
+    ExitNormally -> False
+    ExitUnhandledError _ -> False
+    ExitProcessCancelled -> False
+    ExitOtherProcessNotRunning _ -> False
 
 -- | 'Interrupt's which are 'Recoverable'.
 type RecoverableInterrupt = Interrupt 'Recoverable
@@ -801,17 +813,18 @@ instance NFData SomeExitReason where
 
 -- | Partition a 'SomeExitReason' back into either a 'NoRecovery'
 -- or a 'Recoverable' 'Interrupt'
-fromSomeExitReason
-  :: SomeExitReason -> Either (Interrupt 'NoRecovery) (Interrupt 'Recoverable)
-fromSomeExitReason (SomeExitReason e) = case e of
-  recoverable@NormalExitRequested          -> Right recoverable
-  recoverable@(OtherProcessNotRunning    _) -> Right recoverable
-  recoverable@(TimeoutInterrupt       _) -> Right recoverable
-  recoverable@(LinkedProcessCrashed _) -> Right recoverable
-  recoverable@(ErrorInterrupt         _) -> Right recoverable
-  noRecovery@ExitNormally              -> Left noRecovery
-  noRecovery@(ExitUnhandledError _) -> Left noRecovery
-  noRecovery@ExitProcessCancelled -> Left noRecovery
+fromSomeExitReason :: SomeExitReason -> Either (Interrupt 'NoRecovery) (Interrupt 'Recoverable)
+fromSomeExitReason (SomeExitReason e) =
+  case e of
+    recoverable@NormalExitRequested -> Right recoverable
+    recoverable@(OtherProcessNotRunning _) -> Right recoverable
+    recoverable@(TimeoutInterrupt _) -> Right recoverable
+    recoverable@(LinkedProcessCrashed _) -> Right recoverable
+    recoverable@(ErrorInterrupt _) -> Right recoverable
+    noRecovery@ExitNormally -> Left noRecovery
+    noRecovery@(ExitUnhandledError _) -> Left noRecovery
+    noRecovery@ExitProcessCancelled -> Left noRecovery
+    noRecovery@(ExitOtherProcessNotRunning _) -> Left noRecovery
 
 -- | Print a 'Interrupt' to 'Just' a formatted 'String' when 'isCrash'
 -- is 'True'.
@@ -1210,7 +1223,7 @@ receiveWithMonitor pid sel = withMonitor
 data ProcessDown =
   ProcessDown
     { downReference :: !MonitorReference
-    , downReason    :: !SomeExitReason
+    , downReason    :: !(Interrupt 'NoRecovery)
     , downProcess   :: !ProcessId
     }
   deriving (Typeable, Generic, Eq, Ord)

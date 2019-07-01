@@ -4,18 +4,11 @@ module ObserverTests
   ) where
 
 import Common
-import Control.DeepSeq
-import Control.Eff
-import Control.Eff.Concurrent
 import qualified Control.Eff.Concurrent.Protocol.EffectfulServer as S
 import qualified Control.Eff.Concurrent.Protocol.Observer.Queue as OQ
 import qualified Control.Eff.Concurrent.Protocol.StatefulServer as M
 import Control.Lens
-import Control.Monad
-import Data.Text as T
 import Data.Typeable (Typeable)
-import Test.Tasty
-import Test.Tasty.HUnit
 
 
 test_observer :: HasCallStack => TestTree
@@ -333,13 +326,12 @@ instance HasPduPrism TestObserver (Observer String) where
 
 instance (LogIo r, HasProcesses r q) => M.Server TestObserver r where
   data StartArgument TestObserver r = MkTestObserver
-  type Model TestObserver = [String]
-  setup _ MkTestObserver = pure ([], ())
+  newtype instance Model TestObserver = TestObserverModel {fromTestObserverModel :: [String]} deriving Default
   update _ MkTestObserver e =
     case e of
       M.OnCall rt GetCapturedEvents ->
-        M.getAndPutModel @TestObserver [] >>= sendReply rt
+        M.getAndPutModel (TestObserverModel []) >>= sendReply rt . fromTestObserverModel
       M.OnCast (OnTestEvent (Observed x)) ->
-        M.modifyModel @TestObserver (++ [x])
+        M.modifyModel (\ (TestObserverModel o) -> TestObserverModel (o ++ [x]))
       _ ->
         logError ("unexpected: " <> pack (show e))

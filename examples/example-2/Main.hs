@@ -13,6 +13,7 @@ import           Control.Concurrent
 import           Control.DeepSeq
 import qualified Data.Text as T
 import           Data.Type.Pretty
+import           Data.Default
 
 main :: IO ()
 main = defaultMain (void counterExample)
@@ -90,7 +91,7 @@ type instance ToPretty (Counter, ObserverRegistry CounterChanged, SupiDupi) = Pu
 
 instance (LogIo q) => Server SupiCounter (Processes q) where
 
-  type instance Model SupiCounter =
+  newtype instance Model SupiCounter = SupiCounterModel
     ( Integer
     , ObserverRegistry CounterChanged
     , Maybe (ReplyTarget SupiCounter (Maybe ()))
@@ -98,36 +99,54 @@ instance (LogIo q) => Server SupiCounter (Processes q) where
 
   data instance StartArgument SupiCounter (Processes q) = MkEmptySupiCounter
 
-  setup _ _ = return ((0, emptyObserverRegistry, Nothing), ())
+  setup _ _ = return (SupiCounterModel (0, emptyObserverRegistry, Nothing), ())
 
   update _ _ = \case
     OnCall rt callReq ->
       case callReq of
         ToPdu1 Cnt ->
-          sendReply rt =<< useModel @SupiCounter _1
+          sendReply rt =<< useModel supiCounter
         ToPdu2 _ -> error "unreachable"
         ToPdu3 (Whoopediedoo c) ->
-          modifyModel @SupiCounter (_3 .~ if c then Just rt else Nothing)
+          modifyModel @SupiCounter (supiTarget .~ if c then Just rt else Nothing)
 
     OnCast castReq ->
       case castReq of
         ToPdu1 Inc -> do
-          val' <- view _1 <$> modifyAndGetModel @SupiCounter (_1 %~ (+ 1))
-          zoomModel @SupiCounter _2 (observerRegistryNotify (CounterChanged val'))
+          val' <- view supiCounter <$> modifyAndGetModel (supiCounter %~ (+ 1))
+          zoomModel supiRegistry (observerRegistryNotify (CounterChanged val'))
           when (val' > 5) $
-            getAndModifyModel @SupiCounter (_3 .~ Nothing)
-            >>= traverse_ (\rt' -> sendReply rt' (Just ())) . view _3
+            getAndModifyModel  (supiTarget .~ Nothing)
+            >>= traverse_ (\rt' -> sendReply rt' (Just ())) . view supiTarget
         ToPdu2 x ->
-          zoomModel @SupiCounter _2 (observerRegistryHandlePdu x)
+          zoomModel supiRegistry (observerRegistryHandlePdu x)
         ToPdu3 _ -> error "unreachable"
 
     OnDown pd -> do
-      wasRemoved <- zoomModel @SupiCounter _2 (observerRegistryRemoveProcess @CounterChanged (downProcess pd))
+      wasRemoved <- zoomModel supiRegistry (observerRegistryRemoveProcess @CounterChanged (downProcess pd))
       if wasRemoved
         then logDebug ("removed: "    <> T.pack (show pd))
         else logError ("unexpected: " <> T.pack (show pd))
 
     other -> logWarning (T.pack (show other))
+
+supiCounter :: Lens' (Model SupiCounter) Integer
+supiCounter =
+  lens
+    (\(SupiCounterModel (x,_,_)) -> x)
+    (\(SupiCounterModel (_,y,z)) x -> SupiCounterModel (x,y,z))
+
+supiRegistry :: Lens' (Model SupiCounter) (ObserverRegistry CounterChanged)
+supiRegistry =
+  lens
+    (\(SupiCounterModel (_,y,_)) -> y)
+    (\(SupiCounterModel (x,_,z)) y -> SupiCounterModel (x,y,z))
+
+supiTarget :: Lens' (Model SupiCounter) (Maybe (ReplyTarget SupiCounter (Maybe ())))
+supiTarget =
+  lens
+    (\(SupiCounterModel (_,_,z)) -> z)
+    (\(SupiCounterModel (x,y,_)) z -> SupiCounterModel (x,y,z))
 
 spawnCounter :: (LogIo q) => Eff (Processes q) ( Endpoint SupiCounter )
 spawnCounter = start MkEmptySupiCounter
@@ -142,6 +161,7 @@ logCounterObservations = start OCCStart
 
 instance Member Logs q => Server (Observer CounterChanged) (Processes q) where
   data instance StartArgument (Observer CounterChanged) (Processes q) = OCCStart
+  newtype instance Model (Observer CounterChanged) = CounterChangedModel () deriving Default
   update _ _ e =
     case e of
       OnCast (Observed msg) -> logInfo' ("observerRegistryNotify: " ++ show msg)

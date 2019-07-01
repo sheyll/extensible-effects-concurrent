@@ -162,7 +162,7 @@ import           Control.Eff.Concurrent.Process
                                                 , receiverPid
                                                 )
 import           Control.Eff.Concurrent.Process.Timer
-                                                ( Timeout(fromTimeoutMicros)
+                                                ( Timeout(TimeoutMicros, fromTimeoutMicros)
                                                 , TimerReference()
                                                 , TimerElapsed(fromTimerElapsed)
                                                 , sendAfter

@@ -4,17 +4,10 @@ module GenServerTests
   ) where
 
 import Common
-import Control.DeepSeq
-import Control.Eff
-import Control.Eff.Concurrent
 import Control.Eff.Concurrent.Protocol.Supervisor as Sup
 import qualified Control.Eff.Concurrent.Protocol.EffectfulServer as E
 import qualified Control.Eff.Concurrent.Protocol.StatefulServer as S
-import Data.Text as T
-import Data.Type.Pretty
 import Data.Typeable (Typeable)
-import Test.Tasty
-import Test.Tasty.HUnit
 
 -- ------------------------------
 
@@ -41,11 +34,12 @@ instance Show (Pdu Small r) where
 
 instance LogIo e => S.Server Small (Processes e) where
   data StartArgument Small (Processes e) = MkSmall
-  type Model Small = String
+  newtype instance Model Small = SmallModel String deriving Default
   update _me MkSmall x =
     case x of
       E.OnCall rt (SmallCall f) ->
-       sendReply rt f
+       do S.modifyModel (\(SmallModel y) -> SmallModel (y ++ ", " ++ show f))
+          sendReply rt f
       E.OnCast msg ->
        logInfo' (show msg)
       other ->
@@ -84,20 +78,26 @@ instance HasPduPrism Big Small where
 
 instance LogIo e => S.Server Big (Processes e) where
   data instance StartArgument Big (Processes e) = MkBig
-  type Model Big = String
+  newtype Model Big = BigModel String deriving Default
   update me MkBig = \case
     E.OnCall rt req ->
           case req of
             BigCall o -> do
               logNotice ("BigCall " <> pack (show o))
               sendReply rt o
-            BigSmall x -> S.update (toEmbeddedEndpoint me) MkSmall (S.OnCall (toEmbeddedReplyTarget rt) x)
+            BigSmall x ->
+               S.coerceEffects
+                  (S.update
+                    (toEmbeddedEndpoint me)
+                    MkSmall
+                    (S.OnCall (toEmbeddedReplyTarget rt) x))
     E.OnCast req ->
         case req of
-          BigCast o -> S.putModel @Big o
-          BigSmall x -> S.update (toEmbeddedEndpoint me) MkSmall (S.OnCast x)
+          BigCast o -> S.putModel (BigModel o)
+          BigSmall x -> S.coerceEffects (S.update (toEmbeddedEndpoint me) MkSmall (S.OnCast x))
     other ->
       interrupt (ErrorInterrupt (show other))
+
 -- ----------------------------------------------------------------------------
 
 test_genServer :: HasCallStack => TestTree

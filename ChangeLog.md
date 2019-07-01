@@ -1,5 +1,20 @@
 # Changelog for extensible-effects-concurrent
 
+## 0.29.3
+- Improve inline code documentation
+- [Supervisor](././src/Control/Eff/Concurrent/Protocol/Supervisor.hs) 
+    - Add a the [Watchdog](./src/Control/Eff/Concurrent/Protocol/Watchdog.hs) module to restart crashing `Supervisor` children 
+    - Add `ChildEvent`  
+    - Add a supervisor+watchdog example to the [README.md](./README.md)
+- [Process](./src/Control/Eff/Concurrent/Process.hs)
+    - Introduce a new `Interrupt NoRecovery` clause: `ExitOtherProcessNotRunning`
+    - Change the second parameter of `ProcessDown` from `SomeExitReason` to `Interrupt NoRecovery`
+- [StatefulServer](./src/Control/Eff/Concurrent/Protocol/StatefulServer.hs)
+    - _Upgrade_ the associated **type alias** `Model`  to an associated **type**.
+    - Add `mapEffects` 
+    - Add `coerceEffects`        
+- Export the `TimeoutMicros` constructor
+      
 ## 0.29.2
 - Improve `Supervisor` API: Use `Init` from the effectful server as start
   argument type.

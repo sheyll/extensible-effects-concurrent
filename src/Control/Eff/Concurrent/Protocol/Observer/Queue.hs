@@ -26,6 +26,7 @@ import           Control.Monad                  ( unless, when )
 import qualified Data.Text                     as T
 import           Data.Typeable
 import           GHC.Stack
+import Data.Default (Default)
 
 -- | Contains a 'TBQueue' capturing observations.
 -- See 'observe'.
@@ -222,6 +223,8 @@ instance (Typeable event, Lifted IO q, Member Logs q) => Server (ObservationQueu
 
   data instance StartArgument (ObservationQueue event) (Processes q) =
      MkObservationQueue (ObservationQueue event)
+
+  newtype instance Model (ObservationQueue event) = MkObservationQueueModel () deriving Default
 
   update _ (MkObservationQueue (ObservationQueue q)) =
     \case
