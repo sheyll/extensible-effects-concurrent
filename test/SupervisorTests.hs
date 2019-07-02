@@ -223,7 +223,7 @@ test_Supervisor =
                              lift (assertEqual "lookup should not find a child" Nothing x)
                          , runTestCase "When a child is shutdown from another process and dies, lookupChild will not find it" $ do
                              (sup, c, cm) <- startTestSupAndChild
-                             sendShutdown (_fromEndpoint c) ExitProcessCancelled
+                             self >>= sendShutdown (_fromEndpoint c) . ExitProcessCancelled . Just
                              (ProcessDown _ _ _) <- receiveSelectedMessage (selectProcessDown cm)
                              x <- Sup.lookupChild sup i
                              lift (assertEqual "lookup should not find a child" Nothing x)
@@ -294,8 +294,8 @@ test_Supervisor =
                     , runTestCase "when the supervisor stops, an OnSupervisorShuttingDown is emitted before any child is stopped" $ do
                          sup <- startTestSup
                          unlinkProcess (sup ^. fromEndpoint)
-                         Sup.spawnChild @(Stateful.Stateful TestProtocol) sup i
-                          >>= either (lift . assertFailure . show) pure
+                         void (Sup.spawnChild @(Stateful.Stateful TestProtocol) sup i
+                                >>= either (lift . assertFailure . show) pure)
                          OQ.observe @(Sup.ChildEvent (Stateful.Stateful TestProtocol)) (1000 :: Int) sup $ do
                            Sup.stopSupervisor sup
                            OQ.await @(Sup.ChildEvent (Stateful.Stateful TestProtocol))

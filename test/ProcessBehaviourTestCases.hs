@@ -28,7 +28,7 @@ test_forkIo = setTravisTestOptions $ withTestLogC
   (\c ->
     runLift
       $ withLogging
-          (filteringLogWriter (lmSeverityIsAtLeast errorSeverity)
+          (filteringLogWriter (lmSeverityIsAtLeast debugSeverity)
                               consoleLogWriter
           )
       $ withAsyncLogWriter (100 :: Int)
@@ -790,7 +790,7 @@ linkingTests schedulerFactory = setTravisTestOptions
           (lift . (@?= LinkedProcessCrashed foo))
           (do
             linkProcess foo
-            sendShutdown foo ExitProcessCancelled
+            self >>= sendShutdown foo . ExitProcessCancelled . Just
             void (receiveMessage @Void)
           )
     , testCase "link multiple times"
@@ -807,7 +807,7 @@ linkingTests schedulerFactory = setTravisTestOptions
             linkProcess foo
             linkProcess foo
             linkProcess foo
-            sendShutdown foo ExitProcessCancelled
+            self >>= sendShutdown foo . ExitProcessCancelled . Just
             void (receiveMessage @Void)
           )
     , testCase "unlink multiple times"
@@ -826,7 +826,7 @@ linkingTests schedulerFactory = setTravisTestOptions
             unlinkProcess foo
             unlinkProcess foo
             withMonitor foo $ \ref -> do
-              sendShutdown foo ExitProcessCancelled
+              self >>= sendShutdown foo . ExitProcessCancelled . Just
               void (receiveSelectedMessage (selectProcessDown ref))
           )
     , testCase "spawnLink" $ applySchedulerFactory schedulerFactory $ do
@@ -835,7 +835,7 @@ linkingTests schedulerFactory = setTravisTestOptions
           (\er -> lift (isProcessDownInterrupt Nothing er @? show er))
         $ do
             x <- spawnLink "foo" foo
-            sendShutdown x ExitProcessCancelled
+            self >>= sendShutdown x . ExitProcessCancelled . Just
             void (receiveMessage @Void)
     , testCase "spawnLink and child exits by returning from spawn"
     $ applySchedulerFactory schedulerFactory
@@ -894,26 +894,31 @@ linkingTests schedulerFactory = setTravisTestOptions
               logNotice "linker"
               foreverCheap $ do
                 x <- receiveMessage
-                linkProcess x
-                sendMessage mainProc True
+                case x of
+                  Right p -> do
+                    linkProcess p
+                    sendMessage mainProc True
+                  Left e ->
+                    exitBecause e
         linker <- spawnLink "link-server" linkingServer
         logNotice "mainProc"
         do
           x <- spawnLink "x1" (logNotice "x 1" >> void (receiveMessage @Void))
           withMonitor x $ \xRef -> do
-            sendMessage linker x
+            sendMessage linker (Right x :: Either (Interrupt 'NoRecovery) ProcessId)
             void $ receiveSelectedMessage (filterMessage id)
             sendShutdown x ExitNormally
             void (receiveSelectedMessage (selectProcessDown xRef))
         do
           x <- spawnLink "x2" (logNotice "x 2" >> void (receiveMessage @Void))
           withMonitor x $ \xRef -> do
-            sendMessage linker x
+            sendMessage linker (Right x :: Either (Interrupt 'NoRecovery) ProcessId)
             void $ receiveSelectedMessage (filterMessage id)
             sendShutdown x ExitNormally
             void (receiveSelectedMessage (selectProcessDown xRef))
         handleInterrupts (lift . (LinkedProcessCrashed linker @=?)) $ do
-          sendShutdown linker ExitProcessCancelled
+          me <- self
+          sendMessage linker (Left (ExitProcessCancelled (Just me)) :: Either (Interrupt 'NoRecovery) ProcessId)
           void (receiveMessage @Void)
     , testCase "unlink" $ applySchedulerFactory schedulerFactory $ do
       let
@@ -936,7 +941,7 @@ linkingTests schedulerFactory = setTravisTestOptions
             (const (return ()))
             (do
               linkProcess foo1Pid
-              sendShutdown foo1Pid ExitProcessCancelled
+              self >>= sendShutdown foo1Pid . ExitProcessCancelled . Just
               void (receiveMessage @Void)
             )
           handleInterrupts
@@ -997,19 +1002,16 @@ monitoringTests schedulerFactory = setTravisTestOptions
       "spawn, shutdown and monitor many times in a tight loop"
     $ applySchedulerFactory schedulerFactory
     $ do
-        tests <- replicateM 100 $ spawn "spawn, shutdown and monitor test" $ do
+        tests <- replicateM 60 $ spawn "spawn, shutdown and monitor test" $ do
           target <- spawn "target" (receiveMessage >>= exitBecause)
-          replicateM_ 100 $ spawn_ "monitor" $ do
+          replicateM_ 102 $ spawn_ "monitor" $ do
             ref <- monitor target
             logInfo ("monitoring now" <> pack (show ref))
             void $ receiveSelectedMessage (selectProcessDown ref)
           sendMessage target ExitNormally
           ref <- monitor target
           logInfo ("monitoring now" <> pack (show ref))
-          x <- receiveSelectedAfter (selectProcessDown ref) (TimeoutMicros 10_000_000)
-          case x of
-            Left _ -> lift (assertFailure "timeout receiving down messages")
-            Right _ -> return ()
+          void (receiveSelectedMessage (selectProcessDown ref))
         traverse_ awaitProcessDown tests
     , testCase "monitored process exit normally"
     $ applySchedulerFactory schedulerFactory
@@ -1044,9 +1046,10 @@ monitoringTests schedulerFactory = setTravisTestOptions
     $ do
         target <- spawn "reciever-exit-value" (receiveMessage >>= exitBecause)
         ref    <- monitor target
-        sendMessage target ExitProcessCancelled
+        self >>= sendMessage target . ExitProcessCancelled . Just
         pd <- receiveSelectedMessage (selectProcessDown ref)
-        lift (downReason pd @?= ExitProcessCancelled)
+        me <- self
+        lift (downReason pd @?= ExitProcessCancelled (Just me))
         lift (threadDelay 10000)
     , testCase "demonitored process killed"
     $ applySchedulerFactory schedulerFactory
@@ -1054,7 +1057,7 @@ monitoringTests schedulerFactory = setTravisTestOptions
         target <- spawn "reciever-exit-value" (receiveMessage >>= exitBecause)
         ref    <- monitor target
         demonitor ref
-        sendMessage target ExitProcessCancelled
+        self >>= sendMessage target . ExitProcessCancelled . Just
         me <- self
         spawn_ "wait-and-send" (lift (threadDelay 10000) >> sendMessage me ())
         pd <- receiveSelectedMessage

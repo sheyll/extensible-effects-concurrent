@@ -50,7 +50,6 @@ import           Data.Kind                      ( )
 import           Data.Map                       ( Map )
 import qualified Data.Map                      as Map
 import           Data.Maybe
-import           Data.Monoid                    ( Any(Any, getAny) )
 import           Data.Sequence                  ( Seq(..) )
 import qualified Data.Sequence                 as Seq
 import           Data.Set                       ( Set )
@@ -148,6 +147,9 @@ addMonitoring monitorRef@(MonitorReference _ target) owner schedulerState =
         case Map.lookup target pt of
           Just targetProcessInfo ->
             do (_, targetState) <- readTVar (targetProcessInfo ^. processState)
+               check (   targetState == ProcessShuttingDown
+                      || targetState == ProcessBusyReceiving
+                      || targetState == ProcessIdle)
                if targetState /= ProcessShuttingDown then do
                 insertMonitoringReference >> pure 1
                else
@@ -499,8 +501,7 @@ handleProcess myProcessInfo actionToRun = fix
       setMyProcessState ProcessBusyMonitoring
       schedulerState <- getSchedulerState
       monitoringReference <- lift (atomically (nextMonitorReference target schedulerState))
-      logDebug ("created new: " <> T.pack (show monitoringReference))
-      lift (atomically (addMonitoring monitoringReference myPid schedulerState)) >>= logCritical . ("XXXXXXXXX: " <>) . T.pack . show
+      void $ lift (atomically (addMonitoring monitoringReference myPid schedulerState))
       return monitoringReference
     interpretDemonitor !ref = do
       setMyProcessState ProcessBusyMonitoring
@@ -658,12 +659,6 @@ spawnNewProcess mLinkedParent title mfa = do
     :: ProcessId -> Interrupt 'NoRecovery -> TVar (Set ProcessId) -> Eff BaseEffects ()
   triggerProcessLinksAndMonitors !pid !reason !linkSetVar = do
     schedulerState <- getSchedulerState
-    downMessageSendResults <- triggerAndRemoveMonitor pid reason
-    when (not (null downMessageSendResults)) $
-      logCritical
-        (  "failed to enqueue some monitor down messages: "
-        <> T.pack(show downMessageSendResults)
-        )
     let exitSeverity = toExitSeverity reason
         sendIt !linkedPid = do
           let msg = SomeExitReason (LinkedProcessCrashed pid)
@@ -688,6 +683,7 @@ spawnNewProcess mLinkedParent title mfa = do
                           else
                              return (Right (Right linkedPid))
                         else return (Left linkedPid)
+    downMessageSendResults <- lift . atomically $ triggerAndRemoveMonitor pid reason schedulerState
     linkedPids <- lift
       (atomically
         (do
@@ -698,14 +694,19 @@ spawnNewProcess mLinkedParent title mfa = do
       )
     res <- traverse sendIt (toList linkedPids)
     traverse_
-      (logDebug . either
-        (("linked process no found: " <>) . T.pack . show)
+      (either
+        (logNotice . ("linked process not found: " <>) . T.pack . show)
         (either
-              (("linked process crashed, interrupting linked process: " <>) . T.pack . show)
-              (("linked process exited peacefully, not sending shutdown to linked process: " <>) . T.pack . show)
+              (logWarning . ("process crashed, interrupting linked process: " <>) . T.pack . show)
+              (logDebug . ("linked process exited peacefully, not sending shutdown to linked process: " <>) . T.pack . show)
         )
       )
       res
+    when (not (null downMessageSendResults)) $
+      logWarning
+        (  "failed to enqueue monitor down messages for: "
+        <> T.pack(show downMessageSendResults)
+        )
   doForkProc
     :: ProcessInfo
     -> SchedulerState
@@ -750,13 +751,22 @@ spawnNewProcess mLinkedParent title mfa = do
     )
    where
     exitReasonFromException exc = case Safe.fromException exc of
-      Just Async.AsyncCancelled -> ExitProcessCancelled
+      Just Async.AsyncCancelled -> ExitProcessCancelled Nothing
       Nothing -> ExitUnhandledError (  "runtime exception: "
                                     <> T.pack (prettyCallStack callStack)
                                     <> " "
                                     <> T.pack (Safe.displayException exc)
                                     )
     logExitAndTriggerLinksAndMonitors reason pid = do
+      (_, currentState) <-
+        lift (atomically
+          (readTVar (procInfo ^. processState)
+            <* modifyTVar' (procInfo ^. processState) (_2 .~ ProcessShuttingDown)))
+      when (currentState /= ProcessShuttingDown)
+        (logNotice ("this process exited whithout process shutdown: "
+          <> T.pack (show currentState)
+          <> " because "
+          <> T.pack (show reason)))
       triggerProcessLinksAndMonitors pid reason (procInfo ^. processLinks)
       logProcessExit reason
       return reason
