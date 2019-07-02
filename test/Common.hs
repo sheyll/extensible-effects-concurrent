@@ -122,3 +122,18 @@ awaitProcessDown p = do
     <> pack (prettyCallStack callStack)
     )
   receiveSelectedMessage (selectProcessDown m)
+
+awaitProcessDownAny
+  :: (Member Logs r, HasCallStack, HasProcesses r q)
+  => Eff r ProcessDown
+awaitProcessDownAny = do
+  logInfo
+    (  "awaitProcessDownAny: "
+    <> pack (prettyCallStack callStack)
+    )
+  z <- receiveMessage
+  logInfo
+    (  "awaitProcessDownAny: "
+    <> pack (show z)
+    )
+  return z

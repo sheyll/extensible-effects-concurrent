@@ -122,6 +122,23 @@ basicTests =
             lift (["4", "5", "6"] @=? es1)
             cast testObservable StopTestObservable
             void $ awaitProcessDown (testObservable ^. fromEndpoint)
+  , runTestCase "evil observer monitoring"
+      $ do
+            testObservable <- S.startLink TestObservableServerInit
+            call testObservable (SendTestEvent "1")
+            call testObservable (SendTestEvent "2")
+            call testObservable (SendTestEvent "3")
+            testObserver1 <- M.startLink MkTestObserver
+            testObserver2 <- M.startLink MkTestObserver
+            registerObserver @String testObservable testObserver1
+            sendShutdown (testObserver2^.fromEndpoint) ExitNormally
+            void $ monitor (testObserver2^.fromEndpoint)
+            void $ awaitProcessDownAny
+            call testObservable (SendTestEvent "6")
+            es1 <- call testObserver1 GetCapturedEvents
+            lift (["6"] @=? es1)
+            cast testObservable StopTestObservable
+            void $ awaitProcessDown (testObservable ^. fromEndpoint)
   , runTestCase "when an observer registers multiple times, it still gets the messages only once"
       $ do
             testObservable <- S.startLink TestObservableServerInit

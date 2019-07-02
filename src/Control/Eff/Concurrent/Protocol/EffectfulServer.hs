@@ -125,14 +125,10 @@ protocolServerLoop
   => Init a (Processes q) -> Eff (Processes q) ()
 protocolServerLoop a = do
   myEp <- asEndpoint @(ServerPdu a) <$> self
-  let myEpTxt = T.pack . show $ myEp
-  -- censorLogs (lmAddEp myEpTxt) $ do
-  do
-    logDebug ("starting")
-    runEffects  myEp a (receiveSelectedLoop sel (mainLoop myEp))
-    return ()
+  logDebug ("starting")
+  runEffects  myEp a (receiveSelectedLoop sel (mainLoop myEp))
+  return ()
   where
-    lmAddEp myEp = lmProcessId ?~ myEp
     sel :: MessageSelector (Event (ServerPdu a))
     sel =  onRequest <$> selectMessage @(Request (ServerPdu a))
        <|> OnDown    <$> selectMessage @ProcessDown

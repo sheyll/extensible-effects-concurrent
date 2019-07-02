@@ -50,6 +50,7 @@ import           Data.Kind                      ( )
 import           Data.Map                       ( Map )
 import qualified Data.Map                      as Map
 import           Data.Maybe
+import           Data.Monoid                    ( Any(Any, getAny) )
 import           Data.Sequence                  ( Seq(..) )
 import qualified Data.Sequence                 as Seq
 import           Data.Set                       ( Set )
@@ -128,45 +129,70 @@ logSchedulerState s = do
   traverse_ logDebug pm
   logDebug $ "nextMonitorIndex: " <> nm
 
+-- | Allocate a new 'MonitorReference'
+nextMonitorReference :: ProcessId -> SchedulerState -> STM MonitorReference
+nextMonitorReference target schedulerState = do
+  aNewMonitorIndex <- readTVar (schedulerState ^. nextMonitorIndex)
+  modifyTVar' (schedulerState ^. nextMonitorIndex) (+ 1)
+  return (MonitorReference aNewMonitorIndex target)
+
 -- | Add monitor: If the process is dead, enqueue a 'ProcessDown' message into the
 -- owners message queue
 addMonitoring
-  :: HasCallStack => ProcessId -> ProcessId -> SchedulerState -> STM MonitorReference
-addMonitoring target owner schedulerState = do
-  aNewMonitorIndex <- readTVar (schedulerState ^. nextMonitorIndex)
-  modifyTVar' (schedulerState ^. nextMonitorIndex) (+ 1)
-  let monitorRef = MonitorReference aNewMonitorIndex target
-  when (target /= owner) $ do
-    pt <- readTVar (schedulerState ^. processTable)
-    if Map.member target pt
-      then modifyTVar' (schedulerState ^. processMonitors)
-                       (Set.insert (monitorRef, owner))
-      else
-        let processDownMessage =
-              ProcessDown monitorRef (ExitOtherProcessNotRunning target) target
-        in  enqueueMessageOtherProcess owner
-                                       (toStrictDynamic processDownMessage)
-                                       schedulerState
-  return monitorRef
+  :: HasCallStack => MonitorReference -> ProcessId -> SchedulerState -> STM Int
+addMonitoring monitorRef@(MonitorReference _ target) owner schedulerState =
+  if target == owner then pure 0
+    else
+      do
+        pt <- readTVar (schedulerState ^. processTable)
+        case Map.lookup target pt of
+          Just targetProcessInfo ->
+            do (_, targetState) <- readTVar (targetProcessInfo ^. processState)
+               if targetState /= ProcessShuttingDown then do
+                insertMonitoringReference >> pure 1
+               else
+                processAlreadyDead >> pure 2
+          Nothing ->
+            processAlreadyDead >> pure 3
 
-removeMonitoring :: HasCallStack => MonitorReference -> SchedulerState -> STM ()
+  where
+    insertMonitoringReference =
+      modifyTVar' (schedulerState ^. processMonitors)
+                  (Set.insert (monitorRef, owner))
+
+    processAlreadyDead = do
+      let processDownMessage =
+            ProcessDown monitorRef (ExitOtherProcessNotRunning target) target
+      wasEnqueued <- enqueueMessageOtherProcess owner
+                                     (toStrictDynamic processDownMessage)
+                                     schedulerState
+      check wasEnqueued
+
+triggerAndRemoveMonitor
+  :: ProcessId -> Interrupt 'NoRecovery -> SchedulerState -> STM [ProcessId]
+triggerAndRemoveMonitor downPid reason schedulerState = do
+  monRefs <- readTVar (schedulerState ^. processMonitors)
+  catMaybes <$> traverse go (toList monRefs)
+ where
+  go (mr, owner) = do
+    if monitoredProcess mr == downPid
+     then do
+        let processDownMessage = ProcessDown mr reason downPid
+        wasEnqueued <-
+          enqueueMessageOtherProcess
+            owner
+            (toStrictDynamic processDownMessage)
+            schedulerState
+        removeMonitoring mr schedulerState
+        pure $ if wasEnqueued then Nothing else Just owner
+     else
+      pure Nothing
+
+removeMonitoring :: MonitorReference -> SchedulerState -> STM ()
 removeMonitoring monitorRef schedulerState = modifyTVar'
   (schedulerState ^. processMonitors)
   (Set.filter (\(ref, _) -> ref /= monitorRef))
 
-triggerAndRemoveMonitor
-  :: ProcessId -> Interrupt 'NoRecovery -> SchedulerState -> STM ()
-triggerAndRemoveMonitor downPid reason schedulerState = do
-  monRefs <- readTVar (schedulerState ^. processMonitors)
-  traverse_ go monRefs
- where
-  go (mr, owner) = when
-    (monitoredProcess mr == downPid)
-    (do
-      let processDownMessage = ProcessDown mr reason downPid
-      enqueueMessageOtherProcess owner (toStrictDynamic processDownMessage) schedulerState
-      removeMonitoring mr schedulerState
-    )
 
 -- * Process Implementation
 instance Show ProcessInfo where
@@ -283,7 +309,7 @@ handleProcess
   -> Eff SafeEffects (Interrupt 'NoRecovery)
   -> Eff BaseEffects (Interrupt 'NoRecovery)
 handleProcess myProcessInfo actionToRun = fix
-  (handle_relay' singleStep (\er _nextRef -> return er))
+  (handle_relay' singleStep (\er _nextRef -> setMyProcessState ProcessShuttingDown >> return er))
   actionToRun
   0
  where
@@ -430,7 +456,7 @@ handleProcess myProcessInfo actionToRun = fix
     -> Eff BaseEffects a
   interpretRequest kontinue diskontinue nextRef = \case
     SendMessage toPid msg ->
-      interpretSend toPid msg >>= kontinue nextRef . ResumeWith
+      void (interpretSend toPid msg) >>= kontinue nextRef . ResumeWith
     SendInterrupt toPid msg -> if toPid == myPid
       then kontinue nextRef (Interrupted msg)
       else
@@ -472,7 +498,10 @@ handleProcess myProcessInfo actionToRun = fix
     interpretMonitor !target = do
       setMyProcessState ProcessBusyMonitoring
       schedulerState <- getSchedulerState
-      lift (atomically (addMonitoring target myPid schedulerState))
+      monitoringReference <- lift (atomically (nextMonitorReference target schedulerState))
+      logDebug ("created new: " <> T.pack (show monitoringReference))
+      lift (atomically (addMonitoring monitoringReference myPid schedulerState)) >>= logCritical . ("XXXXXXXXX: " <>) . T.pack . show
+      return monitoringReference
     interpretDemonitor !ref = do
       setMyProcessState ProcessBusyMonitoring
       schedulerState <- getSchedulerState
@@ -629,9 +658,12 @@ spawnNewProcess mLinkedParent title mfa = do
     :: ProcessId -> Interrupt 'NoRecovery -> TVar (Set ProcessId) -> Eff BaseEffects ()
   triggerProcessLinksAndMonitors !pid !reason !linkSetVar = do
     schedulerState <- getSchedulerState
-    lift $ atomically $ triggerAndRemoveMonitor pid
-                                                reason
-                                                schedulerState
+    downMessageSendResults <- triggerAndRemoveMonitor pid reason
+    when (not (null downMessageSendResults)) $
+      logCritical
+        (  "failed to enqueue some monitor down messages: "
+        <> T.pack(show downMessageSendResults)
+        )
     let exitSeverity = toExitSeverity reason
         sendIt !linkedPid = do
           let msg = SomeExitReason (LinkedProcessCrashed pid)
@@ -734,13 +766,13 @@ getSchedulerState :: HasBaseEffects r => Eff r SchedulerState
 getSchedulerState = ask
 
 enqueueMessageOtherProcess
-  :: HasCallStack => ProcessId -> StrictDynamic -> SchedulerState -> STM ()
+  :: HasCallStack => ProcessId -> StrictDynamic -> SchedulerState -> STM Bool
 enqueueMessageOtherProcess toPid msg schedulerState =
   view (at toPid) <$> readTVar (schedulerState ^. processTable) >>= maybe
-    (return ())
+    (return False)
     (\toProcessTable -> do
       modifyTVar' (toProcessTable ^. messageQ) (incomingMessages %~ (:|> msg))
-      return ()
+      return True
     )
 
 enqueueShutdownRequest

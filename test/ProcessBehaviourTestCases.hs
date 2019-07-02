@@ -1,3 +1,4 @@
+{-# LANGUAGE NumericUnderscores #-}
 module ProcessBehaviourTestCases where
 
 import           Common
@@ -16,6 +17,7 @@ import           Data.Foldable                  ( traverse_ )
 import           Data.Maybe
 import           Data.Void
 import           GHC.Generics                   ( Generic )
+import           Data.String                    ( fromString )
 
 
 testInterruptReason :: Interrupt 'Recoverable
@@ -160,6 +162,30 @@ selectiveReceiveTests schedulerFactory = setTravisTestOptions
         ok  <- returnToSender srv "test"
         ()  <- stopReturnToSender srv
         lift (ok @? "selective receive failed")
+    , testCase "when sending multiple messages, it is possible to receive them selectively in any order"
+    $ applySchedulerFactory schedulerFactory
+    $ do
+        me <- self
+        let messages :: [Int]
+            messages = [1 .. 100]
+        mRefs <- traverse
+                  (\i ->
+                    spawn (fromString ("sender-" ++ show i))
+                          (yieldProcess >> sendMessage me i >> logInfo ("sent: " <> pack (show i)))
+                    >>= monitor)
+                  messages
+        traverse_
+                  (\i ->
+                    receiveSelectedMessage (filterMessage (== i))
+                    >>= logInfo . ("received: " <> ) . pack . show)
+                  messages
+        traverse_
+                  (\(mref, i) ->
+                    logInfo ("waiting for " <> pack (show mref) <> " of " <> pack (show i))
+                      >> receiveSelectedMessage (selectProcessDown mref)
+                      >>= logInfo . (("down: " <> pack (show i) <> " ") <> ) . pack . show)
+                  (mRefs `zip` messages)
+
     , testCase "flush messages" $ applySchedulerFactory schedulerFactory $ do
       me <- self
       spawn_ "sender-bool"
@@ -949,7 +975,7 @@ monitoringTests schedulerFactory = setTravisTestOptions
         lift (downReason pd @?= ExitOtherProcessNotRunning badPid)
         lift (threadDelay 10000)
     , testCase
-      "monitor twice, once when it is running and one, when the monitored process is not running"
+      "monitor twice, once when it is running and one, when the monitored process is not running (variant 1)"
     $ applySchedulerFactory schedulerFactory
     $ do
         target <- spawn "reciever-exit-value" (receiveMessage >>= exitBecause)
@@ -967,6 +993,24 @@ monitoringTests schedulerFactory = setTravisTestOptions
         pd2 <- receiveSelectedMessage (selectProcessDown ref)
         lift (downReason pd2 @?= ExitOtherProcessNotRunning target)
         lift (threadDelay 10000)
+    , testCase
+      "spawn, shutdown and monitor many times in a tight loop"
+    $ applySchedulerFactory schedulerFactory
+    $ do
+        tests <- replicateM 100 $ spawn "spawn, shutdown and monitor test" $ do
+          target <- spawn "target" (receiveMessage >>= exitBecause)
+          replicateM_ 100 $ spawn_ "monitor" $ do
+            ref <- monitor target
+            logInfo ("monitoring now" <> pack (show ref))
+            void $ receiveSelectedMessage (selectProcessDown ref)
+          sendMessage target ExitNormally
+          ref <- monitor target
+          logInfo ("monitoring now" <> pack (show ref))
+          x <- receiveSelectedAfter (selectProcessDown ref) (TimeoutMicros 10_000_000)
+          case x of
+            Left _ -> lift (assertFailure "timeout receiving down messages")
+            Right _ -> return ()
+        traverse_ awaitProcessDown tests
     , testCase "monitored process exit normally"
     $ applySchedulerFactory schedulerFactory
     $ do
