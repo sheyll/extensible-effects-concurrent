@@ -430,7 +430,7 @@ handleProcess sts allProcs@((!processState, !pid) :<| rest) =
                  (triggerAndRemoveMonitor
                   pid
                   (either
-                    (ExitUnhandledError . pack . show)
+                    id
                     (const ExitNormally) res)
                     stsNew))
               nextTargets

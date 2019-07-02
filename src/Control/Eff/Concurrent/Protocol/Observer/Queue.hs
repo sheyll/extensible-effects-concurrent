@@ -114,7 +114,7 @@ flush = do
 --
 -- foo =
 --   do
---     observed <- start SomeObservable
+--     observed <- startLink SomeObservable
 --     OQ.observe 100 observed $ do
 --       ...
 --       cast observed DoSomething
@@ -186,7 +186,7 @@ spawnWriter
   => ObservationQueue event
   -> Eff r (Endpoint (Observer event))
 spawnWriter q =
-  start @_ @r @q @h (MkObservationQueue q)
+  startLink @_ @r @q @h (MkObservationQueue q)
 
 -- | Spawn a process that can be used as an 'Observer' that enqueues the observations into an
 --   'ObservationQueue'. See 'withObservationQueue'.

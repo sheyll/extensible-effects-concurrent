@@ -109,7 +109,7 @@ returnToSenderServer
    . (HasCallStack, LogIo q, Typeable q)
   => Eff (Processes q) (Endpoint ReturnToSender)
 returnToSenderServer =
-  Callback.start @ReturnToSender
+  Callback.startLink @ReturnToSender
     $ Callback.onEvent
         (\evt ->
           case evt of

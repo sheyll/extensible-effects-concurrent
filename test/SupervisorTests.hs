@@ -7,6 +7,7 @@ import Control.Eff.Concurrent.Protocol.EffectfulServer (Event(..))
 import qualified Control.Eff.Concurrent.Protocol.StatefulServer as Stateful
 import Control.Eff.Concurrent.Protocol.Supervisor as Sup
 import qualified Control.Eff.Concurrent.Protocol.Observer.Queue as OQ
+import Control.Lens
 
 test_Supervisor :: HasCallStack => TestTree
 test_Supervisor =
@@ -14,7 +15,7 @@ test_Supervisor =
   testGroup
     "Supervisor"
     (let startTestSup = startTestSupWith ExitWhenRequested (TimeoutMicros 500000)
-         startTestSupWith e t = Sup.startSupervisor (MkSupConfig t (Stateful.Init . TestServerArgs e))
+         startTestSupWith e t = Sup.startLink (MkSupConfig t (Stateful.Init . TestServerArgs e))
          spawnTestChild sup i = Sup.spawnChild sup i >>= either (lift . assertFailure . show) pure
       in [ runTestCase "The supervisor starts and is shut down" $ do
              outerSelf <- self
@@ -228,7 +229,7 @@ test_Supervisor =
                              lift (assertEqual "lookup should not find a child" Nothing x)
                          ]
                  , testGroup "supervisor events"
-                     [ runTestCase "when a child starts the oberser is notified" $ do
+                     [ runTestCase "when a child starts the observer is notified" $ do
                          sup <- startTestSup
                          OQ.observe @(Sup.ChildEvent (Stateful.Stateful TestProtocol)) (100 :: Int) sup $ do
                            c <- Sup.spawnChild @(Stateful.Stateful TestProtocol) sup i >>= either (lift . assertFailure . show) pure
@@ -239,18 +240,11 @@ test_Supervisor =
                               lift (assertEqual "lookupChild returned wrong child-id" i i')
                             _ ->
                               lift (assertFailure ("unexpected event: " ++ show e))
-                    , runTestCase "when a child starts or stops the oberser is notified" $ do
+                    , runTestCase "when a child stops the observer is notified" $ do
                          sup <- startTestSup
+                         c <- Sup.spawnChild @(Stateful.Stateful TestProtocol) sup i >>= either (lift . assertFailure . show) pure
                          OQ.observe @(Sup.ChildEvent (Stateful.Stateful TestProtocol)) (100 :: Int) sup $ do
-                           c <- Sup.spawnChild @(Stateful.Stateful TestProtocol) sup i >>= either (lift . assertFailure . show) pure
                            Sup.stopChild sup i >>= lift . assertBool "child not found"
-                           OQ.await @(Sup.ChildEvent (Stateful.Stateful TestProtocol))
-                            >>= \case
-                                    Sup.OnChildSpawned i' c' -> do
-                                      lift (assertEqual "lookupChild returned wrong child" c c')
-                                      lift (assertEqual "lookupChild returned wrong child-id" i i')
-                                    e ->
-                                      lift (assertFailure ("unexpected event: " ++ show e))
                            OQ.await @(Sup.ChildEvent (Stateful.Stateful TestProtocol))
                             >>= \case
                                     Sup.OnChildDown i' c' e -> do
@@ -260,7 +254,7 @@ test_Supervisor =
                                     e ->
                                       lift (assertFailure ("unexpected event: " ++ show e))
 
-                    , runTestCase "when a child crashes the oberser is notified" $ do
+                    , runTestCase "when a child crashes the observer is notified" $ do
                          sup <- startTestSup
                          OQ.observe @(Sup.ChildEvent (Stateful.Stateful TestProtocol)) (100 :: Int) sup $ do
                            c <- Sup.spawnChild @(Stateful.Stateful TestProtocol) sup i >>= either (lift . assertFailure . show) pure
@@ -297,6 +291,23 @@ test_Supervisor =
                                     e ->
                                       lift (assertFailure ("unexpected event: " ++ show e))
 
+                    , runTestCase "when the supervisor stops, an OnSupervisorShuttingDown is emitted before any child is stopped" $ do
+                         sup <- startTestSup
+                         unlinkProcess (sup ^. fromEndpoint)
+                         Sup.spawnChild @(Stateful.Stateful TestProtocol) sup i
+                          >>= either (lift . assertFailure . show) pure
+                         OQ.observe @(Sup.ChildEvent (Stateful.Stateful TestProtocol)) (1000 :: Int) sup $ do
+                           Sup.stopSupervisor sup
+                           OQ.await @(Sup.ChildEvent (Stateful.Stateful TestProtocol))
+                            >>= \case
+                                    Sup.OnSupervisorShuttingDown -> logNotice "received OnSupervisorShuttingDown"
+                                    e ->
+                                      lift (assertFailure ("unexpected event: " ++ show e))
+                           OQ.await @(Sup.ChildEvent (Stateful.Stateful TestProtocol))
+                            >>= \case
+                                  Sup.OnChildDown _ _ e -> lift (assertEqual "bad exit reason" ExitNormally e)
+                                  e ->
+                                    lift (assertFailure ("unexpected event: " ++ show e))
                     ]
                  ]
          ])

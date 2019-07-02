@@ -149,7 +149,7 @@ supiTarget =
     (\(SupiCounterModel (x,y,_)) z -> SupiCounterModel (x,y,z))
 
 spawnCounter :: (LogIo q) => Eff (Processes q) ( Endpoint SupiCounter )
-spawnCounter = start MkEmptySupiCounter
+spawnCounter = startLink MkEmptySupiCounter
 
 
 deriving instance Show (Pdu Counter x)
@@ -157,7 +157,7 @@ deriving instance Show (Pdu Counter x)
 logCounterObservations
   :: (LogIo q, Typeable q)
   => Eff (Processes q) (Endpoint (Observer CounterChanged))
-logCounterObservations = start OCCStart
+logCounterObservations = startLink OCCStart
 
 instance Member Logs q => Server (Observer CounterChanged) (Processes q) where
   data instance StartArgument (Observer CounterChanged) (Processes q) = OCCStart

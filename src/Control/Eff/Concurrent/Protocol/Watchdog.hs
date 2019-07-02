@@ -2,14 +2,14 @@
 -- | Monitor a process and act when it is unresponsive.
 --
 -- @since 0.29.3
-module Control.Eff.Concurrent.Protocol.Watchdog  where
+module Control.Eff.Concurrent.Protocol.Watchdog (startLink) where
 
 import Control.Eff.Concurrent.Misc
 import Control.Eff.Concurrent.Process
 import Control.Eff.Concurrent.Process.Timer
 import Control.Eff.Concurrent.Protocol
 import Control.Eff.Log
-import qualified Control.Eff.Concurrent.Protocol.Supervisor  as Supervisor
+import qualified Control.Eff.Concurrent.Protocol.Supervisor as Supervisor
 import qualified Control.Eff.Concurrent.Protocol.StatefulServer as Stateful
 import qualified Control.Eff.Concurrent.Protocol.EffectfulServer as Effectful
 import Control.Lens
@@ -26,17 +26,40 @@ import Data.Kind (Type)
 import Data.Default
 import Data.String
 import Data.Text (pack)
+import GHC.Stack (HasCallStack)
+import Control.Eff (Eff)
 
 
-newtype WatchdogChildId child = MkWatchdogChildId (Supervisor.ChildId child)
+data Watchdog (child :: Type) deriving Typeable
 
-instance Show (Supervisor.ChildId child) => Show (WatchdogChildId child) where
-  showsPrec d (MkWatchdogChildId x) = showParen (d>=10) (showString "watchdog-child-id: " . shows x)
+instance Typeable child => HasPdu (Watchdog child) where
+  data Pdu (Watchdog child) r where
+    GetChild :: Pdu (Watchdog child) ('Synchronous (Endpoint (Effectful.ServerPdu child)))
+      deriving Typeable
 
-deriving instance Eq (Supervisor.ChildId child) => Eq (WatchdogChildId child)
-deriving instance Ord (Supervisor.ChildId child) => Ord (WatchdogChildId child)
-deriving instance NFData (Supervisor.ChildId child) => NFData (WatchdogChildId child)
+instance NFData (Pdu (Watchdog child) r) where
+  rnf GetChild = ()
 
+instance Show (Pdu (Watchdog child) r) where
+  showsPrec _ GetChild = showString "get-child"
+
+
+-- | Start and link a new watchdog process.
+--
+-- The watchdog process will register itself to the 'Supervisor.ChildEvent's and
+-- restart crashed children.
+--
+-- @since 0.29.3
+startLink
+  :: forall p e
+  . ( HasCallStack
+    , LogIo e
+    , Typeable p
+    )
+  => Endpoint (Supervisor.Sup p)
+  -> Eff (Processes e) (Endpoint (Watchdog p))
+startLink sup =
+  Stateful.startLink (StartWatchDog sup (3 `crashesPerSeconds` 30))
 
 --  When a child crashes,
 --   - if the allowed maximum number crashes per time span has been reached for the process,
@@ -63,34 +86,42 @@ crashesPerSeconds occurrences seconds =
       picos' = ceiling (picos * fromInteger (resolution (1 :: Pico)))
   in CrashesPerPicos (occurrences % picos')
 
-instance (Typeable child, LogIo e, Effectful.Server child (Processes e))
-  => Stateful.Server (Watchdog child) (Processes e)  where
-  newtype instance StartArgument (Watchdog child) (Processes e) =
-    StartWatchDog (Endpoint (Supervisor.Sup child))
-      deriving Typeable
-  data instance Model (Watchdog child) =
-    WatchdogModel { _crashMap :: Map (Supervisor.ChildId child) (Set Crash)
+instance (Typeable child, LogIo e) => Stateful.Server (Watchdog child) (Processes e) where
+
+  data instance StartArgument (Watchdog child) (Processes e) =
+    StartWatchDog { _supervisor :: Endpoint (Supervisor.Sup child)
                   , _crashRate :: CrashRate
                   }
-  title _ = fromString (showSTypeable @child "watchdog-")
-  update _me _init =
-    \case
-      Effectful.OnCall rt GetChild -> error "TODO"
-
-instance Typeable child => Default (Stateful.Model (Watchdog child)) where
-  def = WatchdogModel def (crashesPerSeconds 1 10)
-
-data Watchdog (child :: Type) deriving Typeable
-
-instance Typeable child => HasPdu (Watchdog child) where
-  data Pdu (Watchdog child) r where
-    GetChild :: Pdu (Watchdog child) ('Synchronous (Endpoint (Effectful.ServerPdu child)))
       deriving Typeable
 
-instance NFData (Pdu (Watchdog child) r) where
-  rnf GetChild = ()
+  type instance Settings (Watchdog child) = MonitorReference
 
-instance Show (Pdu (Watchdog child) r) where
-  showsPrec _ GetChild = showString "get-child"
+  data instance Model (Watchdog child) =
+    WatchdogModel { _crashMap :: Map (Supervisor.ChildId child) (Set Crash)
+                  }
 
-type instance Supervisor.ChildId (Watchdog child) = Supervisor.ChildId child
+  setup _ep (StartWatchDog sup _) = do
+    logInfo ("Watchdog attaching to: " <> pack (show sup))
+    mref <- monitor (sup ^. fromEndpoint)
+    return (def, mref)
+
+  update _me startArg =
+    \case
+      Effectful.OnCall rt GetChild -> error "TODO"
+      Effectful.OnDown pd@(ProcessDown mref reason _) -> do
+        supMonRef <- Stateful.askSettings @(Watchdog child)
+        if mref == supMonRef then do
+          logError "attached supervisor exited unexpectedly"
+          exitBecause (ExitOtherProcessNotRunning (startArg ^. supervisor . fromEndpoint))
+        else
+          logWarning ("unexpected process down: " <> pack (show pd))
+
+
+instance Typeable child => Default (Stateful.Model (Watchdog child)) where
+  def = WatchdogModel def
+
+supervisor :: Lens' (Stateful.StartArgument (Watchdog child) (Processes e)) (Endpoint (Supervisor.Sup child))
+supervisor = lens _supervisor (\m x -> m {_supervisor = x})
+
+--crashRate :: Lens' (Stateful.StartArgument (Watchdog child) (Processes e)) CrashRate
+--crashRate = lens _crashRate (\m x -> m {_crashRate = x})

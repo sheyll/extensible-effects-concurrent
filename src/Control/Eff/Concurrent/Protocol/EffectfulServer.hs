@@ -63,8 +63,8 @@ class Server (a :: Type) (e :: [Type -> Type])
   -- Usually you should rely on the default implementation
   serverTitle :: Init a e -> ProcessTitle
 
-  default serverTitle :: Typeable (ServerPdu a) => Init a e -> ProcessTitle
-  serverTitle _ = fromString $ showSTypeable @(ServerPdu a) "-server"
+  default serverTitle :: Typeable a => Init a e -> ProcessTitle
+  serverTitle _ = fromString $ showSTypeable @a ""
 
   -- | Process the effects of the implementation
   runEffects :: Endpoint (ServerPdu a) -> Init a e -> Eff (ServerEffects a e) x -> Eff e x
@@ -126,7 +126,8 @@ protocolServerLoop
 protocolServerLoop a = do
   myEp <- asEndpoint @(ServerPdu a) <$> self
   let myEpTxt = T.pack . show $ myEp
-  censorLogs (lmAddEp myEpTxt) $ do
+  -- censorLogs (lmAddEp myEpTxt) $ do
+  do
     logDebug ("starting")
     runEffects  myEp a (receiveSelectedLoop sel (mainLoop myEp))
     return ()
@@ -153,17 +154,25 @@ protocolServerLoop a = do
 -- instances of 'Server'.
 --
 -- @since 0.24.0
-data Event a where
+data Event a
   -- | A 'Synchronous' message was received. If an implementation wants to delegate nested 'Pdu's, it can
   -- use 'toEmbeddedReplyTarget' to convert a 'ReplyTarget' safely to the embedded protocol.
   --
   -- @since 0.24.1
-  OnCall :: forall a r. (Tangible r, TangiblePdu a ('Synchronous r)) => ReplyTarget a r -> Pdu a ('Synchronous r) -> Event a
-  OnCast :: forall a. TangiblePdu a 'Asynchronous => Pdu a 'Asynchronous -> Event a
-  OnInterrupt  :: (Interrupt 'Recoverable) -> Event a
-  OnDown  :: ProcessDown -> Event a
-  OnTimeOut  :: TimerElapsed -> Event a
-  OnMessage  :: StrictDynamic -> Event a
+      where
+  OnCall
+    :: forall a r. (Tangible r, TangiblePdu a ('Synchronous r))
+    => ReplyTarget a r
+    -> Pdu a ('Synchronous r)
+    -> Event a
+  OnCast
+    :: forall a. TangiblePdu a 'Asynchronous
+    => Pdu a 'Asynchronous
+    -> Event a
+  OnInterrupt :: Interrupt 'Recoverable -> Event a
+  OnDown :: ProcessDown -> Event a
+  OnTimeOut :: TimerElapsed -> Event a
+  OnMessage :: StrictDynamic -> Event a
   deriving Typeable
 
 instance Show (Event a) where

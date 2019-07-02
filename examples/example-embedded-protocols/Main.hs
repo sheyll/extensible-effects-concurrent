@@ -32,13 +32,13 @@ main =
 
 embeddedExample :: HasCallStack => Eff Effects ()
 embeddedExample = do
-  b1 <- Stateful.start InitBackend1
+  b1 <- Stateful.startLink InitBackend1
   b2Sup <- startBackend2Sup
   b2 <- Supervisor.spawnOrLookup @Backend2 b2Sup 1
   _ <- Supervisor.spawnOrLookup b2Sup 2
   b2_2 <- Supervisor.spawnOrLookup b2Sup 2
   b2_3 <- Supervisor.spawnOrLookup b2Sup 3
-  app <- Stateful.start InitApp
+  app <- Stateful.startLink InitApp
   cast app DoThis
   cast app DoThis
   cast app DoThis
@@ -293,7 +293,7 @@ instance Effectful.Server Backend2 Effects where
 type instance Supervisor.ChildId Backend2 = Int
 
 startBackend2Sup :: Eff Effects (Endpoint (Supervisor.Sup Backend2))
-startBackend2Sup = Supervisor.startSupervisor (Supervisor.MkSupConfig (TimeoutMicros 1_000_000) InitBackend2)
+startBackend2Sup = Supervisor.startLink (Supervisor.MkSupConfig (TimeoutMicros 1_000_000) InitBackend2)
 
 -- EXPERIMENTING
 data EP a where

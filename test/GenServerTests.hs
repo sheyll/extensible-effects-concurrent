@@ -103,7 +103,7 @@ instance LogIo e => S.Server Big (Processes e) where
 test_genServer :: HasCallStack => TestTree
 test_genServer = setTravisTestOptions $ testGroup "Server" [
   runTestCase "When a server is started it handles call Pdus without dieing" $ do
-    big <- S.start MkBig
+    big <- S.startLink MkBig
     call big (BigCall True) >>=  lift . assertBool "invalid result 1"
     isProcessAlive (_fromEndpoint big) >>= lift . assertBool "process dead"
     call big (BigCall False) >>=  lift . assertBool "invalid result 2" . not

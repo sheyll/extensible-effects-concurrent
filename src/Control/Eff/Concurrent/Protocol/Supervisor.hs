@@ -48,7 +48,7 @@
 --
 -- @since 0.23.0
 module Control.Eff.Concurrent.Protocol.Supervisor
-  ( startSupervisor
+  ( startLink
   , statefulChild
   , stopSupervisor
   , isSupervisorAlive
@@ -64,7 +64,7 @@ module Control.Eff.Concurrent.Protocol.Supervisor
   , Stateful.StartArgument(MkSupConfig)
   , supConfigChildStopTimeout
   , SpawnErr(AlreadyStarted)
-  , ChildEvent(OnChildSpawned, OnChildDown)
+  , ChildEvent(OnChildSpawned, OnChildDown, OnSupervisorShuttingDown)
   ) where
 
 import Control.DeepSeq (NFData(rnf))
@@ -92,7 +92,6 @@ import Data.Type.Pretty
 import GHC.Generics (Generic)
 import GHC.Stack
 import Control.Applicative ((<|>))
-import Control.Monad (void)
 
 -- * Supervisor Server API
 
@@ -103,7 +102,7 @@ import Control.Monad (void)
 -- To spawn new child processes use 'spawnChild'.
 --
 -- @since 0.23.0
-startSupervisor
+startLink
   :: forall p e
   . ( HasCallStack
     , LogIo (Processes e)
@@ -112,7 +111,7 @@ startSupervisor
     )
   => Stateful.StartArgument (Sup p) (Processes e)
   -> Eff (Processes e) (Endpoint (Sup p))
-startSupervisor = Stateful.start
+startLink = Stateful.startLink
 
 -- | A smart constructor for 'MkSupConfig' that makes it easy to start a 'Stateful.Server' instance.
 --
@@ -181,7 +180,7 @@ monitorSupervisor
 monitorSupervisor x = monitor (_fromEndpoint x)
 
 -- | Start and monitor a new child process using the 'SpawnFun' passed
--- to 'startSupervisor'.
+-- to 'startLink'.
 --
 -- @since 0.23.0
 spawnChild
@@ -198,7 +197,7 @@ spawnChild
 spawnChild ep cId = call ep (StartC cId)
 
 -- | Start and monitor a new child process using the 'SpawnFun' passed
--- to 'startSupervisor'.
+-- to 'startLink'.
 --
 -- Call 'spawnChild' and unpack the 'Either' result,
 -- ignoring the 'AlreadyStarted' error.
@@ -333,6 +332,7 @@ type instance ToPretty (Sup p) = "supervisor" <:> ToPretty p
 data ChildEvent p where
   OnChildSpawned :: ChildId p -> Endpoint (Effectful.ServerPdu p) -> ChildEvent p
   OnChildDown :: ChildId p -> Endpoint (Effectful.ServerPdu p) -> Interrupt 'NoRecovery -> ChildEvent p
+  OnSupervisorShuttingDown :: ChildEvent p -- ^ The supervisor is shutting down and will soon begin stopping/killing its children
   deriving (Typeable, Generic)
 
 instance (NFData (ChildId p)) => NFData (ChildEvent p)
@@ -346,6 +346,8 @@ instance (Typeable (Effectful.ServerPdu p), Show (ChildId p)) => Show (ChildEven
      OnChildDown i e r ->
         showParen (d >= 10)
           (showString "child-down: " . shows i . showChar ' ' . shows e . showChar ' ' . showsPrec 10 r)
+     OnSupervisorShuttingDown ->
+        showString "supervisor shutting down"
 
 -- | The type of value used to index running 'Server' processes managed by a 'Sup'.
 --
@@ -431,7 +433,7 @@ instance
         mExisting <- zoomToChildren @p $ lookupChildById @(ChildId p) @p i
         case mExisting of
           Nothing -> do
-            childEp <- raise (raise (Effectful.start (supConfigStartFun supConfig i)))
+            childEp <- raise (raise (Effectful.startLink (supConfigStartFun supConfig i)))
             let childPid = _fromEndpoint childEp
             cMon <- monitor childPid
             zoomToChildren @p $ putChild i (MkChild @p childEp cMon)
@@ -456,16 +458,24 @@ instance
           Stateful.zoomModel @(Sup p)
               childEventObserverLens
               (observerRegistryNotify @(ChildEvent p) (OnChildDown i (c^.childEndpoint) (downReason pd)))
-  update _ supConfig (Stateful.OnInterrupt e) = zoomToChildren @p $ do
-      let (logSev, exitReason) =
-            case e of
-              NormalExitRequested ->
-                (debugSeverity, ExitNormally)
-              _ ->
-                (warningSeverity, interruptToExit (ErrorInterrupt ("supervisor interrupted: " <> show e)))
-      stopAllChildren @p (supConfigChildStopTimeout supConfig)
-      logWithSeverity logSev ("supervisor stopping: " <> pack (show e))
-      exitBecause exitReason
+  update _ supConfig (Stateful.OnInterrupt e) =
+    case e of
+      NormalExitRequested -> do
+        logDebug ("supervisor stopping: " <> pack (show e))
+        Stateful.zoomModel @(Sup p)
+            childEventObserverLens
+            (observerRegistryNotify @(ChildEvent p) OnSupervisorShuttingDown)
+        stopAllChildren @p (supConfigChildStopTimeout supConfig)
+        exitNormally
+      LinkedProcessCrashed linked ->
+        logNotice (pack (show linked))
+      _ -> do
+        logWarning ("supervisor interrupted: " <> pack (show e))
+        Stateful.zoomModel @(Sup p)
+            childEventObserverLens
+            (observerRegistryNotify @(ChildEvent p) OnSupervisorShuttingDown)
+        stopAllChildren @p (supConfigChildStopTimeout supConfig)
+        exitBecause (interruptToExit e)
 
   update _ _supConfig o = logWarning ("unexpected: " <> pack (show o))
 
@@ -503,7 +513,7 @@ stopOrKillChild
      , Lifted IO e
      , Lifted IO q0
      , Member Logs e
-     , Member (State (Children (ChildId p) p)) e
+     , Member (Stateful.ModelState (Sup p)) e
      , TangibleSup p
      , Typeable (Effectful.ServerPdu p)
      )
@@ -539,14 +549,24 @@ stopAllChildren
      , Lifted IO e
      , Lifted IO q0
      , Member Logs e
-     , Member (State (Children (ChildId p) p)) e
+     , Member (Stateful.ModelState (Sup p)) e
      , TangibleSup p
      , Typeable (Effectful.ServerPdu p)
      )
   => Timeout -> Eff e ()
-stopAllChildren stopTimeout = removeAllChildren @(ChildId p) @p >>= pure . Map.assocs >>= traverse_ xxx
+stopAllChildren stopTimeout =
+  zoomToChildren @p
+    (removeAllChildren @(ChildId p) @p)
+  >>= pure . Map.assocs
+  >>= traverse_ killAndNotify
   where
-    xxx (cId, c) = provideInterrupts (void (stopOrKillChild cId c stopTimeout)) >>= either crash return
+    killAndNotify (cId, c) = do
+      reason <- provideInterrupts (stopOrKillChild cId c stopTimeout) >>= either crash return
+      Stateful.zoomModel @(Sup p)
+          childEventObserverLens
+          (observerRegistryNotify @(ChildEvent p) (OnChildDown cId (c^.childEndpoint) reason))
+
       where
         crash e = do
           logError (pack (show e) <> " while stopping child: " <> pack (show cId) <> " " <> pack (show c))
+          return (interruptToExit e)

@@ -5,6 +5,7 @@ import Common
 import qualified Control.Eff.Concurrent.Protocol.EffectfulServer as Effectful
 import qualified Control.Eff.Concurrent.Protocol.StatefulServer as Stateful
 import qualified Control.Eff.Concurrent.Protocol.Supervisor as Supervisor
+import qualified Control.Eff.Concurrent.Protocol.Watchdog as Watchdog
 import Control.Lens
 import Data.Set (Set)
 import qualified Data.Set as Set
@@ -12,17 +13,23 @@ import Data.Ratio
 import Data.Fixed
 import Data.Time.Clock
 
-test_watchdogTests :: TestTree
+test_watchdogTests :: HasCallStack => TestTree
 test_watchdogTests =
   testGroup "watchdog"
     [ runTestCase "demonstrate Bookshelf" bookshelfDemo
-    , runTestCase "demonstrate Bookshelf WITH a simple watchdog" bookshelfWatchdogDemo
+    , runTestCase "when the supervisor exits, the watchdog exits with ExitOtherProcessNotRunning" $ do
+        sup <- Supervisor.startLink (Supervisor.statefulChild @BookShelf (TimeoutMicros 1_000_000) id)
+        wd <- Watchdog.startLink sup
+        unlinkProcess (wd ^. fromEndpoint)
+        unlinkProcess (sup ^. fromEndpoint)
+        sendShutdown (sup ^. fromEndpoint) (ExitUnhandledError "test-supervisor-kill")
+        let expected = ExitOtherProcessNotRunning (sup^.fromEndpoint)
+        awaitProcessDown (wd ^. fromEndpoint) >>= lift . assertEqual "bad exit reason" expected . downReason
     ]
-
-bookshelfDemo :: Eff Effects ()
+bookshelfDemo :: HasCallStack => Eff Effects ()
 bookshelfDemo = do
   logInfo "Bookshelf Demo Begin"
-  sup <- Supervisor.startSupervisor (Supervisor.statefulChild @BookShelf (TimeoutMicros 1_000_000) id)
+  sup <- Supervisor.startLink (Supervisor.statefulChild @BookShelf (TimeoutMicros 1_000_000) id)
   shelf1 <- Supervisor.spawnOrLookup sup (BookShelfId 1)
   call shelf1 (AddBook "Solaris")
   call shelf1 GetBookList >>= logDebug . pack . show
@@ -83,21 +90,3 @@ instance Show (Pdu BookShelf r) where
   show GetBookList = "get-book-list"
   show (AddBook b) = "add-book: " ++ b
   show (TakeBook b) = "take-book: " ++ b
-
-
-
-
-
-bookshelfWatchdogDemo :: Eff Effects ()
-bookshelfWatchdogDemo = do
-  logInfo "Bookshelf Watchdog Demo Begin"
---  watchDogSup <- Supervisor.startSupervisor (Supervisor.MkSupConfig @(Watchdog BookShelf) (TimeoutMicros 1_000_000) StartWatchDog)
---
---  shelf1Watchdog <- Supervisor.spawnOrLookup sup (BookShelfId 1)
---  shelf1 <- call shelf1Watchdog GetChild
---  call shelf1 (AddBook "Ubik")
---  call shelf1 GetBookList >>= logDebug . pack . show
---  cast shelf1 (TakeBook "Ubik")
---  call shelf1 GetBookList >>= logDebug . pack . show
-  logInfo "Bookshelf Watchdog Demo End"
-

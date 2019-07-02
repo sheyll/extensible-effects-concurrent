@@ -5,8 +5,8 @@ module Control.Eff.Concurrent.Protocol.StatefulServer
   ( Server(..)
   , Stateful
   , Effectful.Init(..)
-  , start
   , startLink
+  , start
   , ModelState
   , modifyModel
   , getAndModifyModel
@@ -85,8 +85,8 @@ class (Typeable (Protocol a)) => Server (a :: Type) q where
   -- @since 0.29.3
   title :: StartArgument a q -> ProcessTitle
 
-  default title :: Typeable (Protocol a) => StartArgument a q -> ProcessTitle
-  title _ = fromString $ showSTypeable @(Protocol a) "-server"
+  default title :: Typeable a => StartArgument a q -> ProcessTitle
+  title _ = fromString $ showSTypeable @a ""
 
   -- | Return an initial 'Model' and 'Settings'
   setup ::
@@ -132,21 +132,6 @@ instance Server a q => Effectful.Server (Stateful a) q where
 -- | Execute the server loop.
 --
 -- @since 0.24.0
-start
-  :: forall a r q h
-  . ( HasCallStack
-    , Typeable a
-    , LogsTo h (Processes q)
-    , Effectful.Server (Stateful a) (Processes q)
-    , Server a (Processes q)
-    , HasProcesses r q
-    )
-  => StartArgument a (Processes q) -> Eff r (Endpoint (Protocol a))
-start = Effectful.start . Init
-
--- | Execute the server loop.
---
--- @since 0.24.0
 startLink
   :: forall a r q h
   . ( HasCallStack
@@ -159,6 +144,20 @@ startLink
   => StartArgument a (Processes q) -> Eff r (Endpoint (Protocol a))
 startLink = Effectful.startLink . Init
 
+-- | Execute the server loop. Please use 'startLink' if you can.
+--
+-- @since 0.24.0
+start
+  :: forall a r q h
+  . ( HasCallStack
+    , Typeable a
+    , LogsTo h (Processes q)
+    , Effectful.Server (Stateful a) (Processes q)
+    , Server a (Processes q)
+    , HasProcesses r q
+    )
+  => StartArgument a (Processes q) -> Eff r (Endpoint (Protocol a))
+start = Effectful.start . Init
 
 -- | The 'Eff'ect type of mutable 'Model' in a 'Server' instance.
 --

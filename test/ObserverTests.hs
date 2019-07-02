@@ -19,7 +19,7 @@ basicTests :: HasCallStack => [TestTree]
 basicTests =
   [runTestCase "when no observer is present, nothing crashes"
       $ do
-            testObservable <- S.start TestObservableServerInit
+            testObservable <- S.startLink TestObservableServerInit
             call testObservable (SendTestEvent "1")
             cast testObservable StopTestObservable
 
@@ -27,11 +27,11 @@ basicTests =
 
   , runTestCase "observers receive only messages sent after registration"
       $ do
-            testObservable <- S.start TestObservableServerInit
+            testObservable <- S.startLink TestObservableServerInit
             call testObservable (SendTestEvent "1")
             call testObservable (SendTestEvent "2")
             call testObservable (SendTestEvent "3")
-            testObserver <- M.start MkTestObserver
+            testObserver <- M.startLink MkTestObserver
             registerObserver @String testObservable testObserver
             call testObservable (SendTestEvent "4")
             call testObservable (SendTestEvent "5")
@@ -41,11 +41,11 @@ basicTests =
             void $ awaitProcessDown (testObservable ^. fromEndpoint)
   , runTestCase "observers receive only messages sent before de-registration"
       $ do
-            testObservable <- S.start TestObservableServerInit
+            testObservable <- S.startLink TestObservableServerInit
             call testObservable (SendTestEvent "1")
             call testObservable (SendTestEvent "2")
             call testObservable (SendTestEvent "3")
-            testObserver <- M.start MkTestObserver
+            testObserver <- M.startLink MkTestObserver
             registerObserver @String testObservable testObserver
             call testObservable (SendTestEvent "4")
             call testObservable (SendTestEvent "5")
@@ -58,11 +58,11 @@ basicTests =
             void $ awaitProcessDown (testObservable ^. fromEndpoint)
   , runTestCase "observers receive only messages sent between registration and deregistration"
       $ do
-            testObservable <- S.start TestObservableServerInit
+            testObservable <- S.startLink TestObservableServerInit
             call testObservable (SendTestEvent "1")
             call testObservable (SendTestEvent "2")
             call testObservable (SendTestEvent "3")
-            testObserver <- M.start MkTestObserver
+            testObserver <- M.startLink MkTestObserver
             registerObserver @String testObservable testObserver
             call testObservable (SendTestEvent "4")
             call testObservable (SendTestEvent "5")
@@ -76,13 +76,13 @@ basicTests =
             void $ awaitProcessDown (testObservable ^. fromEndpoint)
   , runTestCase "all observers receive all messages sent between registration and deregistration"
       $ do
-            testObservable <- S.start TestObservableServerInit
+            testObservable <- S.startLink TestObservableServerInit
             call testObservable (SendTestEvent "1")
             call testObservable (SendTestEvent "2")
             call testObservable (SendTestEvent "3")
-            testObserver1 <- M.start MkTestObserver
-            testObserver2 <- M.start MkTestObserver
-            testObserver3 <- M.start MkTestObserver
+            testObserver1 <- M.startLink MkTestObserver
+            testObserver2 <- M.startLink MkTestObserver
+            testObserver3 <- M.startLink MkTestObserver
             registerObserver @String testObservable testObserver1
             call testObservable (SendTestEvent "4")
             registerObserver @String testObservable testObserver2
@@ -105,12 +105,12 @@ basicTests =
             void $ awaitProcessDown (testObservable ^. fromEndpoint)
   , runTestCase "when an observer exits, the messages are still deliviered to the others"
       $ do
-            testObservable <- S.start TestObservableServerInit
+            testObservable <- S.startLink TestObservableServerInit
             call testObservable (SendTestEvent "1")
             call testObservable (SendTestEvent "2")
             call testObservable (SendTestEvent "3")
-            testObserver1 <- M.start MkTestObserver
-            testObserver2 <- M.start MkTestObserver
+            testObserver1 <- M.startLink MkTestObserver
+            testObserver2 <- M.startLink MkTestObserver
             registerObserver @String testObservable testObserver1
             registerObserver @String testObservable testObserver2
             call testObservable (SendTestEvent "4")
@@ -124,11 +124,11 @@ basicTests =
             void $ awaitProcessDown (testObservable ^. fromEndpoint)
   , runTestCase "when an observer registers multiple times, it still gets the messages only once"
       $ do
-            testObservable <- S.start TestObservableServerInit
+            testObservable <- S.startLink TestObservableServerInit
             call testObservable (SendTestEvent "1")
             call testObservable (SendTestEvent "2")
             call testObservable (SendTestEvent "3")
-            testObserver1 <- M.start MkTestObserver
+            testObserver1 <- M.startLink MkTestObserver
             registerObserver @String testObservable testObserver1
             registerObserver @String testObservable testObserver1
             call testObservable (SendTestEvent "4")
@@ -140,11 +140,11 @@ basicTests =
             void $ awaitProcessDown (testObservable ^. fromEndpoint)
   , runTestCase "when an observer is forgotton multiple times, nothing bad happens"
       $ do
-            testObservable <- S.start TestObservableServerInit
+            testObservable <- S.startLink TestObservableServerInit
             call testObservable (SendTestEvent "1")
             call testObservable (SendTestEvent "2")
             call testObservable (SendTestEvent "3")
-            testObserver1 <- M.start MkTestObserver
+            testObserver1 <- M.startLink MkTestObserver
             registerObserver @String testObservable testObserver1
             call testObservable (SendTestEvent "4")
             call testObservable (SendTestEvent "5")
@@ -163,7 +163,7 @@ observerQueueTests =
   testGroup "observer-queue"
   [ runTestCase "tryRead"
       $ do
-          testObservable <- S.start TestObservableServerInit
+          testObservable <- S.startLink TestObservableServerInit
           let len :: Int
               len = 1
           OQ.observe  @String len testObservable $ do
@@ -175,7 +175,7 @@ observerQueueTests =
           void $ awaitProcessDown (testObservable ^. fromEndpoint)
   , runTestCase "observe then read"
       $ do
-          testObservable <- S.start TestObservableServerInit
+          testObservable <- S.startLink TestObservableServerInit
           let len :: Int
               len = 1
           OQ.observe  @String len testObservable $ do
@@ -190,7 +190,7 @@ observerQueueTests =
           void $ awaitProcessDown (testObservable ^. fromEndpoint)
   , runTestCase "FIFO"
       $ do
-          testObservable <- S.start TestObservableServerInit
+          testObservable <- S.startLink TestObservableServerInit
           let len :: Int
               len = 3
           OQ.observe  @String len testObservable $ do
@@ -205,7 +205,7 @@ observerQueueTests =
           void $ awaitProcessDown (testObservable ^. fromEndpoint)
   , runTestCase "flush"
       $ do
-          testObservable <- S.start TestObservableServerInit
+          testObservable <- S.startLink TestObservableServerInit
           let len :: Int
               len = 3
           OQ.observe  @String len testObservable $ do
@@ -219,7 +219,7 @@ observerQueueTests =
           void $ awaitProcessDown (testObservable ^. fromEndpoint)
   , runTestCase "when the queue is full, new observations are dropped"
       $ do
-            testObservable <- S.start TestObservableServerInit
+            testObservable <- S.startLink TestObservableServerInit
             let len :: Int
                 len = 2
             OQ.observe  @String len testObservable $ do
@@ -235,7 +235,7 @@ observerQueueTests =
             void $ awaitProcessDown (testObservable ^. fromEndpoint)
   , runTestCase "flush after queue full"
       $ do
-          testObservable <- S.start TestObservableServerInit
+          testObservable <- S.startLink TestObservableServerInit
           let len :: Int
               len = 3
           OQ.observe  @String len testObservable $ do
