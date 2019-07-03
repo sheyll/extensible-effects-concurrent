@@ -28,7 +28,7 @@ test_forkIo = setTravisTestOptions $ withTestLogC
   (\c ->
     runLift
       $ withLogging
-          (filteringLogWriter (lmSeverityIsAtLeast debugSeverity)
+          (filteringLogWriter (lmSeverityIsAtLeast errorSeverity)
                               consoleLogWriter
           )
       $ withAsyncLogWriter (100 :: Int)

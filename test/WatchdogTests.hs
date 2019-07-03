@@ -25,6 +25,14 @@ test_watchdogTests =
         sendShutdown (sup ^. fromEndpoint) (ExitUnhandledError "test-supervisor-kill")
         let expected = ExitOtherProcessNotRunning (sup^.fromEndpoint)
         awaitProcessDown (wd ^. fromEndpoint) >>= lift . assertEqual "bad exit reason" expected . downReason
+    , runTestCase "when the supervisor exits, the watchdog exits with ExitOtherProcessNotRunning" $ do
+        sup <- Supervisor.startLink (Supervisor.statefulChild @BookShelf (TimeoutMicros 1_000_000) id)
+        wd <- Watchdog.startLink sup
+        unlinkProcess (wd ^. fromEndpoint)
+        unlinkProcess (sup ^. fromEndpoint)
+        sendShutdown (sup ^. fromEndpoint) (ExitUnhandledError "test-supervisor-kill")
+        let expected = ExitOtherProcessNotRunning (sup^.fromEndpoint)
+        awaitProcessDown (wd ^. fromEndpoint) >>= lift . assertEqual "bad exit reason" expected . downReason
     ]
 bookshelfDemo :: HasCallStack => Eff Effects ()
 bookshelfDemo = do

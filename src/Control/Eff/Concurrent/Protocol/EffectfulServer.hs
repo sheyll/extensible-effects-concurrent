@@ -150,12 +150,11 @@ protocolServerLoop a = do
 -- instances of 'Server'.
 --
 -- @since 0.24.0
-data Event a
+data Event a where
   -- | A 'Synchronous' message was received. If an implementation wants to delegate nested 'Pdu's, it can
   -- use 'toEmbeddedReplyTarget' to convert a 'ReplyTarget' safely to the embedded protocol.
   --
   -- @since 0.24.1
-      where
   OnCall
     :: forall a r. (Tangible r, TangiblePdu a ('Synchronous r))
     => ReplyTarget a r
