@@ -9,6 +9,7 @@ import Control.Eff.Concurrent.Process
 import Control.Eff.Concurrent.Process.Timer
 import Control.Eff.Concurrent.Protocol
 import Control.Eff.Log
+import qualified Control.Eff.Concurrent.Protocol.Observer as Observer
 import qualified Control.Eff.Concurrent.Protocol.Supervisor as Supervisor
 import qualified Control.Eff.Concurrent.Protocol.StatefulServer as Stateful
 import qualified Control.Eff.Concurrent.Protocol.EffectfulServer as Effectful
@@ -32,17 +33,6 @@ import Control.Eff (Eff)
 
 data Watchdog (child :: Type) deriving Typeable
 
-instance Typeable child => HasPdu (Watchdog child) where
-  data Pdu (Watchdog child) r where
-    GetChild :: Pdu (Watchdog child) ('Synchronous (Endpoint (Effectful.ServerPdu child)))
-      deriving Typeable
-
-instance NFData (Pdu (Watchdog child) r) where
-  rnf GetChild = ()
-
-instance Show (Pdu (Watchdog child) r) where
-  showsPrec _ GetChild = showString "get-child"
-
 
 -- | Start and link a new watchdog process.
 --
@@ -51,13 +41,17 @@ instance Show (Pdu (Watchdog child) r) where
 --
 -- @since 0.29.3
 startLink
-  :: forall p e
+  :: forall child q e
   . ( HasCallStack
-    , LogIo e
-    , Typeable p
+    , LogIo q
+    , Typeable child
+    , Typeable (Effectful.ServerPdu child)
+    , NFData (Supervisor.ChildId child)
+    , Show (Supervisor.ChildId child)
+    , HasProcesses e q
     )
-  => Endpoint (Supervisor.Sup p)
-  -> Eff (Processes e) (Endpoint (Watchdog p))
+  => Endpoint (Supervisor.Sup child)
+  -> Eff e (Endpoint (Watchdog child))
 startLink sup =
   Stateful.startLink (StartWatchDog sup (3 `crashesPerSeconds` 30))
 
@@ -86,7 +80,37 @@ crashesPerSeconds occurrences seconds =
       picos' = ceiling (picos * fromInteger (resolution (1 :: Pico)))
   in CrashesPerPicos (occurrences % picos')
 
-instance (Typeable child, LogIo e) => Stateful.Server (Watchdog child) (Processes e) where
+instance Typeable child => HasPdu (Watchdog child) where
+  type instance EmbeddedPduList (Watchdog child) = '[Observer.Observer (Supervisor.ChildEvent child)]
+  data Pdu (Watchdog child) r where
+    GetChild :: Pdu (Watchdog child) ('Synchronous (Endpoint (Effectful.ServerPdu child)))
+    OnChildEvent :: Supervisor.ChildEvent child -> Pdu (Watchdog child) 'Asynchronous
+      deriving Typeable
+
+instance Typeable child => HasPduPrism (Watchdog child) (Observer.Observer (Supervisor.ChildEvent child)) where
+  embedPdu (Observer.Observed e) = OnChildEvent e
+  fromPdu (OnChildEvent x) = Just (Observer.Observed x)
+  fromPdu _ = Nothing
+
+instance (NFData (Supervisor.ChildId child)) => NFData (Pdu (Watchdog child) r) where
+  rnf GetChild = ()
+  rnf (OnChildEvent o) = rnf o
+
+instance
+  ( Show (Supervisor.ChildId child)
+  , Typeable (Effectful.ServerPdu child)
+  )
+  => Show (Pdu (Watchdog child) r) where
+  showsPrec _ GetChild = showString "get-child"
+  showsPrec d (OnChildEvent o) = showsPrec d o
+
+instance
+  ( Typeable child
+  , Typeable (Effectful.ServerPdu child)
+  , NFData (Supervisor.ChildId child)
+  , Show (Supervisor.ChildId child)
+  , LogIo e
+  ) => Stateful.Server (Watchdog child) (Processes e) where
 
   data instance StartArgument (Watchdog child) (Processes e) =
     StartWatchDog { _supervisor :: Endpoint (Supervisor.Sup child)
@@ -100,14 +124,20 @@ instance (Typeable child, LogIo e) => Stateful.Server (Watchdog child) (Processe
     WatchdogModel { _crashMap :: Map (Supervisor.ChildId child) (Set Crash)
                   }
 
-  setup _ep (StartWatchDog sup _) = do
+  setup me (StartWatchDog sup _) = do
     logInfo ("Watchdog attaching to: " <> pack (show sup))
     mref <- monitor (sup ^. fromEndpoint)
+    Observer.registerObserver @(Supervisor.ChildEvent child) sup me
     return (def, mref)
 
   update _me startArg =
     \case
-      Effectful.OnCall rt GetChild -> error "TODO"
+      Effectful.OnCall rt GetChild -> error "TODO1"
+      Effectful.OnCast (OnChildEvent e) ->
+        case e of
+          Supervisor.OnSupervisorShuttingDown -> do
+            logInfo ("Watched supervisor is shutting down, exiting normally.")
+            exitNormally
       Effectful.OnDown pd@(ProcessDown mref reason _) -> do
         supMonRef <- Stateful.askSettings @(Watchdog child)
         if mref == supMonRef then do

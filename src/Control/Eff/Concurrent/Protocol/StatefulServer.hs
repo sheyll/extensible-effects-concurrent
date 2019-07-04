@@ -151,9 +151,9 @@ start
   :: forall a r q h
   . ( HasCallStack
     , Typeable a
-    , LogsTo h (Processes q)
     , Effectful.Server (Stateful a) (Processes q)
     , Server a (Processes q)
+    , LogsTo h (Processes q)
     , HasProcesses r q
     )
   => StartArgument a (Processes q) -> Eff r (Endpoint (Protocol a))

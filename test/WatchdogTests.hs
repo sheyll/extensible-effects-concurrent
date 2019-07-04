@@ -5,6 +5,7 @@ import Common
 import qualified Control.Eff.Concurrent.Protocol.EffectfulServer as Effectful
 import qualified Control.Eff.Concurrent.Protocol.StatefulServer as Stateful
 import qualified Control.Eff.Concurrent.Protocol.Supervisor as Supervisor
+import qualified Control.Eff.Concurrent.Protocol.Observer.Queue as OQ
 import qualified Control.Eff.Concurrent.Protocol.Watchdog as Watchdog
 import Control.Lens
 import Data.Set (Set)
@@ -17,22 +18,45 @@ test_watchdogTests :: HasCallStack => TestTree
 test_watchdogTests =
   testGroup "watchdog"
     [ runTestCase "demonstrate Bookshelf" bookshelfDemo
-    , runTestCase "when the supervisor exits, the watchdog exits with ExitOtherProcessNotRunning" $ do
-        sup <- Supervisor.startLink (Supervisor.statefulChild @BookShelf (TimeoutMicros 1_000_000) id)
-        wd <- Watchdog.startLink sup
-        unlinkProcess (wd ^. fromEndpoint)
-        unlinkProcess (sup ^. fromEndpoint)
-        sendShutdown (sup ^. fromEndpoint) (ExitUnhandledError "test-supervisor-kill")
-        let expected = ExitOtherProcessNotRunning (sup^.fromEndpoint)
-        awaitProcessDown (wd ^. fromEndpoint) >>= lift . assertEqual "bad exit reason" expected . downReason
-    , runTestCase "when the supervisor exits, the watchdog exits with ExitOtherProcessNotRunning" $ do
-        sup <- Supervisor.startLink (Supervisor.statefulChild @BookShelf (TimeoutMicros 1_000_000) id)
-        wd <- Watchdog.startLink sup
-        unlinkProcess (wd ^. fromEndpoint)
-        unlinkProcess (sup ^. fromEndpoint)
-        sendShutdown (sup ^. fromEndpoint) (ExitUnhandledError "test-supervisor-kill")
-        let expected = ExitOtherProcessNotRunning (sup^.fromEndpoint)
-        awaitProcessDown (wd ^. fromEndpoint) >>= lift . assertEqual "bad exit reason" expected . downReason
+    , testGroup "empty supervisor"
+      [ runTestCase "when the supervisor exits, the watchdog exits with ExitOtherProcessNotRunning" $ do
+          sup <- Supervisor.startLink (Supervisor.statefulChild @BookShelf (TimeoutMicros 1_000_000) id)
+          wd <- Watchdog.startLink sup
+          unlinkProcess (wd ^. fromEndpoint)
+          unlinkProcess (sup ^. fromEndpoint)
+          sendShutdown (sup ^. fromEndpoint) (ExitUnhandledError "test-supervisor-kill")
+          let expected = ExitOtherProcessNotRunning (sup^.fromEndpoint)
+          awaitProcessDown (wd ^. fromEndpoint) >>= lift . assertEqual "bad exit reason" expected . downReason
+
+      ]
+    , testGroup "with children"
+      [ runTestCase "when a child exits it is restarted" $ do
+           sup <- Supervisor.startLink (Supervisor.statefulChild @BookShelf (TimeoutMicros 1_000_000) id)
+           wd <- Watchdog.startLink sup
+           OQ.observe @(Supervisor.ChildEvent (Stateful.Stateful BookShelf)) 100 sup $ do
+             let c0 = BookShelfId 0
+             do
+               c00 <- Supervisor.spawnOrLookup sup c0
+               call c00 (AddBook "Solaris")
+               OQ.await @(Supervisor.ChildEvent (Stateful.Stateful BookShelf)) >>= logInfo . pack . show
+               call c00 (AddBook "Solaris") -- adding twice the same book causes a crash
+               void $ awaitProcessDown (c00 ^. fromEndpoint)
+               logInfo "part 1 passed"
+             do
+               c00 <- Supervisor.spawnOrLookup sup c0
+               call c00 (AddBook "Solaris")
+               call c00 (AddBook "Solaris") -- adding twice the same book causes a crash
+               void $ awaitProcessDown (c00 ^. fromEndpoint)
+               logInfo "part 2 passed"
+
+      , runTestCase "when the supervisor emits the shutting down event the watchdog does not restart children" $ do
+          sup <- Supervisor.startLink (Supervisor.statefulChild @BookShelf (TimeoutMicros 1_000_000) id)
+          wd <- Watchdog.startLink sup
+          unlinkProcess (wd ^. fromEndpoint)
+          unlinkProcess (sup ^. fromEndpoint)
+          Supervisor.stopSupervisor sup
+          void $ awaitProcessDown (wd ^. fromEndpoint)
+      ]
     ]
 bookshelfDemo :: HasCallStack => Eff Effects ()
 bookshelfDemo = do
