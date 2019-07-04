@@ -32,8 +32,8 @@ test_watchdogTests =
     , testGroup "with children"
       [ runTestCase "when a child exits it is restarted" $ do
            sup <- Supervisor.startLink (Supervisor.statefulChild @BookShelf (TimeoutMicros 1_000_000) id)
-           wd <- Watchdog.startLink sup
-           OQ.observe @(Supervisor.ChildEvent (Stateful.Stateful BookShelf)) 100 sup $ do
+           void $ Watchdog.startLink sup
+           OQ.observe @(Supervisor.ChildEvent (Stateful.Stateful BookShelf)) (100 :: Int) sup $ do
              let c0 = BookShelfId 0
              do
                c00 <- Supervisor.spawnOrLookup sup c0
@@ -41,13 +41,18 @@ test_watchdogTests =
                OQ.await @(Supervisor.ChildEvent (Stateful.Stateful BookShelf)) >>= logInfo . pack . show
                call c00 (AddBook "Solaris") -- adding twice the same book causes a crash
                void $ awaitProcessDown (c00 ^. fromEndpoint)
+               OQ.await @(Supervisor.ChildEvent (Stateful.Stateful BookShelf)) >>= logInfo . pack . show -- child ended
                logInfo "part 1 passed"
-             do
-               c00 <- Supervisor.spawnOrLookup sup c0
-               call c00 (AddBook "Solaris")
-               call c00 (AddBook "Solaris") -- adding twice the same book causes a crash
-               void $ awaitProcessDown (c00 ^. fromEndpoint)
+               OQ.await @(Supervisor.ChildEvent (Stateful.Stateful BookShelf)) >>= logInfo . pack . show -- child restarted
                logInfo "part 2 passed"
+             do
+               c01m <- Supervisor.lookupChild sup c0
+               case c01m of
+                Nothing ->
+                  lift (assertFailure "failed to lookup child, seems it wasn't restarted!")
+                Just c01 -> do
+                  call c01 (AddBook "Solaris")
+                  logInfo "part 3 passed"
 
       , runTestCase "when the supervisor emits the shutting down event the watchdog does not restart children" $ do
           sup <- Supervisor.startLink (Supervisor.statefulChild @BookShelf (TimeoutMicros 1_000_000) id)
@@ -56,6 +61,10 @@ test_watchdogTests =
           unlinkProcess (sup ^. fromEndpoint)
           Supervisor.stopSupervisor sup
           void $ awaitProcessDown (wd ^. fromEndpoint)
+      , testGroup "reusing ChildIds"
+        [ runTestCase "when a child exits normally, and a new child with the same ChildId crashes, the watchdog behaves as if the first child never existed" $ do
+            error "TODO"
+        ]
       ]
     ]
 bookshelfDemo :: HasCallStack => Eff Effects ()

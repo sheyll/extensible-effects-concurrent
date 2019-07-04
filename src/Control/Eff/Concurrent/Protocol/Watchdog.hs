@@ -45,9 +45,9 @@ startLink
   . ( HasCallStack
     , LogIo q
     , Typeable child
-    , Typeable (Effectful.ServerPdu child)
-    , NFData (Supervisor.ChildId child)
-    , Show (Supervisor.ChildId child)
+    , HasPdu (Effectful.ServerPdu child)
+    , Tangible (Supervisor.ChildId child)
+    , Ord (Supervisor.ChildId child)
     , HasProcesses e q
     )
   => Endpoint (Supervisor.Sup child)
@@ -106,9 +106,9 @@ instance
 
 instance
   ( Typeable child
-  , Typeable (Effectful.ServerPdu child)
-  , NFData (Supervisor.ChildId child)
-  , Show (Supervisor.ChildId child)
+  , HasPdu (Effectful.ServerPdu child)
+  , Tangible (Supervisor.ChildId child)
+  , Ord (Supervisor.ChildId child)
   , LogIo e
   ) => Stateful.Server (Watchdog child) (Processes e) where
 
@@ -138,7 +138,17 @@ instance
           Supervisor.OnSupervisorShuttingDown -> do
             logInfo ("Watched supervisor is shutting down, exiting normally.")
             exitNormally
-      Effectful.OnDown pd@(ProcessDown mref reason _) -> do
+          down@(Supervisor.OnChildSpawned _ _) ->
+            logInfo (pack (show down))
+          down@(Supervisor.OnChildDown _ _ ExitNormally) ->
+            logNotice (pack (show down))
+          down@(Supervisor.OnChildDown cId _ _) -> do
+            logNotice (pack (show down))
+            logNotice ("==== restarting: " <> pack (show cId))
+            res <- Supervisor.spawnChild (startArg ^. supervisor) cId
+            logNotice ("restarted: "  <> pack (show cId) <> ": " <> pack (show res))
+
+      Effectful.OnDown pd@(ProcessDown mref _ _) -> do
         supMonRef <- Stateful.askSettings @(Watchdog child)
         if mref == supMonRef then do
           logError "attached supervisor exited unexpectedly"
