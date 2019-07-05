@@ -2,7 +2,7 @@
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE NumericUnderscores #-}
 -- | Another  example for the library that uses embedded protocols with multiple server back
--- ends and a polymorphic client, as well as the 'Supervisor.Sup' module to start multiple
+-- ends and a polymorphic client, as well as the 'Broker' module to start multiple
 -- back-ends.
 --
 -- @since 0.29.0
@@ -12,10 +12,9 @@ import           Control.DeepSeq
 import           Control.Eff
 import           Control.Eff.State.Lazy as State
 import           Control.Eff.Concurrent
-import           Control.Eff.Concurrent.Process.Timer
 import           Control.Eff.Concurrent.Protocol.EffectfulServer as Effectful
 import           Control.Eff.Concurrent.Protocol.StatefulServer as Stateful
-import           Control.Eff.Concurrent.Protocol.Supervisor as Supervisor
+import           Control.Eff.Concurrent.Protocol.Broker as Broker
 import           Control.Lens
 import           Control.Monad
 import           Data.Dynamic
@@ -33,11 +32,11 @@ main =
 embeddedExample :: HasCallStack => Eff Effects ()
 embeddedExample = do
   b1 <- Stateful.startLink InitBackend1
-  b2Sup <- startBackend2Sup
-  b2 <- Supervisor.spawnOrLookup @Backend2 b2Sup 1
-  _ <- Supervisor.spawnOrLookup b2Sup 2
-  b2_2 <- Supervisor.spawnOrLookup b2Sup 2
-  b2_3 <- Supervisor.spawnOrLookup b2Sup 3
+  b2Broker <- startBackend2Broker
+  b2 <- Broker.spawnOrLookup @Backend2 b2Broker 1
+  _ <- Broker.spawnOrLookup b2Broker 2
+  b2_2 <- Broker.spawnOrLookup b2Broker 2
+  b2_3 <- Broker.spawnOrLookup b2Broker 3
   app <- Stateful.startLink InitApp
   cast app DoThis
   cast app DoThis
@@ -66,11 +65,11 @@ embeddedExample = do
   cast app DoThis
   call app (SetBackend (Just (SomeBackend b2_2)))
   cast app DoThis
-  _ <- Supervisor.stopChild b2Sup 2
+  _ <- Broker.stopChild b2Broker 2
   cast app DoThis
   call app (SetBackend (Just (SomeBackend b2_3)))
   cast app DoThis
-  Supervisor.stopSupervisor b2Sup
+  Broker.stopBroker b2Broker
   cast app DoThis
 
 
@@ -230,7 +229,7 @@ instance Stateful.Server Backend1 Effects where
 modelBackend1 :: Iso' (Model Backend1)  (Int, ObserverRegistry BackendEvent)
 modelBackend1 = iso (\(MkBackend1 x) -> x) MkBackend1
 
--- Backend 2 is behind a supervisor
+-- Backend 2 is behind a broker
 
 data Backend2 deriving Typeable
 
@@ -290,10 +289,10 @@ instance Effectful.Server Backend2 Effects where
           logNotice "observer removed"
       _ -> logWarning ("unexpected: " <> T.pack (show e))
 
-type instance Supervisor.ChildId Backend2 = Int
+type instance Broker.ChildId Backend2 = Int
 
-startBackend2Sup :: Eff Effects (Endpoint (Supervisor.Sup Backend2))
-startBackend2Sup = Supervisor.startLink (Supervisor.MkSupConfig (TimeoutMicros 1_000_000) InitBackend2)
+startBackend2Broker :: Eff Effects (Endpoint (Broker.Broker Backend2))
+startBackend2Broker = Broker.startLink (Broker.MkBrokerConfig (TimeoutMicros 1_000_000) InitBackend2)
 
 -- EXPERIMENTING
 data EP a where

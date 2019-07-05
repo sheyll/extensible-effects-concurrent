@@ -2,10 +2,9 @@
 
 ## 0.29.3
 - Improve inline code documentation
-- [Supervisor](././src/Control/Eff/Concurrent/Protocol/Supervisor.hs) 
-    - Add a the [Watchdog](./src/Control/Eff/Concurrent/Protocol/Watchdog.hs) module to restart crashing `Supervisor` children 
+- **Supervisor** 
+    - Rename to [Broker](./src/Control/Eff/Concurrent/Protocol/Broker.hs)  
     - Add `ChildEvent`  
-    - Add a supervisor+watchdog example to the [README.md](./README.md)
 - [Process](./src/Control/Eff/Concurrent/Process.hs)
     - Introduce a new `Interrupt NoRecovery` clause: `ExitOtherProcessNotRunning`
     - Change the second parameter of `ProcessDown` from `SomeExitReason` to `Interrupt NoRecovery`
@@ -14,6 +13,9 @@
     - Add `mapEffects` 
     - Add `coerceEffects`        
 - Export the `TimeoutMicros` constructor
+- Add **[Watchdog](./src/Control/Eff/Concurrent/Protocol/Watchdog.hs)** a server that watches 
+  a **[Broker](./src/Control/Eff/Concurrent/Protocol/Broker.hs)** and restarts crashed
+  processes registered at the broker.      
       
 ## 0.29.2
 - Improve `Supervisor` API: Use `Init` from the effectful server as start

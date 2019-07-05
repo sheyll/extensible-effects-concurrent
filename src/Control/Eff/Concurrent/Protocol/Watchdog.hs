@@ -12,7 +12,7 @@ import Control.Eff.Concurrent.Process.Timer
 import Control.Eff.Concurrent.Protocol
 import Control.Eff.Concurrent.Protocol.Client
 import qualified Control.Eff.Concurrent.Protocol.Observer as Observer
-import qualified Control.Eff.Concurrent.Protocol.Supervisor as Supervisor
+import qualified Control.Eff.Concurrent.Protocol.Broker as Broker
 import qualified Control.Eff.Concurrent.Protocol.StatefulServer as Stateful
 import qualified Control.Eff.Concurrent.Protocol.EffectfulServer as Effectful
 import Control.Lens
@@ -37,7 +37,7 @@ data Watchdog (child :: Type) deriving Typeable
 
 -- | Start and link a new watchdog process.
 --
--- The watchdog process will register itself to the 'Supervisor.ChildEvent's and
+-- The watchdog process will register itself to the 'Broker.ChildEvent's and
 -- restart crashed children.
 --
 -- @since 0.29.3
@@ -47,17 +47,17 @@ startLink
     , LogIo q
     , Typeable child
     , HasPdu (Effectful.ServerPdu child)
-    , Tangible (Supervisor.ChildId child)
-    , Ord (Supervisor.ChildId child)
+    , Tangible (Broker.ChildId child)
+    , Ord (Broker.ChildId child)
     , HasProcesses e q
     )
   => Eff e (Endpoint (Watchdog child))
 startLink =
   Stateful.startLink (StartWatchDog (3 `crashesPerSeconds` 30))
 
--- | Restart children of the given supervisor.
+-- | Restart children of the given broker.
 --
--- When the supervisor exits, ignore the children of that supervisor.
+-- When the broker exits, ignore the children of that broker.
 --
 -- @since 0.29.3
 attach
@@ -66,17 +66,17 @@ attach
     , LogIo q
     , Typeable child
     , HasPdu (Effectful.ServerPdu child)
-    , Tangible (Supervisor.ChildId child)
-    , Ord (Supervisor.ChildId child)
+    , Tangible (Broker.ChildId child)
+    , Ord (Broker.ChildId child)
     , HasProcesses e q
     )
-  => Endpoint (Watchdog child) -> Endpoint (Supervisor.Sup child) -> Eff e ()
-attach wd sup = call wd (Attach sup)
+  => Endpoint (Watchdog child) -> Endpoint (Broker.Broker child) -> Eff e ()
+attach wd broker = call wd (Attach broker)
 
 
--- | Restart children of the given supervisor.
+-- | Restart children of the given broker.
 --
--- When the supervisor exits, the watchdog process will exit, too.
+-- When the broker exits, the watchdog process will exit, too.
 --
 -- @since 0.29.3
 attachLinked
@@ -85,12 +85,12 @@ attachLinked
     , LogIo q
     , Typeable child
     , HasPdu (Effectful.ServerPdu child)
-    , Tangible (Supervisor.ChildId child)
-    , Ord (Supervisor.ChildId child)
+    , Tangible (Broker.ChildId child)
+    , Ord (Broker.ChildId child)
     , HasProcesses e q
     )
-  => Endpoint (Watchdog child) -> Endpoint (Supervisor.Sup child) -> Eff e ()
-attachLinked wd sup = call wd (AttachLinked sup)
+  => Endpoint (Watchdog child) -> Endpoint (Broker.Broker child) -> Eff e ()
+attachLinked wd broker = call wd (AttachLinked broker)
 
 --  When a child crashes,
 --   - if the allowed maximum number crashes per time span has been reached for the process,
@@ -98,7 +98,7 @@ attachLinked wd sup = call wd (AttachLinked sup)
 --       - don't start the child again
 --       - if this is a /sensitive/ watchdog crash the watchdog
 --     otherwise
---       - tell the supervisor to start the child
+--       - tell the broker to start the child
 --       - record a crash and start a timer to remove the record later
 --       - monitor the child
 --  When a child crash timer elapses,
@@ -118,25 +118,25 @@ crashesPerSeconds occurrences seconds =
   in CrashesPerPicos (occurrences % picos')
 
 instance Typeable child => HasPdu (Watchdog child) where
-  type instance EmbeddedPduList (Watchdog child) = '[Observer.Observer (Supervisor.ChildEvent child)]
+  type instance EmbeddedPduList (Watchdog child) = '[Observer.Observer (Broker.ChildEvent child)]
   data Pdu (Watchdog child) r where
-    Attach :: Endpoint (Supervisor.Sup child) -> Pdu (Watchdog child) ('Synchronous ())
-    AttachLinked :: Endpoint (Supervisor.Sup child) -> Pdu (Watchdog child) ('Synchronous ())
-    OnChildEvent :: Supervisor.ChildEvent child -> Pdu (Watchdog child) 'Asynchronous
+    Attach :: Endpoint (Broker.Broker child) -> Pdu (Watchdog child) ('Synchronous ())
+    AttachLinked :: Endpoint (Broker.Broker child) -> Pdu (Watchdog child) ('Synchronous ())
+    OnChildEvent :: Broker.ChildEvent child -> Pdu (Watchdog child) 'Asynchronous
       deriving Typeable
 
-instance Typeable child => HasPduPrism (Watchdog child) (Observer.Observer (Supervisor.ChildEvent child)) where
+instance Typeable child => HasPduPrism (Watchdog child) (Observer.Observer (Broker.ChildEvent child)) where
   embedPdu (Observer.Observed e) = OnChildEvent e
   fromPdu (OnChildEvent x) = Just (Observer.Observed x)
   fromPdu _ = Nothing
 
-instance (NFData (Supervisor.ChildId child)) => NFData (Pdu (Watchdog child) r) where
+instance (NFData (Broker.ChildId child)) => NFData (Pdu (Watchdog child) r) where
   rnf (Attach e) = rnf e
   rnf (AttachLinked e) = rnf e
   rnf (OnChildEvent o) = rnf o
 
 instance
-  ( Show (Supervisor.ChildId child)
+  ( Show (Broker.ChildId child)
   , Typeable child
   , Typeable (Effectful.ServerPdu child)
   )
@@ -148,8 +148,8 @@ instance
 instance
   ( Typeable child
   , HasPdu (Effectful.ServerPdu child)
-  , Tangible (Supervisor.ChildId child)
-  , Ord (Supervisor.ChildId child)
+  , Tangible (Broker.ChildId child)
+  , Ord (Broker.ChildId child)
   , LogIo e
   ) => Stateful.Server (Watchdog child) (Processes e) where
 
@@ -159,61 +159,61 @@ instance
       deriving Typeable
 
   newtype instance Model (Watchdog child) =
-    WatchdogModel { _supervisors :: Map (Endpoint (Supervisor.Sup child)) (Maybe MonitorReference) -- Just monitor means that the supervisor is linked
+    WatchdogModel { _brokers :: Map (Endpoint (Broker.Broker child)) (Maybe MonitorReference) -- Just monitor means that the broker is linked
                   }
                   deriving (Default)
 
   update _me startArg =
     \case
-      Effectful.OnCall rt (Attach sup) -> do
-        logDebug ("attaching to: " <> pack (show sup))
+      Effectful.OnCall rt (Attach broker) -> do
+        logDebug ("attaching to: " <> pack (show broker))
 
 
-      Effectful.OnCall rt (AttachLinked sup) -> do
-        logDebug ("attaching and linking to: " <> pack (show sup))
+      Effectful.OnCall rt (AttachLinked broker) -> do
+        logDebug ("attaching and linking to: " <> pack (show broker))
 
 
       Effectful.OnCast (OnChildEvent e) ->
         case e of
-          Supervisor.OnSupervisorShuttingDown sup -> do
-            logInfo ("linked supervisor " <> pack (show sup) <> " is shutting down.")
+          Broker.OnBrokerShuttingDown broker -> do
+            logInfo ("linked broker " <> pack (show broker) <> " is shutting down.")
             exitNormally
-          down@(Supervisor.OnChildSpawned sup _ _) ->
+          down@(Broker.OnChildSpawned broker _ _) ->
             logInfo (pack (show down))
-          down@(Supervisor.OnChildDown sup _ _ ExitNormally) ->
+          down@(Broker.OnChildDown broker _ _ ExitNormally) ->
             logNotice (pack (show down))
-          down@(Supervisor.OnChildDown sup cId _ _) -> do
+          down@(Broker.OnChildDown broker cId _ _) -> do
             logNotice (pack (show down))
             logNotice ("==== restarting: " <> pack (show cId))
-            res <- Supervisor.spawnChild sup cId
+            res <- Broker.spawnChild broker cId
             logNotice ("restarted: "  <> pack (show cId) <> ": " <> pack (show res))
 
       Effectful.OnDown pd@(ProcessDown mref _ pid) -> do
         logDebug ("received " <> pack (show pd))
---        supMonRef <- Stateful.askSettings @(Watchdog child)
---        if mref == supMonRef then do
---          logError "attached supervisor exited unexpectedly"
+--        brokerMonRef <- Stateful.askSettings @(Watchdog child)
+--        if mref == brokerMonRef then do
+--          logError "attached broker exited unexpectedly"
 --          exitBecause (ExitOtherProcessNotRunning pid)
 --        else
 --          logWarning ("unexpected process down: " <> pack (show pd))
 
 
-data Supervisor child =
-  MkSupervisor { _supervisorMonitor :: Maybe MonitorReference
-               , _crashes :: Map (Supervisor.ChildId child) (Set Crash)
+data Broker child =
+  MkBroker { _brokerMonitor :: Maybe MonitorReference
+               , _crashes :: Map (Broker.ChildId child) (Set Crash)
                }
 
-instance Default (Supervisor child) where
-  def = MkSupervisor def def
+instance Default (Broker child) where
+  def = MkBroker def def
 
-supervisorMonitor :: Lens' (Supervisor child) (Maybe MonitorReference)
-supervisorMonitor = lens _supervisorMonitor (\m x -> m {_supervisorMonitor = x})
+brokerMonitor :: Lens' (Broker child) (Maybe MonitorReference)
+brokerMonitor = lens _brokerMonitor (\m x -> m {_brokerMonitor = x})
 
-crashes :: Lens' (Supervisor child) (Map (Supervisor.ChildId child) (Set Crash))
+crashes :: Lens' (Broker child) (Map (Broker.ChildId child) (Set Crash))
 crashes = lens _crashes (\m x -> m {_crashes = x})
 
-supervisors :: Lens' (Stateful.Model (Watchdog child)) (Map (Endpoint (Supervisor.Sup child)) (Maybe MonitorReference))
-supervisors = lens _supervisors (\m x -> m {_supervisors = x})
+brokers :: Lens' (Stateful.Model (Watchdog child)) (Map (Endpoint (Broker.Broker child)) (Maybe MonitorReference))
+brokers = lens _brokers (\m x -> m {_brokers = x})
 
 --crashRate :: Lens' (Stateful.StartArgument (Watchdog child) (Processes e)) CrashRate
 --crashRate = lens _crashRate (\m x -> m {_crashRate = x})

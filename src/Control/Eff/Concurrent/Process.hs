@@ -241,7 +241,7 @@ data Process (r :: [Type -> Type]) b where
   -- I thought about this. If a process exits normally, it should have the
   -- opportunity to shutdown stuff explicitly.
   -- And if you want to make sure that there are no dangling child processes
-  -- after e.g. a supervisor crash, you can always use 'monitor'.
+  -- after e.g. a broker crash, you can always use 'monitor'.
   --
   -- @since 0.12.0
   Link :: ProcessId -> Process r (ResumeProcess ())

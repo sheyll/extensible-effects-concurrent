@@ -1,70 +1,70 @@
 {-# LANGUAGE UndecidableInstances #-}
--- | A process supervisor spawns and monitors child processes.
+-- | A process broker spawns and monitors child processes.
 --
 -- The child processes are mapped to symbolic identifier values: Child-IDs.
 --
--- This is the barest, most minimal version of a supervisor. Children
+-- This is the barest, most minimal version of a broker. Children
 -- can be started, but not restarted.
 --
 -- Children can efficiently be looked-up by an id-value, and when
--- the supervisor is shutdown, all children will be shutdown these
--- are actually all the features of this supervisor implementation.
+-- the broker is shutdown, all children will be shutdown these
+-- are actually all the features of this broker implementation.
 --
--- Also, this minimalist supervisor only knows how to spawn a
+-- Also, this minimalist broker only knows how to spawn a
 -- single kind of child process.
 --
--- When a supervisor spawns a new child process, it expects the
--- child process to return a 'ProcessId'. The supervisor will
+-- When a broker spawns a new child process, it expects the
+-- child process to return a 'ProcessId'. The broker will
 -- 'monitor' the child process.
 --
 -- This is in stark contrast to how Erlang/OTP handles things;
 -- In the OTP Supervisor, the child has to link to the parent.
 -- This allows the child spec to be more flexible in that no
 -- @pid@ has to be passed from the child start function to the
--- supervisor process, and also, a child may break free from
--- the supervisor by unlinking.
+-- broker process, and also, a child may break free from
+-- the broker by unlinking.
 --
 -- Now while this seems nice at first, this might actually
 -- cause surprising results, since it is usually expected that
--- stopping a supervisor also stops the children, or that a child
+-- stopping a broker also stops the children, or that a child
 -- exit shows up in the logging originating from the former
--- supervisor.
+-- broker.
 --
 -- The approach here is to allow any child to link to the
--- supervisor to realize when the supervisor was violently killed,
+-- broker to realize when the broker was violently killed,
 -- and otherwise give the child no chance to unlink itself from
--- its supervisor.
+-- its broker.
 --
 -- This module is far simpler than the Erlang/OTP counter part,
 -- of a @simple_one_for_one@ supervisor.
 --
--- The future of this supervisor might not be a-lot more than
+-- The future of this broker might not be a-lot more than
 -- it currently is. The ability to restart processes might be
--- implemented outside of this supervisor module.
+-- implemented outside of this broker module.
 --
 -- One way to do that is to implement the restart logic in
 -- a separate module, since the child-id can be reused when a child
 -- exits.
 --
 -- @since 0.23.0
-module Control.Eff.Concurrent.Protocol.Supervisor
+module Control.Eff.Concurrent.Protocol.Broker
   ( startLink
   , statefulChild
-  , stopSupervisor
-  , isSupervisorAlive
-  , monitorSupervisor
+  , stopBroker
+  , isBrokerAlive
+  , monitorBroker
   , getDiagnosticInfo
   , spawnChild
   , spawnOrLookup
   , lookupChild
   , stopChild
-  , Sup()
+  , Broker()
   , Pdu(StartC, StopC, LookupC, GetDiagnosticInfo)
   , ChildId
-  , Stateful.StartArgument(MkSupConfig)
-  , supConfigChildStopTimeout
+  , Stateful.StartArgument(MkBrokerConfig)
+  , brokerConfigChildStopTimeout
   , SpawnErr(AlreadyStarted)
-  , ChildEvent(OnChildSpawned, OnChildDown, OnSupervisorShuttingDown)
+  , ChildEvent(OnChildSpawned, OnChildDown, OnBrokerShuttingDown)
   ) where
 
 import Control.DeepSeq (NFData(rnf))
@@ -75,7 +75,7 @@ import Control.Eff.Concurrent.Protocol.Wrapper
 import Control.Eff.Concurrent.Protocol.Observer
 import qualified Control.Eff.Concurrent.Protocol.EffectfulServer as Effectful
 import qualified Control.Eff.Concurrent.Protocol.StatefulServer as Stateful
-import Control.Eff.Concurrent.Protocol.Supervisor.InternalState
+import Control.Eff.Concurrent.Protocol.Broker.InternalState
 import Control.Eff.Concurrent.Process
 import Control.Eff.Concurrent.Process.Timer
 import Control.Eff.Extend (raise)
@@ -93,11 +93,11 @@ import GHC.Generics (Generic)
 import GHC.Stack
 import Control.Applicative ((<|>))
 
--- * Supervisor Server API
+-- * Broker Server API
 
 -- ** Functions
 
--- | Start and link a new supervisor process with the given 'SpawnFun'unction.
+-- | Start and link a new broker process with the given 'SpawnFun'unction.
 --
 -- To spawn new child processes use 'spawnChild'.
 --
@@ -106,14 +106,14 @@ startLink
   :: forall p e
   . ( HasCallStack
     , LogIo (Processes e)
-    , TangibleSup p
-    , Stateful.Server (Sup p) (Processes e)
+    , TangibleBroker p
+    , Stateful.Server (Broker p) (Processes e)
     )
-  => Stateful.StartArgument (Sup p) (Processes e)
-  -> Eff (Processes e) (Endpoint (Sup p))
+  => Stateful.StartArgument (Broker p) (Processes e)
+  -> Eff (Processes e) (Endpoint (Broker p))
 startLink = Stateful.startLink
 
--- | A smart constructor for 'MkSupConfig' that makes it easy to start a 'Stateful.Server' instance.
+-- | A smart constructor for 'MkBrokerConfig' that makes it easy to start a 'Stateful.Server' instance.
 --
 -- The user needs to instantiate @'ChildId' p@.
 --
@@ -122,62 +122,62 @@ statefulChild
   :: forall p e
   . ( HasCallStack
     , LogIo (Processes e)
-    , TangibleSup (Stateful.Stateful p)
-    , Stateful.Server (Sup (Stateful.Stateful p)) (Processes e)
+    , TangibleBroker (Stateful.Stateful p)
+    , Stateful.Server (Broker (Stateful.Stateful p)) (Processes e)
     )
   => Timeout
   -> (ChildId p -> Stateful.StartArgument p (Processes e))
-  -> Stateful.StartArgument (Sup (Stateful.Stateful p)) (Processes e)
-statefulChild t f = MkSupConfig t (Stateful.Init . f)
+  -> Stateful.StartArgument (Broker (Stateful.Stateful p)) (Processes e)
+statefulChild t f = MkBrokerConfig t (Stateful.Init . f)
 
--- | Stop the supervisor and shutdown all processes.
+-- | Stop the broker and shutdown all processes.
 --
--- Block until the supervisor has finished.
+-- Block until the broker has finished.
 --
 -- @since 0.23.0
-stopSupervisor
+stopBroker
   :: ( HasCallStack
      , HasProcesses e q
      , Member Logs e
      , Lifted IO e
-     , TangibleSup p
+     , TangibleBroker p
      )
-  => Endpoint (Sup p)
+  => Endpoint (Broker p)
   -> Eff e ()
-stopSupervisor ep = do
-  logInfo ("stopping supervisor: " <> pack (show ep))
+stopBroker ep = do
+  logInfo ("stopping broker: " <> pack (show ep))
   mr <- monitor (_fromEndpoint ep)
   sendInterrupt (_fromEndpoint ep) NormalExitRequested
   r <- receiveSelectedMessage (selectProcessDown mr)
-  logInfo ("supervisor stopped: " <> pack (show ep) <> " " <> pack (show r))
+  logInfo ("broker stopped: " <> pack (show ep) <> " " <> pack (show r))
 
--- | Check if a supervisor process is still alive.
+-- | Check if a broker process is still alive.
 --
 -- @since 0.23.0
-isSupervisorAlive
+isBrokerAlive
   :: forall p q0 e .
      ( HasCallStack
      , Member Logs e
      , Typeable p
      , HasProcesses e q0
      )
-  => Endpoint (Sup p)
+  => Endpoint (Broker p)
   -> Eff e Bool
-isSupervisorAlive x = isProcessAlive (_fromEndpoint x)
+isBrokerAlive x = isProcessAlive (_fromEndpoint x)
 
--- | Monitor a supervisor process.
+-- | Monitor a broker process.
 --
 -- @since 0.23.0
-monitorSupervisor
+monitorBroker
   :: forall p q0 e .
      ( HasCallStack
      , Member Logs e
      , HasProcesses e q0
-     , TangibleSup p
+     , TangibleBroker p
      )
-  => Endpoint (Sup p)
+  => Endpoint (Broker p)
   -> Eff e MonitorReference
-monitorSupervisor x = monitor (_fromEndpoint x)
+monitorBroker x = monitor (_fromEndpoint x)
 
 -- | Start and monitor a new child process using the 'SpawnFun' passed
 -- to 'startLink'.
@@ -188,10 +188,10 @@ spawnChild
      ( HasCallStack
      , Member Logs e
      , HasProcesses e q0
-     , TangibleSup p
+     , TangibleBroker p
      , Typeable (Effectful.ServerPdu p)
      )
-  => Endpoint (Sup p)
+  => Endpoint (Broker p)
   -> ChildId p
   -> Eff e (Either (SpawnErr p) (Endpoint (Effectful.ServerPdu p)))
 spawnChild ep cId = call ep (StartC cId)
@@ -208,10 +208,10 @@ spawnOrLookup
      ( HasCallStack
      , Member Logs e
      , HasProcesses e q0
-     , TangibleSup p
+     , TangibleBroker p
      , Typeable (Effectful.ServerPdu p)
      )
-  => Endpoint (Sup p)
+  => Endpoint (Broker p)
   -> ChildId p
   -> Eff e (Endpoint (Effectful.ServerPdu p))
 spawnOrLookup supEp cId =
@@ -230,10 +230,10 @@ lookupChild ::
      ( HasCallStack
      , Member Logs e
      , HasProcesses e q0
-     , TangibleSup p
+     , TangibleBroker p
      , Typeable (Effectful.ServerPdu p)
      )
-  => Endpoint (Sup p)
+  => Endpoint (Broker p)
   -> ChildId p
   -> Eff e (Maybe (Endpoint (Effectful.ServerPdu p)))
 lookupChild ep cId = call ep (LookupC @p cId)
@@ -249,23 +249,23 @@ stopChild ::
      ( HasCallStack
      , Member Logs e
      , HasProcesses e q0
-     , TangibleSup p
+     , TangibleBroker p
      )
-  => Endpoint (Sup p)
+  => Endpoint (Broker p)
   -> ChildId p
   -> Eff e Bool
 stopChild ep cId = call ep (StopC @p cId (TimeoutMicros 4000000))
 
--- | Return a 'Text' describing the current state of the supervisor.
+-- | Return a 'Text' describing the current state of the broker.
 --
 -- @since 0.23.0
 getDiagnosticInfo
   :: forall p e q0 .
      ( HasCallStack
      , HasProcesses e q0
-     , TangibleSup p
+     , TangibleBroker p
      )
-  => Endpoint (Sup p)
+  => Endpoint (Broker p)
   -> Eff e Text
 getDiagnosticInfo s = call s (GetDiagnosticInfo @p)
 
@@ -273,48 +273,48 @@ getDiagnosticInfo s = call s (GetDiagnosticInfo @p)
 
 -- | The index type of 'Server' supervisors.
 --
--- A @'Sup' p@ manages the life cycle of the processes, running the @'Server' p@
+-- A @'Broker' p@ manages the life cycle of the processes, running the @'Server' p@
 -- methods of that specific type.
 --
--- The supervisor maps an identifier value of type @'ChildId' p@ to an @'Endpoint' p@.
+-- The broker maps an identifier value of type @'ChildId' p@ to an @'Endpoint' p@.
 --
 -- @since 0.24.0
-data Sup (p :: Type) deriving Typeable
+data Broker (p :: Type) deriving Typeable
 
-instance Typeable p => HasPdu (Sup p) where
-  type instance EmbeddedPduList (Sup p) = '[ObserverRegistry (ChildEvent p)]
+instance Typeable p => HasPdu (Broker p) where
+  type instance EmbeddedPduList (Broker p) = '[ObserverRegistry (ChildEvent p)]
   -- | The 'Pdu' instance contains methods to start, stop and lookup a child
   -- process, as well as a diagnostic callback.
   --
   -- @since 0.23.0
-  data instance  Pdu (Sup p) r where
-          StartC :: ChildId p -> Pdu (Sup p) ('Synchronous (Either (SpawnErr p) (Endpoint (Effectful.ServerPdu p))))
-          StopC :: ChildId p -> Timeout -> Pdu (Sup p) ('Synchronous Bool)
-          LookupC :: ChildId p -> Pdu (Sup p) ('Synchronous (Maybe (Endpoint (Effectful.ServerPdu p))))
-          GetDiagnosticInfo :: Pdu (Sup p) ('Synchronous Text)
-          ChildEventObserverRegistry :: Pdu (ObserverRegistry (ChildEvent p)) r -> Pdu (Sup p) r
+  data instance  Pdu (Broker p) r where
+          StartC :: ChildId p -> Pdu (Broker p) ('Synchronous (Either (SpawnErr p) (Endpoint (Effectful.ServerPdu p))))
+          StopC :: ChildId p -> Timeout -> Pdu (Broker p) ('Synchronous Bool)
+          LookupC :: ChildId p -> Pdu (Broker p) ('Synchronous (Maybe (Endpoint (Effectful.ServerPdu p))))
+          GetDiagnosticInfo :: Pdu (Broker p) ('Synchronous Text)
+          ChildEventObserverRegistry :: Pdu (ObserverRegistry (ChildEvent p)) r -> Pdu (Broker p) r
       deriving Typeable
 
-instance (Typeable p, Show (ChildId p)) => Show (Pdu (Sup p) r) where
+instance (Typeable p, Show (ChildId p)) => Show (Pdu (Broker p) r) where
   showsPrec d (StartC c) = showParen (d >= 10) (showString "StartC " . showsPrec 10 c)
   showsPrec d (StopC c t) = showParen (d >= 10) (showString "StopC " . showsPrec 10 c . showChar ' ' . showsPrec 10 t)
   showsPrec d (LookupC c) = showParen (d >= 10) (showString "LookupC " . showsPrec 10 c)
   showsPrec _ GetDiagnosticInfo = showString "GetDiagnosticInfo"
   showsPrec d (ChildEventObserverRegistry c) = showParen (d >= 10) (showString "ChildEventObserverRegistry " . showsPrec 10 c)
 
-instance (NFData (ChildId p)) => NFData (Pdu (Sup p) r) where
+instance (NFData (ChildId p)) => NFData (Pdu (Broker p) r) where
   rnf (StartC ci) = rnf ci
   rnf (StopC ci t) = rnf ci `seq` rnf t
   rnf (LookupC ci) = rnf ci
   rnf GetDiagnosticInfo = ()
   rnf (ChildEventObserverRegistry x) = rnf x
 
-instance Typeable p => HasPduPrism (Sup p) (ObserverRegistry (ChildEvent p)) where
+instance Typeable p => HasPduPrism (Broker p) (ObserverRegistry (ChildEvent p)) where
  embedPdu = ChildEventObserverRegistry
  fromPdu (ChildEventObserverRegistry x) = Just x
  fromPdu _ = Nothing
 
-type instance ToPretty (Sup p) = "supervisor" <:> ToPretty p
+type instance ToPretty (Broker p) = "broker" <:> ToPretty p
 
 -- | The event type to indicate that a child was started or stopped.
 --
@@ -324,15 +324,15 @@ type instance ToPretty (Sup p) = "supervisor" <:> ToPretty p
 -- must somehow monitor the child.
 -- Since no order is specified in which processes get the 'ProcessDown' events,
 -- a watchdog cannot monitor a child and restart it immediately, because it might
--- have received the process down event before the supervisor.
--- So instead the watchdog can simply use the supervisor events, and monitor only the
--- supervisor process.
+-- have received the process down event before the broker.
+-- So instead the watchdog can simply use the broker events, and monitor only the
+-- broker process.
 --
 -- @since 0.29.3
 data ChildEvent p where
-  OnChildSpawned :: Endpoint (Sup p) -> ChildId p -> Endpoint (Effectful.ServerPdu p) -> ChildEvent p
-  OnChildDown :: Endpoint (Sup p) -> ChildId p -> Endpoint (Effectful.ServerPdu p) -> Interrupt 'NoRecovery -> ChildEvent p
-  OnSupervisorShuttingDown :: Endpoint (Sup p) -> ChildEvent p -- ^ The supervisor is shutting down and will soon begin stopping/killing its children
+  OnChildSpawned :: Endpoint (Broker p) -> ChildId p -> Endpoint (Effectful.ServerPdu p) -> ChildEvent p
+  OnChildDown :: Endpoint (Broker p) -> ChildId p -> Endpoint (Effectful.ServerPdu p) -> Interrupt 'NoRecovery -> ChildEvent p
+  OnBrokerShuttingDown :: Endpoint (Broker p) -> ChildEvent p -- ^ The broker is shutting down and will soon begin stopping/killing its children
   deriving (Typeable, Generic)
 
 instance (NFData (ChildId p)) => NFData (ChildEvent p)
@@ -346,10 +346,10 @@ instance (Typeable p, Typeable (Effectful.ServerPdu p), Show (ChildId p)) => Sho
      OnChildDown s i e r ->
         showParen (d >= 10)
           (shows s . showString ": child-down: " . shows i . showChar ' ' . shows e . showChar ' ' . showsPrec 10 r)
-     OnSupervisorShuttingDown s ->
+     OnBrokerShuttingDown s ->
         shows s . showString ": shutting down"
 
--- | The type of value used to index running 'Server' processes managed by a 'Sup'.
+-- | The type of value used to index running 'Server' processes managed by a 'Broker'.
 --
 -- Note, that the type you provide must be 'Tangible'.
 --
@@ -358,10 +358,10 @@ type family ChildId p
 
 type instance ChildId (Stateful.Stateful p) = ChildId p
 
--- | Constraints on the parameters to 'Sup'.
+-- | Constraints on the parameters to 'Broker'.
 --
 -- @since 0.24.0
-type TangibleSup p =
+type TangibleBroker p =
   ( Tangible (ChildId p)
   , Ord (ChildId p)
   , Typeable p
@@ -370,14 +370,14 @@ type TangibleSup p =
 
 instance
   ( LogIo q
-  , TangibleSup p
+  , TangibleBroker p
   , Tangible (ChildId p)
   , Typeable (Effectful.ServerPdu p)
   , Effectful.Server p (Processes q)
   , HasProcesses (Effectful.ServerEffects p (Processes q)) q
-  ) => Stateful.Server (Sup p) (Processes q) where
+  ) => Stateful.Server (Broker p) (Processes q) where
 
-  -- | Options that control the 'Sup p' process.
+  -- | Options that control the 'Broker p' process.
   --
   -- This contains:
   --
@@ -385,27 +385,25 @@ instance
   -- * the 'Timeout' after requesting a normal child exit before brutally killing the child.
   --
   -- @since 0.24.0
-  data instance StartArgument (Sup p) (Processes q) = MkSupConfig
+  data instance StartArgument (Broker p) (Processes q) = MkBrokerConfig
     {
-      -- , supConfigChildRestartPolicy :: ChildRestartPolicy
-      -- , supConfigResilience :: Resilience
-      supConfigChildStopTimeout :: Timeout
-    , supConfigStartFun :: ChildId p -> Effectful.Init p (Processes q)
+      brokerConfigChildStopTimeout :: Timeout
+    , brokerConfigStartFun :: ChildId p -> Effectful.Init p (Processes q)
     }
 
-  data instance Model (Sup p) =
-    SupModel { _children :: Children (ChildId p) p
-             , _childEventObserver :: ObserverRegistry (ChildEvent p)
-             }
+  data instance Model (Broker p) =
+    BrokerModel { _children :: Children (ChildId p) p
+                , _childEventObserver :: ObserverRegistry (ChildEvent p)
+                }
       deriving Typeable
 
-  setup _ _cfg = pure (SupModel def emptyObserverRegistry, ())
-  update _ _supConfig (Stateful.OnCast req) =
+  setup _ _cfg = pure (BrokerModel def emptyObserverRegistry, ())
+  update _ _brokerConfig (Stateful.OnCast req) =
     case  req of
       ChildEventObserverRegistry x ->
-        Stateful.zoomModel @(Sup p) childEventObserverLens (observerRegistryHandlePdu x)
+        Stateful.zoomModel @(Broker p) childEventObserverLens (observerRegistryHandlePdu x)
 
-  update me supConfig (Stateful.OnCall rt req) =
+  update me brokerConfig (Stateful.OnCall rt req) =
     case req of
       ChildEventObserverRegistry x ->
         logEmergency ("unreachable: " <> pack (show x))
@@ -425,7 +423,7 @@ instance
           Just existingChild -> do
             reason <- stopOrKillChild i existingChild t
             sendReply rt True
-            Stateful.zoomModel @(Sup p)
+            Stateful.zoomModel @(Broker p)
               childEventObserverLens
               (observerRegistryNotify @(ChildEvent p) (OnChildDown me i (existingChild^.childEndpoint) reason))
 
@@ -433,18 +431,18 @@ instance
         mExisting <- zoomToChildren @p $ lookupChildById @(ChildId p) @p i
         case mExisting of
           Nothing -> do
-            childEp <- raise (raise (Effectful.startLink (supConfigStartFun supConfig i)))
+            childEp <- raise (raise (Effectful.startLink (brokerConfigStartFun brokerConfig i)))
             let childPid = _fromEndpoint childEp
             cMon <- monitor childPid
             zoomToChildren @p $ putChild i (MkChild @p childEp cMon)
             sendReply rt (Right childEp)
-            Stateful.zoomModel @(Sup p)
+            Stateful.zoomModel @(Broker p)
               childEventObserverLens
               (observerRegistryNotify @(ChildEvent p) (OnChildSpawned me i childEp))
           Just existingChild ->
             sendReply rt (Left (AlreadyStarted i (existingChild ^. childEndpoint)))
 
-  update me _supConfig (Stateful.OnDown pd) = do
+  update me _brokerConfig (Stateful.OnDown pd) = do
       oldEntry <- zoomToChildren @p $ lookupAndRemoveChildByMonitor @(ChildId p) @p (downReference pd)
       case oldEntry of
         Nothing -> logWarning ("unexpected: " <> pack (show pd))
@@ -455,42 +453,42 @@ instance
                   <> " => "
                   <> pack (show (_childEndpoint c))
                   )
-          Stateful.zoomModel @(Sup p)
+          Stateful.zoomModel @(Broker p)
               childEventObserverLens
               (observerRegistryNotify @(ChildEvent p) (OnChildDown me i (c^.childEndpoint) (downReason pd)))
-  update me supConfig (Stateful.OnInterrupt e) =
+  update me brokerConfig (Stateful.OnInterrupt e) =
     case e of
       NormalExitRequested -> do
-        logDebug ("supervisor stopping: " <> pack (show e))
-        Stateful.zoomModel @(Sup p)
+        logDebug ("broker stopping: " <> pack (show e))
+        Stateful.zoomModel @(Broker p)
             childEventObserverLens
-            (observerRegistryNotify @(ChildEvent p) (OnSupervisorShuttingDown me))
-        stopAllChildren @p me (supConfigChildStopTimeout supConfig)
+            (observerRegistryNotify @(ChildEvent p) (OnBrokerShuttingDown me))
+        stopAllChildren @p me (brokerConfigChildStopTimeout brokerConfig)
         exitNormally
       LinkedProcessCrashed linked ->
         logNotice (pack (show linked))
       _ -> do
-        logWarning ("supervisor interrupted: " <> pack (show e))
-        Stateful.zoomModel @(Sup p)
+        logWarning ("broker interrupted: " <> pack (show e))
+        Stateful.zoomModel @(Broker p)
             childEventObserverLens
-            (observerRegistryNotify @(ChildEvent p) (OnSupervisorShuttingDown me))
-        stopAllChildren @p me (supConfigChildStopTimeout supConfig)
+            (observerRegistryNotify @(ChildEvent p) (OnBrokerShuttingDown me))
+        stopAllChildren @p me (brokerConfigChildStopTimeout brokerConfig)
         exitBecause (interruptToExit e)
 
-  update _ _supConfig o = logWarning ("unexpected: " <> pack (show o))
+  update _ _brokerConfig o = logWarning ("unexpected: " <> pack (show o))
 
 
 zoomToChildren :: forall p c e
-  . Member (Stateful.ModelState (Sup p)) e
+  . Member (Stateful.ModelState (Broker p)) e
   => Eff (State (Children (ChildId p) p) ': e) c
   -> Eff e c
-zoomToChildren = Stateful.zoomModel @(Sup p) childrenLens
+zoomToChildren = Stateful.zoomModel @(Broker p) childrenLens
 
-childrenLens :: Lens' (Stateful.Model (Sup p)) (Children (ChildId p) p)
-childrenLens = lens _children (\(SupModel _ o) c -> SupModel c o)
+childrenLens :: Lens' (Stateful.Model (Broker p)) (Children (ChildId p) p)
+childrenLens = lens _children (\(BrokerModel _ o) c -> BrokerModel c o)
 
-childEventObserverLens :: Lens' (Stateful.Model (Sup p)) (ObserverRegistry (ChildEvent p))
-childEventObserverLens = lens _childEventObserver (\(SupModel o _) c -> SupModel o c)
+childEventObserverLens :: Lens' (Stateful.Model (Broker p)) (ObserverRegistry (ChildEvent p))
+childEventObserverLens = lens _childEventObserver (\(BrokerModel o _) c -> BrokerModel o c)
 
 -- | Runtime-Errors occurring when spawning child-processes.
 --
@@ -513,8 +511,8 @@ stopOrKillChild
      , Lifted IO e
      , Lifted IO q0
      , Member Logs e
-     , Member (Stateful.ModelState (Sup p)) e
-     , TangibleSup p
+     , Member (Stateful.ModelState (Broker p)) e
+     , TangibleBroker p
      , Typeable (Effectful.ServerPdu p)
      )
   => ChildId p
@@ -523,7 +521,7 @@ stopOrKillChild
   -> Eff e (Interrupt 'NoRecovery)
 stopOrKillChild cId c stopTimeout =
       do
-        sup <- asEndpoint @(Sup p) <$> self
+        broker <- asEndpoint @(Broker p) <$> self
         t <- startTimer stopTimeout
         sendInterrupt (_fromEndpoint (c^.childEndpoint)) NormalExitRequested
         r1 <- receiveSelectedMessage (   Right <$> selectProcessDown (c^.childMonitoring)
@@ -535,7 +533,7 @@ stopOrKillChild cId c stopTimeout =
             logWarning (pack (show timerElapsed) <> ": child "<> pack (show cId) <>" => " <> pack(show (c^.childEndpoint)) <>" did not shutdown in time")
             let reason = interruptToExit (TimeoutInterrupt
                                            ("child did not shut down in time and was terminated by the "
-                                             ++ show sup))
+                                             ++ show broker))
             sendShutdown (_fromEndpoint (c^.childEndpoint)) reason
             return reason
           Right downMsg -> do
@@ -549,11 +547,11 @@ stopAllChildren
      , Lifted IO e
      , Lifted IO q0
      , Member Logs e
-     , Member (Stateful.ModelState (Sup p)) e
-     , TangibleSup p
+     , Member (Stateful.ModelState (Broker p)) e
+     , TangibleBroker p
      , Typeable (Effectful.ServerPdu p)
      )
-  => Endpoint (Sup p) -> Timeout -> Eff e ()
+  => Endpoint (Broker p) -> Timeout -> Eff e ()
 stopAllChildren me stopTimeout =
   zoomToChildren @p
     (removeAllChildren @(ChildId p) @p)
@@ -562,7 +560,7 @@ stopAllChildren me stopTimeout =
   where
     killAndNotify (cId, c) = do
       reason <- provideInterrupts (stopOrKillChild cId c stopTimeout) >>= either crash return
-      Stateful.zoomModel @(Sup p)
+      Stateful.zoomModel @(Broker p)
           childEventObserverLens
           (observerRegistryNotify @(ChildEvent p) (OnChildDown me cId (c^.childEndpoint) reason))
 

@@ -88,7 +88,7 @@ library
                   Control.Eff.Concurrent.Protocol.Client,
                   Control.Eff.Concurrent.Protocol.EffectfulServer,
                   Control.Eff.Concurrent.Protocol.StatefulServer,
-                  Control.Eff.Concurrent.Protocol.Supervisor,
+                  Control.Eff.Concurrent.Protocol.Broker,
                   Control.Eff.Concurrent.Protocol.Watchdog,
                   Control.Eff.Concurrent.Protocol.Wrapper,
                   Control.Eff.Concurrent.Process,
@@ -101,7 +101,7 @@ library
                   Control.Eff.Concurrent.Pure,
                   Control.Eff.Concurrent.SingleThreaded
   other-modules:
-                Control.Eff.Concurrent.Protocol.Supervisor.InternalState,
+                Control.Eff.Concurrent.Protocol.Broker.InternalState,
                 Paths_extensible_effects_concurrent
   default-extensions:
                      AllowAmbiguousTypes,
@@ -315,7 +315,7 @@ test-suite extensible-effects-concurrent-test
               , LoopTests
               , ObserverTests
               , ProcessBehaviourTestCases
-              , SupervisorTests
+              , BrokerTests
               , SingleThreadedScheduler
               , WatchdogTests
   ghc-options: -Wall -threaded -fno-full-laziness

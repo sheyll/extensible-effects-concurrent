@@ -1,4 +1,4 @@
-module Control.Eff.Concurrent.Protocol.Supervisor.InternalState where
+module Control.Eff.Concurrent.Protocol.Broker.InternalState where
 
 import Control.DeepSeq
 import Control.Eff as Eff
@@ -23,7 +23,7 @@ instance NFData (Child o)
 
 instance Typeable (ServerPdu p) => Show (Child p) where
   showsPrec d c = showParen (d>=10)
-    (showString "supervised process: " . shows (_childEndpoint c)  . showChar ' ' . shows (_childMonitoring c) )
+    (showString "process broker entry: " . shows (_childEndpoint c)  . showChar ' ' . shows (_childMonitoring c) )
 
 makeLenses ''Child
 

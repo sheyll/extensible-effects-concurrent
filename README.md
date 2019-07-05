@@ -241,17 +241,16 @@ these modules:
   integrate  
  
 
-#### Supervisors and Watchdogs
+#### Brokers and Watchdogs
 
 A key part of a robust system is that the interaction between
 a client and a server happens not only through processIds wrapped
 in some endpoint, but also by using symbolic name or ID via
 a process broker.
 
-TODO write about Supervisor
-
-TODO write about Watchdog
-
+That way, when ever the server process registered at a broker crashes,
+a watchdog process can observe the corresponding child-event and start
+a new process with the same ID. 
 
 ### Additional services
 
