@@ -117,7 +117,7 @@ startLink = Stateful.startLink
 --
 -- The user needs to instantiate @'ChildId' p@.
 --
--- @since 0.29.3
+-- @since 0.30.0
 statefulChild
   :: forall p e
   . ( HasCallStack
@@ -319,7 +319,7 @@ type instance ToPretty (Broker p) = "broker" <:> ToPretty p
 -- | The event type to indicate that a child was started or stopped.
 --
 -- The need for this type originated for the watchdog functionality introduced
--- in 0.29.3.
+-- in 0.30.0.
 -- The watch dog shall restart a crashed child, and in order to do so, it
 -- must somehow monitor the child.
 -- Since no order is specified in which processes get the 'ProcessDown' events,
@@ -328,7 +328,7 @@ type instance ToPretty (Broker p) = "broker" <:> ToPretty p
 -- So instead the watchdog can simply use the broker events, and monitor only the
 -- broker process.
 --
--- @since 0.29.3
+-- @since 0.30.0
 data ChildEvent p where
   OnChildSpawned :: Endpoint (Broker p) -> ChildId p -> Endpoint (Effectful.ServerPdu p) -> ChildEvent p
   OnChildDown :: Endpoint (Broker p) -> ChildId p -> Endpoint (Effectful.ServerPdu p) -> Interrupt 'NoRecovery -> ChildEvent p

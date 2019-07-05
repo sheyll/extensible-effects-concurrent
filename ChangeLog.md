@@ -1,10 +1,10 @@
 # Changelog for extensible-effects-concurrent
 
-## 0.29.3
+## 0.30.0
 - Improve inline code documentation
-- **Supervisor** 
-    - Rename to [Broker](./src/Control/Eff/Concurrent/Protocol/Broker.hs)  
-    - Add `ChildEvent`  
+- **Supervisor:** 
+    - Rename to **[Broker](./src/Control/Eff/Concurrent/Protocol/Broker.hs)**  
+    - Add the `ChildEvent` needed by the new **watchdog**  
 - [Process](./src/Control/Eff/Concurrent/Process.hs)
     - Introduce a new `Interrupt NoRecovery` clause: `ExitOtherProcessNotRunning`
     - Change the second parameter of `ProcessDown` from `SomeExitReason` to `Interrupt NoRecovery`

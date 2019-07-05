@@ -82,7 +82,7 @@ class (Typeable (Protocol a)) => Server (a :: Type) q where
   -- | Return a new 'ProcessTitle' for the stateful process,
   -- while it is running.
   --
-  -- @since 0.29.3
+  -- @since 0.30.0
   title :: StartArgument a q -> ProcessTitle
 
   default title :: Typeable a => StartArgument a q -> ProcessTitle
@@ -236,7 +236,7 @@ viewSettings l = view l <$> askSettings @a
 -- | Map 'ModelState' and 'SettingsReader' effects.
 -- Use this to embed 'update' from another 'Server' instance.
 --
--- @since 0.29.3
+-- @since 0.30.0
 mapEffects
   :: forall inner outer a e.
      (Settings outer -> Settings inner) -- ^ A function to get the /inner/ settings out of the /outer/ settings
@@ -263,7 +263,7 @@ mapEffects innerSettings innerStateLens innerEff =
 -- | Coerce 'Coercible' 'ModelState' and 'SettingsReader' effects.
 -- Use this to embed 'update' from a /similar/ 'Server' instance.
 --
--- @since 0.29.3
+-- @since 0.30.0
 coerceEffects
   :: forall inner outer a e.
      ( Coercible (Model inner) (Model outer)

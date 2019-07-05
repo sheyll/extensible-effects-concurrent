@@ -1,6 +1,6 @@
 cabal-version:  2.0
 name:           extensible-effects-concurrent
-version:        0.29.3
+version:        0.30.0
 description:    Please see the README on GitHub at <https://github.com/sheyll/extensible-effects-concurrent#readme>
 synopsis:       Message passing concurrency as extensible-effect
 homepage:       https://github.com/sheyll/extensible-effects-concurrent#readme

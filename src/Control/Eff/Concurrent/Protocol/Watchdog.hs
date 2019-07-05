@@ -1,7 +1,7 @@
 {-# LANGUAGE UndecidableInstances #-}
 -- | Monitor a process and act when it is unresponsive.
 --
--- @since 0.29.3
+-- @since 0.30.0
 module Control.Eff.Concurrent.Protocol.Watchdog (startLink, attach, attachLinked, Watchdog) where
 
 import Control.DeepSeq
@@ -40,7 +40,7 @@ data Watchdog (child :: Type) deriving Typeable
 -- The watchdog process will register itself to the 'Broker.ChildEvent's and
 -- restart crashed children.
 --
--- @since 0.29.3
+-- @since 0.30.0
 startLink
   :: forall child q e
   . ( HasCallStack
@@ -59,7 +59,7 @@ startLink =
 --
 -- When the broker exits, ignore the children of that broker.
 --
--- @since 0.29.3
+-- @since 0.30.0
 attach
   :: forall child q e
   . ( HasCallStack
@@ -78,7 +78,7 @@ attach wd broker = call wd (Attach broker)
 --
 -- When the broker exits, the watchdog process will exit, too.
 --
--- @since 0.29.3
+-- @since 0.30.0
 attachLinked
   :: forall child q e
   . ( HasCallStack
