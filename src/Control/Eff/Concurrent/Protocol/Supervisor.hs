@@ -330,24 +330,24 @@ type instance ToPretty (Sup p) = "supervisor" <:> ToPretty p
 --
 -- @since 0.29.3
 data ChildEvent p where
-  OnChildSpawned :: ChildId p -> Endpoint (Effectful.ServerPdu p) -> ChildEvent p
-  OnChildDown :: ChildId p -> Endpoint (Effectful.ServerPdu p) -> Interrupt 'NoRecovery -> ChildEvent p
-  OnSupervisorShuttingDown :: ChildEvent p -- ^ The supervisor is shutting down and will soon begin stopping/killing its children
+  OnChildSpawned :: Endpoint (Sup p) -> ChildId p -> Endpoint (Effectful.ServerPdu p) -> ChildEvent p
+  OnChildDown :: Endpoint (Sup p) -> ChildId p -> Endpoint (Effectful.ServerPdu p) -> Interrupt 'NoRecovery -> ChildEvent p
+  OnSupervisorShuttingDown :: Endpoint (Sup p) -> ChildEvent p -- ^ The supervisor is shutting down and will soon begin stopping/killing its children
   deriving (Typeable, Generic)
 
 instance (NFData (ChildId p)) => NFData (ChildEvent p)
 
-instance (Typeable (Effectful.ServerPdu p), Show (ChildId p)) => Show (ChildEvent p) where
+instance (Typeable p, Typeable (Effectful.ServerPdu p), Show (ChildId p)) => Show (ChildEvent p) where
   showsPrec d x =
     case x of
-     OnChildSpawned i e ->
+     OnChildSpawned s i e ->
         showParen (d >= 10)
-          (showString "child-spawned: " . shows i . showChar ' ' . shows e)
-     OnChildDown i e r ->
+          (shows s . showString ": child-spawned: " . shows i . showChar ' ' . shows e)
+     OnChildDown s i e r ->
         showParen (d >= 10)
-          (showString "child-down: " . shows i . showChar ' ' . shows e . showChar ' ' . showsPrec 10 r)
-     OnSupervisorShuttingDown ->
-        showString "supervisor shutting down"
+          (shows s . showString ": child-down: " . shows i . showChar ' ' . shows e . showChar ' ' . showsPrec 10 r)
+     OnSupervisorShuttingDown s ->
+        shows s . showString ": shutting down"
 
 -- | The type of value used to index running 'Server' processes managed by a 'Sup'.
 --
@@ -405,7 +405,7 @@ instance
       ChildEventObserverRegistry x ->
         Stateful.zoomModel @(Sup p) childEventObserverLens (observerRegistryHandlePdu x)
 
-  update _ supConfig (Stateful.OnCall rt req) =
+  update me supConfig (Stateful.OnCall rt req) =
     case req of
       ChildEventObserverRegistry x ->
         logEmergency ("unreachable: " <> pack (show x))
@@ -427,7 +427,7 @@ instance
             sendReply rt True
             Stateful.zoomModel @(Sup p)
               childEventObserverLens
-              (observerRegistryNotify @(ChildEvent p) (OnChildDown i (existingChild^.childEndpoint) reason))
+              (observerRegistryNotify @(ChildEvent p) (OnChildDown me i (existingChild^.childEndpoint) reason))
 
       StartC i -> do
         mExisting <- zoomToChildren @p $ lookupChildById @(ChildId p) @p i
@@ -440,11 +440,11 @@ instance
             sendReply rt (Right childEp)
             Stateful.zoomModel @(Sup p)
               childEventObserverLens
-              (observerRegistryNotify @(ChildEvent p) (OnChildSpawned i childEp))
+              (observerRegistryNotify @(ChildEvent p) (OnChildSpawned me i childEp))
           Just existingChild ->
             sendReply rt (Left (AlreadyStarted i (existingChild ^. childEndpoint)))
 
-  update _ _supConfig (Stateful.OnDown pd) = do
+  update me _supConfig (Stateful.OnDown pd) = do
       oldEntry <- zoomToChildren @p $ lookupAndRemoveChildByMonitor @(ChildId p) @p (downReference pd)
       case oldEntry of
         Nothing -> logWarning ("unexpected: " <> pack (show pd))
@@ -457,15 +457,15 @@ instance
                   )
           Stateful.zoomModel @(Sup p)
               childEventObserverLens
-              (observerRegistryNotify @(ChildEvent p) (OnChildDown i (c^.childEndpoint) (downReason pd)))
-  update _ supConfig (Stateful.OnInterrupt e) =
+              (observerRegistryNotify @(ChildEvent p) (OnChildDown me i (c^.childEndpoint) (downReason pd)))
+  update me supConfig (Stateful.OnInterrupt e) =
     case e of
       NormalExitRequested -> do
         logDebug ("supervisor stopping: " <> pack (show e))
         Stateful.zoomModel @(Sup p)
             childEventObserverLens
-            (observerRegistryNotify @(ChildEvent p) OnSupervisorShuttingDown)
-        stopAllChildren @p (supConfigChildStopTimeout supConfig)
+            (observerRegistryNotify @(ChildEvent p) (OnSupervisorShuttingDown me))
+        stopAllChildren @p me (supConfigChildStopTimeout supConfig)
         exitNormally
       LinkedProcessCrashed linked ->
         logNotice (pack (show linked))
@@ -473,8 +473,8 @@ instance
         logWarning ("supervisor interrupted: " <> pack (show e))
         Stateful.zoomModel @(Sup p)
             childEventObserverLens
-            (observerRegistryNotify @(ChildEvent p) OnSupervisorShuttingDown)
-        stopAllChildren @p (supConfigChildStopTimeout supConfig)
+            (observerRegistryNotify @(ChildEvent p) (OnSupervisorShuttingDown me))
+        stopAllChildren @p me (supConfigChildStopTimeout supConfig)
         exitBecause (interruptToExit e)
 
   update _ _supConfig o = logWarning ("unexpected: " <> pack (show o))
@@ -553,8 +553,8 @@ stopAllChildren
      , TangibleSup p
      , Typeable (Effectful.ServerPdu p)
      )
-  => Timeout -> Eff e ()
-stopAllChildren stopTimeout =
+  => Endpoint (Sup p) -> Timeout -> Eff e ()
+stopAllChildren me stopTimeout =
   zoomToChildren @p
     (removeAllChildren @(ChildId p) @p)
   >>= pure . Map.assocs
@@ -564,7 +564,7 @@ stopAllChildren stopTimeout =
       reason <- provideInterrupts (stopOrKillChild cId c stopTimeout) >>= either crash return
       Stateful.zoomModel @(Sup p)
           childEventObserverLens
-          (observerRegistryNotify @(ChildEvent p) (OnChildDown cId (c^.childEndpoint) reason))
+          (observerRegistryNotify @(ChildEvent p) (OnChildDown me cId (c^.childEndpoint) reason))
 
       where
         crash e = do

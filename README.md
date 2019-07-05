@@ -115,17 +115,143 @@ Because processes never share memory, the internal - possibly broken - state of
 a process is gone, when a process exits; hence restarting a process will not
 be bothered by left-over, possibly inconsistent, state. 
 
-### Higher Level Abstractions
+### Timers 
+
+[The Timer module](src/Control/Eff/Concurrent/Process/Timer.hs) contains functions send messages after a time
+has passed, and reiceive messages with timeouts.
+
+### [The Protocol Metaphor](./src/Control/Eff/Concurrent/Protocol.hs)s
 
 Processes can receive only message of type `Dynamic`.
 
 In order to leverage Haskells type-safety, a bit of support code is available.
 
-There is a **data family** called **`Api`** allowing to model **calls** and 
-**casts**, as well as event management and process supervision.
+As the library carefully leaves the realm of untyped messages, it uses a **stateles protocol** as a metaphor.
 
-These facilities are very important to build **non-defensive**, **let-it-crash**
-applications, resilient to runtime errors.   
+The idea is to have a **typed process identifiers**.
+
+The _type_ defines what messages can be received and if 
+and what answer is sent back to the sender.
+
+To have some value in the library for some real world applications, this metaphor should answer these questions:
+
+1. What messages does a process accept?
+2. When sending a certain message, should the sender wait for an answer?
+
+Well, I do not have emperical evidence that these are the
+most important things to use the type system for.
+
+I can only back it with anectdotal evidence from my
+professional work for Telcos in Erlang.
+
+#### Protocol Phantom Type
+
+In this library, the key to a _protocol_ is a single type,
+that could even be a so called __phantom type__, i.e. a
+type without any runtime values:
+
+```haskell 
+
+data MyPhantomType -- look mom, no constructors!! 
+
+``` 
+
+Such a type exists only for the type system.
+
+It can only be used as a parameter to certain type constructors,
+and for defining type class and type family instances.
+
+#### Protocol Data Units
+
+Messages that belong to a protocol are called __protocol data units (PDU)__.
+
+#### Protocol Servers Endpoints
+
+The `ProcessId` of a process identifies the messages box that
+`receiveMessage` will use, when waiting for an incoming message.
+
+While it defines _where_ the messages are collected, it does 
+not restrict or inform about _what_ data is handled by a process.
+
+An [Endpoint](https://hackage.haskell.org/package/extensible-effects-concurrent/docs/Control-Eff-Concurrent-Protocol.html#t:Endpoint) is a wrapper 
+around the `ProcessId` that takes a _type parameter_.
+
+The type does not have to have any values, it can be a phantom type.
+
+This type serves only the tag the process as a server accepting messages identified by the [HasPdu](https://hackage.haskell.org/package/extensible-effects-concurrent/docs/Control-Eff-Concurrent-Protocol.html#t:HasPdu)   type class.
+
+#### Server/Protocol Composability
+
+Usually a protocol consists of some really custom PDUs and
+some PDUs that more or less are found in many protocols,
+like event listener registration and event notification.
+
+It is therefore helpful to be able to compose protocols.
+
+The machinery in this library allows to list several 
+PDU instances understood by endpoints of a given protocol
+phantom type.
+
+#### Protocol Clients   
+
+_Clients_ use a protocol by sending `Pdu`s indexed by 
+some protocol phantom type to a server process.
+
+Clients use `Endpoint`s to address these servers, and the
+functions defined in [the corresponding module](https://hackage.haskell.org/package/extensible-effects-concurrent/docs/Control-Eff-Concurrent-Protocol-Client.html).
+
+Most important are these two functions:  
+
+* [cast](https://hackage.haskell.org/package/extensible-effects-concurrent/docs/Control-Eff-Concurrent-Protocol-Client.html#v:cast)
+  to send fire-and-forget messages
+   
+* [call](https://hackage.haskell.org/package/extensible-effects-concurrent/docs/Control-Eff-Concurrent-Protocol-Client.html#v:cast)
+  to send RPC-style requests and wait (block) for the responses.
+  Also, when the server is not running, or crashes in 
+  while waiting, the calling process is interrupted
+
+#### Protocol Servers   
+
+This library offers an API for defining practically safe to
+ use __protocol servers__:
+
+* [EffectfulServer](./src/Control/Eff/Concurrent/Protocol/EffectfulServer.hs) This modules defines the framework
+  of a process, that has a callback function that is repeatedly
+  called when ever a message was received.
+  
+  The callback may rely on any extra effects (extensible effects).    
+
+* [StatefulServer](./src/Control/Eff/Concurrent/Protocol/StatefulServer.hs) A server based on the `EffectfulServer` that includes the definition of
+  in internal state called __Model__, and some nice 
+  helper functions to access the model. These functions
+  allow the use of lenses. 
+  Unlike the effectful server, the effects that the 
+  callback functions can use are defined in this module.
+
+* [CallbackServer](./src/Control/Eff/Concurrent/Protocol/CallbackServer.hs) A server based on the `EffectfulServer` that does not require a type class
+   instance like the stateful and effectful servers do.
+   It can be used to define _inline_ servers.
+  
+#### Events and Observers
+
+A parameterized protocol for event handling is provided in 
+these modules:
+
+* [Observer](./src/Control/Eff/Concurrent/Protocol/Observer.hs) Defines the types and helper functions to
+  integrate  
+ 
+
+#### Supervisors and Watchdogs
+
+A key part of a robust system is that the interaction between
+a client and a server happens not only through processIds wrapped
+in some endpoint, but also by using symbolic name or ID via
+a process broker.
+
+TODO write about Supervisor
+
+TODO write about Watchdog
+
 
 ### Additional services
 

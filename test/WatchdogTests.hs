@@ -18,53 +18,139 @@ test_watchdogTests :: HasCallStack => TestTree
 test_watchdogTests =
   testGroup "watchdog"
     [ runTestCase "demonstrate Bookshelf" bookshelfDemo
-    , testGroup "empty supervisor"
-      [ runTestCase "when the supervisor exits, the watchdog exits with ExitOtherProcessNotRunning" $ do
-          sup <- Supervisor.startLink (Supervisor.statefulChild @BookShelf (TimeoutMicros 1_000_000) id)
-          wd <- Watchdog.startLink sup
+
+    , testGroup "watchdog supervisor interaction"
+      [
+
+        runTestCase "when the supervisor exits, the watchdog does not care, it can be re-attached to a new supervisor" $ do
+          wd <- Watchdog.startLink
           unlinkProcess (wd ^. fromEndpoint)
-          unlinkProcess (sup ^. fromEndpoint)
-          sendShutdown (sup ^. fromEndpoint) (ExitUnhandledError "test-supervisor-kill")
-          let expected = ExitOtherProcessNotRunning (sup^.fromEndpoint)
-          awaitProcessDown (wd ^. fromEndpoint) >>= lift . assertEqual "bad exit reason" expected . downReason
+          do
+            sup <- Supervisor.startLink (Supervisor.statefulChild @BookShelf (TimeoutMicros 1_000_000) id)
+            Watchdog.attach wd sup
+            unlinkProcess (sup ^. fromEndpoint)
+            let expected = ExitUnhandledError "test-supervisor-kill"
+            Supervisor.stopSupervisor sup
+            awaitProcessDown (sup ^. fromEndpoint) >>= lift . assertEqual "bad exit reason" expected . downReason
+
+          do
+            sup <- Supervisor.startLink (Supervisor.statefulChild @BookShelf (TimeoutMicros 1_000_000) id)
+            Watchdog.attach wd sup
+            unlinkProcess (sup ^. fromEndpoint)
+            let expected = ExitUnhandledError "test-supervisor-kill"
+            sendShutdown (sup ^. fromEndpoint) expected
+            awaitProcessDown (sup ^. fromEndpoint) >>= lift . assertEqual "bad exit reason" expected . downReason
+
+          sendShutdown (wd^.fromEndpoint) ExitNormally
+          awaitProcessDown (wd^.fromEndpoint) >>= lift . assertEqual "bad exit reason" ExitNormally . downReason
+
+
+      , runTestCase "when the same supervisor is attached twice, the second attachment is ignored" $ do
+          wd <- Watchdog.startLink
+          unlinkProcess (wd ^. fromEndpoint)
+          do
+            sup <- Supervisor.startLink (Supervisor.statefulChild @BookShelf (TimeoutMicros 1_000_000) id)
+            unlinkProcess (sup ^. fromEndpoint)
+            Watchdog.attach wd sup
+            Watchdog.attach wd sup
+            restartChildTest sup
+            let expected = ExitUnhandledError "test-supervisor-kill"
+            sendShutdown (sup ^. fromEndpoint) expected
+          awaitProcessDown (wd^.fromEndpoint) >>= lift . assertEqual "bad exit reason" ExitNormally . downReason
+
+
+      , runTestCase "when the same supervisor is attached twice, the first linked then not linked, the watchdog is not linked anymore" $ do
+          wd <- Watchdog.startLink
+          unlinkProcess (wd ^. fromEndpoint)
+          do
+            sup <- Supervisor.startLink (Supervisor.statefulChild @BookShelf (TimeoutMicros 1_000_000) id)
+            Watchdog.attachLinked wd sup
+            unlinkProcess (sup ^. fromEndpoint)
+            let expected = ExitUnhandledError "test-supervisor-kill"
+            sendShutdown (sup ^. fromEndpoint) expected
+          awaitProcessDown (wd^.fromEndpoint) >>= lift . assertEqual "bad exit reason" ExitNormally . downReason
+
+
+      , runTestCase "when the same supervisor is attached twice, the first time not linked but then linked, the watchdog is linked" $ do
+          wd <- Watchdog.startLink
+          unlinkProcess (wd ^. fromEndpoint)
+          do
+            sup <- Supervisor.startLink (Supervisor.statefulChild @BookShelf (TimeoutMicros 1_000_000) id)
+            Watchdog.attachLinked wd sup
+            unlinkProcess (sup ^. fromEndpoint)
+            let expected = ExitUnhandledError "test-supervisor-kill"
+            sendShutdown (sup ^. fromEndpoint) expected
+          awaitProcessDown (wd^.fromEndpoint) >>= lift . assertEqual "bad exit reason" ExitNormally . downReason
+
+
+      , runTestCase "when the supervisor exits, an the watchdog is linked to it, it will exit" $ do
+          wd <- Watchdog.startLink
+          unlinkProcess (wd ^. fromEndpoint)
+          do
+            sup <- Supervisor.startLink (Supervisor.statefulChild @BookShelf (TimeoutMicros 1_000_000) id)
+            Watchdog.attachLinked wd sup
+            unlinkProcess (sup ^. fromEndpoint)
+            let expected = ExitUnhandledError "test-supervisor-kill"
+            sendShutdown (sup ^. fromEndpoint) expected
+          awaitProcessDown (wd^.fromEndpoint) >>= lift . assertEqual "bad exit reason" ExitNormally . downReason
+
+
+      , runTestCase "when multiple supervisors are attached to a watchdog, and a linked supervisor exits, the watchdog should exit" $ do
+          wd <- Watchdog.startLink
+          unlinkProcess (wd ^. fromEndpoint)
+          do
+            sup1 <- Supervisor.startLink (Supervisor.statefulChild @BookShelf (TimeoutMicros 1_000_000) id)
+            Watchdog.attachLinked wd sup1
+
+            sup2 <- Supervisor.startLink (Supervisor.statefulChild @BookShelf (TimeoutMicros 1_000_000) id)
+            Watchdog.attach wd sup2
+
+            sup3 <- Supervisor.startLink (Supervisor.statefulChild @BookShelf (TimeoutMicros 1_000_000) id)
+            Watchdog.attach wd sup3
+            unlinkProcess (sup3 ^. fromEndpoint)
+            let expected = ExitUnhandledError "test-supervisor-kill 3"
+
+            sendShutdown (sup1 ^. fromEndpoint) expected
+
+            awaitProcessDown (wd^.fromEndpoint) >>= lift . assertEqual "bad exit reason" (ExitOtherProcessNotRunning (sup1^.fromEndpoint)) . downReason
+
+            isProcessAlive (sup2 ^. fromEndpoint) >>= lift . assertBool "sup2 should be running"
+            isProcessAlive (sup3 ^. fromEndpoint) >>= lift . assertBool "sup3 should be running"
 
       ]
-    , testGroup "with children"
+    , testGroup "restarting children"
       [ runTestCase "when a child exits it is restarted" $ do
            sup <- Supervisor.startLink (Supervisor.statefulChild @BookShelf (TimeoutMicros 1_000_000) id)
-           void $ Watchdog.startLink sup
+           wd <- Watchdog.startLink
+           Watchdog.attach wd sup
+           restartChildTest sup
+
+      , runTestCase "when the supervisor emits the shutting down event the watchdog does not restart children" $ do
+           sup <- Supervisor.startLink (Supervisor.statefulChild @BookShelf (TimeoutMicros 1_000_000) id)
+           unlinkProcess (sup ^. fromEndpoint)
+           wd <- Watchdog.startLink
+           unlinkProcess (wd ^. fromEndpoint)
+           Watchdog.attach wd sup
            OQ.observe @(Supervisor.ChildEvent (Stateful.Stateful BookShelf)) (100 :: Int) sup $ do
              let c0 = BookShelfId 0
              do
-               c00 <- Supervisor.spawnOrLookup sup c0
-               call c00 (AddBook "Solaris")
+               void $ Supervisor.spawnOrLookup sup c0
                OQ.await @(Supervisor.ChildEvent (Stateful.Stateful BookShelf)) >>= logInfo . pack . show
-               call c00 (AddBook "Solaris") -- adding twice the same book causes a crash
-               void $ awaitProcessDown (c00 ^. fromEndpoint)
-               OQ.await @(Supervisor.ChildEvent (Stateful.Stateful BookShelf)) >>= logInfo . pack . show -- child ended
-               logInfo "part 1 passed"
-               OQ.await @(Supervisor.ChildEvent (Stateful.Stateful BookShelf)) >>= logInfo . pack . show -- child restarted
-               logInfo "part 2 passed"
-             do
-               c01m <- Supervisor.lookupChild sup c0
-               case c01m of
-                Nothing ->
-                  lift (assertFailure "failed to lookup child, seems it wasn't restarted!")
-                Just c01 -> do
-                  call c01 (AddBook "Solaris")
-                  logInfo "part 3 passed"
+               logInfo "bookshelf started"
 
-      , runTestCase "when the supervisor emits the shutting down event the watchdog does not restart children" $ do
-          sup <- Supervisor.startLink (Supervisor.statefulChild @BookShelf (TimeoutMicros 1_000_000) id)
-          wd <- Watchdog.startLink sup
-          unlinkProcess (wd ^. fromEndpoint)
-          unlinkProcess (sup ^. fromEndpoint)
-          Supervisor.stopSupervisor sup
-          void $ awaitProcessDown (wd ^. fromEndpoint)
+               Supervisor.stopSupervisor sup
+               OQ.await @(Supervisor.ChildEvent (Stateful.Stateful BookShelf)) >>= logInfo . pack . show -- super visor shutting down event
+               void $ awaitProcessDown (sup ^. fromEndpoint)
+               logInfo "supervisor stopped"
+
+           awaitProcessDown (wd ^. fromEndpoint) >>= logInfo . pack . show
+           logInfo "watchdog stopped"
+
       , testGroup "reusing ChildIds"
-        [ runTestCase "when a child exits normally, and a new child with the same ChildId crashes, the watchdog behaves as if the first child never existed" $ do
-            error "TODO"
-        ]
+          []
+--        [ runTestCase "when a child exits normally, and a new child with the same ChildId crashes, the watchdog behaves as if the first child never existed" $ do
+--            error "TODO"
+--        ]
       ]
     ]
 bookshelfDemo :: HasCallStack => Eff Effects ()
@@ -77,6 +163,30 @@ bookshelfDemo = do
   cast shelf1 (TakeBook "Solaris")
   call shelf1 GetBookList >>= logDebug . pack . show
   logInfo "Bookshelf Demo End"
+
+restartChildTest :: HasCallStack => Endpoint (Supervisor.Sup (Stateful.Stateful BookShelf)) -> Eff Effects ()
+restartChildTest sup =
+   OQ.observe @(Supervisor.ChildEvent (Stateful.Stateful BookShelf)) (100 :: Int) sup $ do
+     let c0 = BookShelfId 0
+     do
+       c00 <- Supervisor.spawnOrLookup sup c0
+       call c00 (AddBook "Solaris")
+       OQ.await @(Supervisor.ChildEvent (Stateful.Stateful BookShelf)) >>= logInfo . pack . show
+       call c00 (AddBook "Solaris") -- adding twice the same book causes a crash
+       void $ awaitProcessDown (c00 ^. fromEndpoint)
+       OQ.await @(Supervisor.ChildEvent (Stateful.Stateful BookShelf)) >>= logInfo . pack . show -- child ended
+       logInfo "part 1 passed"
+       OQ.await @(Supervisor.ChildEvent (Stateful.Stateful BookShelf)) >>= logInfo . pack . show -- child restarted
+       logInfo "part 2 passed"
+     do
+       c01m <- Supervisor.lookupChild sup c0
+       case c01m of
+        Nothing ->
+          lift (assertFailure "failed to lookup child, seems it wasn't restarted!")
+        Just c01 -> do
+          call c01 (AddBook "Solaris")
+          logInfo "part 3 passed"
+
 
 data BookShelf deriving Typeable
 

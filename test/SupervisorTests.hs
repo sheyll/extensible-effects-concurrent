@@ -235,9 +235,10 @@ test_Supervisor =
                            c <- Sup.spawnChild @(Stateful.Stateful TestProtocol) sup i >>= either (lift . assertFailure . show) pure
                            e <- OQ.await @(Sup.ChildEvent (Stateful.Stateful TestProtocol))
                            case e of
-                            Sup.OnChildSpawned i' c' -> do
-                              lift (assertEqual "lookupChild returned wrong child" c c')
-                              lift (assertEqual "lookupChild returned wrong child-id" i i')
+                            Sup.OnChildSpawned sup' i' c' -> do
+                              lift (assertEqual "wrong endpoint" sup sup')
+                              lift (assertEqual "wrong child" c c')
+                              lift (assertEqual "wrong child-id" i i')
                             _ ->
                               lift (assertFailure ("unexpected event: " ++ show e))
                     , runTestCase "when a child stops the observer is notified" $ do
@@ -247,10 +248,11 @@ test_Supervisor =
                            Sup.stopChild sup i >>= lift . assertBool "child not found"
                            OQ.await @(Sup.ChildEvent (Stateful.Stateful TestProtocol))
                             >>= \case
-                                    Sup.OnChildDown i' c' e -> do
-                                      lift (assertEqual "lookupChild returned wrong child" c c')
-                                      lift (assertEqual "lookupChild returned wrong child-id" i i')
-                                      lift (assertEqual "bad exit reason" ExitNormally e)
+                                    Sup.OnChildDown sup' i' c' e -> do
+                                      lift (assertEqual "wrong endpoint" sup sup')
+                                      lift (assertEqual "wrong child" c c')
+                                      lift (assertEqual "wrong child-id" i i')
+                                      lift (assertEqual "wrong exit reason" ExitNormally e)
                                     e ->
                                       lift (assertFailure ("unexpected event: " ++ show e))
 
@@ -262,17 +264,19 @@ test_Supervisor =
                            sendShutdown (_fromEndpoint c) expectedError
                            OQ.await @(Sup.ChildEvent (Stateful.Stateful TestProtocol))
                             >>= \case
-                                    Sup.OnChildSpawned i' c' -> do
-                                      lift (assertEqual "lookupChild returned wrong child" c c')
-                                      lift (assertEqual "lookupChild returned wrong child-id" i i')
+                                    Sup.OnChildSpawned sup' i' c' -> do
+                                      lift (assertEqual "wrong endpoint" sup sup')
+                                      lift (assertEqual "wrong child" c c')
+                                      lift (assertEqual "wrong child-id" i i')
                                     e ->
                                       lift (assertFailure ("unexpected event: " ++ show e))
                            OQ.await @(Sup.ChildEvent (Stateful.Stateful TestProtocol))
                             >>= \case
-                                    Sup.OnChildDown i' c' e -> do
-                                      lift (assertEqual "lookupChild returned wrong child" c c')
-                                      lift (assertEqual "lookupChild returned wrong child-id" i i')
-                                      lift (assertEqual "bad exit reason" expectedError e)
+                                    Sup.OnChildDown sup' i' c' e -> do
+                                      lift (assertEqual "wrong endpoint" sup sup')
+                                      lift (assertEqual "wrong child" c c')
+                                      lift (assertEqual "wrong child-id" i i')
+                                      lift (assertEqual "wrong exit reason" expectedError e)
                                     e ->
                                       lift (assertFailure ("unexpected event: " ++ show e))
                     , runTestCase "when a child does not stop when requested and is killed, the oberser is notified correspondingly" $ do
@@ -284,10 +288,11 @@ test_Supervisor =
                            (ProcessDown _ expectedError _) <- receiveSelectedMessage (selectProcessDown cm)
                            OQ.await @(Sup.ChildEvent (Stateful.Stateful TestProtocol))
                             >>= \case
-                                    Sup.OnChildDown i' c' e -> do
-                                      lift (assertEqual "lookupChild returned wrong child" c c')
-                                      lift (assertEqual "lookupChild returned wrong child-id" i i')
-                                      lift (assertEqual "bad exit reason" expectedError e)
+                                    Sup.OnChildDown sup' i' c' e -> do
+                                      lift (assertEqual "wrong endpoint" sup sup')
+                                      lift (assertEqual "wrong child" c c')
+                                      lift (assertEqual "wrong child-id" i i')
+                                      lift (assertEqual "wrong exit reason" expectedError e)
                                     e ->
                                       lift (assertFailure ("unexpected event: " ++ show e))
 
@@ -300,12 +305,12 @@ test_Supervisor =
                            Sup.stopSupervisor sup
                            OQ.await @(Sup.ChildEvent (Stateful.Stateful TestProtocol))
                             >>= \case
-                                    Sup.OnSupervisorShuttingDown -> logNotice "received OnSupervisorShuttingDown"
+                                    Sup.OnSupervisorShuttingDown _ -> logNotice "received OnSupervisorShuttingDown"
                                     e ->
                                       lift (assertFailure ("unexpected event: " ++ show e))
                            OQ.await @(Sup.ChildEvent (Stateful.Stateful TestProtocol))
                             >>= \case
-                                  Sup.OnChildDown _ _ e -> lift (assertEqual "bad exit reason" ExitNormally e)
+                                  Sup.OnChildDown _ _ _ e -> lift (assertEqual "wrong exit reason" ExitNormally e)
                                   e ->
                                     lift (assertFailure ("unexpected event: " ++ show e))
                     ]
