@@ -5,12 +5,13 @@
 module Control.Eff.Concurrent.Protocol.Watchdog (startLink, attach, attachLinked, Watchdog) where
 
 import Control.DeepSeq
-import Control.Eff (Eff)
+import Control.Eff (Eff, Member)
 import Control.Eff.Concurrent.Misc
 import Control.Eff.Concurrent.Process
 import Control.Eff.Concurrent.Process.Timer
 import Control.Eff.Concurrent.Protocol
 import Control.Eff.Concurrent.Protocol.Client
+import Control.Eff.Concurrent.Protocol.Wrapper
 import qualified Control.Eff.Concurrent.Protocol.Observer as Observer
 import qualified Control.Eff.Concurrent.Protocol.Broker as Broker
 import qualified Control.Eff.Concurrent.Protocol.StatefulServer as Stateful
@@ -30,6 +31,8 @@ import Data.Default
 import Data.String
 import Data.Text (pack)
 import GHC.Stack (HasCallStack)
+import Data.Maybe (fromMaybe)
+import Data.Foldable (traverse_)
 
 
 data Watchdog (child :: Type) deriving Typeable
@@ -159,7 +162,7 @@ instance
       deriving Typeable
 
   newtype instance Model (Watchdog child) =
-    WatchdogModel { _brokers :: Map (Endpoint (Broker.Broker child)) (Maybe MonitorReference) -- Just monitor means that the broker is linked
+    WatchdogModel { _brokers :: Map (Endpoint (Broker.Broker child)) (Broker child) -- Just monitor means that the broker is linked
                   }
                   deriving (Default)
 
@@ -167,10 +170,13 @@ instance
     \case
       Effectful.OnCall rt (Attach broker) -> do
         logDebug ("attaching to: " <> pack (show broker))
-
+        doAttach broker
+        sendReply rt ()
 
       Effectful.OnCall rt (AttachLinked broker) -> do
         logDebug ("attaching and linking to: " <> pack (show broker))
+        doAttachAndLink broker
+        sendReply rt ()
 
 
       Effectful.OnCast (OnChildEvent e) ->
@@ -198,10 +204,36 @@ instance
 --          logWarning ("unexpected process down: " <> pack (show pd))
 
 
+doAttachAndLink
+  :: forall child e q .
+     ( Typeable child
+     , HasProcesses e q
+     , Member Logs e
+     , Member (Stateful.ModelState (Watchdog child)) e
+     )
+  => Endpoint (Broker.Broker child)
+  -> Eff e ()
+doAttachAndLink broker = do
+  oldModel <- Stateful.getModel @(Watchdog child)
+  let oldMonitor = oldModel ^? brokers . at broker . _Just . brokerMonitor . _Just
+  mr <- case oldMonitor of
+    Nothing -> do
+      mr <- monitor (broker^.fromEndpoint)
+      logDebug ("monitoring " <> pack (show broker) <> " " <> pack (show mr))
+      return mr
+
+    Just mr -> do
+      logDebug ("already monitoring " <> pack (show broker) <> " " <> pack (show mr))
+      return mr
+
+  let newBroker = MkBroker (Just mr) (fromMaybe def (oldModel ^? brokers . at broker . _Just . crashes))
+  Stateful.modifyModel (brokers . at broker ?~ newBroker)
+
+
 data Broker child =
   MkBroker { _brokerMonitor :: Maybe MonitorReference
-               , _crashes :: Map (Broker.ChildId child) (Set Crash)
-               }
+           , _crashes :: Map (Broker.ChildId child) (Set Crash)
+           }
 
 instance Default (Broker child) where
   def = MkBroker def def
@@ -212,7 +244,7 @@ brokerMonitor = lens _brokerMonitor (\m x -> m {_brokerMonitor = x})
 crashes :: Lens' (Broker child) (Map (Broker.ChildId child) (Set Crash))
 crashes = lens _crashes (\m x -> m {_crashes = x})
 
-brokers :: Lens' (Stateful.Model (Watchdog child)) (Map (Endpoint (Broker.Broker child)) (Maybe MonitorReference))
+brokers :: Lens' (Stateful.Model (Watchdog child)) (Map (Endpoint (Broker.Broker child)) (Broker child))
 brokers = lens _brokers (\m x -> m {_brokers = x})
 
 --crashRate :: Lens' (Stateful.StartArgument (Watchdog child) (Processes e)) CrashRate

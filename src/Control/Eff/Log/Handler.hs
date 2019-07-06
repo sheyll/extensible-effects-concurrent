@@ -522,7 +522,7 @@ modifyLogPredicate lpIn e = askLogPredicate >>= fix step e . lpIn
 
 -- | Include 'LogMessage's that match a 'LogPredicate'.
 --
--- @excludeLogMessages p@ allows log message to be logged if @p m@
+-- @includeLogMessages p@ allows log message to be logged if @p m@
 --
 -- Although it is enough if the previous predicate holds.
 -- See 'excludeLogMessages' and 'modifyLogPredicate'.
