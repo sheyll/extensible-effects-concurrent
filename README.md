@@ -263,15 +263,18 @@ the module:
 #### Brokers and Watchdogs
 
 A key part of a robust system is monitoring and possibly restarting 
-stuff that crashes.
+stuff that crashes, this is done in conjunction by two modules:
+
+* [Broker](./src/Control/Eff/Concurrent/Protocol/Broker.hs)
+* [Watchdog](./src/Control/Eff/Concurrent/Protocol/Watchdog.hs)
 
 A client of a process that might be restarted cannot use the `ProcessId` 
 directly, but has to use an abstract ID and lookup the `ProcessId` from a 
-process **broker**, that manages the current `ProcessId` of protocol server
+process **[broker](./src/Control/Eff/Concurrent/Protocol/Broker.hs)**, that manages the current `ProcessId` of protocol server
 processes.
 
 That way, when ever the server process registered at a broker crashes,
-**a watchdog process** can (re-)start the crashed server.  
+**a [watchdog](./src/Control/Eff/Concurrent/Protocol/Watchdog.hs) process** can (re-)start the crashed server.  
 
 ### Additional services
 
