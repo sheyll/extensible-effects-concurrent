@@ -204,6 +204,25 @@ instance
 --          logWarning ("unexpected process down: " <> pack (show pd))
 
 
+doAttach
+  :: forall child e q .
+     ( Typeable child
+     , HasProcesses e q
+     , Member Logs e
+     , Member (Stateful.ModelState (Watchdog child)) e
+     )
+  => Endpoint (Broker.Broker child)
+  -> Eff e ()
+doAttach broker = do
+  oldModel <- Stateful.getModel @(Watchdog child)
+  let oldMonitor = oldModel ^? brokers . at broker . _Just . brokerMonitor . _Just
+  traverse_ (\mr -> do
+    logDebug ("stop monitoring " <> pack (show broker) <> " " <> pack (show mr))
+    demonitor mr)
+    oldMonitor
+  let newBroker = MkBroker Nothing (fromMaybe def (oldModel ^? brokers . at broker . _Just . crashes))
+  Stateful.modifyModel (brokers . at broker ?~ newBroker)
+
 doAttachAndLink
   :: forall child e q .
      ( Typeable child
@@ -223,7 +242,7 @@ doAttachAndLink broker = do
       return mr
 
     Just mr -> do
-      logDebug ("already monitoring " <> pack (show broker) <> " " <> pack (show mr))
+      logDebug ("already monitoring " <> pack (show broker) <> " - keeping: " <> pack (show mr))
       return mr
 
   let newBroker = MkBroker (Just mr) (fromMaybe def (oldModel ^? brokers . at broker . _Just . crashes))

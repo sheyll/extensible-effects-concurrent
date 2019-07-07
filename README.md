@@ -117,10 +117,10 @@ be bothered by left-over, possibly inconsistent, state.
 
 ### Timers 
 
-[The Timer module](src/Control/Eff/Concurrent/Process/Timer.hs) contains functions send messages after a time
+[The Timer module](src/Control/Eff/Concurrent/Process/Timer.hs) contains functions to send messages after a time
 has passed, and reiceive messages with timeouts.
 
-### [The Protocol Metaphor](./src/Control/Eff/Concurrent/Protocol.hs)s
+### More Type-Safety: [The Protocol Metaphor](./src/Control/Eff/Concurrent/Protocol.hs)
 
 Processes can receive only message of type `Dynamic`.
 
