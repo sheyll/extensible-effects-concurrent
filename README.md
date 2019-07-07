@@ -122,27 +122,30 @@ has passed, and reiceive messages with timeouts.
 
 ### More Type-Safety: [The Protocol Metaphor](./src/Control/Eff/Concurrent/Protocol.hs)
 
-Processes can receive only message of type `Dynamic`.
+As the library carefully leaves the realm of untyped messages, it uses the 
+concept of a **protocol** that governs the communication
+between concurrent processes, which are either **protocol servers** or
+**clients** as a metaphor.
 
-In order to leverage Haskells type-safety, a bit of support code is available.
+The communication is initiated by the client.
 
-As the library carefully leaves the realm of untyped messages, it uses a **stateles protocol** as a metaphor.
+The idea is to indicate such a _protocol_ using a **custom data type**,
+e.g. `data TemperatureSensorReader` or `data SqlServer`.
+ 
+The library consists some tricks to restrict the kinds of messages that
+are acceptable when communicating with processes _adhering to the protocol_.
 
-The idea is to have a **typed process identifiers**.
+This _protocol_ is not encoded in the users code, but rather something that
+the programmer keeps in his head. 
 
-The _type_ defines what messages can be received and if 
-and what answer is sent back to the sender.
+In order to be appreciated by authors of real world applications, the 
+protocol can be defined by giving an abstract message sum-type and 
+code for spawning server processes.
 
-To have some value in the library for some real world applications, this metaphor should answer these questions:
+It focusses on these questions:
 
 1. What messages does a process accept?
 2. When sending a certain message, should the sender wait for an answer?
-
-Well, I do not have emperical evidence that these are the
-most important things to use the type system for.
-
-I can only back it with anectdotal evidence from my
-professional work for Telcos in Erlang.
 
 #### Protocol Phantom Type
 
@@ -152,14 +155,31 @@ type without any runtime values:
 
 ```haskell 
 
-data MyPhantomType -- look mom, no constructors!! 
+data UserRegistry -- look mom, no constructors!! 
 
 ``` 
 
 Such a type exists only for the type system.
 
 It can only be used as a parameter to certain type constructors,
-and for defining type class and type family instances.
+and for defining type class and type family instances, e.g.
+
+
+```haskell 
+
+newtype Endpoint protocol = MkServer { _processId :: ProcessId }
+
+data UserRegistry
+
+startUserRegistry :: Eff e (Endpoint UserRegistry)
+startUserRegistry = 
+  error "just an example"
+
+```
+
+Here the `Endpoint` has a type parameter `protocol` but the type is not
+used by the constructor to hold any values, hence we can use `UserRegistry`,
+as a parameter, since `UserRegistry` has no value constructors.
 
 #### Protocol Data Units
 
@@ -235,22 +255,23 @@ This library offers an API for defining practically safe to
 #### Events and Observers
 
 A parameterized protocol for event handling is provided in 
-these modules:
+the module:
 
-* [Observer](./src/Control/Eff/Concurrent/Protocol/Observer.hs) Defines the types and helper functions to
-  integrate  
+* [Observer](./src/Control/Eff/Concurrent/Protocol/Observer.hs) 
  
 
 #### Brokers and Watchdogs
 
-A key part of a robust system is that the interaction between
-a client and a server happens not only through processIds wrapped
-in some endpoint, but also by using symbolic name or ID via
-a process broker.
+A key part of a robust system is monitoring and possibly restarting 
+stuff that crashes.
+
+A client of a process that might be restarted cannot use the `ProcessId` 
+directly, but has to use an abstract ID and lookup the `ProcessId` from a 
+process **broker**, that manages the current `ProcessId` of protocol server
+processes.
 
 That way, when ever the server process registered at a broker crashes,
-a watchdog process can observe the corresponding child-event and start
-a new process with the same ID. 
+**a watchdog process** can (re-)start the crashed server.  
 
 ### Additional services
 
