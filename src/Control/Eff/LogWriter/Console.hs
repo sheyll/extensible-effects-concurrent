@@ -11,6 +11,7 @@ import Control.Eff.Log
 import Control.Eff.LogWriter.IO
 import Data.Text
 import qualified Data.Text.IO                  as T
+import qualified System.IO                     as IO
 
 -- | Enable logging to @standard output@ using the 'consoleLogWriter', with some 'LogMessage' fields preset
 -- as in 'withIoLogging'.
@@ -33,7 +34,9 @@ withConsoleLogging
   -> LogPredicate -- ^ The inital predicate for log messages, there are some pre-defined in "Control.Eff.Log.Message#PredefinedPredicates"
   -> Eff (Logs : LogWriterReader (Lift IO) : e) a
   -> Eff e a
-withConsoleLogging = withIoLogging consoleLogWriter
+withConsoleLogging a b c d = do
+  lift (IO.hSetBuffering IO.stdout IO.LineBuffering)
+  withIoLogging consoleLogWriter a b c d
 
 
 -- | Enable logging to @standard output@ using the 'consoleLogWriter'.
@@ -51,7 +54,9 @@ withConsoleLogging = withIoLogging consoleLogWriter
 withConsoleLogWriter
   :: (LogIo e)
   => Eff e a -> Eff e a
-withConsoleLogWriter = addLogWriter consoleLogWriter
+withConsoleLogWriter e = do
+  lift (IO.hSetBuffering IO.stdout IO.LineBuffering)
+  addLogWriter consoleLogWriter e
 
 -- | Write 'LogMessage's to standard output, formatted with 'printLogMessage'.
 --

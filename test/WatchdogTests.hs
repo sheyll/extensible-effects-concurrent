@@ -17,9 +17,7 @@ import Data.Time.Clock
 
 
 runTestCase :: TestName -> Eff Effects () -> TestTree
-runTestCase msg e =
-  Common.runTestCase msg  (setLogPredicate (lmSeverityIsAtLeast errorSeverity) e)
-
+runTestCase = Common.runTestCase
 
 
 test_watchdogTests :: HasCallStack => TestTree
@@ -30,199 +28,191 @@ test_watchdogTests =
     , testGroup "watchdog broker interaction"
       [
 
-        runTestCase "when the broker exits, the watchdog does not care, it can be re-attached to a new broker" $ do
+        runTestCase "test 1: when the broker exits, the watchdog does not care, it can be re-attached to a new broker" $ do
           wd <- Watchdog.startLink
           unlinkProcess (wd ^. fromEndpoint)
           do
             broker <- Broker.startLink (Broker.statefulChild @BookShelf (TimeoutMicros 1_000_000) id)
             unlinkProcess (broker ^. fromEndpoint)
-            logInfo "started broker"
+            logNotice "started broker"
             Watchdog.attach wd broker
-            logInfo "attached watchdog"
-            Broker.stopBroker broker
-            logInfo "stopping broker"
-            awaitProcessDown (broker ^. fromEndpoint) >>= lift . assertEqual "bad exit reason" ExitNormally . downReason
-            logInfo "stopped broker"
+            logNotice "attached watchdog"
+            assertShutdown (broker ^. fromEndpoint) ExitNormally
+            logNotice "stopped broker"
 
           do
             broker <- Broker.startLink (Broker.statefulChild @BookShelf (TimeoutMicros 1_000_000) id)
             unlinkProcess (broker ^. fromEndpoint)
-            logInfo "started new broker"
+            logNotice "started new broker"
             Watchdog.attach wd broker
-            logInfo "attached broker"
+            logNotice "attached broker"
             let expected = ExitUnhandledError "test-broker-kill"
-            logInfo "crashing broker"
-            sendShutdown (broker ^. fromEndpoint) expected
-            awaitProcessDown (broker ^. fromEndpoint) >>= lift . assertEqual "bad exit reason" expected . downReason
-            logInfo "crashed broker"
+            logNotice "crashing broker"
+            assertShutdown (broker ^. fromEndpoint) expected
+            logNotice "crashed broker"
 
-          logInfo "shutting down watchdog"
-          sendShutdown (wd^.fromEndpoint) ExitNormally
-          awaitProcessDown (wd^.fromEndpoint) >>= lift . assertEqual "bad exit reason" ExitNormally . downReason
-          logInfo "watchdog down"
+          logNotice "shutting down watchdog"
+          assertShutdown (wd^.fromEndpoint) ExitNormally
+          logNotice "watchdog down"
 
 
-      , runTestCase "when the broker exits, an the watchdog is linked to it, it will exit" $ do
+      , runTestCase "test 2: when the broker exits, and the watchdog is linked to it, it will exit" $ do
           wd <- Watchdog.startLink
           unlinkProcess (wd ^. fromEndpoint)
-          logInfo "started watchdog"
+          logNotice "started watchdog"
           do
             broker <- Broker.startLink (Broker.statefulChild @BookShelf (TimeoutMicros 1_000_000) id)
             unlinkProcess (broker ^. fromEndpoint)
-            logInfo "started broker"
+            logNotice "started broker"
             Watchdog.attachLinked wd broker
-            logInfo "attached and linked broker"
-            logInfo "crashing broker"
+            logNotice "attached and linked broker"
+            logNotice "crashing broker"
             let expected = ExitUnhandledError "test-broker-kill"
             sendShutdown (broker ^. fromEndpoint) expected
-            awaitProcessDown (broker^.fromEndpoint) >>= lift . assertEqual "bad exit reason" expected . downReason
-            logInfo "crashed broker"
-            logInfo "waiting for watchdog to crash"
+            logNotice "crashed broker"
+            logNotice "waiting for watchdog to crash"
             awaitProcessDown (wd^.fromEndpoint) >>= lift . assertEqual "bad exit reason" (ExitOtherProcessNotRunning (broker^.fromEndpoint)) . downReason
-            logInfo "watchdog to crashed"
+            logNotice "watchdog crashed"
 
-      , runTestCase "when the same broker is attached twice, the second attachment is ignored" $ do
+      , runTestCase "test 3: when the same broker is attached twice, the second attachment is ignored" $ do
           wd <- Watchdog.startLink
           unlinkProcess (wd ^. fromEndpoint)
-          logInfo "started watchdog"
+          logNotice "started watchdog"
           do
             broker <- Broker.startLink (Broker.statefulChild @BookShelf (TimeoutMicros 1_000_000) id)
             unlinkProcess (broker ^. fromEndpoint)
-            logInfo "started broker"
+            logNotice "started broker"
             Watchdog.attach wd broker
-            logInfo "attached broker"
+            logNotice "attached broker"
             Watchdog.attach wd broker
-            logInfo "attached broker"
-            logInfo "restart child test begin"
+            logNotice "attached broker"
+            logNotice "restart child test begin"
             restartChildTest broker
-            logInfo "restart child test finished"
+            logNotice "restart child test finished"
 
-      , runTestCase "when the same broker is attached twice, the first linked then not linked, the watchdog is not linked anymore" $ do
+      , runTestCase "test 4: when the same broker is attached twice, the first linked then not linked, the watchdog is not linked anymore" $ do
           wd <- Watchdog.startLink
           unlinkProcess (wd ^. fromEndpoint)
-          logInfo "started watchdog"
+          logNotice "started watchdog"
           do
             broker <- Broker.startLink (Broker.statefulChild @BookShelf (TimeoutMicros 1_000_000) id)
             unlinkProcess (broker ^. fromEndpoint)
-            logInfo "started broker"
+            logNotice "started broker"
             Watchdog.attachLinked wd broker
-            logInfo "attached and linked broker"
+            logNotice "attached and linked broker"
             Watchdog.attach wd broker
-            logInfo "attached broker"
-            logInfo "run restart child test"
+            logNotice "attached broker"
+            logNotice "run restart child test"
             restartChildTest broker
-            logInfo "restart child test finished"
-            logInfo "crashing broker"
+            logNotice "restart child test finished"
+            logNotice "crashing broker"
             let expected = ExitUnhandledError "test-broker-kill"
-            sendShutdown (broker ^. fromEndpoint) expected
-            void $ awaitProcessDown (broker^.fromEndpoint)
-            logInfo "crashed broker"
+            assertShutdown (broker ^. fromEndpoint) expected
+            logNotice "crashed broker"
           do
             broker <- Broker.startLink (Broker.statefulChild @BookShelf (TimeoutMicros 1_000_000) id)
             unlinkProcess (broker ^. fromEndpoint)
-            logInfo "started new broker"
+            logNotice "started new broker"
             Watchdog.attach wd broker
-            logInfo "attached new broker"
-            logInfo "run restart child test again to show everything is ok"
+            logNotice "attached new broker"
+            logNotice "run restart child test again to show everything is ok"
             restartChildTest broker
-            logInfo "restart child test finished"
+            logNotice "restart child test finished"
 
 
-      , runTestCase "when the same broker is attached twice, the first time not linked but then linked, the watchdog is linked" $ do
+      , runTestCase "test 5: when the same broker is attached twice, the first time not linked but then linked, the watchdog is linked" $ do
           wd <- Watchdog.startLink
           unlinkProcess (wd ^. fromEndpoint)
-          logInfo "started watchdog"
+          logNotice "started watchdog"
           do
             broker <- Broker.startLink (Broker.statefulChild @BookShelf (TimeoutMicros 1_000_000) id)
             unlinkProcess (broker ^. fromEndpoint)
-            logInfo "started broker"
+            logNotice "started broker"
             Watchdog.attachLinked wd broker
-            logInfo "attached and linked broker"
+            logNotice "attached and linked broker"
             Watchdog.attach wd broker
-            logInfo "attached broker"
-            logInfo "run restart child test"
+            logNotice "attached broker"
+            logNotice "run restart child test"
             restartChildTest broker
-            logInfo "restart child test finished"
-            logInfo "crashing broker"
+            logNotice "restart child test finished"
+            logNotice "crashing broker"
             let expected = ExitUnhandledError "test-broker-kill"
-            sendShutdown (broker ^. fromEndpoint) expected
-            void $ awaitProcessDown (wd^.fromEndpoint)
-            logInfo "crashed broker"
-            logInfo "waiting for watchdog to crash"
+            assertShutdown (broker ^. fromEndpoint) expected
+            logNotice "crashed broker"
+            logNotice "waiting for watchdog to crash"
             awaitProcessDown (wd^.fromEndpoint) >>= lift . assertEqual "bad exit reason" (ExitOtherProcessNotRunning (broker^.fromEndpoint)) . downReason
-            logInfo "watchdog down"
+            logNotice "watchdog down"
 
 
-      , runTestCase "when multiple brokers are attached to a watchdog, and a linked broker exits, the watchdog should exit" $ do
+      , runTestCase "test 6: when multiple brokers are attached to a watchdog, and a linked broker exits, the watchdog should exit" $ do
           wd <- Watchdog.startLink
           unlinkProcess (wd ^. fromEndpoint)
-          logInfo "started watchdog"
+          logNotice "started watchdog"
           do
             broker1 <- Broker.startLink (Broker.statefulChild @BookShelf (TimeoutMicros 1_000_000) id)
-            logInfo "started broker 1"
+            logNotice "started broker 1"
             Watchdog.attachLinked wd broker1
-            logInfo "attached + linked broker 1"
+            logNotice "attached + linked broker 1"
 
             broker2 <- Broker.startLink (Broker.statefulChild @BookShelf (TimeoutMicros 1_000_000) id)
-            logInfo "started broker 2"
+            logNotice "started broker 2"
             Watchdog.attach wd broker2
-            logInfo "attached broker 2"
+            logNotice "attached broker 2"
 
             broker3 <- Broker.startLink (Broker.statefulChild @BookShelf (TimeoutMicros 1_000_000) id)
-            logInfo "started broker 3"
+            logNotice "started broker 3"
             Watchdog.attach wd broker3
-            logInfo "attached broker 3"
+            logNotice "attached broker 3"
             unlinkProcess (broker3 ^. fromEndpoint)
 
             let expected = ExitUnhandledError "test-broker-kill 1"
-            sendShutdown (broker1 ^. fromEndpoint) expected
-            logInfo "crashing broker 1"
-            awaitProcessDown (broker1^.fromEndpoint) >>= lift . assertEqual "bad exit reason" (ExitOtherProcessNotRunning (broker1^.fromEndpoint)) . downReason
-            logInfo "crashed broker 1"
+            logNotice "crashing broker 1"
+            assertShutdown (broker1 ^. fromEndpoint) expected
+            logNotice "crashed broker 1"
 
             isProcessAlive (broker2 ^. fromEndpoint) >>= lift . assertBool "broker2 should be running"
             isProcessAlive (broker3 ^. fromEndpoint) >>= lift . assertBool "broker3 should be running"
-            logInfo "other brokers are alive"
+            logNotice "other brokers are alive"
 
-            logInfo "waiting for watchdog to crash"
+            logNotice "waiting for watchdog to crash"
             awaitProcessDown (wd^.fromEndpoint) >>= lift . assertEqual "bad exit reason" (ExitOtherProcessNotRunning (broker1^.fromEndpoint)) . downReason
-            logInfo "watchdog crashed"
+            logNotice "watchdog crashed"
 
       ]
     , testGroup "restarting children"
-      [ runTestCase "when a child exits it is restarted" $ do
+      [ runTestCase "test 7: when a child exits it is restarted" $ do
           broker <- Broker.startLink (Broker.statefulChild @BookShelf (TimeoutMicros 1_000_000) id)
-          logInfo "started broker"
+          logNotice "started broker"
           wd <- Watchdog.startLink
-          logInfo "started watchdog"
+          logNotice "started watchdog"
           Watchdog.attach wd broker
-          logInfo "attached broker"
-          logInfo "running child tests"
+          logNotice "attached broker"
+          logNotice "running child tests"
           restartChildTest broker
-          logInfo "finished child tests"
+          logNotice "finished child tests"
 
-      , runTestCase "when the broker emits the shutting down event the watchdog does not restart children" $ do
+      , runTestCase "test 8: when the broker emits the shutting down event the watchdog does not restart children" $ do
           broker <- Broker.startLink (Broker.statefulChild @BookShelf (TimeoutMicros 1_000_000) id)
           unlinkProcess (broker ^. fromEndpoint)
-          logInfo "started broker"
+          logNotice "started broker"
           wd <- Watchdog.startLink
           unlinkProcess (wd ^. fromEndpoint)
-          logInfo "started watchdog"
+          logNotice "started watchdog"
           Watchdog.attach wd broker
           OQ.observe @(Broker.ChildEvent (Stateful.Stateful BookShelf)) (100 :: Int) broker $ do
             let c0 = BookShelfId 0
             do
               void $ Broker.spawnOrLookup broker c0
-              OQ.await @(Broker.ChildEvent (Stateful.Stateful BookShelf)) >>= logInfo . pack . show
-              logInfo "bookshelf started"
+              OQ.await @(Broker.ChildEvent (Stateful.Stateful BookShelf)) >>= logNotice . pack . show
+              logNotice "bookshelf started"
 
               Broker.stopBroker broker
-              OQ.await @(Broker.ChildEvent (Stateful.Stateful BookShelf)) >>= logInfo . pack . show -- broker visor shutting down event
+              OQ.await @(Broker.ChildEvent (Stateful.Stateful BookShelf)) >>= logNotice . pack . show -- broker shutting down event
               void $ awaitProcessDown (broker ^. fromEndpoint)
-              logInfo "broker stopped"
+              logNotice "broker stopped"
 
-          awaitProcessDown (wd ^. fromEndpoint) >>= logInfo . pack . show
-          logInfo "watchdog stopped"
+          awaitProcessDown (wd ^. fromEndpoint) >>= logNotice . pack . show
+          logNotice "watchdog stopped"
 
       , testGroup "reusing ChildIds"
           []
@@ -233,14 +223,14 @@ test_watchdogTests =
     ]
 bookshelfDemo :: HasCallStack => Eff Effects ()
 bookshelfDemo = do
-  logInfo "Bookshelf Demo Begin"
+  logNotice "Bookshelf Demo Begin"
   broker <- Broker.startLink (Broker.statefulChild @BookShelf (TimeoutMicros 1_000_000) id)
   shelf1 <- Broker.spawnOrLookup broker (BookShelfId 1)
   call shelf1 (AddBook "Solaris")
   call shelf1 GetBookList >>= logDebug . pack . show
   cast shelf1 (TakeBook "Solaris")
   call shelf1 GetBookList >>= logDebug . pack . show
-  logInfo "Bookshelf Demo End"
+  logNotice "Bookshelf Demo End"
 
 restartChildTest :: HasCallStack => Endpoint (Broker.Broker (Stateful.Stateful BookShelf)) -> Eff Effects ()
 restartChildTest broker =
@@ -249,13 +239,13 @@ restartChildTest broker =
      do
        c00 <- Broker.spawnOrLookup broker c0
        call c00 (AddBook "Solaris")
-       OQ.await @(Broker.ChildEvent (Stateful.Stateful BookShelf)) >>= logInfo . pack . show
+       OQ.await @(Broker.ChildEvent (Stateful.Stateful BookShelf)) >>= logNotice . pack . show
        call c00 (AddBook "Solaris") -- adding twice the same book causes a crash
        void $ awaitProcessDown (c00 ^. fromEndpoint)
-       OQ.await @(Broker.ChildEvent (Stateful.Stateful BookShelf)) >>= logInfo . pack . show -- child ended
-       logInfo "part 1 passed"
-       OQ.await @(Broker.ChildEvent (Stateful.Stateful BookShelf)) >>= logInfo . pack . show -- child restarted
-       logInfo "part 2 passed"
+       OQ.await @(Broker.ChildEvent (Stateful.Stateful BookShelf)) >>= logNotice . pack . show -- child ended
+       logNotice "part 1 passed"
+       OQ.await @(Broker.ChildEvent (Stateful.Stateful BookShelf)) >>= logNotice . pack . show -- child restarted
+       logNotice "part 2 passed"
      do
        c01m <- Broker.lookupChild broker c0
        case c01m of
@@ -263,7 +253,7 @@ restartChildTest broker =
           lift (assertFailure "failed to lookup child, seems it wasn't restarted!")
         Just c01 -> do
           call c01 (AddBook "Solaris")
-          logInfo "part 3 passed"
+          logNotice "part 3 passed"
 
 
 data BookShelf deriving Typeable

@@ -31,8 +31,9 @@ import Data.Default
 import Data.String
 import Data.Text (pack)
 import GHC.Stack (HasCallStack)
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, isJust)
 import Data.Foldable (traverse_)
+import Control.Monad (when)
 
 
 data Watchdog (child :: Type) deriving Typeable
@@ -194,8 +195,19 @@ instance
             res <- Broker.spawnChild broker cId
             logNotice ("restarted: "  <> pack (show cId) <> ": " <> pack (show res))
 
-      Effectful.OnDown pd@(ProcessDown mref _ pid) -> do
+      Effectful.OnDown pd@(ProcessDown _mref _ pid) -> do
         logDebug ("received " <> pack (show pd))
+        let broker = asEndpoint pid
+        oldModel <- Stateful.getAndModifyModel @(Watchdog child) ( brokers . at broker .~ Nothing )
+
+        traverse_ (logNotice . (("dettach from dead broker: " <> pack (show broker)
+                                <> ", recently crashed children: ") <>) . pack . show )
+          (oldModel ^? brokers . at broker . _Just . crashes . to Map.keys)
+
+        when (isJust (oldModel ^? brokers . at broker . _Just . brokerMonitor . _Just)) $ do
+          logError ("linked broker exited: " <> pack (show broker))
+          exitBecause (ExitOtherProcessNotRunning pid)
+
 --        brokerMonRef <- Stateful.askSettings @(Watchdog child)
 --        if mref == brokerMonRef then do
 --          logError "attached broker exited unexpectedly"

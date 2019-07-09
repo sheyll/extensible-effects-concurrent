@@ -32,11 +32,13 @@ import           Control.Eff.Concurrent.Process.ForkIOScheduler
                                                as Scheduler
 import           Control.Eff.Extend
 import           Control.Monad
+import           Control.Lens
 import           Data.Default
 import           Data.Foldable
 import           Data.Text                      ( Text
                                                 , pack
                                                 )
+import qualified Data.Text                     as T
 import           Data.Typeable           hiding ( cast )
 import           GHC.Stack
 import           Test.Tasty              hiding ( Timeout
@@ -64,10 +66,26 @@ runTestCase :: TestName -> Eff Effects () -> TestTree
 runTestCase msg =
   testCase msg
     . runLift
-    . withConsoleLogging "unit-tests" local0 allLogMessages
+    . withIoLogging (stdoutLogWriter renderTestLogMessages) "unit-tests" local0 allLogMessages
     . Scheduler.schedule
     . handleInterrupts onInt
   where onInt = lift . assertFailure . show
+
+
+-- | Render a 'LogMessage' human readable, for console logging
+renderTestLogMessages :: LogMessageRenderer T.Text
+renderTestLogMessages l =
+  T.unwords $ filter
+    (not . T.null)
+    [ let s = l ^. lmSeverity . to (T.pack . show)
+      in s <> T.replicate (max 0 (15 - T.length s)) " "
+    , let p = fromMaybe " no proc " (l ^. lmProcessId)
+      in p <> T.replicate (max 0 (55 - T.length p)) " "
+    , let msg = l^.lmMessage
+      in  msg <> T.replicate (max 0 (100 - T.length msg)) " "
+    -- , fromMaybe "" (renderLogMessageSrcLoc l)
+    ]
+
 
 withTestLogC :: (e -> IO ()) -> (IO (e -> IO ()) -> TestTree) -> TestTree
 withTestLogC doSchedule k = k (return doSchedule)
@@ -106,6 +124,25 @@ applySchedulerFactory
 applySchedulerFactory factory procAction = do
   scheduler <- factory
   scheduler (procAction >> lift (threadDelay 20000))
+
+assertShutdown
+  :: (Member Logs r, HasCallStack, HasProcesses r q, Lifted IO r)
+  => ProcessId
+  -> Interrupt 'NoRecovery
+  -> Eff r ()
+assertShutdown p r = do
+  m <- monitor p
+  sendShutdown p r
+  logInfo
+    (  "awaitProcessDown: "
+    <> pack (show p)
+    <> " "
+    <> pack (show m)
+    <> " "
+    <> pack (prettyCallStack callStack)
+    )
+  receiveSelectedMessage (selectProcessDown m)
+    >>= lift . assertEqual "bad exit reason" r . downReason
 
 awaitProcessDown
   :: (Member Logs r, HasCallStack, HasProcesses r q)
