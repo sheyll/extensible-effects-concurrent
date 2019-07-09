@@ -140,6 +140,7 @@ assertShutdown p r = do
     <> pack (show m)
     <> " "
     <> pack (prettyCallStack callStack)
+    <> "\n"
     )
   receiveSelectedMessage (selectProcessDown m)
     >>= lift . assertEqual "bad exit reason" r . downReason
@@ -157,6 +158,7 @@ awaitProcessDown p = do
     <> pack (show m)
     <> " "
     <> pack (prettyCallStack callStack)
+    <> "\n"
     )
   receiveSelectedMessage (selectProcessDown m)
 
@@ -166,12 +168,14 @@ awaitProcessDownAny
 awaitProcessDownAny = do
   logInfo
     (  "awaitProcessDownAny: "
+    <> " "
     <> pack (prettyCallStack callStack)
     )
   z <- receiveMessage
   logInfo
     (  "awaitProcessDownAny: "
     <> pack (show z)
+    <> "\n"
     )
   return z
 

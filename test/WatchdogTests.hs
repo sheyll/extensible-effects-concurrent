@@ -128,10 +128,10 @@ test_watchdogTests =
             broker <- Broker.startLink (Broker.statefulChild @BookShelf (TimeoutMicros 1_000_000) id)
             unlinkProcess (broker ^. fromEndpoint)
             logNotice "started broker"
-            Watchdog.attachLinked wd broker
-            logNotice "attached and linked broker"
             Watchdog.attach wd broker
             logNotice "attached broker"
+            Watchdog.attachLinked wd broker
+            logNotice "attached and linked broker"
             logNotice "run restart child test"
             restartChildTest broker
             logNotice "restart child test finished"
@@ -240,7 +240,7 @@ restartChildTest broker =
        c00 <- Broker.spawnOrLookup broker c0
        call c00 (AddBook "Solaris")
        OQ.await @(Broker.ChildEvent (Stateful.Stateful BookShelf)) >>= logNotice . pack . show
-       call c00 (AddBook "Solaris") -- adding twice the same book causes a crash
+       handleInterrupts (const (pure ())) (call c00 (AddBook "Solaris")) -- adding twice the same book causes a crash
        void $ awaitProcessDown (c00 ^. fromEndpoint)
        OQ.await @(Broker.ChildEvent (Stateful.Stateful BookShelf)) >>= logNotice . pack . show -- child ended
        logNotice "part 1 passed"

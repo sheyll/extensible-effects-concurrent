@@ -167,16 +167,38 @@ instance
                   }
                   deriving (Default)
 
-  update _me startArg =
+  update me _startArg =
     \case
       Effectful.OnCall rt (Attach broker) -> do
         logDebug ("attaching to: " <> pack (show broker))
-        doAttach broker
+        oldModel <- Stateful.getModel @(Watchdog child)
+        let oldMonitor = oldModel ^? brokers . at broker . _Just . brokerMonitor . _Just
+        traverse_ (\mr -> do
+          logDebug ("stop monitoring " <> pack (show broker) <> " " <> pack (show mr))
+          demonitor mr)
+          oldMonitor
+        let newBroker = MkBroker Nothing (fromMaybe def (oldModel ^? brokers . at broker . _Just . crashes))
+        Stateful.modifyModel (brokers . at broker ?~ newBroker)
+        Observer.registerObserver @(Broker.ChildEvent child) broker me
         sendReply rt ()
 
       Effectful.OnCall rt (AttachLinked broker) -> do
         logDebug ("attaching and linking to: " <> pack (show broker))
-        doAttachAndLink broker
+        oldModel <- Stateful.getModel @(Watchdog child)
+        let oldMonitor = oldModel ^? brokers . at broker . _Just . brokerMonitor . _Just
+        mr <- case oldMonitor of
+          Nothing -> do
+            mr <- monitor (broker^.fromEndpoint)
+            logDebug ("monitoring " <> pack (show broker) <> " " <> pack (show mr))
+            return mr
+
+          Just mr -> do
+            logDebug ("already monitoring " <> pack (show broker) <> " - keeping: " <> pack (show mr))
+            return mr
+
+        let newBroker = MkBroker (Just mr) (fromMaybe def (oldModel ^? brokers . at broker . _Just . crashes))
+        Stateful.modifyModel (brokers . at broker ?~ newBroker)
+        Observer.registerObserver @(Broker.ChildEvent child) broker me
         sendReply rt ()
 
 
@@ -191,7 +213,7 @@ instance
             logNotice (pack (show down))
           down@(Broker.OnChildDown broker cId _ _) -> do
             logNotice (pack (show down))
-            logNotice ("==== restarting: " <> pack (show cId))
+            logNotice ("restarting: " <> pack (show cId))
             res <- Broker.spawnChild broker cId
             logNotice ("restarted: "  <> pack (show cId) <> ": " <> pack (show res))
 
@@ -214,51 +236,6 @@ instance
 --          exitBecause (ExitOtherProcessNotRunning pid)
 --        else
 --          logWarning ("unexpected process down: " <> pack (show pd))
-
-
-doAttach
-  :: forall child e q .
-     ( Typeable child
-     , HasProcesses e q
-     , Member Logs e
-     , Member (Stateful.ModelState (Watchdog child)) e
-     )
-  => Endpoint (Broker.Broker child)
-  -> Eff e ()
-doAttach broker = do
-  oldModel <- Stateful.getModel @(Watchdog child)
-  let oldMonitor = oldModel ^? brokers . at broker . _Just . brokerMonitor . _Just
-  traverse_ (\mr -> do
-    logDebug ("stop monitoring " <> pack (show broker) <> " " <> pack (show mr))
-    demonitor mr)
-    oldMonitor
-  let newBroker = MkBroker Nothing (fromMaybe def (oldModel ^? brokers . at broker . _Just . crashes))
-  Stateful.modifyModel (brokers . at broker ?~ newBroker)
-
-doAttachAndLink
-  :: forall child e q .
-     ( Typeable child
-     , HasProcesses e q
-     , Member Logs e
-     , Member (Stateful.ModelState (Watchdog child)) e
-     )
-  => Endpoint (Broker.Broker child)
-  -> Eff e ()
-doAttachAndLink broker = do
-  oldModel <- Stateful.getModel @(Watchdog child)
-  let oldMonitor = oldModel ^? brokers . at broker . _Just . brokerMonitor . _Just
-  mr <- case oldMonitor of
-    Nothing -> do
-      mr <- monitor (broker^.fromEndpoint)
-      logDebug ("monitoring " <> pack (show broker) <> " " <> pack (show mr))
-      return mr
-
-    Just mr -> do
-      logDebug ("already monitoring " <> pack (show broker) <> " - keeping: " <> pack (show mr))
-      return mr
-
-  let newBroker = MkBroker (Just mr) (fromMaybe def (oldModel ^? brokers . at broker . _Just . crashes))
-  Stateful.modifyModel (brokers . at broker ?~ newBroker)
 
 
 data Broker child =
