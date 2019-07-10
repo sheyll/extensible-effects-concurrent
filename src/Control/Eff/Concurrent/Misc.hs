@@ -36,14 +36,17 @@ showSTypeRep = showSTypeRepPrec 0
 --
 -- @since 0.24.0
 showSTypeRepPrec :: Int -> SomeTypeRep -> ShowS
-showSTypeRepPrec d (SomeTypeRep tr) sIn =
-  let (con, conArgs) = splitApps tr
-   in case conArgs of
-        [] -> showString (tyConName con) sIn
-        _ ->
-          showParen
-            (d >= 10)
-            (showString (tyConName con) . showChar ':' .
-              foldr1 (\f acc -> showChar '-' . f . acc)
-                     (showSTypeRepPrec 10 <$> conArgs))
-            sIn
+showSTypeRepPrec _d (SomeTypeRep tr) =
+  let
+      (con, conArgs) = splitApps tr
+
+      renderArgs =
+        foldr1 (\f acc -> showString ", " . f . acc)
+               (showSTypeRepPrec 10 <$> conArgs)
+
+   in  showString (tyConName con) .
+          if not (null conArgs) then
+                showChar '<'
+              . renderArgs
+              . showChar '>'
+          else id

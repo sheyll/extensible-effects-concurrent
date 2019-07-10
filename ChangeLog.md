@@ -18,7 +18,8 @@
   processes registered at the broker.
         
 - **Logging**
-    - Add `logCallStack`      
+    - Add `logCallStack`
+    - Add `logMultiLine`      
       
 ## 0.29.2
 - Improve `Supervisor` API: Use `Init` from the effectful server as start

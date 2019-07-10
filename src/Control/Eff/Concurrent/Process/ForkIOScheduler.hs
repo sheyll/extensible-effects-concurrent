@@ -763,10 +763,11 @@ spawnNewProcess mLinkedParent title mfa = do
           (readTVar (procInfo ^. processState)
             <* modifyTVar' (procInfo ^. processState) (_2 .~ ProcessShuttingDown)))
       when (currentState /= ProcessShuttingDown)
-        (logNotice ("this process exited whithout process shutdown: "
+        (logNotice ("aborted in state: "
           <> T.pack (show currentState)
-          <> " because "
-          <> T.pack (show reason)))
+          <> " by: "
+          <> T.pack (show reason)
+          ))
       triggerProcessLinksAndMonitors pid reason (procInfo ^. processLinks)
       logProcessExit reason
       return reason

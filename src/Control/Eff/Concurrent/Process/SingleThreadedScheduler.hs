@@ -21,6 +21,7 @@ where
 import           Control.Concurrent             ( yield )
 import           Control.Eff
 import           Control.Eff.Extend
+import           Control.Eff.Concurrent.Misc
 import           Control.Eff.Concurrent.Process
 import           Control.Eff.Log
 import           Control.Eff.LogWriter.IO
@@ -63,7 +64,7 @@ instance Show ProcessInfo where
       (d >= 10)
       (appEndo
          (Endo (showChar ' ' . shows pTitle . showString ": ") <>
-          foldMap (Endo . shows . dynTypeRep . unwrapStrictDynamic) (toList pQ) <>
+          foldMap (Endo . showSTypeRep . dynTypeRep . unwrapStrictDynamic) (toList pQ) <>
           Endo (shows pDetails)))
 
 makeLenses ''ProcessInfo

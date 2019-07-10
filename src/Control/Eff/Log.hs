@@ -89,6 +89,8 @@ module Control.Eff.Log
   , logDebug
   , logDebug'
   , logCallStack
+  , logMultiLine
+  , logMultiLine'
 
     -- ** Log Message Pre-Filtering #LogPredicate#
     -- $LogPredicate

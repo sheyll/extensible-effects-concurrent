@@ -27,6 +27,8 @@ module Control.Eff.Log.Handler
   , logDebug
   , logDebug'
   , logCallStack
+  , logMultiLine
+  , logMultiLine'
 
   -- ** Log Message Pre-Filtering #LogPredicate#
   , includeLogMessages
@@ -80,12 +82,14 @@ import           Control.Monad.Trans.Control     ( MonadBaseControl
                                                  )
 import           Data.Default
 import           Data.Function                  ( fix )
+import           Data.Hashable
 import           Data.Text                     as T
 import           GHC.Stack                      ( HasCallStack
                                                 , callStack
                                                 , withFrozenCallStack, CallStack, prettyCallStack
                                                 )
-import Data.Foldable (traverse_)
+import Data.Foldable (traverse_, toList)
+import Text.Printf (printf)
 
 
 
@@ -465,20 +469,65 @@ logDebug' = withFrozenCallStack (logWithSeverity' debugSeverity)
 -- @since 0.30.0
 logCallStack :: forall e . (HasCallStack, Member Logs e) => Severity -> Eff e ()
 logCallStack =
-  withFrozenCallStack $ \s -> do
-    let stackTraceLinesWithLineNum =
-          let stackTraceLines = T.lines (pack (prettyCallStack callStack))
-              stackTraceLineCount = Prelude.length stackTraceLines
-              stackTraceLineCountString = T.pack (show stackTraceLineCount)
-              stackTraceLineCountStringLen = T.length stackTraceLineCountString
+  withFrozenCallStack $ \s ->
+    let stackTraceLines = T.lines (pack (prettyCallStack callStack))
+    in logMultiLine s stackTraceLines
+
+
+-- | Issue a log statement for each item in the list prefixed with a line number and a message hash.
+--
+-- When several concurrent processes issue log statements, multiline log statements are often
+-- interleaved.
+--
+-- In order to make the logs easier to read, this function will count the items and calculate a unique
+-- hash and prefix each message, so a user can grep to get all the lines of an interleaved,
+-- multi-line log message.
+--
+-- @since 0.30.0
+logMultiLine
+  :: forall e
+    . ( HasCallStack
+    , Member Logs e
+    )
+    => Severity
+    -> [Text]
+    -> Eff e ()
+logMultiLine =
+  withFrozenCallStack $ \s messageLines -> do
+    let msgHash = T.pack $ printf "multi-line message %06X" $ hash messageLines `mod` 0x1000000
+        messageLinesWithLineNum =
+          let messageLineCount = Prelude.length messageLines
+              messageLineCountString = T.pack (show messageLineCount)
+              messageLineCountStringLen = T.length messageLineCountString
               printLineNum i =
                 let i' = T.pack (show i)
-                    padding = stackTraceLineCountStringLen - T.length i'
-                in "    [" <> T.replicate padding " " <> i' <> " of " <> stackTraceLineCountString <> "]    "
-          in Prelude.zipWith (<>) (printLineNum <$> [1..])  stackTraceLines
-    logWithSeverity s "+~~~~~~~~ callstack begin ~~~~~~~~~"
-    traverse_ (logWithSeverity s) stackTraceLinesWithLineNum
-    logWithSeverity s "-~~~~~~~~~ callstack end ~~~~~~~~~~"
+                    padding = messageLineCountStringLen - T.length i'
+                in msgHash <> " line " <> T.replicate padding " " <> i' <> " of " <> messageLineCountString <> ":    "
+          in Prelude.zipWith (<>) (printLineNum <$> [1 :: Int ..])  messageLines
+    traverse_ (logWithSeverity s) messageLinesWithLineNum
+
+
+-- | Issue a log statement for each item in the list prefixed with a line number and a message hash.
+--
+-- When several concurrent processes issue log statements, multiline log statements are often
+-- interleaved.
+--
+-- In order to make the logs easier to read, this function will count the items and calculate a unique
+-- hash and prefix each message, so a user can grep to get all the lines of an interleaved,
+-- multi-line log message.
+--
+-- This function takes a list of 'String's as opposed to 'logMultiLine'.
+--
+-- @since 0.30.0
+logMultiLine'
+  :: forall e
+    . ( HasCallStack
+    , Member Logs e
+    )
+    => Severity
+    -> [String]
+    -> Eff e ()
+logMultiLine' s = logMultiLine s . fmap pack
 
 
 -- | Get the current 'Logs' filter/transformer function.

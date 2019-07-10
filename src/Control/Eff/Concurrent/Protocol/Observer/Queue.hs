@@ -2,7 +2,7 @@
 -- | A small process to capture and _share_ observation's by enqueueing them into an STM 'TBQueue'.
 module Control.Eff.Concurrent.Protocol.Observer.Queue
   ( ObservationQueue(..)
-  , ObservationQueueReader
+  , Reader
   , observe
   , await
   , tryRead
@@ -12,13 +12,14 @@ where
 
 import           Control.Concurrent.STM
 import           Control.Eff
+import           Control.Eff.Concurrent.Misc
 import           Control.Eff.Concurrent.Protocol
 import           Control.Eff.Concurrent.Protocol.Observer
 import           Control.Eff.Concurrent.Protocol.StatefulServer
 import           Control.Eff.Concurrent.Process
 import           Control.Eff.ExceptionExtra     ( )
 import           Control.Eff.Log
-import           Control.Eff.Reader.Strict
+import qualified Control.Eff.Reader.Strict     as Eff
 import           Control.Exception.Safe        as Safe
 import           Control.Lens
 import           Control.Monad.IO.Class
@@ -33,10 +34,10 @@ import Data.Default (Default)
 newtype ObservationQueue a = ObservationQueue (TBQueue a)
 
 -- | A 'Reader' for an 'ObservationQueue'.
-type ObservationQueueReader a = Reader (ObservationQueue a)
+type Reader a = Eff.Reader (ObservationQueue a)
 
 logPrefix :: forall event proxy . (HasCallStack, Typeable event) => proxy event -> T.Text
-logPrefix px = "observation queue: " <> T.pack (show (typeRep px))
+logPrefix _px = "observation queue: " <> T.pack (showSTypeable @event "")
 
 -- | Read queued observations captured and enqueued in the shared 'ObservationQueue' by 'observe'.
 --
@@ -46,7 +47,7 @@ logPrefix px = "observation queue: " <> T.pack (show (typeRep px))
 -- @since 0.28.0
 await
   :: forall event r
-   . ( Member (ObservationQueueReader event) r
+   . ( Member (Reader event) r
      , HasCallStack
      , MonadIO (Eff r)
      , Typeable event
@@ -54,7 +55,7 @@ await
      )
   => Eff r event
 await = do
-  ObservationQueue q <- ask @(ObservationQueue event)
+  ObservationQueue q <- Eff.ask @(ObservationQueue event)
   liftIO (atomically (readTBQueue q))
 
 -- | Read queued observations captured and enqueued in the shared 'ObservationQueue' by 'observe'.
@@ -65,7 +66,7 @@ await = do
 -- @since 0.28.0
 tryRead
   :: forall event r
-   . ( Member (ObservationQueueReader event) r
+   . ( Member (Reader event) r
      , HasCallStack
      , MonadIO (Eff r)
      , Typeable event
@@ -73,7 +74,7 @@ tryRead
      )
   => Eff r (Maybe event)
 tryRead = do
-  ObservationQueue q <- ask @(ObservationQueue event)
+  ObservationQueue q <- Eff.ask @(ObservationQueue event)
   liftIO (atomically (tryReadTBQueue q))
 
 -- | Read at once all currently queued observations captured and enqueued
@@ -85,7 +86,7 @@ tryRead = do
 -- @since 0.28.0
 flush
   :: forall event r
-   . ( Member (ObservationQueueReader event) r
+   . ( Member (Reader event) r
      , HasCallStack
      , MonadIO (Eff r)
      , Typeable event
@@ -93,7 +94,7 @@ flush
      )
   => Eff r [event]
 flush = do
-  ObservationQueue q <- ask @(ObservationQueue event)
+  ObservationQueue q <- Eff.ask @(ObservationQueue event)
   liftIO (atomically (flushTBQueue q))
 
 -- | Listen to, and capture observations in an 'ObservationQueue'.
@@ -136,7 +137,7 @@ observe
     )
   => len
   -> Endpoint eventSource
-  -> Eff (ObservationQueueReader event ': e) b
+  -> Eff (Reader event ': e) b
   -> Eff e b
 observe queueLimit eventSource e =
   withObservationQueue queueLimit (withWriter @event eventSource e)
@@ -153,12 +154,12 @@ withObservationQueue
      , Member Interrupts e
      )
   => len
-  -> Eff (ObservationQueueReader event ': e) b
+  -> Eff (Reader event ': e) b
   -> Eff e b
 withObservationQueue queueLimit e = do
   q   <- lift (newTBQueueIO (fromIntegral queueLimit))
   res <- handleInterrupts (return . Left)
-                          (Right <$> runReader (ObservationQueue q) e)
+                          (Right <$> Eff.runReader (ObservationQueue q) e)
   rest <- lift (atomically (flushTBQueue q))
   unless
     (null rest)
@@ -202,14 +203,14 @@ withWriter
     , HasProcesses e q
     , LogIo q
     , IsObservable eventSource event
-    , Member (ObservationQueueReader event) e
+    , Member (Reader event) e
     , Tangible (Pdu eventSource 'Asynchronous)
     )
   => Endpoint eventSource
   -> Eff e b
   -> Eff e b
 withWriter eventSource e = do
-  q <- ask @(ObservationQueue event)
+  q <- Eff.ask @(ObservationQueue event)
   w <- spawnWriter @event q
   registerObserver @event eventSource w
   res <- e
