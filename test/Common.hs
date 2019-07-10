@@ -155,11 +155,8 @@ awaitProcessDown p = do
     <> pack (show p)
     <> " "
     <> pack (show m)
-    <> " "
-    <> pack (prettyCallStack callStack)
-    <> "\n"
     )
-  logCallStack debugSeverity
+  logCallStack informationalSeverity
   receiveSelectedMessage (selectProcessDown m)
 
 awaitProcessDownAny
@@ -171,7 +168,7 @@ awaitProcessDownAny = do
     <> " "
     <> pack (prettyCallStack callStack)
     )
-  logCallStack debugSeverity
+  logCallStack informationalSeverity
   z <- receiveMessage
   return z
 
