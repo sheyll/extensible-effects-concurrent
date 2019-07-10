@@ -26,6 +26,7 @@ module Control.Eff.Log.Handler
   , logInfo'
   , logDebug
   , logDebug'
+  , logCallStack
 
   -- ** Log Message Pre-Filtering #LogPredicate#
   , includeLogMessages
@@ -82,8 +83,9 @@ import           Data.Function                  ( fix )
 import           Data.Text                     as T
 import           GHC.Stack                      ( HasCallStack
                                                 , callStack
-                                                , withFrozenCallStack
+                                                , withFrozenCallStack, CallStack, prettyCallStack
                                                 )
+import Data.Foldable (traverse_)
 
 
 
@@ -457,6 +459,27 @@ logDebug'
   => String
   -> Eff e ()
 logDebug' = withFrozenCallStack (logWithSeverity' debugSeverity)
+
+-- | Log the current 'callStack' using the given 'Severity'.
+--
+-- @since 0.30.0
+logCallStack :: forall e . (HasCallStack, Member Logs e) => Severity -> Eff e ()
+logCallStack =
+  withFrozenCallStack $ \s -> do
+    let stackTraceLinesWithLineNum =
+          let stackTraceLines = T.lines (pack (prettyCallStack callStack))
+              stackTraceLineCount = Prelude.length stackTraceLines
+              stackTraceLineCountString = T.pack (show stackTraceLineCount)
+              stackTraceLineCountStringLen = T.length stackTraceLineCountString
+              printLineNum i =
+                let i' = T.pack (show i)
+                    padding = stackTraceLineCountStringLen - T.length i'
+                in "    [" <> T.replicate padding " " <> i' <> " of " <> stackTraceLineCountString <> "]    "
+          in Prelude.zipWith (<>) (printLineNum <$> [1..])  stackTraceLines
+    logWithSeverity s "+~~~~~~~~ callstack begin ~~~~~~~~~"
+    traverse_ (logWithSeverity s) stackTraceLinesWithLineNum
+    logWithSeverity s "-~~~~~~~~~ callstack end ~~~~~~~~~~"
+
 
 -- | Get the current 'Logs' filter/transformer function.
 --

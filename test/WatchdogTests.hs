@@ -150,6 +150,7 @@ test_watchdogTests =
           logNotice "started watchdog"
           do
             broker1 <- Broker.startLink (Broker.statefulChild @BookShelf (TimeoutMicros 1_000_000) id)
+            unlinkProcess (broker1^.fromEndpoint)
             logNotice "started broker 1"
             Watchdog.attachLinked wd broker1
             logNotice "attached + linked broker 1"

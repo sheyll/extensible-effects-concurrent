@@ -15,7 +15,10 @@
 - Export the `TimeoutMicros` constructor
 - Add **[Watchdog](./src/Control/Eff/Concurrent/Protocol/Watchdog.hs)** a server that watches 
   a **[Broker](./src/Control/Eff/Concurrent/Protocol/Broker.hs)** and restarts crashed
-  processes registered at the broker.      
+  processes registered at the broker.
+        
+- **Logging**
+    - Add `logCallStack`      
       
 ## 0.29.2
 - Improve `Supervisor` API: Use `Init` from the effectful server as start

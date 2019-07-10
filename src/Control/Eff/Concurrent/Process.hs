@@ -600,21 +600,18 @@ interruptToExit x = ExitUnhandledError (pack (show x))
 
 instance Show (Interrupt x) where
   showsPrec d =
-    showParen (d >= 9)
-      . (\case
-          NormalExitRequested        -> showString "interrupt: A normal exit was requested"
-          OtherProcessNotRunning p    -> showString "interrupt: Another process is not running: " . showsPrec 10 p
-          TimeoutInterrupt reason -> showString "interrupt: A timeout occured: " . showString reason
-          LinkedProcessCrashed m ->
-            showString "interrupt: A linked process " . showsPrec 10 m . showString " crashed"
-          ErrorInterrupt reason   -> showString "interrupt: An error occured: " . showString reason
-          ExitNormally          -> showString "exit: Process finished successfully"
-          ExitUnhandledError w ->
-            showString "exit: Unhandled " . showString (unpack w)
-          ExitProcessCancelled Nothing -> showString "exit: The process was cancelled by a runtime exception"
-          ExitProcessCancelled (Just origin) -> showString "exit: The process was cancelled by: " . shows origin
-          ExitOtherProcessNotRunning p    -> showString "exit: Another process is not running: " . showsPrec 10 p
-        )
+    showParen (d >= 10) .
+    (\case
+       NormalExitRequested -> showString "interrupt: A normal exit was requested"
+       OtherProcessNotRunning p -> showString "interrupt: Another process is not running: " . showsPrec 10 p
+       TimeoutInterrupt reason -> showString "interrupt: A timeout occured: " . showString reason
+       LinkedProcessCrashed m -> showString "interrupt: A linked process " . showsPrec 10 m . showString " crashed"
+       ErrorInterrupt reason -> showString "interrupt: An error occured: " . showString reason
+       ExitNormally -> showString "exit: Process finished successfully"
+       ExitUnhandledError w -> showString "exit: Unhandled " . showString (unpack w)
+       ExitProcessCancelled Nothing -> showString "exit: The process was cancelled by a runtime exception"
+       ExitProcessCancelled (Just origin) -> showString "exit: The process was cancelled by: " . shows origin
+       ExitOtherProcessNotRunning p -> showString "exit: Another process is not running: " . showsPrec 10 p)
 
 instance Exc.Exception (Interrupt 'Recoverable)
 instance Exc.Exception (Interrupt 'NoRecovery )

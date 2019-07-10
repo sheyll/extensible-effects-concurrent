@@ -26,6 +26,7 @@ import           Control.Concurrent
 import           Control.Concurrent.STM
 import           Control.DeepSeq
 import           Control.Eff
+--import           Control.Eff.Log
 import           Control.Eff.Concurrent
 import           Control.Eff.Concurrent.Misc
 import           Control.Eff.Concurrent.Process.ForkIOScheduler
@@ -66,15 +67,14 @@ runTestCase :: TestName -> Eff Effects () -> TestTree
 runTestCase msg =
   testCase msg
     . runLift
-    . withIoLogging (stdoutLogWriter renderTestLogMessages) "unit-tests" local0 allLogMessages
+    . withIoLogging (stdoutLogWriter renderMinimalisticWide) "unit-tests" local0 allLogMessages
     . Scheduler.schedule
     . handleInterrupts onInt
   where onInt = lift . assertFailure . show
 
-
 -- | Render a 'LogMessage' human readable, for console logging
-renderTestLogMessages :: LogMessageRenderer T.Text
-renderTestLogMessages l =
+renderMinimalisticWide :: LogMessageRenderer T.Text
+renderMinimalisticWide l =
   T.unwords $ filter
     (not . T.null)
     [ let s = l ^. lmSeverity . to (T.pack . show)
@@ -131,6 +131,7 @@ assertShutdown
   -> Interrupt 'NoRecovery
   -> Eff r ()
 assertShutdown p r = do
+  unlinkProcess p
   m <- monitor p
   sendShutdown p r
   logInfo
@@ -138,10 +139,8 @@ assertShutdown p r = do
     <> pack (show p)
     <> " "
     <> pack (show m)
-    <> " "
-    <> pack (prettyCallStack callStack)
-    <> "\n"
     )
+  logCallStack debugSeverity
   receiveSelectedMessage (selectProcessDown m)
     >>= lift . assertEqual "bad exit reason" r . downReason
 
@@ -160,6 +159,7 @@ awaitProcessDown p = do
     <> pack (prettyCallStack callStack)
     <> "\n"
     )
+  logCallStack debugSeverity
   receiveSelectedMessage (selectProcessDown m)
 
 awaitProcessDownAny
@@ -171,12 +171,8 @@ awaitProcessDownAny = do
     <> " "
     <> pack (prettyCallStack callStack)
     )
+  logCallStack debugSeverity
   z <- receiveMessage
-  logInfo
-    (  "awaitProcessDownAny: "
-    <> pack (show z)
-    <> "\n"
-    )
   return z
 
 

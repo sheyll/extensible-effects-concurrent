@@ -75,7 +75,7 @@ instance NFData (Observer event) where
 
 instance Typeable event => Show (Observer event) where
   showsPrec d (MkObserver (Arg x (MkObservationSink _ m))) =
-    showParen (d>=10) (showSTypeable @event . showString "-observer: " . shows x . showChar ' ' . shows m )
+    showParen (d>=10) (showString "observer: " . showSTypeable @event . showString " ". showsPrec 10 x . showChar ' ' . showsPrec 10 m )
 
 type instance ToPretty (Observer event) =
   PrettyParens ("observing" <:> ToPretty event)
@@ -90,7 +90,7 @@ instance NFData event => NFData (Pdu (Observer event) r) where
 
 instance Show event => Show (Pdu (Observer event) r) where
   showsPrec d (Observed event) =
-    showParen (d >= 10) (showString "observered: " . shows event)
+    showParen (d >= 10) (showString "observered: " . showsPrec 10 event)
 
 -- | The Information necessary to wrap an 'Observed' event to a process specific
 -- message, e.g. the embedded 'Observer' 'Pdu' instance, and the 'MonitorReference' of
