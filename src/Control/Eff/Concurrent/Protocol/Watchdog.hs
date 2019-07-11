@@ -213,7 +213,7 @@ instance
             logNotice (pack (show down))
           down@(Broker.OnChildDown broker cId _ _) -> do
             logNotice (pack (show down))
-            oldModel <- Stateful.getModel @(Watchdog child)
+            newModel <- Stateful.getModel @(Watchdog child)
 
             logNotice ("restarting: " <> pack (show cId))
             res <- Broker.spawnChild broker cId

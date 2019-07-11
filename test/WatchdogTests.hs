@@ -383,7 +383,6 @@ bookshelfDemo = do
   call shelf1 GetBookList >>= logDebug . pack . show
   logNotice "Bookshelf Demo End"
 
-
 restartChildTest :: HasCallStack => Endpoint (Broker (Stateful BookShelf)) -> Eff Effects ()
 restartChildTest broker =
   OQ.observe @(Broker.ChildEvent (Stateful BookShelf)) (100 :: Int) broker $ do
@@ -396,7 +395,6 @@ restartChildTest broker =
       Just c01 -> do
         call c01 (AddBook "Solaris")
         logNotice "part 3 passed"
-
 
 spawnAndCrashBookShelf
   :: HasCallStack
