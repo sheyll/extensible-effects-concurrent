@@ -214,7 +214,7 @@ instance
         case e of
           Broker.OnBrokerShuttingDown broker -> do
             logInfo ("linked broker " <> pack (show broker) <> " is shutting down.")
-            exitNormally
+            
 
           down@(Broker.OnChildSpawned broker cId _) -> do
             logInfo ("received: " <> pack (show down))
@@ -239,8 +239,19 @@ instance
               logNotice ("restarted: " <> pack (show cId) <> " of " <> pack (show broker) <> ": " <> pack (show res))
               crash <- newCrash reason (rate ^. crashTimeSpan)
               Stateful.modifyModel (watched @child . at cId . _Just . crashes %~ Set.insert crash)
-            else
+            else do
               logWarning ("restart rate exceeded: " <> pack (show rate) <> ", for child: " <> pack (show cId) <> " of " <> pack (show broker))
+              removeAndCleanChild @child cId
+              let bw = currentModel ^? brokers . at broker . _Just . brokerMonitor . _Just
+              case bw of
+                Nothing ->
+                  return ()
+                Just b  -> do
+                  logError ("a child of a linked broker crashed too often, interrupting: " <> pack (show broker))
+                  let r =  ExitUnhandledError "restart frequency exceeded"
+                  demonitor b
+                  sendShutdown (broker ^. fromEndpoint) r
+                  exitBecause r
 
       Effectful.OnDown pd@(ProcessDown _mref _ pid) -> do
         logDebug ("received " <> pack (show pd))

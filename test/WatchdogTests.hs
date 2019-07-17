@@ -306,7 +306,7 @@ test_watchdogTests =
             assertShutdown (wd ^. fromEndpoint) ExitNormally
             logNotice "watchdog stopped"
 
-        , runTestCase "test 12: if a child of a linked broker crashes 4 times within 1s it is not restarted and the watchdog exits with an error and stop all supervisors" $ do
+        , runTestCase "test 12: if a child of a linked broker crashes too often, the watchdog exits with an error and interrupts the broker" $ do
 
             broker <- Broker.startLink (Broker.statefulChild @BookShelf (TimeoutMicros 1_000_000) id)
             logNotice "started broker"
