@@ -1,18 +1,36 @@
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE NumericUnderscores #-}
 -- | Monitor a process and act when it is unresponsive.
+--
+-- Behaviour of the watchdog:
+--
+-- When a child crashes:
+-- * if the allowed maximum number crashes per time span has been reached for the process,
+-- ** cancel all other timers
+-- ** don't start the child again
+-- ** if this is a /linked/ watchdog crash the watchdog
+-- * otherwise
+-- ** tell the broker to start the child
+-- ** record a crash and start a timer to remove the record later
+-- ** monitor the child
+--
+-- When a child crash timer elapses:
+-- * remove the crash record
 --
 -- @since 0.30.0
 module Control.Eff.Concurrent.Protocol.Watchdog
   ( startLink
-  , crashesPerSeconds
   , Watchdog
   , attachTemporary
   , attachPermanent
-  , CrashRate(..)
+  , CrashRate()
+  , crashesPerSeconds
+  , CrashCount
+  , CrashTimeSpan
   ) where
 
 import Control.DeepSeq
-import Control.Eff (Eff, Member)
+import Control.Eff (Eff, Member, lift, Lifted)
 import Control.Eff.Concurrent.Misc
 import Control.Eff.Concurrent.Process
 import Control.Eff.Concurrent.Process.Timer
@@ -32,15 +50,12 @@ import Data.Typeable
 import qualified Data.Set as Set
 import Data.Map (Map)
 import qualified Data.Map as Map
-import Data.Ratio
-import Data.Fixed
 import Data.Time.Clock
 import Data.Kind (Type)
 import Data.Default
-import Data.String
 import Data.Text (pack)
 import GHC.Stack (HasCallStack)
-import Data.Maybe (fromMaybe, isJust)
+import Data.Maybe (isJust, isNothing)
 import Data.Foldable (traverse_)
 import Control.Monad (when)
 
@@ -86,7 +101,6 @@ attachTemporary
   => Endpoint (Watchdog child) -> Endpoint (Broker child) -> Eff e ()
 attachTemporary wd broker = call wd (AttachTemporary broker)
 
-
 -- | Restart children of the given broker.
 --
 -- When the broker exits, the watchdog process will exit, too.
@@ -104,28 +118,6 @@ attachPermanent
     )
   => Endpoint (Watchdog child) -> Endpoint (Broker child) -> Eff e ()
 attachPermanent wd broker = call wd (AttachPermanent broker)
-
--- | The limit of crashes per time span that justifies restarting
--- child processes.
---
--- Used as parameter for 'startLink'.
---
--- Use 'crashesPerSeconds' to construct a value.
---
--- @since 0.30.0
-newtype CrashRate = CrashesPerPicos { crashesPerPicos :: Rational }
-
--- | A smart constructor for 'CrashRate'.
---
--- @since 0.30.0
-crashesPerSeconds :: Integer -> Integer -> CrashRate
-crashesPerSeconds occurrences seconds =
-  let picos :: Pico
-      picos = fromInteger seconds
-
-      picos' :: Integer
-      picos' = ceiling (picos * fromInteger (resolution (1 :: Pico)))
-  in CrashesPerPicos (occurrences % picos')
 
 instance Typeable child => HasPdu (Watchdog child) where
   type instance EmbeddedPduList (Watchdog child) = '[Observer (Broker.ChildEvent child)]
@@ -155,11 +147,27 @@ instance
   showsPrec d (AttachPermanent e) = showParen (d>=10) (showString "attachTemporary-linked: " . shows e)
   showsPrec d (OnChildEvent o) = showParen (d>=10) (showString "on-child-event: " . showsPrec 10 o)
 
+-- ------------------ Broker Watches
+
+newtype BrokerWatch =
+  MkBrokerWatch (Maybe MonitorReference)
+  deriving (Default)
+
+instance Show BrokerWatch where
+  showsPrec _ (MkBrokerWatch Nothing) = showString "broker-watch"
+  showsPrec d (MkBrokerWatch (Just mon)) = showParen (d>=10) (showString "linked-broker-watch " . showsPrec 10 mon)
+
+brokerMonitor :: Iso' BrokerWatch (Maybe MonitorReference)
+brokerMonitor = iso (\(MkBrokerWatch m) -> m) MkBrokerWatch
+
+-- --- Server Definition
+
 instance
   ( Typeable child
   , HasPdu (Effectful.ServerPdu child)
   , Tangible (Broker.ChildId child)
   , Ord (Broker.ChildId child)
+  , Eq (Broker.ChildId child)
   , LogIo e
   ) => Stateful.Server (Watchdog child) (Processes e) where
 
@@ -173,7 +181,7 @@ instance
                   , _watched :: Map (Broker.ChildId child) (ChildWatch child)
                   }
 
-  update me _startArg =
+  update me startArg =
     \case
       Effectful.OnCall rt (AttachTemporary broker) -> do
         logDebug ("attaching to: " <> pack (show broker))
@@ -207,17 +215,32 @@ instance
           Broker.OnBrokerShuttingDown broker -> do
             logInfo ("linked broker " <> pack (show broker) <> " is shutting down.")
             exitNormally
-          down@(Broker.OnChildSpawned broker _ _) ->
-            logInfo (pack (show down))
-          down@(Broker.OnChildDown broker _ _ ExitNormally) ->
-            logNotice (pack (show down))
-          down@(Broker.OnChildDown broker cId _ _) -> do
-            logNotice (pack (show down))
-            newModel <- Stateful.getModel @(Watchdog child)
 
-            logNotice ("restarting: " <> pack (show cId))
-            res <- Broker.spawnChild broker cId
-            logNotice ("restarted: "  <> pack (show cId) <> ": " <> pack (show res))
+          down@(Broker.OnChildSpawned broker cId _) -> do
+            logInfo ("received: " <> pack (show down))
+            m <- Stateful.getModel @(Watchdog child)
+            when (isNothing (m ^? childWatchesById cId)) $ do
+              logDebug ("inserting new child watch: " <> pack (show cId) <> " of " <> pack (show broker))
+              Stateful.modifyModel (watched @child . at cId .~ Just (MkChildWatch broker Set.empty))
+
+          down@(Broker.OnChildDown _broker cId _ ExitNormally) -> do
+            logInfo ("received: " <> pack (show down))
+            removeAndCleanChild @child cId
+
+          down@(Broker.OnChildDown broker cId _ reason) -> do
+            logNotice ("received: " <> pack (show down))
+            currentModel <- Stateful.getModel @(Watchdog child)
+            let recentCrashes = countRecentCrashes broker cId currentModel
+                rate = startArg ^. crashRate
+                maxCrashCount = rate ^. crashCount
+            if recentCrashes < maxCrashCount then do
+              logNotice ("restarting (" <> pack (show recentCrashes) <> "/" <> pack (show maxCrashCount) <> "): " <> pack (show cId) <> " of " <> pack (show broker))
+              res <- Broker.spawnChild broker cId
+              logNotice ("restarted: " <> pack (show cId) <> " of " <> pack (show broker) <> ": " <> pack (show res))
+              crash <- newCrash reason (rate ^. crashTimeSpan)
+              Stateful.modifyModel (watched @child . at cId . _Just . crashes %~ Set.insert crash)
+            else
+              logWarning ("restart rate exceeded: " <> pack (show rate) <> ", for child: " <> pack (show cId) <> " of " <> pack (show broker))
 
       Effectful.OnDown pd@(ProcessDown _mref _ pid) -> do
         logDebug ("received " <> pack (show pd))
@@ -234,29 +257,96 @@ instance
           logError ("linked broker exited: " <> pack (show broker))
           exitBecause (ExitOtherProcessNotRunning pid)
 
+      Effectful.OnTimeOut t -> do
+        logDebug ("received: " <> pack (show t))
+
+-- ------------------ Start Argument
 
 crashRate :: Lens' (Stateful.StartArgument (Watchdog child) (Processes e)) CrashRate
 crashRate = lens _crashRate (\m x -> m {_crashRate = x})
 
-instance Default (Stateful.Model (Watchdog child)) where
-  def = WatchdogModel def Map.empty
+-- ----------------- Crash Rate
 
-watched :: Lens' (Stateful.Model (Watchdog child)) (Map (Broker.ChildId child) (ChildWatch child))
-watched = lens _watched (\m x -> m {_watched = x})
+-- | The limit of crashes (see 'CrashCount') per time span (see 'CrashTimeSpan') that justifies restarting
+-- child processes.
+--
+-- Used as parameter for 'startLink'.
+--
+-- Use 'crashesPerSeconds' to construct a value.
+--
+-- @since 0.30.0
+data CrashRate =
+  CrashesPerSeconds { _crashCount :: CrashCount
+                    , _crashTimeSpan :: CrashTimeSpan
+                    }
+  deriving (Typeable, Eq, Ord)
 
-brokers :: Lens' (Stateful.Model (Watchdog child)) (Map (Endpoint (Broker child)) BrokerWatch)
-brokers = lens _brokers (\m x -> m {_brokers = x})
+instance Show CrashRate where
+  showsPrec d (CrashesPerSeconds count time) =
+    showParen (d>=7) (shows count . showString " crashes/" . shows time . showString " seconds")
 
-newtype BrokerWatch =
-  MkBrokerWatch (Maybe MonitorReference)
-  deriving (Default)
+instance NFData CrashRate where
+  rnf (CrashesPerSeconds c t) = c `seq` t `seq` ()
 
-instance Show BrokerWatch where
-  showsPrec _ (MkBrokerWatch Nothing) = showString "broker-watch"
-  showsPrec d (MkBrokerWatch (Just mon)) = showParen (d>=10) (showString "linked-broker-watch " . showsPrec 10 mon)
+-- | Number of crashes in 'CrashRate'.
+--
+-- @since 0.30.0
+type CrashCount = Int
 
-brokerMonitor :: Iso' BrokerWatch (Maybe MonitorReference)
-brokerMonitor = iso (\(MkBrokerWatch m) -> m) MkBrokerWatch
+-- | Timespan in which crashes are counted in 'CrashRate'.
+--
+-- @since 0.30.0
+type CrashTimeSpan = Int
+
+-- | A smart constructor for 'CrashRate'.
+--
+-- The first parameter is the number of crashes allowed per number of seconds (second parameter)
+-- until the watchdog should give up restarting a child.
+--
+-- @since 0.30.0
+crashesPerSeconds :: CrashCount -> CrashTimeSpan -> CrashRate
+crashesPerSeconds = CrashesPerSeconds
+
+crashCount :: Lens' CrashRate CrashCount
+crashCount = lens _crashCount (\(CrashesPerSeconds _ time) count -> CrashesPerSeconds count time )
+
+crashTimeSpan :: Lens' CrashRate CrashTimeSpan
+crashTimeSpan = lens _crashTimeSpan (\(CrashesPerSeconds count _) time -> CrashesPerSeconds count time)
+
+-- ------------------ Crash
+
+data Crash =
+  MkCrash { _crashCleanupTimer :: TimerReference
+          , _crashTime :: UTCTime
+          , _crashReason :: Interrupt 'NoRecovery
+          }
+  deriving (Eq, Ord)
+
+crashTime :: Lens' Crash UTCTime
+crashTime = lens _crashTime (\c t -> c { _crashTime = t})
+
+crashReason :: Lens' Crash (Interrupt 'NoRecovery)
+crashReason = lens _crashReason (\c t -> c { _crashReason = t})
+
+crashCleanupTimer :: Lens' Crash TimerReference
+crashCleanupTimer = lens _crashCleanupTimer (\c t -> c { _crashCleanupTimer = t})
+
+newCrash :: (HasProcesses e q, Lifted IO q, Lifted IO e) => Interrupt 'NoRecovery -> CrashTimeSpan -> Eff e Crash
+newCrash r t = do
+  ref <- startTimer (TimeoutMicros (t * 1_000_000))
+  now <- lift getCurrentTime
+  return (MkCrash ref now r)
+
+instance Show Crash where
+  showsPrec d c =
+    showParen (d>=10)
+      ( showString "crash: "
+      . showString "time: " . showsPrec 10 (c^.crashTime)
+      . showString "reason: " . showsPrec 10 (c^.crashReason)
+      . showString "cleanup-timer: " . showsPrec 10 (c^.crashCleanupTimer)
+      )
+
+-- --------------------------- Child Watches
 
 data ChildWatch child =
   MkChildWatch
@@ -278,38 +368,71 @@ parent = lens _parent (\m x -> m {_parent = x})
 crashes :: Lens' (ChildWatch child) (Set Crash)
 crashes = lens _crashes (\m x -> m {_crashes = x})
 
---  When a child crashes,
---   - if the allowed maximum number crashes per time span has been reached for the process,
---       - cancel all other timers
---       - don't start the child again
---       - if this is a /linked/ watchdog crash the watchdog
---     otherwise
---       - tell the broker to start the child
---       - record a crash and start a timer to remove the record later
---       - monitor the child
---  When a child crash timer elapses,
---   - remove the crash record
-data Crash =
-  Crash { _crashCleanupTimer :: TimerReference
-        , _crashTime :: UTCTime
-        , _crashReason :: Interrupt 'NoRecovery
-        }
+childWatches :: IndexedTraversal' (Broker.ChildId child) (Stateful.Model (Watchdog child)) (ChildWatch child)
+childWatches = watched . itraversed
+--
+--childWatchesByParent ::
+--     Endpoint (Broker child)
+--  -> IndexedTraversal' (Broker.ChildId child) (Stateful.Model (Watchdog child)) (ChildWatch child)
+--childWatchesByParent theParent = childWatches . ifiltered (\_cId cw -> cw ^. parent == theParent)
 
-crashCleanupTimer :: Lens' Crash TimerReference
-crashCleanupTimer = lens _crashCleanupTimer (\c t -> c { _crashCleanupTimer = t})
+childWatchesById ::
+     Eq (Broker.ChildId child)
+  => Broker.ChildId child
+  -> Traversal' (Stateful.Model (Watchdog child)) (ChildWatch child)
+childWatchesById theCId = childWatches . ifiltered (\cId _ -> cId == theCId)
 
-crashTime :: Lens' Crash UTCTime
-crashTime = lens _crashTime (\c t -> c { _crashTime = t})
+childWatchesByParenAndId ::
+     Eq (Broker.ChildId child)
+  => Endpoint (Broker child)
+  -> Broker.ChildId child
+  -> Traversal' (Stateful.Model (Watchdog child)) (ChildWatch child)
+childWatchesByParenAndId theParent theCId =
+  childWatches . ifiltered (\cId cw -> cw ^. parent == theParent && cId == theCId)
 
-crashReason :: Lens' Crash (Interrupt 'NoRecovery)
-crashReason = lens _crashReason (\c t -> c { _crashReason = t})
+countRecentCrashes ::
+     Eq (Broker.ChildId child)
+  => Endpoint (Broker child)
+  -> Broker.ChildId child
+  -> Stateful.Model (Watchdog child)
+  -> CrashCount
+countRecentCrashes theParent theCId theModel =
+ length (theModel ^.. childWatchesByParenAndId theParent theCId . crashes . folded)
 
-instance Show Crash where
-  showsPrec d c =
-    showParen (d>=10)
-      ( showString "crash: "
-      . showString "time: " . showsPrec 10 (c^.crashTime)
-      . showString "reason: " . showsPrec 10 (c^.crashReason)
-      . showString "cleanup-timer: " . showsPrec 10 (c^.crashCleanupTimer)
-      )
+-- ------------------ Model
+
+instance Default (Stateful.Model (Watchdog child)) where
+  def = WatchdogModel def Map.empty
+
+-- -------------------------- Model -> Child Watches
+
+watched :: Lens' (Stateful.Model (Watchdog child)) (Map (Broker.ChildId child) (ChildWatch child))
+watched = lens _watched (\m x -> m {_watched = x})
+
+-- --------------------------- Model -> Broker Watches
+
+brokers :: Lens' (Stateful.Model (Watchdog child)) (Map (Endpoint (Broker child)) BrokerWatch)
+brokers = lens _brokers (\m x -> m {_brokers = x})
+
+-- -------------------------- Server Implementation Helpers
+
+removeAndCleanChild ::
+  forall child q e.
+  ( HasProcesses e q
+  , Typeable child
+  , Ord (Broker.ChildId child)
+  , Show (Broker.ChildId child)
+  , Member (Stateful.ModelState (Watchdog child)) e
+  , Lifted IO e
+  , Lifted IO q
+  , Member Logs e
+  )
+  => Broker.ChildId child
+  -> Eff e ()
+removeAndCleanChild cId = do
+    oldModel <- Stateful.modifyAndGetModel (watched @child . at cId .~ Nothing)
+    forMOf_ (childWatchesById cId) oldModel $ \w -> do
+      logDebug ("removing client entry: " <> pack (show cId))
+      forMOf_ (crashes . folded . crashCleanupTimer) w cancelTimer
+      logDebug (pack (show w))
 
