@@ -10,6 +10,8 @@ module Control.Eff.Concurrent.Process.Timer
   , TimerElapsed(fromTimerElapsed)
   , sendAfter
   , startTimer
+  , sendAfterWithTitle
+  , startTimerWithTitle
   , cancelTimer
   , selectTimerElapsed
   , receiveAfter
@@ -135,8 +137,6 @@ newtype TimerElapsed = TimerElapsed {fromTimerElapsed :: TimerReference}
 instance Show TimerElapsed where
   showsPrec d (TimerElapsed t) =
     showParen (d >= 10) (shows t . showString " elapsed")--
--- @since 0.12.0
-
 
 -- | Send a message to a given process after waiting. The message is created by
 -- applying the function parameter to the 'TimerReference', such that the
@@ -155,20 +155,69 @@ sendAfter
   -> Timeout
   -> (TimerReference -> message)
   -> Eff r TimerReference
-sendAfter pid (TimeoutMicros us) mkMsg =
+sendAfter pid t@(TimeoutMicros us) mkMsg =
+  sendAfterWithTitle
+    (MkProcessTitle ("after_" <> T.pack (show us) <> "us_to_" <> T.pack (show pid)))
+    pid
+    t
+    mkMsg
+
+-- | Like 'sendAfter' but with a user provided name for the timer process.
+--
+-- @since 0.30.0
+sendAfterWithTitle
+  :: forall r q message
+   . ( Lifted IO q
+     , HasCallStack
+     , HasProcesses r q
+     , Typeable message
+     , NFData message
+     )
+  => ProcessTitle
+  -> ProcessId
+  -> Timeout
+  -> (TimerReference -> message)
+  -> Eff r TimerReference
+sendAfterWithTitle title pid (TimeoutMicros us) mkMsg =
   TimerReference <$>
   spawn
-    (MkProcessTitle ("after_" <> T.pack (show us) <> "us_to_" <> T.pack (show pid)))
+    title
     ((if us == 0
         then yieldProcess
         else liftIO (threadDelay us)) >>
      self >>=
      (sendMessage pid . force . mkMsg . TimerReference))
+
 -- | Start a new timer, after the time has elapsed, 'TimerElapsed' is sent to
 -- calling process. The message also contains the 'TimerReference' returned by
 -- this function. Use 'cancelTimer' to cancel the timer. Use
 -- 'selectTimerElapsed' to receive the message using 'receiveSelectedMessage'.
 -- To receive messages with guarded with a timeout see 'receiveAfter'.
+--
+-- This calls 'sendAfterWithTitle' under the hood with 'TimerElapsed' as
+-- message.
+--
+-- @since 0.30.0
+startTimerWithTitle
+  :: forall r q
+   . ( Lifted IO q
+     , HasCallStack
+     , HasProcesses r q
+     )
+  => ProcessTitle
+  -> Timeout
+  -> Eff r TimerReference -- TODO add a parameter to the TimerReference
+startTimerWithTitle title t = do
+  p <- self
+  sendAfterWithTitle title p t TimerElapsed
+
+-- | Start a new timer, after the time has elapsed, 'TimerElapsed' is sent to
+-- calling process. The message also contains the 'TimerReference' returned by
+-- this function. Use 'cancelTimer' to cancel the timer. Use
+-- 'selectTimerElapsed' to receive the message using 'receiveSelectedMessage'.
+-- To receive messages with guarded with a timeout see 'receiveAfter'.
+--
+-- Calls 'sendAfter' under the hood.
 --
 -- @since 0.12.0
 startTimer
@@ -178,7 +227,7 @@ startTimer
      , HasProcesses r q
      )
   => Timeout
-  -> Eff r TimerReference
+  -> Eff r TimerReference -- TODO add a parameter to the TimerReference
 startTimer t = do
   p <- self
   sendAfter p t TimerElapsed

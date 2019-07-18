@@ -17,10 +17,16 @@
   a **[Broker](./src/Control/Eff/Concurrent/Protocol/Broker.hs)** and restarts crashed
   processes registered at the broker.
         
-- **Logging**
+- **[Logging](./src/Control/Eff/Log.hs)**
     - Add `logCallStack`
     - Add `logMultiLine`      
-      
+
+-  **[Timer](./src/Control/Eff/Concurrent/Process/Timer.hs)**
+    - Allow timers to have custom titles via:
+        - `sendAfterWithTitle`
+        - `startTimerWithTitle`
+    
+            
 ## 0.29.2
 - Improve `Supervisor` API: Use `Init` from the effectful server as start
   argument type.

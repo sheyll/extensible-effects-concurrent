@@ -167,6 +167,8 @@ import           Control.Eff.Concurrent.Process.Timer
                                                 , TimerElapsed(fromTimerElapsed)
                                                 , sendAfter
                                                 , startTimer
+                                                , sendAfterWithTitle
+                                                , startTimerWithTitle
                                                 , selectTimerElapsed
                                                 , cancelTimer
                                                 , receiveAfter
