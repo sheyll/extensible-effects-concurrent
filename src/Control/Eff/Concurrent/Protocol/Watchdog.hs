@@ -212,8 +212,8 @@ instance
       Effectful.OnCast (OnChildEvent e) ->
         case e of
           Broker.OnBrokerShuttingDown broker -> do
-            logInfo ("linked broker " <> pack (show broker) <> " is shutting down.")
-
+            logInfo ("broker " <> pack (show broker) <> " is shutting down.")
+            -- TODO check if the broker was attached and if not warn
 
           down@(Broker.OnChildSpawned broker cId _) -> do
             logInfo ("received: " <> pack (show down))
