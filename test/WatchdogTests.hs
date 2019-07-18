@@ -3,7 +3,6 @@ module WatchdogTests(test_watchdogTests) where
 
 import Common  hiding (runTestCase)
 import qualified Common
-import qualified Control.Eff.Concurrent.Protocol.EffectfulServer as Effectful
 import qualified Control.Eff.Concurrent.Protocol.StatefulServer as Stateful
 import Control.Eff.Concurrent.Protocol.StatefulServer (Stateful)
 import qualified Control.Eff.Concurrent.Protocol.Broker as Broker
@@ -306,24 +305,23 @@ test_watchdogTests =
             assertShutdown (wd ^. fromEndpoint) ExitNormally
             logNotice "watchdog stopped"
 
-        , runTestCase "test 12: if a child of a linked broker crashes too often, the watchdog exits with an error and interrupts the broker" $ do
+        , runTestCase "test 12: if a child of a linked broker crashes too often,\
+                      \ the watchdog exits with an error and interrupts the broker" $ do
 
             broker <- Broker.startLink (Broker.statefulChild @BookShelf (TimeoutMicros 1_000_000) id)
             logNotice "started broker"
             unlinkProcess (broker ^. fromEndpoint)
-            mbroker <- monitor (broker ^. fromEndpoint)
+            mBroker <- monitor (broker ^. fromEndpoint)
             wd <- Watchdog.startLink
             logNotice "started watchdog"
             mwd <- monitor (wd ^. fromEndpoint)
             unlinkProcess (wd ^. fromEndpoint)
             Watchdog.attachPermanent wd broker
-            otherChild <- OQ.observe @(Broker.ChildEvent (Stateful BookShelf)) (100 :: Int) broker $
-              let otherId = BookShelfId 777
-              in Broker.spawnOrLookup broker otherId <* awaitChildStartedEvent otherId
 
             OQ.observe @(Broker.ChildEvent (Stateful BookShelf)) (100 :: Int) broker $ do
               let otherId = BookShelfId 777
               otherChild <- Broker.spawnOrLookup broker otherId
+              void $ awaitChildStartedEvent otherId
               let shelfId = BookShelfId 0
                   crash3Times = do
                     logNotice "crashing 3 times"
@@ -341,11 +339,12 @@ test_watchdogTests =
               Broker.lookupChild broker shelfId
                 >>= lift . assertBool "child must not be reststarted" . isNothing
 
-            logNotice "await other child down"
-            awaitProcessDown (otherChild ^. fromEndpoint)
+              logNotice "await other child down"
+              void $ awaitProcessDown (otherChild ^. fromEndpoint)
+              logNotice "other child down"
 
             logNotice "await broker down"
-            receiveSelectedMessage (selectProcessDown mbroker)
+            receiveSelectedMessage (selectProcessDown mBroker)
               >>= lift
                   . assertEqual
                         "wrong exit reason"
@@ -420,13 +419,13 @@ spawnAndCrashBookShelf broker c0 = do
    awaitChildDownEvent c0
 
 awaitChildDownEvent c0 = do
-   logNotice ("waiting for start event of " <> pack (show c0))
+   logNotice ("waiting for down event of " <> pack (show c0))
    evt <- OQ.await @(Broker.ChildEvent (Stateful BookShelf))
    case evt of
     (Broker.OnChildDown _ c' _ _) | c0 == c' ->
       logNotice ("child down: " <> pack (show c0))
     otherEvent ->
-      lift (assertFailure ("wrong broker event received: " <> show otherEvent))
+      lift (assertFailure ("wrong broker down event received: " <> show otherEvent))
 
 awaitChildStartedEvent c0 = do
    logNotice ("waiting for start event of " <> pack (show c0))
@@ -435,7 +434,7 @@ awaitChildStartedEvent c0 = do
     (Broker.OnChildSpawned _ c' _) | c0 == c' ->
       logNotice ("child started: " <> pack (show c0))
     otherEvent ->
-      lift (assertFailure ("wrong broker event received: " <> show otherEvent))
+      lift (assertFailure ("wrong broker start event received: " <> show otherEvent))
 
 
 data BookShelf deriving Typeable
