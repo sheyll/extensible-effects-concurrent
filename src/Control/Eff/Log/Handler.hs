@@ -86,12 +86,11 @@ import           Data.Hashable
 import           Data.Text                     as T
 import           GHC.Stack                      ( HasCallStack
                                                 , callStack
-                                                , withFrozenCallStack, CallStack, prettyCallStack
+                                                , withFrozenCallStack
+                                                , prettyCallStack
                                                 )
-import Data.Foldable (traverse_, toList)
-import Text.Printf (printf)
-
-
+import Data.Foldable                           ( traverse_ )
+import Text.Printf                             ( printf )
 
 -- | This effect sends 'LogMessage's and is a reader for a 'LogPredicate'.
 --

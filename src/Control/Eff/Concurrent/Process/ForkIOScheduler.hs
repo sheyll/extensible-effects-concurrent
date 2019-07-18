@@ -57,7 +57,6 @@ import qualified Data.Set                      as Set
 import qualified Data.Text                     as T
 import           GHC.Stack
 import           System.Timeout
-import           Text.Printf
 
 -- * Process Types
 

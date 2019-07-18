@@ -43,9 +43,8 @@ import           Data.Kind                      ( )
 import           Data.Foldable
 import           Data.Monoid
 import qualified Control.Monad.State.Strict    as State
-import Data.Function (fix)
-import Data.Dynamic (dynTypeRep)
-import Data.Text (pack)
+import           Data.Function                  ( fix)
+import           Data.Dynamic                   ( dynTypeRep )
 
 -- -----------------------------------------------------------------------------
 --  STS and ProcessInfo

@@ -79,9 +79,8 @@ startLink
     , Ord (Broker.ChildId child)
     , HasProcesses e q
     )
-  => Eff e (Endpoint (Watchdog child))
-startLink =
-  Stateful.startLink (StartWatchDog (3 `crashesPerSeconds` 30))
+  => CrashRate -> Eff e (Endpoint (Watchdog child))
+startLink = Stateful.startLink . StartWatchDog
 
 -- | Restart children of the given broker.
 --
@@ -239,7 +238,7 @@ instance
               res <- Broker.spawnChild broker cId
               logNotice ("restarted: " <> pack (show cId) <> " of "
                           <> pack (show broker) <> ": " <> pack (show res))
-              crash <- newCrash reason (rate ^. crashTimeSpan)
+              crash <- startExonerationTimer @child cId reason (rate ^. crashTimeSpan)
               Stateful.modifyModel (watched @child . at cId . _Just . crashes %~ Set.insert crash)
             else do
               logWarning ("restart rate exceeded: " <> pack (show rate)
@@ -273,10 +272,18 @@ instance
           exitBecause (ExitOtherProcessNotRunning pid)
 
       Effectful.OnTimeOut t -> do
-        logDebug ("received: " <> pack (show t))
+        logError ("received: " <> pack (show t))
 
-      Effectful.OnInterrupt reason@(LinkedProcessCrashed child) -> do
-        logDebug ("received: " <> pack (show reason))
+      Effectful.OnMessage (fromStrictDynamic -> Just (MkExonerationTimer cId ref :: ExonerationTimer (Broker.ChildId child))) -> do
+        logInfo ("exonerating: " <> pack (show cId))
+        Stateful.modifyModel
+          (watched @child . at cId . _Just . crashes %~ Set.filter (\c -> c^.exonerationTimerReference /= ref))
+
+      Effectful.OnMessage t -> do
+        logError ("received: " <> pack (show t))
+
+      Effectful.OnInterrupt reason -> do
+        logError ("received: " <> pack (show reason))
 
 -- ------------------ Start Argument
 
@@ -298,6 +305,13 @@ data CrashRate =
                     , _crashTimeSpan :: CrashTimeSpan
                     }
   deriving (Typeable, Eq, Ord)
+
+
+-- | The default is three crashes in 30 seconds.
+--
+-- @since 0.30.0
+instance Default CrashRate where
+  def = 3 `crashesPerSeconds` 30
 
 instance Show CrashRate where
   showsPrec d (CrashesPerSeconds count time) =
@@ -333,35 +347,53 @@ crashTimeSpan = lens _crashTimeSpan (\(CrashesPerSeconds count _) time -> Crashe
 
 -- ------------------ Crash
 
-data Crash =
-  MkCrash { _crashCleanupTimer :: TimerReference
-          , _crashTime :: UTCTime
-          , _crashReason :: Interrupt 'NoRecovery
-          }
+data CrashReport a =
+  MkCrashReport { _exonerationTimerReference :: TimerReference
+                , _crashTime :: UTCTime
+                , _crashReason :: Interrupt 'NoRecovery
+                }
   deriving (Eq, Ord)
 
-crashTime :: Lens' Crash UTCTime
+crashTime :: Lens' (CrashReport a) UTCTime
 crashTime = lens _crashTime (\c t -> c { _crashTime = t})
 
-crashReason :: Lens' Crash (Interrupt 'NoRecovery)
+crashReason :: Lens' (CrashReport a) (Interrupt 'NoRecovery)
 crashReason = lens _crashReason (\c t -> c { _crashReason = t})
 
-crashCleanupTimer :: Lens' Crash TimerReference
-crashCleanupTimer = lens _crashCleanupTimer (\c t -> c { _crashCleanupTimer = t})
+exonerationTimerReference :: Lens' (CrashReport a) TimerReference
+exonerationTimerReference = lens _exonerationTimerReference (\c t -> c { _exonerationTimerReference = t})
 
-newCrash :: (HasProcesses e q, Lifted IO q, Lifted IO e) => Interrupt 'NoRecovery -> CrashTimeSpan -> Eff e Crash
-newCrash r t = do
-  ref <- startTimer (TimeoutMicros (t * 1_000_000))
+startExonerationTimer :: forall child a q e .
+     (HasProcesses e q, Lifted IO q, Lifted IO e, Show a, NFData a, Typeable a, Typeable child)
+     => a -> Interrupt 'NoRecovery -> CrashTimeSpan -> Eff e (CrashReport a)
+startExonerationTimer cId r t = do
+  let title = MkProcessTitle ("ExonerationTimer<" <> pack (showSTypeable @child ">") <> pack (show cId))
+  me <- self
+  ref <- sendAfterWithTitle title me (TimeoutMicros (t * 1_000_000)) (MkExonerationTimer cId)
   now <- lift getCurrentTime
-  return (MkCrash ref now r)
+  return (MkCrashReport ref now r)
 
-instance Show Crash where
+instance (Show a, Typeable a) => Show (CrashReport a) where
   showsPrec d c =
     showParen (d>=10)
-      ( showString "crash: "
+      ( showString "crash report: "
+      . showString "child: " . showSPrecTypeable @a 10
       . showString "time: " . showsPrec 10 (c^.crashTime)
       . showString "reason: " . showsPrec 10 (c^.crashReason)
-      . showString "cleanup-timer: " . showsPrec 10 (c^.crashCleanupTimer)
+      . showString "exoneration timer: " . showsPrec 10 (c^.exonerationTimerReference)
+      )
+
+data ExonerationTimer a =  MkExonerationTimer !a !TimerReference
+  deriving (Eq, Ord, Typeable)
+
+instance NFData a => NFData (ExonerationTimer a) where
+  rnf (MkExonerationTimer !x !r) = rnf r `seq` rnf x `seq` ()
+
+instance Show a => Show (ExonerationTimer a) where
+  showsPrec d (MkExonerationTimer x r) =
+    showParen (d >= 10)
+      ( showString "exonerate: " . showsPrec 10 x
+      . showString " after: " .  showsPrec 10 r
       )
 
 -- --------------------------- Child Watches
@@ -369,10 +401,10 @@ instance Show Crash where
 data ChildWatch child =
   MkChildWatch
     { _parent :: Endpoint (Broker child)
-    , _crashes :: Set Crash
+    , _crashes :: Set (CrashReport (Broker.ChildId child))
     }
 
-instance Typeable child => Show (ChildWatch child) where
+instance (Typeable child, Typeable (Broker.ChildId child), Show (Broker.ChildId child)) => Show (ChildWatch child) where
   showsPrec d (MkChildWatch p c) =
     showParen (d>=10) ( showString "child-watch: parent: "
                       . showsPrec 10 p
@@ -383,7 +415,7 @@ instance Typeable child => Show (ChildWatch child) where
 parent :: Lens' (ChildWatch child) (Endpoint (Broker child))
 parent = lens _parent (\m x -> m {_parent = x})
 
-crashes :: Lens' (ChildWatch child) (Set Crash)
+crashes :: Lens' (ChildWatch child) (Set (CrashReport (Broker.ChildId child)))
 crashes = lens _crashes (\m x -> m {_crashes = x})
 
 childWatches :: IndexedTraversal' (Broker.ChildId child) (Stateful.Model (Watchdog child)) (ChildWatch child)
@@ -438,6 +470,7 @@ removeAndCleanChild ::
   forall child q e.
   ( HasProcesses e q
   , Typeable child
+  , Typeable (Broker.ChildId child)
   , Ord (Broker.ChildId child)
   , Show (Broker.ChildId child)
   , Member (Stateful.ModelState (Watchdog child)) e
@@ -451,6 +484,6 @@ removeAndCleanChild cId = do
     oldModel <- Stateful.modifyAndGetModel (watched @child . at cId .~ Nothing)
     forMOf_ (childWatchesById cId) oldModel $ \w -> do
       logDebug ("removing client entry: " <> pack (show cId))
-      forMOf_ (crashes . folded . crashCleanupTimer) w cancelTimer
+      forMOf_ (crashes . folded . exonerationTimerReference) w cancelTimer
       logDebug (pack (show w))
 
