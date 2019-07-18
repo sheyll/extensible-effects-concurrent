@@ -443,19 +443,25 @@ instance
             sendReply rt (Left (AlreadyStarted i (existingChild ^. childEndpoint)))
 
   update me _brokerConfig (Stateful.OnDown pd) = do
-      oldEntry <- zoomToChildren @p $ lookupAndRemoveChildByMonitor @(ChildId p) @p (downReference pd)
-      case oldEntry of
-        Nothing -> logWarning ("unexpected: " <> pack (show pd))
-        Just (i, c) -> do
-          logInfo (  pack (show pd)
-                  <> " for child "
-                  <> pack (show i)
-                  <> " => "
-                  <> pack (show (_childEndpoint c))
-                  )
-          Stateful.zoomModel @(Broker p)
-              childEventObserverLens
-              (observerRegistryNotify @(ChildEvent p) (OnChildDown me i (c^.childEndpoint) (downReason pd)))
+      wasObserver <- Stateful.zoomModel @(Broker p)
+        childEventObserverLens
+        (observerRegistryRemoveProcess @(ChildEvent p) (downProcess pd))
+      if wasObserver
+       then logInfo ("observer process died: " <> pack (show pd))
+       else do
+        oldEntry <- zoomToChildren @p $ lookupAndRemoveChildByMonitor @(ChildId p) @p (downReference pd)
+        case oldEntry of
+          Nothing -> logWarning ("unexpected: " <> pack (show pd))
+          Just (i, c) -> do
+            logInfo (  pack (show pd)
+                    <> " for child "
+                    <> pack (show i)
+                    <> " => "
+                    <> pack (show (_childEndpoint c))
+                    )
+            Stateful.zoomModel @(Broker p)
+                childEventObserverLens
+                (observerRegistryNotify @(ChildEvent p) (OnChildDown me i (c^.childEndpoint) (downReason pd)))
   update me brokerConfig (Stateful.OnInterrupt e) =
     case e of
       NormalExitRequested -> do
