@@ -5,9 +5,14 @@
 - **Supervisor:** 
     - Rename to **[Broker](./src/Control/Eff/Concurrent/Protocol/Broker.hs)**  
     - Add the `ChildEvent` needed by the new **watchdog**  
+    - Add `callById` and `castById`
 - [Process](./src/Control/Eff/Concurrent/Process.hs)
     - Introduce a new `Interrupt NoRecovery` clause: `ExitOtherProcessNotRunning`
     - Change the second parameter of `ProcessDown` from `SomeExitReason` to `Interrupt NoRecovery`
+    - Introduce new `Interrupt` reasons
+      for all categories with an existential
+      parameter, that must have `NFData`, `Show`
+      and `Typeable` constraints.
 - [StatefulServer](./src/Control/Eff/Concurrent/Protocol/StatefulServer.hs)
     - _Upgrade_ the associated **type alias** `Model`  to an associated **type**.
     - Add `mapEffects` 

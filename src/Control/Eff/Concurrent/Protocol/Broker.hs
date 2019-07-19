@@ -57,7 +57,10 @@ module Control.Eff.Concurrent.Protocol.Broker
   , spawnChild
   , spawnOrLookup
   , lookupChild
+  , callById
+  , castById
   , stopChild
+  , ChildNotFound(..)
   , Broker()
   , Pdu(StartC, StopC, LookupC, GetDiagnosticInfo)
   , ChildId
@@ -255,6 +258,70 @@ stopChild ::
   -> ChildId p
   -> Eff e Bool
 stopChild ep cId = call ep (StopC @p cId (TimeoutMicros 4000000))
+
+callById ::
+    forall destination protocol result e q0 .
+     ( HasCallStack
+     , Member Logs e
+     , HasProcesses e q0
+     , Lifted IO e
+     , Lifted IO q0
+     , TangibleBroker protocol
+     , TangiblePdu destination ( 'Synchronous result)
+     , TangiblePdu protocol ( 'Synchronous result)
+     , Embeds (Effectful.ServerPdu destination) protocol
+     , Ord (ChildId destination)
+     , Tangible (ChildId destination)
+     , Typeable (Effectful.ServerPdu destination)
+     , Tangible result
+     , NFData (Pdu protocol ( 'Synchronous result))
+     , NFData (Pdu (Effectful.ServerPdu destination) ( 'Synchronous result))
+     , Show (Pdu (Effectful.ServerPdu destination) ( 'Synchronous result))
+     )
+  => Endpoint (Broker destination)
+  -> ChildId destination
+  -> Pdu protocol ( 'Synchronous result)
+  -> Timeout
+  -> Eff e result
+callById broker cId pdu tMax =
+  lookupChild broker cId
+   >>=
+    maybe
+      (do logError ("callById failed for: " <> pack (show pdu))
+          interrupt (InterruptedBy (ChildNotFound cId broker))
+      )
+      (\cEp -> callWithTimeout cEp pdu tMax)
+
+data ChildNotFound child where
+  ChildNotFound :: ChildId child -> Endpoint (Broker child) -> ChildNotFound child
+  deriving (Typeable)
+
+instance (Show (ChildId child), Typeable child) => Show (ChildNotFound child) where
+  showsPrec d (ChildNotFound cId broker)
+    = showParen (d >= 10) ( showString "child not found: "
+                           . showsPrec 10 cId
+                           . showString " at: "
+                           . showsPrec 10 broker
+                           )
+
+instance NFData (ChildId c) => NFData (ChildNotFound c) where
+  rnf (ChildNotFound cId broker) = rnf cId `seq` rnf broker `seq` ()
+
+castById ::
+    forall destination protocol e q0 .
+     ( HasCallStack
+     , Member Logs e
+     , HasProcesses e q0
+     , TangibleBroker protocol
+     , TangiblePdu destination 'Asynchronous
+     , TangiblePdu protocol 'Asynchronous
+     )
+  => Endpoint (Broker destination)
+  -> ChildId destination
+  -> Pdu protocol 'Asynchronous
+  -> Eff e ()
+castById = error "TODO"
+
 
 -- | Return a 'Text' describing the current state of the broker.
 --

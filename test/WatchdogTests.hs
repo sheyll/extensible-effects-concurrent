@@ -255,7 +255,7 @@ test_watchdogTests =
           assertShutdown (wd ^. fromEndpoint) ExitNormally
           logNotice "watchdog stopped"
 
-      , testGroup "a child is only restarted only 3 times within a 1 second"
+      , testGroup "child restart"
         $ let threeTimesASecond = 3 `Watchdog.crashesPerSeconds` 1
           in  [ runTestCase "test 10: if a child crashes 3 times in 300ms, waits 1.1 seconds\
                             \ and crashes again 3 times, and is restarted three times" $ do
@@ -417,7 +417,8 @@ test_watchdogTests =
                   assertShutdown (brokerT ^. fromEndpoint) ExitNormally
                   assertShutdown (brokerP ^. fromEndpoint) ExitNormally
 
-              , runTestCase "test 14: if the watchdog receives OnChildDown for a known broker it behaves as if there\
+              , runTestCase "test 14: if the watchdog receives OnChildDown\
+                            \ for a known broker it behaves as if there\
                             \ was an OnChildSpawned for that child" $ do
                   wd <- Watchdog.startLink (1 `Watchdog.crashesPerSeconds` 1)
                   logNotice "started watchdog"
@@ -440,7 +441,10 @@ test_watchdogTests =
                     assertShutdown (wd ^. fromEndpoint) ExitNormally
                     assertShutdown (brokerT ^. fromEndpoint) ExitNormally
 
-              , runTestCase "test 15: if a child exits normally its restart frequency is resets" $ do
+              , runTestCase "test 15: when a child exits normally,\
+                            \ and a new child with the same ChildId\
+                            \ crashes, the watchdog behaves as if\
+                            \ the first child never existed" $ do
                   wd <- Watchdog.startLink (1 `Watchdog.crashesPerSeconds` 1)
                   logNotice "started watchdog"
 
@@ -478,12 +482,47 @@ test_watchdogTests =
 
                     assertShutdown (wd ^. fromEndpoint) ExitNormally
                     assertShutdown (brokerT ^. fromEndpoint) ExitNormally
+
+              , runTestCase "test 16: when a broker exits, the children of that broker are forgotten and ignored" $ do
+                  wd <- Watchdog.startLink (1 `Watchdog.crashesPerSeconds` 1)
+                  logNotice "started watchdog"
+
+                  brokerT <- Broker.startLink (Broker.statefulChild @BookShelf (TimeoutMicros 1_000_000) id)
+                  logNotice "started temporary broker"
+
+                  OQ.observe @(Broker.ChildEvent (Stateful BookShelf)) (100 :: Int) brokerT $ do
+                    let b0 = BookShelfId 0
+
+                    e0 <- spawnBookShelf brokerT b0
+                    logNotice ("started bookshelf of temporary broker: " <> pack (show e0))
+
+                    Watchdog.attachTemporary wd brokerT
+                    logNotice "attached temporary broker"
+                    logNotice "crash the bookshelf"
+                    assertShutdown (e0 ^. fromEndpoint) (ExitUnhandledError "bookshelf test crash")
+                    awaitChildDownEvent b0
+                    logNotice "bookshelf down"
+                    awaitChildStartedEvent b0
+                    e1 <- fromJust <$> Broker.lookupChild brokerT b0
+                    logNotice "bookshelf restarted"
+
+                    logNotice "exit the bookshelf normally"
+                    assertShutdown (e1 ^. fromEndpoint) ExitNormally
+                    awaitChildDownEvent b0
+                    logNotice "bookshelf stopped, starting a new one"
+                    e2 <- spawnBookShelf brokerT b0
+                    logNotice "bookshelf restarted"
+
+                    assertShutdown (e2 ^. fromEndpoint) (ExitUnhandledError "bookshelf test crash")
+                    awaitChildDownEvent b0
+                    logNotice "bookshelf down"
+                    awaitChildStartedEvent b0
+                    logNotice "bookshelf restarted"
+
+                    assertShutdown (wd ^. fromEndpoint) ExitNormally
+                    assertShutdown (brokerT ^. fromEndpoint) ExitNormally
+
               ]
-      , testGroup "reusing ChildIds"
-          []
---        [ runTestCase "when a child exits normally, and a new child with the same ChildId crashes, the watchdog behaves as if the first child never existed" $ do
---            error "TODO"
---        ]
       ]
     ]
 

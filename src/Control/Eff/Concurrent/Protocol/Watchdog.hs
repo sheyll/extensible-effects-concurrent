@@ -217,10 +217,6 @@ instance
 
           down@(Broker.OnChildSpawned broker cId _) -> do
             logInfo ("received: " <> pack (show down))
-            m <- Stateful.getModel @(Watchdog child)
-            when (isNothing (m ^? childWatchesById cId)) $ do
-              logDebug ("inserting new child watch: " <> pack (show cId) <> " of " <> pack (show broker))
-              Stateful.modifyModel (watched @child . at cId .~ Just (MkChildWatch broker Set.empty))
 
           down@(Broker.OnChildDown _broker cId _ ExitNormally) -> do
             logInfo ("received: " <> pack (show down))
@@ -239,7 +235,13 @@ instance
               logNotice ("restarted: " <> pack (show cId) <> " of "
                           <> pack (show broker) <> ": " <> pack (show res))
               crash <- startExonerationTimer @child cId reason (rate ^. crashTimeSpan)
-              Stateful.modifyModel (watched @child . at cId . _Just . crashes %~ Set.insert crash)
+              if isJust (currentModel ^? childWatchesById cId)
+                then do
+                  logDebug ("recording crash for child: " <> pack (show cId) <> " of " <> pack (show broker))
+                  Stateful.modifyModel (watched @child . at cId . _Just . crashes %~ Set.insert crash)
+                else do
+                  logDebug ("recording crash for new child: " <> pack (show cId) <> " of " <> pack (show broker))
+                  Stateful.modifyModel (watched @child . at cId .~ Just (MkChildWatch broker (Set.singleton crash)))
             else do
               logWarning ("restart rate exceeded: " <> pack (show rate)
                           <> ", for child: " <> pack (show cId)
