@@ -85,6 +85,26 @@ data Watchdog (child :: Type) deriving Typeable
 --
 -- @since 0.30.0
 startLink
+  :: forall a r q h
+  . ( HasCallStack
+    , Typeable a
+    , LogsTo h (Processes q)
+    , Effectful.Server (Stateful.Stateful a) (Processes q)
+    , Stateful.Server a (Processes q)
+    , HasProcesses r q
+    , HasPdu (Effectful.ServerPdu a)
+    , Tangible (Broker.ChildId a)
+    , Ord (Broker.ChildId a)
+    )
+  => CrashRate -> Eff r (Endpoint (Watchdog a))
+startLink = Stateful.startLink @a @r @q @h . StartWatchDog
+
+-- | Restart children of the given broker.
+--
+-- When the broker exits, ignore the children of that broker.
+--
+-- @since 0.30.0
+attachTemporary
   :: forall child q e h
   . ( HasCallStack
     , LogsTo h q
@@ -94,27 +114,6 @@ startLink
     , Tangible (Broker.ChildId child)
     , Ord (Broker.ChildId child)
     , HasProcesses e q
-    )
-  => CrashRate -> Eff e (Endpoint (Watchdog child))
-startLink = Stateful.startLink . StartWatchDog
-
--- | Restart children of the given broker.
---
--- When the broker exits, ignore the children of that broker.
---
--- @since 0.30.0
-attachTemporary
-  :: forall child q e
-  . ( HasCallStack
-    , LogIo q
-    , Typeable child
-    , HasPdu (Effectful.ServerPdu child)
-    , Tangible (Broker.ChildId child)
-    , Ord (Broker.ChildId child)
-    , HasProcesses e q
-    , Lifted IO q
-    , Lifted IO e
-    , Member Logs e
     )
   => Endpoint (Watchdog child) -> Endpoint (Broker child) -> Eff e ()
 attachTemporary wd broker =
@@ -126,17 +125,15 @@ attachTemporary wd broker =
 --
 -- @since 0.30.0
 attachPermanent
-  :: forall child q e
+  :: forall child q e h
   . ( HasCallStack
-    , LogIo q
+    , LogsTo h q
+    , LogsTo h e
     , Typeable child
     , HasPdu (Effectful.ServerPdu child)
     , Tangible (Broker.ChildId child)
     , Ord (Broker.ChildId child)
     , HasProcesses e q
-    , Lifted IO q
-    , Lifted IO e
-    , Member Logs e
     )
   => Endpoint (Watchdog child) -> Endpoint (Broker child) -> Eff e ()
 attachPermanent wd broker =
@@ -215,7 +212,7 @@ instance
   , Tangible (Broker.ChildId child)
   , Ord (Broker.ChildId child)
   , Eq (Broker.ChildId child)
-  , LogIo e
+  , LogsTo h e
   ) => Stateful.Server (Watchdog child) (Processes e) where
 
   data instance StartArgument (Watchdog child) (Processes e) =
@@ -583,16 +580,14 @@ brokers = lens _brokers (\m x -> m {_brokers = x})
 -- -------------------------- Server Implementation Helpers
 
 removeAndCleanChild ::
-  forall child q e.
+  forall child h q e.
   ( HasProcesses e q
   , Typeable child
   , Typeable (Broker.ChildId child)
   , Ord (Broker.ChildId child)
   , Show (Broker.ChildId child)
   , Member (Stateful.ModelState (Watchdog child)) e
-  , Lifted IO e
-  , Lifted IO q
-  , Member Logs e
+  , LogsTo h e
   )
   => Broker.ChildId child
   -> Eff e ()
