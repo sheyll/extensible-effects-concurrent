@@ -54,6 +54,7 @@ import           Data.Either                    ( fromRight
                                                 )
 import           Data.Maybe                     ( fromMaybe )
 import           Data.Type.Pretty
+import qualified System.IO                     as IO
 
 setTravisTestOptions :: TestTree -> TestTree
 setTravisTestOptions =
@@ -64,12 +65,14 @@ timeoutSeconds seconds =
   Tasty.Timeout (seconds * 1000000) (show seconds ++ "s")
 
 runTestCase :: TestName -> Eff Effects () -> TestTree
-runTestCase msg =
-  testCase msg
-    . runLift
-    . withIoLogging (stdoutLogWriter renderMinimalisticWide) "unit-tests" local0 allLogMessages
-    . Scheduler.schedule
-    . handleInterrupts onInt
+runTestCase msg et =
+  testCase msg $ do
+    IO.hSetBuffering IO.stdout IO.LineBuffering
+    runLift
+      $ withIoLogging (stdoutLogWriter renderMinimalisticWide) "unit-tests" local0 allLogMessages
+      $ Scheduler.schedule
+      $ handleInterrupts onInt
+        et
   where onInt = lift . assertFailure . show
 
 -- | Render a 'LogMessage' human readable, for console logging
@@ -104,6 +107,7 @@ scheduleAndAssert
   -> ((String -> Bool -> Eff (Processes r) ()) -> Eff (Processes r) ())
   -> IO ()
 scheduleAndAssert schedulerFactory testCaseAction = withFrozenCallStack $ do
+  IO.hSetBuffering IO.stdout IO.LineBuffering
   resultVar <- newEmptyTMVarIO
   void
     (applySchedulerFactory

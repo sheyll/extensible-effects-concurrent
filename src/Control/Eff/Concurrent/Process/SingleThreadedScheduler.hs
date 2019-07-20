@@ -64,7 +64,8 @@ instance Show ProcessInfo where
       (appEndo
          (Endo (showChar ' ' . shows pTitle . showString ": ") <>
           foldMap (Endo . showSTypeRep . dynTypeRep . unwrapStrictDynamic) (toList pQ) <>
-          Endo (shows pDetails)))
+          Endo (shows pDetails))
+      )
 
 makeLenses ''ProcessInfo
 
@@ -295,7 +296,10 @@ data OnYield r a where
   OnFlushMessages :: (ResumeProcess [StrictDynamic] -> Eff r (OnYield r a))
                   -> OnYield r a
   OnYield :: (ResumeProcess () -> Eff r (OnYield r a))
-         -> OnYield r a
+          -> OnYield r a
+  OnDelay :: Timeout
+          -> (ResumeProcess () -> Eff r (OnYield r a))
+          -> OnYield r a
   OnSelf :: (ResumeProcess ProcessId -> Eff r (OnYield r a))
          -> OnYield r a
   OnSpawn :: Bool
@@ -347,9 +351,10 @@ instance Show (OnYield r a) where
   show = \case
     OnFlushMessages _          -> "OnFlushMessages"
     OnYield         _          -> "OnYield"
+    OnDelay t _                -> "OnDelay " ++ show t
     OnSelf          _          -> "OnSelf"
-    OnSpawn False t _ _        -> "OnSpawn" ++ show t
-    OnSpawn True  t _ _        -> "OnSpawn (link)" ++ show t
+    OnSpawn False t _ _        -> "OnSpawn " ++ show t
+    OnSpawn True  t _ _        -> "OnSpawn (link) " ++ show t
     OnDone     _               -> "OnDone"
     OnShutdown e               -> "OnShutdown " ++ show e
     OnInterrupt e _            -> "OnInterrupt " ++ show e
@@ -379,6 +384,7 @@ runAsCoroutinePure r = r . fix (handle_relay' cont (return . OnDone))
        -> Eff r (OnYield r v)
   cont k q FlushMessages                = return (OnFlushMessages (k . qApp q))
   cont k q YieldProcess                 = return (OnYield (k . qApp q))
+  cont k q (Delay t)                    = return (OnDelay t (k . qApp q))
   cont k q SelfPid                      = return (OnSelf (k . qApp q))
   cont k q (Spawn     t e             ) = return (OnSpawn False t e (k . qApp q))
   cont k q (SpawnLink t e             ) = return (OnSpawn True t e (k . qApp q))
@@ -455,6 +461,7 @@ handleProcess sts allProcs@((!processState, !pid) :<| rest) =
                         OnSendShutdown _ _ _tk -> return (OnShutdown sr)
                         OnFlushMessages _tk -> return (OnShutdown sr)
                         OnYield _tk -> return (OnShutdown sr)
+                        OnDelay _t _tk -> return (OnShutdown sr)
                         OnSelf _tk -> return (OnShutdown sr)
                         OnSend _ _ _tk -> return (OnShutdown sr)
                         OnRecv _ _tk -> return (OnShutdown sr)
@@ -509,6 +516,12 @@ handleProcess sts allProcs@((!processState, !pid) :<| rest) =
           let (msgs, newSts) = flushMsgs pid sts
           nextK <- kontinue newSts k msgs
           handleProcess newSts (rest :|> (nextK, pid))
+        OnDelay t k ->
+          if t <= 0 then do
+               nextK <- kontinue sts k ()
+               handleProcess sts (rest :|> (nextK, pid))
+          else
+               handleProcess sts (rest :|> (OnDelay (t - 1) k, pid))
         recv@(OnRecv messageSelector k) ->
           case receiveMsg pid messageSelector sts of
             Nothing -> do
@@ -562,6 +575,7 @@ handleProcess sts allProcs@((!processState, !pid) :<| rest) =
                 OnSendInterrupt _ _ tk -> tk (Interrupted sr)
                 OnSendShutdown _ _ tk -> tk (Interrupted sr)
                 OnFlushMessages tk -> tk (Interrupted sr)
+                OnDelay _ tk -> tk (Interrupted sr)
                 OnYield tk -> tk (Interrupted sr)
                 OnSelf tk -> tk (Interrupted sr)
                 OnSend _ _ tk -> tk (Interrupted sr)

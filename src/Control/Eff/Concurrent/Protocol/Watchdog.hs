@@ -23,10 +23,21 @@ module Control.Eff.Concurrent.Protocol.Watchdog
   , Watchdog
   , attachTemporary
   , attachPermanent
-  , CrashRate()
+  , getCrashReports
+  , CrashRate(..)
+  , crashCount
+  , crashTimeSpan
   , crashesPerSeconds
   , CrashCount
   , CrashTimeSpan
+  , ChildWatch(..)
+  , parent
+  , crashes
+  , ExonerationTimer(..)
+  , CrashReport(..)
+  , crashTime
+  , crashReason
+  , exonerationTimerReference
   ) where
 
 import Control.DeepSeq
@@ -55,13 +66,17 @@ import Data.Kind (Type)
 import Data.Default
 import Data.Text (pack)
 import GHC.Stack (HasCallStack)
-import Data.Maybe (isJust, isNothing)
+import Data.Maybe (isJust)
 import Data.Foldable (traverse_)
 import Control.Monad (when)
 
 
+-- | The phantom for watchdog processes, that watch the given type of servers
+--
+-- This type is used for the 'Effectful.Server' and 'HasPdu' instances.
+--
+-- @since 0.30.0
 data Watchdog (child :: Type) deriving Typeable
-
 
 -- | Start and link a new watchdog process.
 --
@@ -70,9 +85,10 @@ data Watchdog (child :: Type) deriving Typeable
 --
 -- @since 0.30.0
 startLink
-  :: forall child q e
+  :: forall child q e h
   . ( HasCallStack
-    , LogIo q
+    , LogsTo h q
+    , LogsTo h e
     , Typeable child
     , HasPdu (Effectful.ServerPdu child)
     , Tangible (Broker.ChildId child)
@@ -96,9 +112,13 @@ attachTemporary
     , Tangible (Broker.ChildId child)
     , Ord (Broker.ChildId child)
     , HasProcesses e q
+    , Lifted IO q
+    , Lifted IO e
+    , Member Logs e
     )
   => Endpoint (Watchdog child) -> Endpoint (Broker child) -> Eff e ()
-attachTemporary wd broker = call wd (AttachTemporary broker)
+attachTemporary wd broker =
+  callWithTimeout wd (AttachTemporary broker) (TimeoutMicros 1_000_000)
 
 -- | Restart children of the given broker.
 --
@@ -114,15 +134,41 @@ attachPermanent
     , Tangible (Broker.ChildId child)
     , Ord (Broker.ChildId child)
     , HasProcesses e q
+    , Lifted IO q
+    , Lifted IO e
+    , Member Logs e
     )
   => Endpoint (Watchdog child) -> Endpoint (Broker child) -> Eff e ()
-attachPermanent wd broker = call wd (AttachPermanent broker)
+attachPermanent wd broker =
+  callWithTimeout wd (AttachPermanent broker) (TimeoutMicros 1_000_000)
+
+-- | Return a list of 'CrashReport's.
+--
+-- Useful for diagnostics
+--
+-- @since 0.30.0
+getCrashReports
+  :: forall child q e
+  . ( HasCallStack
+    , LogIo q
+    , Typeable child
+    , HasPdu (Effectful.ServerPdu child)
+    , Tangible (Broker.ChildId child)
+    , Ord (Broker.ChildId child)
+    , HasProcesses e q
+    , Lifted IO q
+    , Lifted IO e
+    , Member Logs e
+    )
+  => Endpoint (Watchdog child) -> Eff e (Map (Broker.ChildId child) (ChildWatch child))
+getCrashReports wd = callWithTimeout wd GetCrashReports (TimeoutMicros 5_000_000)
 
 instance Typeable child => HasPdu (Watchdog child) where
   type instance EmbeddedPduList (Watchdog child) = '[Observer (Broker.ChildEvent child)]
   data Pdu (Watchdog child) r where
     AttachTemporary :: Endpoint (Broker child) -> Pdu (Watchdog child) ('Synchronous ())
     AttachPermanent :: Endpoint (Broker child) -> Pdu (Watchdog child) ('Synchronous ())
+    GetCrashReports :: Pdu (Watchdog child) ('Synchronous (Map (Broker.ChildId child) (ChildWatch child)))
     OnChildEvent :: Broker.ChildEvent child -> Pdu (Watchdog child) 'Asynchronous
       deriving Typeable
 
@@ -134,6 +180,7 @@ instance Typeable child => HasPduPrism (Watchdog child) (Observer (Broker.ChildE
 instance (NFData (Broker.ChildId child)) => NFData (Pdu (Watchdog child) r) where
   rnf (AttachTemporary e) = rnf e
   rnf (AttachPermanent e) = rnf e
+  rnf GetCrashReports = ()
   rnf (OnChildEvent o) = rnf o
 
 instance
@@ -144,6 +191,7 @@ instance
   => Show (Pdu (Watchdog child) r) where
   showsPrec d (AttachTemporary e) = showParen (d>=10) (showString "attachTemporary: " . shows e)
   showsPrec d (AttachPermanent e) = showParen (d>=10) (showString "attachTemporary-linked: " . shows e)
+  showsPrec _ GetCrashReports = showString "get-crash-reports"
   showsPrec d (OnChildEvent o) = showParen (d>=10) (showString "on-child-event: " . showsPrec 10 o)
 
 -- ------------------ Broker Watches
@@ -209,54 +257,71 @@ instance
             logDebug ("already monitoring " <> pack (show broker) <> " - keeping: " <> pack (show mr))
         sendReply rt ()
 
+      Effectful.OnCall rt GetCrashReports ->
+        Stateful.useModel @(Watchdog child) watched >>= sendReply rt
+
       Effectful.OnCast (OnChildEvent e) ->
         case e of
-          Broker.OnBrokerShuttingDown broker -> do
-            logInfo ("broker " <> pack (show broker) <> " is shutting down.")
-            -- TODO check if the broker was attached and if not warn
-
-          down@(Broker.OnChildSpawned broker cId _) -> do
+          down@(Broker.OnBrokerShuttingDown broker) -> do
             logInfo ("received: " <> pack (show down))
+            currentModel <- Stateful.getModel @(Watchdog child)
+            if not (Set.member broker (currentModel ^. brokers . to Map.keysSet))
+             then logWarning ("received child event for unknown broker: " <> pack (show down))
+             else pure () -- TODO remove all child watches
 
-          down@(Broker.OnChildDown _broker cId _ ExitNormally) -> do
+          spawned@(Broker.OnChildSpawned broker cId _) -> do
+            logInfo ("received: " <> pack (show spawned))
+            currentModel <- Stateful.getModel @(Watchdog child)
+            if not (Set.member broker (currentModel ^. brokers . to Map.keysSet))
+             then logWarning ("received child event for unknown broker: " <> pack (show spawned))
+             else removeAndCleanChild @child cId
+
+          down@(Broker.OnChildDown broker cId _ ExitNormally) -> do
             logInfo ("received: " <> pack (show down))
-            removeAndCleanChild @child cId
+            currentModel <- Stateful.getModel @(Watchdog child)
+            if not (Set.member broker (currentModel ^. brokers . to Map.keysSet))
+             then logWarning ("received child event for unknown broker: " <> pack (show down))
+             else removeAndCleanChild @child cId
 
           down@(Broker.OnChildDown broker cId _ reason) -> do
-            logNotice ("received: " <> pack (show down))
+            logInfo ("received: " <> pack (show down))
             currentModel <- Stateful.getModel @(Watchdog child)
-            let recentCrashes = countRecentCrashes broker cId currentModel
-                rate = startArg ^. crashRate
-                maxCrashCount = rate ^. crashCount
-            if recentCrashes < maxCrashCount then do
-              logNotice ("restarting (" <> pack (show recentCrashes) <> "/" <> pack (show maxCrashCount) <> "): "
-                          <> pack (show cId) <> " of " <> pack (show broker))
-              res <- Broker.spawnChild broker cId
-              logNotice ("restarted: " <> pack (show cId) <> " of "
-                          <> pack (show broker) <> ": " <> pack (show res))
-              crash <- startExonerationTimer @child cId reason (rate ^. crashTimeSpan)
-              if isJust (currentModel ^? childWatchesById cId)
-                then do
-                  logDebug ("recording crash for child: " <> pack (show cId) <> " of " <> pack (show broker))
-                  Stateful.modifyModel (watched @child . at cId . _Just . crashes %~ Set.insert crash)
-                else do
-                  logDebug ("recording crash for new child: " <> pack (show cId) <> " of " <> pack (show broker))
-                  Stateful.modifyModel (watched @child . at cId .~ Just (MkChildWatch broker (Set.singleton crash)))
-            else do
-              logWarning ("restart rate exceeded: " <> pack (show rate)
-                          <> ", for child: " <> pack (show cId)
-                          <> " of " <> pack (show broker))
-              removeAndCleanChild @child cId
-              let bw = currentModel ^? brokers . at broker . _Just . brokerMonitor . _Just
-              case bw of
-                Nothing ->
-                  return ()
-                Just b  -> do
-                  logError ("a child of a linked broker crashed too often, interrupting: " <> pack (show broker))
-                  let r =  ExitUnhandledError "restart frequency exceeded"
-                  demonitor b
-                  sendShutdown (broker ^. fromEndpoint) r
-                  exitBecause r
+            if not (Set.member broker (currentModel ^. brokers . to Map.keysSet))
+             then
+              logWarning ("received child event for unknown broker: " <> pack (show down))
+             else do
+              let recentCrashes = countRecentCrashes broker cId currentModel
+                  rate = startArg ^. crashRate
+                  maxCrashCount = rate ^. crashCount
+              if recentCrashes < maxCrashCount then do
+                logNotice ("restarting (" <> pack (show recentCrashes) <> "/" <> pack (show maxCrashCount) <> "): "
+                            <> pack (show cId) <> " of " <> pack (show broker))
+                res <- Broker.spawnChild broker cId
+                logNotice ("restarted: " <> pack (show cId) <> " of "
+                            <> pack (show broker) <> ": " <> pack (show res))
+                crash <- startExonerationTimer @child cId reason (rate ^. crashTimeSpan)
+                if isJust (currentModel ^? childWatchesById cId)
+                  then do
+                    logDebug ("recording crash for child: " <> pack (show cId) <> " of " <> pack (show broker))
+                    Stateful.modifyModel (watched @child . at cId . _Just . crashes %~ Set.insert crash)
+                  else do
+                    logDebug ("recording crash for new child: " <> pack (show cId) <> " of " <> pack (show broker))
+                    Stateful.modifyModel (watched @child . at cId .~ Just (MkChildWatch broker (Set.singleton crash)))
+              else do
+                logWarning ("restart rate exceeded: " <> pack (show rate)
+                            <> ", for child: " <> pack (show cId)
+                            <> " of " <> pack (show broker))
+                removeAndCleanChild @child cId
+                let bw = currentModel ^? brokers . at broker . _Just . brokerMonitor . _Just
+                case bw of
+                  Nothing ->
+                    return ()
+                  Just b  -> do
+                    logError ("a child of a linked broker crashed too often, interrupting: " <> pack (show broker))
+                    let r =  ExitUnhandledError "restart frequency exceeded"
+                    demonitor b
+                    sendShutdown (broker ^. fromEndpoint) r
+                    exitBecause r
 
       Effectful.OnDown pd@(ProcessDown _mref _ pid) -> do
         logDebug ("received " <> pack (show pd))
@@ -301,13 +366,14 @@ crashRate = lens _crashRate (\m x -> m {_crashRate = x})
 --
 -- Use 'crashesPerSeconds' to construct a value.
 --
+-- This governs how long the 'ExonerationTimer' runs before cleaning up a 'CrashReport' in a 'ChildWatch'.
+--
 -- @since 0.30.0
 data CrashRate =
   CrashesPerSeconds { _crashCount :: CrashCount
                     , _crashTimeSpan :: CrashTimeSpan
                     }
   deriving (Typeable, Eq, Ord)
-
 
 -- | The default is three crashes in 30 seconds.
 --
@@ -341,27 +407,64 @@ type CrashTimeSpan = Int
 crashesPerSeconds :: CrashCount -> CrashTimeSpan -> CrashRate
 crashesPerSeconds = CrashesPerSeconds
 
+-- | A lens for '_crashCount'.
+--
+-- @since 0.30.0
 crashCount :: Lens' CrashRate CrashCount
 crashCount = lens _crashCount (\(CrashesPerSeconds _ time) count -> CrashesPerSeconds count time )
 
+-- | A lens for '_crashTimeSpan'.
+--
+-- @since 0.30.0
 crashTimeSpan :: Lens' CrashRate CrashTimeSpan
 crashTimeSpan = lens _crashTimeSpan (\(CrashesPerSeconds count _) time -> CrashesPerSeconds count time)
 
 -- ------------------ Crash
 
+-- | An internal data structure that records a single crash of a child of an attached 'Broker'.
+--
+-- See 'attachPermanent' and 'attachTemporary'.
+--
+-- @since 0.30.0
 data CrashReport a =
   MkCrashReport { _exonerationTimerReference :: TimerReference
+                  -- ^ After a crash, an 'ExonerationTimer' according to the 'CrashRate' of the 'Watchdog'
+                  -- is started, this is the reference
                 , _crashTime :: UTCTime
+                  -- ^ Recorded time of the crash
                 , _crashReason :: Interrupt 'NoRecovery
+                  -- ^ Recorded crash reason
                 }
-  deriving (Eq, Ord)
+  deriving (Eq, Ord, Typeable)
 
+instance (Show a, Typeable a) => Show (CrashReport a) where
+  showsPrec d c =
+    showParen (d>=10)
+      ( showString "crash report: "
+      . showString "child: " . showSPrecTypeable @a 10
+      . showString "time: " . showsPrec 10 (c^.crashTime)
+      . showString "reason: " . showsPrec 10 (c^.crashReason)
+      . showString "exoneration timer: " . showsPrec 10 (c^.exonerationTimerReference)
+      )
+
+instance NFData (CrashReport a) where
+  rnf (MkCrashReport !a !b !c) = rnf a `seq` rnf b `seq` rnf c `seq` ()
+
+-- | Lens for '_crashTime'
+--
+-- @since 0.30.0
 crashTime :: Lens' (CrashReport a) UTCTime
 crashTime = lens _crashTime (\c t -> c { _crashTime = t})
 
+-- | Lens for '_crashReason'
+--
+-- @since 0.30.0
 crashReason :: Lens' (CrashReport a) (Interrupt 'NoRecovery)
 crashReason = lens _crashReason (\c t -> c { _crashReason = t})
 
+-- | Lens for '_exonerationTimerReference'
+--
+-- @since 0.30.0
 exonerationTimerReference :: Lens' (CrashReport a) TimerReference
 exonerationTimerReference = lens _exonerationTimerReference (\c t -> c { _exonerationTimerReference = t})
 
@@ -375,16 +478,12 @@ startExonerationTimer cId r t = do
   now <- lift getCurrentTime
   return (MkCrashReport ref now r)
 
-instance (Show a, Typeable a) => Show (CrashReport a) where
-  showsPrec d c =
-    showParen (d>=10)
-      ( showString "crash report: "
-      . showString "child: " . showSPrecTypeable @a 10
-      . showString "time: " . showsPrec 10 (c^.crashTime)
-      . showString "reason: " . showsPrec 10 (c^.crashReason)
-      . showString "exoneration timer: " . showsPrec 10 (c^.exonerationTimerReference)
-      )
-
+-- | The timer started based on the 'CrashRate' '_crashTimeSpan' when a 'CrashReport' is recorded.
+--
+-- After this timer elapses, the 'Watchdog' server will remove the 'CrashReport' from the 'ChildWatch' of
+-- that child.
+--
+-- @since 0.30.0
 data ExonerationTimer a =  MkExonerationTimer !a !TimerReference
   deriving (Eq, Ord, Typeable)
 
@@ -400,11 +499,25 @@ instance Show a => Show (ExonerationTimer a) where
 
 -- --------------------------- Child Watches
 
+-- | An internal data structure that keeps the 'CrashReport's of a child of an attached 'Broker' monitored by a 'Watchdog'.
+--
+-- See 'attachPermanent' and 'attachTemporary', 'ExonerationTimer', 'CrashRate'.
+--
+-- @since 0.30.0
 data ChildWatch child =
   MkChildWatch
     { _parent :: Endpoint (Broker child)
+      -- ^ The attached 'Broker' that started the child
     , _crashes :: Set (CrashReport (Broker.ChildId child))
+      -- ^ The crashes of the child. If the number of crashes
+      -- surpasses the allowed number of crashes before the
+      -- 'ExonerationTimer's clean them, the child is finally crashed.
     }
+   deriving Typeable
+
+instance NFData (ChildWatch child) where
+  rnf (MkChildWatch p c) =
+    rnf p `seq` rnf c `seq` ()
 
 instance (Typeable child, Typeable (Broker.ChildId child), Show (Broker.ChildId child)) => Show (ChildWatch child) where
   showsPrec d (MkChildWatch p c) =
@@ -414,19 +527,30 @@ instance (Typeable child, Typeable (Broker.ChildId child), Show (Broker.ChildId 
                       . foldr (.) id (showsPrec 10 <$> Set.toList c)
                       )
 
+-- | A lens for '_parent'.
+--
+-- @since 0.30.0
 parent :: Lens' (ChildWatch child) (Endpoint (Broker child))
 parent = lens _parent (\m x -> m {_parent = x})
 
+-- | A lens for '_crashes'
+--
+-- @since 0.30.0
 crashes :: Lens' (ChildWatch child) (Set (CrashReport (Broker.ChildId child)))
 crashes = lens _crashes (\m x -> m {_crashes = x})
 
+-- ------------------ Model
+
+instance Default (Stateful.Model (Watchdog child)) where
+  def = WatchdogModel def Map.empty
+
+-- -------------------------- Model -> Child Watches
+
+watched :: Lens' (Stateful.Model (Watchdog child)) (Map (Broker.ChildId child) (ChildWatch child))
+watched = lens _watched (\m x -> m {_watched = x})
+
 childWatches :: IndexedTraversal' (Broker.ChildId child) (Stateful.Model (Watchdog child)) (ChildWatch child)
 childWatches = watched . itraversed
---
---childWatchesByParent ::
---     Endpoint (Broker child)
---  -> IndexedTraversal' (Broker.ChildId child) (Stateful.Model (Watchdog child)) (ChildWatch child)
---childWatchesByParent theParent = childWatches . ifiltered (\_cId cw -> cw ^. parent == theParent)
 
 childWatchesById ::
      Eq (Broker.ChildId child)
@@ -450,16 +574,6 @@ countRecentCrashes ::
   -> CrashCount
 countRecentCrashes theParent theCId theModel =
  length (theModel ^.. childWatchesByParenAndId theParent theCId . crashes . folded)
-
--- ------------------ Model
-
-instance Default (Stateful.Model (Watchdog child)) where
-  def = WatchdogModel def Map.empty
-
--- -------------------------- Model -> Child Watches
-
-watched :: Lens' (Stateful.Model (Watchdog child)) (Map (Broker.ChildId child) (ChildWatch child))
-watched = lens _watched (\m x -> m {_watched = x})
 
 -- --------------------------- Model -> Broker Watches
 

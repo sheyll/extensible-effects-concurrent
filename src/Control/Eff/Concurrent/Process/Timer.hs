@@ -1,12 +1,10 @@
--- | Functions for timeouts when receiving messages.
+-- | Functions for receive timeouts and delayed messages sending.
 --
--- NOTE: If you use a single threaded scheduler, these functions will not work
--- as expected. (This is an open TODO)
+-- Based on the 'delay' function.
 --
 -- @since 0.12.0
 module Control.Eff.Concurrent.Process.Timer
-  ( Timeout(TimeoutMicros, fromTimeoutMicros)
-  , TimerReference()
+  ( TimerReference()
   , TimerElapsed(fromTimerElapsed)
   , sendAfter
   , startTimer
@@ -17,20 +15,21 @@ module Control.Eff.Concurrent.Process.Timer
   , receiveAfter
   , receiveSelectedAfter
   , receiveSelectedWithMonitorAfter
+  , receiveAfterWithTitle
+  , receiveSelectedAfterWithTitle
+  , receiveSelectedWithMonitorAfterWithTitle
   )
-   -- , receiveSelectedAfter, receiveAnyAfter, sendMessageAfter)
+
 where
 
 import           Control.Eff.Concurrent.Process
-import           Control.Concurrent
+import           Control.Eff.Concurrent.Misc
 import           Control.Eff
 import           Control.DeepSeq
-import           Control.Monad.IO.Class
 import           Data.Typeable
 import           Data.Text as T
 import           Control.Applicative
 import           GHC.Stack
-
 
 -- | Wait for a message of the given type for the given time. When no message
 -- arrives in time, return 'Nothing'. This is based on
@@ -39,8 +38,7 @@ import           GHC.Stack
 -- @since 0.12.0
 receiveAfter
   :: forall a r q
-   . ( Lifted IO q
-     , HasCallStack
+   . ( HasCallStack
      , HasProcesses r q
      , Typeable a
      , NFData a
@@ -58,16 +56,23 @@ receiveAfter t =
 -- @since 0.12.0
 receiveSelectedAfter
   :: forall a r q
-   . ( Lifted IO q
-     , HasCallStack
+   . ( HasCallStack
      , HasProcesses r q
      , Show a
+     , Typeable a
      )
   => MessageSelector a
   -> Timeout
   -> Eff r (Either TimerElapsed a)
 receiveSelectedAfter sel t = do
-  timerRef <- startTimer t
+  let timerTitle =
+        MkProcessTitle
+          ("receive-timer-"
+          <> pack (showSTypeable @a "")
+          <> "-"
+          <> pack (show t)
+          )
+  timerRef <- startTimerWithTitle timerTitle t
   res      <- receiveSelectedMessage
     (Left <$> selectTimerElapsed timerRef <|> Right <$> sel)
   cancelTimer timerRef
@@ -78,17 +83,87 @@ receiveSelectedAfter sel t = do
 -- @since 0.22.0
 receiveSelectedWithMonitorAfter
   :: forall a r q
-   . ( Lifted IO q
-     , HasCallStack
+   . ( HasCallStack
      , HasProcesses r q
      , Show a
+     , Typeable a
      )
   => ProcessId
   -> MessageSelector a
   -> Timeout
   -> Eff r (Either (Either ProcessDown TimerElapsed) a)
-receiveSelectedWithMonitorAfter pid sel t = do
-  timerRef <- startTimer t
+receiveSelectedWithMonitorAfter pid sel t =
+  let timerTitle =
+        MkProcessTitle
+          ("receive-timer-"
+          <> pack (showSTypeable @a "")
+          <> "-monitoring-"
+          <> pack (show pid)
+          <> "-"
+          <> pack (show t)
+          )
+  in receiveSelectedWithMonitorAfterWithTitle pid sel t timerTitle
+
+
+-- | Wait for a message of the given type for the given time. When no message
+-- arrives in time, return 'Nothing'. This is based on
+-- 'receiveSelectedAfterWithTitle'.
+--
+-- @since 0.12.0
+receiveAfterWithTitle
+  :: forall a r q
+   . ( HasCallStack
+     , HasProcesses r q
+     , Typeable a
+     , NFData a
+     , Show a
+     )
+  => Timeout
+  -> ProcessTitle
+  -> Eff r (Maybe a)
+receiveAfterWithTitle t timerTitle =
+  either (const Nothing) Just <$> receiveSelectedAfterWithTitle (selectMessage @a) t timerTitle
+
+-- | Wait for a message of the given type for the given time. When no message
+-- arrives in time, return 'Left' 'TimerElapsed'. This is based on
+-- 'selectTimerElapsed' and 'startTimerWithTitle'.
+--
+-- @since 0.12.0
+receiveSelectedAfterWithTitle
+  :: forall a r q
+   . ( HasCallStack
+     , HasProcesses r q
+     , Show a
+     , Typeable a
+     )
+  => MessageSelector a
+  -> Timeout
+  -> ProcessTitle
+  -> Eff r (Either TimerElapsed a)
+receiveSelectedAfterWithTitle sel t timerTitle = do
+  timerRef <- startTimerWithTitle timerTitle t
+  res      <- receiveSelectedMessage
+    (Left <$> selectTimerElapsed timerRef <|> Right <$> sel)
+  cancelTimer timerRef
+  return res
+
+-- | Like 'receiveWithMonitorWithTitle' combined with 'receiveSelectedAfterWithTitle'.
+--
+-- @since 0.30.0
+receiveSelectedWithMonitorAfterWithTitle
+  :: forall a r q
+   . ( HasCallStack
+     , HasProcesses r q
+     , Show a
+     , Typeable a
+     )
+  => ProcessId
+  -> MessageSelector a
+  -> Timeout
+  -> ProcessTitle
+  -> Eff r (Either (Either ProcessDown TimerElapsed) a)
+receiveSelectedWithMonitorAfterWithTitle pid sel t timerTitle = do
+  timerRef <- startTimerWithTitle timerTitle t
   res      <- withMonitor pid $ \pidMon -> do
                 receiveSelectedMessage
                   (   Left . Left  <$> selectProcessDown pidMon
@@ -105,17 +180,6 @@ receiveSelectedWithMonitorAfter pid sel t = do
 selectTimerElapsed :: TimerReference -> MessageSelector TimerElapsed
 selectTimerElapsed timerRef =
   filterMessage (\(TimerElapsed timerRefIn) -> timerRef == timerRefIn)
-
-
--- | A number of micro seconds.
---
--- @since 0.12.0
-newtype Timeout = TimeoutMicros {fromTimeoutMicros :: Int}
-  deriving (NFData, Ord,Eq, Num, Integral, Real, Enum, Typeable)
-
-instance Show Timeout where
-  showsPrec d (TimeoutMicros t) =
-    showParen (d >= 10) (showString "timeout: " . shows t . showString " µs")
 
 -- | The reference to a timer started by 'startTimer', required to stop
 -- a timer via 'cancelTimer'.
@@ -145,8 +209,7 @@ instance Show TimerElapsed where
 -- @since 0.12.0
 sendAfter
   :: forall r q message
-   . ( Lifted IO q
-     , HasCallStack
+   . ( HasCallStack
      , HasProcesses r q
      , Typeable message
      , NFData message
@@ -155,9 +218,9 @@ sendAfter
   -> Timeout
   -> (TimerReference -> message)
   -> Eff r TimerReference
-sendAfter pid t@(TimeoutMicros us) mkMsg =
+sendAfter pid t mkMsg =
   sendAfterWithTitle
-    (MkProcessTitle ("after_" <> T.pack (show us) <> "us_to_" <> T.pack (show pid)))
+    (MkProcessTitle ("send-after-timer-" <> T.pack (show t) <> "-" <> T.pack (showSTypeable @message "") <> "-" <> T.pack (show pid)))
     pid
     t
     mkMsg
@@ -167,8 +230,7 @@ sendAfter pid t@(TimeoutMicros us) mkMsg =
 -- @since 0.30.0
 sendAfterWithTitle
   :: forall r q message
-   . ( Lifted IO q
-     , HasCallStack
+   . ( HasCallStack
      , HasProcesses r q
      , Typeable message
      , NFData message
@@ -178,15 +240,13 @@ sendAfterWithTitle
   -> Timeout
   -> (TimerReference -> message)
   -> Eff r TimerReference
-sendAfterWithTitle title pid (TimeoutMicros us) mkMsg =
+sendAfterWithTitle title pid t mkMsg =
   TimerReference <$>
-  spawn
+  (spawn
     title
-    ((if us == 0
-        then yieldProcess
-        else liftIO (threadDelay us)) >>
-     self >>=
-     (sendMessage pid . force . mkMsg . TimerReference))
+    (delay t
+    >>  self
+    >>= (sendMessage pid . force . mkMsg . TimerReference)))
 
 -- | Start a new timer, after the time has elapsed, 'TimerElapsed' is sent to
 -- calling process. The message also contains the 'TimerReference' returned by
@@ -200,8 +260,7 @@ sendAfterWithTitle title pid (TimeoutMicros us) mkMsg =
 -- @since 0.30.0
 startTimerWithTitle
   :: forall r q
-   . ( Lifted IO q
-     , HasCallStack
+   . ( HasCallStack
      , HasProcesses r q
      )
   => ProcessTitle
@@ -222,8 +281,7 @@ startTimerWithTitle title t = do
 -- @since 0.12.0
 startTimer
   :: forall r q
-   . ( Lifted IO q
-     , HasCallStack
+   . ( HasCallStack
      , HasProcesses r q
      )
   => Timeout
@@ -237,8 +295,7 @@ startTimer t = do
 -- @since 0.12.0
 cancelTimer
   :: forall r q
-   . ( Lifted IO q
-     , HasCallStack
+   . ( HasCallStack
      , HasProcesses r q
      )
   => TimerReference

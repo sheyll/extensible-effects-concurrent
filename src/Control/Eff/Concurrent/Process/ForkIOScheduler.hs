@@ -21,7 +21,7 @@ module Control.Eff.Concurrent.Process.ForkIOScheduler
   )
 where
 
-import           Control.Concurrent             ( yield )
+import           Control.Concurrent             ( yield, threadDelay, forkIO, killThread )
 import qualified Control.Concurrent.Async      as Async
 import           Control.Concurrent.Async       ( Async(..) )
 import           Control.Concurrent.STM        as STM
@@ -38,7 +38,7 @@ import           Control.Eff.Reader.Strict     as Reader
 import           Control.Exception.Safe        as Safe
 import           Control.Lens
 import           Control.Monad                  ( void
-                                                , when
+                                                , when, unless
                                                 )
 import           Control.Monad.Trans.Control    ( MonadBaseControl(..)
                                                 , control
@@ -331,9 +331,9 @@ handleProcess myProcessInfo actionToRun = fix
 -- setMyProcessState st = do
 --  oldSt <- lift (atomically (readTVar myProcessStateVar <* setMyProcessStateSTM st))
 --  logDebug ("state change: "<> show oldSt <> " -> " <> show st)
-  setMyProcessStateSTM = modifyTVar myProcessStateVar . set _2
+  setMyProcessStateSTM   = modifyTVar myProcessStateVar . set _2
   setMyProcessDetailsSTM = modifyTVar myProcessStateVar . set _1
-  myMessageQVar        = myProcessInfo ^. messageQ
+  myMessageQVar          = myProcessInfo ^. messageQ
   kontinueWith
     :: forall s v a
      . HasCallStack
@@ -411,6 +411,7 @@ handleProcess myProcessInfo actionToRun = fix
     SelfPid                  -> diskontinue shutdownRequest
     MakeReference            -> diskontinue shutdownRequest
     YieldProcess             -> diskontinue shutdownRequest
+    Delay           _        -> diskontinue shutdownRequest
     Shutdown        r        -> diskontinue r
     GetProcessState _        -> diskontinue shutdownRequest
     UpdateProcessDetails _   -> diskontinue shutdownRequest
@@ -440,6 +441,7 @@ handleProcess myProcessInfo actionToRun = fix
       SelfPid                  -> kontinue (Interrupted interruptRequest)
       MakeReference            -> kontinue (Interrupted interruptRequest)
       YieldProcess             -> kontinue (Interrupted interruptRequest)
+      Delay           _        -> kontinue (Interrupted interruptRequest)
       Shutdown        r        -> diskontinue r
       GetProcessState _        -> kontinue (Interrupted interruptRequest)
       UpdateProcessDetails _   -> kontinue (Interrupted interruptRequest)
@@ -480,11 +482,13 @@ handleProcess myProcessInfo actionToRun = fix
     ReceiveSelectedMessage f -> do
       recvRes <- interpretReceive f
       either diskontinue (kontinue nextRef) recvRes
+    Shutdown r    -> diskontinue r
     FlushMessages -> interpretFlush >>= kontinue nextRef
     SelfPid       -> kontinue nextRef (ResumeWith myPid)
     MakeReference -> kontinue (nextRef + 1) (ResumeWith nextRef)
     YieldProcess  -> kontinue nextRef (ResumeWith ())
-    Shutdown r    -> diskontinue r
+    Delay t ->
+      interpretDelay t >>= either diskontinue (kontinue nextRef)
     GetProcessState toPid ->
       interpretGetProcessState toPid >>= kontinue nextRef . ResumeWith
     UpdateProcessDetails d ->
@@ -568,6 +572,31 @@ handleProcess myProcessInfo actionToRun = fix
         myMessageQ <- readTVar myMessageQVar
         modifyTVar' myMessageQVar (incomingMessages .~ Seq.Empty)
         return (ResumeWith (toList (myMessageQ ^. incomingMessages)))
+    interpretDelay
+      :: Timeout
+      -> Eff BaseEffects (Either (Interrupt 'NoRecovery) (ResumeProcess ()))
+    interpretDelay (TimeoutMicros t) = do
+      setMyProcessState ProcessBusySleeping
+      lift $ do
+        timeoutTVar <- newTVarIO False
+        newDelayThreadId <- forkIO $ do
+          atomically $ writeTVar timeoutTVar False
+          threadDelay t
+          atomically $ writeTVar timeoutTVar True
+        (elapsed, res) <- atomically $ do
+          myMessageQ <- readTVar myMessageQVar
+          case myMessageQ ^. shutdownRequests of
+            Nothing -> do
+              done <- readTVar timeoutTVar
+              unless done retry
+              return (True, Right (ResumeWith ()))
+            Just shutdownRequest -> do
+              modifyTVar' myMessageQVar (shutdownRequests .~ Nothing)
+              case fromSomeExitReason shutdownRequest of
+                Left  sr -> return (False, Left sr)
+                Right ir -> return (False, Right (Interrupted ir))
+        unless elapsed (killThread newDelayThreadId)
+        return res
     interpretReceive
       :: MessageSelector b
       -> Eff BaseEffects (Either (Interrupt 'NoRecovery) (ResumeProcess b))

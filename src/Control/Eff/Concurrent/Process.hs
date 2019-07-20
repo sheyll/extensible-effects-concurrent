@@ -25,6 +25,10 @@ module Control.Eff.Concurrent.Process
   , fromProcessTitle
   , ProcessDetails(..)
   , fromProcessDetails
+
+      -- ** Process Timer
+  , Timeout(TimeoutMicros, fromTimeoutMicros)
+
   , -- ** Message Data
     StrictDynamic()
   , toStrictDynamic
@@ -39,6 +43,8 @@ module Control.Eff.Concurrent.Process
   , ProcessState(..)
   -- ** Yielding
   , yieldProcess
+  -- ** Waiting/Sleeping
+  , delay
   -- ** Sending Messages
   , sendMessage
   , sendAnyMessage
@@ -188,6 +194,11 @@ data Process (r :: [Type -> Type]) b where
   --
   -- @since 0.12.0
   YieldProcess :: Process r (ResumeProcess ())
+  -- | Simply wait until the time in the given 'Timeout' has elapsed and return.
+  --
+  -- @since 0.30.0
+  Delay :: Timeout -> Process r (ResumeProcess ())
+
   -- | Return the current 'ProcessId'
   SelfPid :: Process r (ResumeProcess ProcessId)
   -- | Start a new process, the new process will execute an effect, the function
@@ -263,6 +274,7 @@ instance Show (Process r b) where
   showsPrec d = \case
     FlushMessages -> showString "flush messages"
     YieldProcess  -> showString "yield process"
+    Delay t       -> showString "delay process until: " . shows t
     SelfPid       -> showString "lookup the current process id"
     Spawn   t _   -> showString "spawn a new process: " . shows t
     SpawnLink t _ -> showString "spawn a new process and link to it" . shows t
@@ -331,6 +343,15 @@ fromProcessDetails = iso _fromProcessDetails MkProcessDetails
 instance Show ProcessDetails where
   showsPrec _ (MkProcessDetails t) = showString (T.unpack t)
 
+-- | A number of micro seconds.
+--
+-- @since 0.12.0
+newtype Timeout = TimeoutMicros {fromTimeoutMicros :: Int}
+  deriving (NFData, Ord,Eq, Num, Integral, Real, Enum, Typeable)
+
+instance Show Timeout where
+  showsPrec d (TimeoutMicros t) =
+    showParen (d >= 10) (showString "timeout: " . shows t . showString " µs")
 
 -- | Data flows between 'Process'es via these messages.
 --
@@ -477,7 +498,8 @@ data ProcessState =
     ProcessBooting              -- ^ The process has just been started but not
                                 --   scheduled yet.
   | ProcessIdle                 -- ^ The process yielded it's time slice
-  | ProcessBusy                 -- ^ The process is busy with non-blocking
+  | ProcessBusy                 -- ^ The process is busy with a non-blocking operation
+  | ProcessBusySleeping         -- ^ The process is sleeping until the 'Timeout' given to 'Delay'
   | ProcessBusyUpdatingDetails  -- ^ The process is busy with 'UpdateProcessDetails'
   | ProcessBusySending          -- ^ The process is busy with sending a message
   | ProcessBusySendingShutdown  -- ^ The process is busy with killing
@@ -941,12 +963,25 @@ yieldProcess
   => Eff r ()
 yieldProcess = executeAndResumeOrThrow YieldProcess
 
+
+-- | Simply block until the time in the 'Timeout' has passed.
+--
+-- @since 0.30.0
+delay
+  :: forall r q
+   . ( HasProcesses r q
+     , HasCallStack
+     )
+  => Timeout
+  -> Eff r ()
+delay = executeAndResumeOrThrow . Delay
+
 -- | Send a message to a process addressed by the 'ProcessId'.
 -- See 'SendMessage'.
 --
 -- The message will be reduced to normal form ('rnf') by/in the caller process.
 sendMessage
-  :: forall r q o
+  :: forall o r q
    . ( HasProcesses r q
      , HasCallStack
      , Typeable o

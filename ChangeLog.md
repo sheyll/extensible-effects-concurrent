@@ -13,6 +13,7 @@
       for all categories with an existential
       parameter, that must have `NFData`, `Show`
       and `Typeable` constraints.
+    - Introduce a new timing primitive: `Delay`   
 - [StatefulServer](./src/Control/Eff/Concurrent/Protocol/StatefulServer.hs)
     - _Upgrade_ the associated **type alias** `Model`  to an associated **type**.
     - Add `mapEffects` 
@@ -30,7 +31,7 @@
     - Allow timers to have custom titles via:
         - `sendAfterWithTitle`
         - `startTimerWithTitle`
-    
+    - Switch to use the new `Delay` primitive    
             
 ## 0.29.2
 - Improve `Supervisor` API: Use `Init` from the effectful server as start

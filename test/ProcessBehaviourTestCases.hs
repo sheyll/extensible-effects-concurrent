@@ -64,6 +64,7 @@ allTests schedulerFactory = localOption
     , exitTests schedulerFactory
     , pingPongTests schedulerFactory
     , yieldLoopTests schedulerFactory
+    , delayTests schedulerFactory
     , selectiveReceiveTests schedulerFactory
     , linkingTests schedulerFactory
     , monitoringTests schedulerFactory
@@ -206,6 +207,60 @@ selectiveReceiveTests schedulerFactory = setTravisTestOptions
     ]
   )
 
+
+delayTests
+  :: forall r . (LogIo r) => IO (Eff (Processes r) () -> IO ()) -> TestTree
+delayTests schedulerFactory =
+  let maxN = 100000
+  in  setTravisTestOptions
+        (testGroup
+          "delay tests"
+          [ testCase
+            "delay many times (forM_)"
+            (applySchedulerFactory
+              schedulerFactory
+              (forM_ [1 :: Int .. maxN] (\_ -> delay (TimeoutMicros 1)))
+            )
+          , testCase
+            "process can be interrupted during a delay"
+            (applySchedulerFactory
+              schedulerFactory
+              (do
+                me <- self
+                sleeper <- spawn "sleeper"
+                              (tryUninterrupted (delay (TimeoutMicros 10_000_000)) >>= sendMessage me)
+                delay (TimeoutMicros 1_000)
+                let expected = TimeoutInterrupt "test timeout interrupt"
+                sendInterrupt sleeper expected
+                receiveMessage @(Either (Interrupt 'Recoverable) ()) >>= lift . assertEqual "wrong message" (Left expected)
+              )
+            )
+          , testCase
+            "messages are enqueued for a process that is currently delaying"
+            (applySchedulerFactory
+              schedulerFactory
+              (do
+                me <- self
+                sleeper <- spawn "sleeper"
+                              (do sendMessage me True
+                                  delay (TimeoutMicros 500_000)
+                                  receiveMessage @Int >>= sendMessage me
+                                  receiveMessage @Int >>= sendMessage me
+                                  receiveMessage @Int >>= sendMessage me
+                              )
+                let x1, x2, x3 :: Int
+                    [x1,x2,x3] = [1..3]
+                receiveMessage >>= lift . assertBool "sleeper not started"
+                sendMessage sleeper x1
+                sendMessage sleeper x2
+                sendMessage sleeper x3
+                receiveMessage @Int >>= lift . assertEqual "wrong message 1" x1
+                receiveMessage @Int >>= lift . assertEqual "wrong message 2" x2
+                receiveMessage @Int >>= lift . assertEqual "wrong message 3" x3
+              )
+            )
+          ]
+        )
 
 yieldLoopTests
   :: forall r . (LogIo r) => IO (Eff (Processes r) () -> IO ()) -> TestTree

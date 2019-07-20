@@ -81,6 +81,7 @@ import           Control.Eff.Concurrent.Process
                                                 , fromProcessTitle
                                                 , ProcessDetails(..)
                                                 , fromProcessDetails
+                                                , Timeout(TimeoutMicros, fromTimeoutMicros)
                                                 , StrictDynamic()
                                                 , toStrictDynamic
                                                 , fromStrictDynamic
@@ -89,6 +90,7 @@ import           Control.Eff.Concurrent.Process
                                                 , ProcessId(..)
                                                 , fromProcessId
                                                 , yieldProcess
+                                                , delay
                                                 , sendMessage
                                                 , sendAnyMessage
                                                 , makeReference
@@ -162,8 +164,7 @@ import           Control.Eff.Concurrent.Process
                                                 , receiverPid
                                                 )
 import           Control.Eff.Concurrent.Process.Timer
-                                                ( Timeout(TimeoutMicros, fromTimeoutMicros)
-                                                , TimerReference()
+                                                ( TimerReference()
                                                 , TimerElapsed(fromTimerElapsed)
                                                 , sendAfter
                                                 , startTimer
@@ -174,6 +175,9 @@ import           Control.Eff.Concurrent.Process.Timer
                                                 , receiveAfter
                                                 , receiveSelectedAfter
                                                 , receiveSelectedWithMonitorAfter
+                                                , receiveAfterWithTitle
+                                                , receiveSelectedAfterWithTitle
+                                                , receiveSelectedWithMonitorAfterWithTitle
                                                 )
 
 import           Control.Eff.Concurrent.Protocol

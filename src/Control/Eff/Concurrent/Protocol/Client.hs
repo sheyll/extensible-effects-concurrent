@@ -26,6 +26,7 @@ import           Control.Eff.Concurrent.Process
 import           Control.Eff.Concurrent.Process.Timer
 import           Control.Eff.Log
 import           Data.Typeable                  ( Typeable )
+import           Data.Text (pack)
 import           GHC.Stack
 
 
@@ -104,8 +105,6 @@ callWithTimeout
      , TangiblePdu protocol ( 'Synchronous result)
      , Tangible result
      , Member Logs r
-     , Lifted IO q
-     , Lifted IO r
      , HasCallStack
      , Embeds destination protocol
      )
@@ -125,7 +124,10 @@ callWithTimeout serverP@(Endpoint pidInternal) req timeOut = do
             extractResult (Reply origin' result) =
               if origin == origin' then Just result else Nothing
         in selectMessageWith extractResult
-  resultOrError <- receiveSelectedWithMonitorAfter pidInternal selectResult timeOut
+  let timerTitle = MkProcessTitle ( "call-timer-" <> pack (show serverP)
+                                  <> "-" <> pack (show origin)
+                                  <> "-" <> pack (show timeOut))
+  resultOrError <- receiveSelectedWithMonitorAfterWithTitle pidInternal selectResult timeOut timerTitle
   let onTimeout timerRef = do
         let msg = "call timed out after "
                   ++ show timeOut ++ " to server: "

@@ -12,6 +12,8 @@ import qualified Control.Eff.Concurrent.Protocol.Watchdog as Watchdog
 import Control.Lens
 import Data.Set (Set)
 import qualified Data.Set as Set
+import Data.Map (Map)
+import qualified Data.Map as Map
 import Data.Maybe (isNothing, fromJust)
 
 
@@ -445,7 +447,7 @@ test_watchdogTests =
                             \ and a new child with the same ChildId\
                             \ crashes, the watchdog behaves as if\
                             \ the first child never existed" $ do
-                  wd <- Watchdog.startLink (1 `Watchdog.crashesPerSeconds` 1)
+                  wd <- Watchdog.startLink (1 `Watchdog.crashesPerSeconds` 10)
                   logNotice "started watchdog"
 
                   brokerT <- Broker.startLink (Broker.statefulChild @BookShelf (TimeoutMicros 1_000_000) id)
@@ -483,45 +485,91 @@ test_watchdogTests =
                     assertShutdown (wd ^. fromEndpoint) ExitNormally
                     assertShutdown (brokerT ^. fromEndpoint) ExitNormally
 
-              , runTestCase "test 16: when a broker exits, the children of that broker are forgotten and ignored" $ do
-                  wd <- Watchdog.startLink (1 `Watchdog.crashesPerSeconds` 1)
-                  logNotice "started watchdog"
-
-                  brokerT <- Broker.startLink (Broker.statefulChild @BookShelf (TimeoutMicros 1_000_000) id)
-                  logNotice "started temporary broker"
-
-                  OQ.observe @(Broker.ChildEvent (Stateful BookShelf)) (100 :: Int) brokerT $ do
-                    let b0 = BookShelfId 0
-
-                    e0 <- spawnBookShelf brokerT b0
-                    logNotice ("started bookshelf of temporary broker: " <> pack (show e0))
-
+              , testGroup "test 16: the amount of state is kept to a minimum" $
+                let
+                  setup k = do
+                    wd <- Watchdog.startLink (4 `Watchdog.crashesPerSeconds` 30)
+                    logNotice "started watchdog"
+                    brokerT <- Broker.startLink (Broker.statefulChild @BookShelf (TimeoutMicros 1_000_000) id)
+                    logNotice "started temporary broker"
                     Watchdog.attachTemporary wd brokerT
                     logNotice "attached temporary broker"
-                    logNotice "crash the bookshelf"
-                    assertShutdown (e0 ^. fromEndpoint) (ExitUnhandledError "bookshelf test crash")
-                    awaitChildDownEvent b0
-                    logNotice "bookshelf down"
-                    awaitChildStartedEvent b0
-                    e1 <- fromJust <$> Broker.lookupChild brokerT b0
-                    logNotice "bookshelf restarted"
+                    brokerP <- Broker.startLink (Broker.statefulChild @BookShelf (TimeoutMicros 1_000_000) id)
+                    logNotice "started permanent broker"
+                    Watchdog.attachTemporary wd brokerP
+                    logNotice "attached permanent broker"
+                    do
+                      p <- self
+                      t <- spawn "test-proc" $ do
+                              void $ k wd brokerT brokerP
+                              sendMessage p ()
+                      res <- receiveSelectedWithMonitorAfter t selectMessage (TimeoutMicros 10_000_000)
+                      logNotice ("test-proc finish message: " <> pack (show res))
+                      case res of
+                        Left x ->
+                          do logError  ("test-proc crashed: " <> pack (show x))
+                             lift (assertFailure ("test-proc crashed: " <> show x))
+                        Right () ->
+                          logNotice "test-proc succeeded"
 
-                    logNotice "exit the bookshelf normally"
-                    assertShutdown (e1 ^. fromEndpoint) ExitNormally
-                    awaitChildDownEvent b0
-                    logNotice "bookshelf stopped, starting a new one"
-                    e2 <- spawnBookShelf brokerT b0
-                    logNotice "bookshelf restarted"
+                  setupThenShutdown k =
+                    setup $ \wd brokerT brokerP -> do
+                      void $ k wd brokerT brokerP
+                      assertShutdown (wd ^. fromEndpoint) ExitNormally
+                      assertShutdown (brokerT ^. fromEndpoint) ExitNormally
+                      assertShutdown (brokerP ^. fromEndpoint) ExitNormally
+                in
+                 [
+                  runTestCase "test 17: child events of unknown broker don't add state" $
+                    setupThenShutdown $ \wd _brokerT _brokerP -> do
+                      someBroker <- asEndpoint @(Broker (Stateful BookShelf)) <$> spawn "someBroker" (pure ())
+                      someChild <- asEndpoint @BookShelf <$> spawn "someChild" (pure ())
+                      let someChildId = BookShelfId 2321
+                      cast wd (Observed (Broker.OnChildDown someBroker someChildId someChild (ExitUnhandledError "test error")))
+                      lift (threadDelay 1_000)
+                      cr <- Watchdog.getCrashReports @(Stateful BookShelf) wd
+                      logNotice (pack (show cr))
+                      lift (assertBool "no crash reports expected" (Map.null cr))
 
-                    assertShutdown (e2 ^. fromEndpoint) (ExitUnhandledError "bookshelf test crash")
-                    awaitChildDownEvent b0
-                    logNotice "bookshelf down"
-                    awaitChildStartedEvent b0
-                    logNotice "bookshelf restarted"
+                  , runTestCase "test 18: when a broker exits, the children of that broker are forgotten and ignored" $ do
+                      setup $ \wd brokerT brokerP -> do
+                        let
+                          someChildId1 = BookShelfId 2321
+                          someChildId2 = BookShelfId 2322
+                          someChildId3 = BookShelfId 2323
 
-                    assertShutdown (wd ^. fromEndpoint) ExitNormally
-                    assertShutdown (brokerT ^. fromEndpoint) ExitNormally
+                        (someChild1, someChild2)
+                          <- OQ.observe @(Broker.ChildEvent (Stateful BookShelf))
+                              (100 :: Int)
+                              brokerT
+                                ((,) <$> spawnBookShelf brokerT someChildId1 <*> spawnBookShelf brokerT someChildId2)
 
+                        someChild3
+                          <- OQ.observe @(Broker.ChildEvent (Stateful BookShelf))
+                              (100 :: Int) brokerT (spawnBookShelf brokerT someChildId3)
+                        do
+                          cr <- Watchdog.getCrashReports @(Stateful BookShelf) wd
+                          logNotice (pack (show cr))
+                          lift (assertBool "no crash reports expected" (Map.null cr))
+
+                        OQ.observe @(Broker.ChildEvent (Stateful BookShelf)) (100 :: Int) brokerT $ do
+                            crashBookShelf someChild1 someChildId1
+                            awaitChildStartedEvent someChildId1
+                            crashBookShelf someChild2 someChildId2
+                            awaitChildStartedEvent someChildId2
+
+                        do
+                          cr <- Watchdog.getCrashReports @(Stateful BookShelf) wd
+                          logNotice (pack (show cr))
+                          lift (assertBool "no crash reports expected" (Map.null cr))
+
+                        assertShutdown (wd ^. fromEndpoint) ExitNormally
+                        assertShutdown (brokerT ^. fromEndpoint) ExitNormally
+                        assertShutdown (brokerP ^. fromEndpoint) ExitNormally
+
+                  , runTestCase "test 19: the children of an unknown broker are ignored" $ do
+                        error "TODO"
+                 ]
               ]
       ]
     ]
@@ -572,6 +620,14 @@ spawnAndCrashBookShelf
   -> Eff (OQ.Reader (Broker.ChildEvent (Stateful BookShelf)) : Effects) ()
 spawnAndCrashBookShelf broker c0 = do
    c00 <- spawnBookShelf broker c0
+   crashBookShelf c00 c0
+
+crashBookShelf
+  :: HasCallStack
+  => Endpoint BookShelf
+  -> Broker.ChildId (Stateful BookShelf)
+  -> Eff (OQ.Reader (Broker.ChildEvent (Stateful BookShelf)) : Effects) ()
+crashBookShelf c00 c0 = do
    logNotice "adding Solaris"
    call c00 (AddBook "Solaris")
    logNotice "added Solaris"

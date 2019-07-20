@@ -43,7 +43,7 @@ withFileLogging
   -> LogPredicate -- ^ The inital predicate for log messages, there are some pre-defined in "Control.Eff.Log.Message#PredefinedPredicates"
   -> Eff (Logs : LogWriterReader (Lift IO) : e) a
   -> Eff e a
-withFileLogging fnIn a f p e =
+withFileLogging fnIn a f p e = do
   liftBaseOp (withOpenedLogFile fnIn) (\lw -> withIoLogging lw a f p e)
 
 
@@ -72,7 +72,7 @@ withOpenedLogFile fnIn ioE = Safe.bracket
     fnCanon <- canonicalizePath fnIn
     createDirectoryIfMissing True (takeDirectory fnCanon)
     h <- IO.openFile fnCanon IO.AppendMode
-    IO.hSetBuffering h (IO.BlockBuffering (Just 1024))
+    IO.hSetBuffering h IO.LineBuffering
     return h
   )
   (\h -> Safe.try @IO @Catch.SomeException (IO.hFlush h) >> IO.hClose h)

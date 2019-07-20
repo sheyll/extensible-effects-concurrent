@@ -595,7 +595,9 @@ stopOrKillChild
 stopOrKillChild cId c stopTimeout =
       do
         broker <- asEndpoint @(Broker p) <$> self
-        t <- startTimer stopTimeout
+        t <- startTimerWithTitle
+                (MkProcessTitle ("child-exit-timer-" <> pack (show broker) <> "-" <> pack (show cId)))
+                stopTimeout
         sendInterrupt (_fromEndpoint (c^.childEndpoint)) NormalExitRequested
         r1 <- receiveSelectedMessage (   Right <$> selectProcessDown (c^.childMonitoring)
                                      <|> Left  <$> selectTimerElapsed t )
