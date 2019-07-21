@@ -1,4 +1,16 @@
-module Control.Eff.Concurrent.Protocol.Broker.InternalState where
+module Control.Eff.Concurrent.Protocol.Broker.InternalState
+ ( Child(MkChild)
+ , childMonitoring
+ , childEndpoint
+ , putChild
+ , Children()
+ , removeAllChildren
+ , getChildren
+ , lookupChildById
+ , lookupAndRemoveChildById
+ , lookupAndRemoveChildByMonitor
+ )
+ where
 
 import Control.DeepSeq
 import Control.Eff as Eff

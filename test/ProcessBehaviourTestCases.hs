@@ -1,4 +1,3 @@
-{-# LANGUAGE NumericUnderscores #-}
 module ProcessBehaviourTestCases where
 
 import           Common

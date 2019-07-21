@@ -63,3 +63,4 @@ require-stack-version: ">=1.7"
 #
 # Allow a newer minor version of GHC than the snapshot specifies
 # compiler-check: newer-minor
+ghc-options: {"$locals": -ddump-to-file -ddump-hi}

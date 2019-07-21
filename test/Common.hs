@@ -160,20 +160,15 @@ awaitProcessDown p = do
     <> " "
     <> pack (show m)
     )
-  logCallStack informationalSeverity
+  logCallStack debugSeverity
   receiveSelectedMessage (selectProcessDown m)
 
 awaitProcessDownAny
   :: (Member Logs r, HasCallStack, HasProcesses r q)
   => Eff r ProcessDown
 awaitProcessDownAny = do
-  logInfo
-    (  "awaitProcessDownAny: "
-    <> " "
-    <> pack (prettyCallStack callStack)
-    )
-  logCallStack informationalSeverity
-  z <- receiveMessage
-  return z
+  logInfo "awaitProcessDownAny"
+  logCallStack debugSeverity
+  receiveMessage
 
 

@@ -125,11 +125,14 @@ flush = do
 --
 -- @since 0.28.0
 observe
-  :: forall event eventSource e q len b
+  :: forall event eventSource e q len b h
   . ( HasCallStack
     , HasProcesses e q
-    , LogIo q
-    , LogIo e
+    , LogsTo h e
+    , LogsTo h q
+    , LogsTo h (Processes q)
+    , Lifted IO e
+    , Lifted IO q
     , IsObservable eventSource event
     , Integral len
     , Server (ObservationQueue event) (Processes q)
@@ -198,10 +201,12 @@ spawnWriter q =
 --
 -- @since 0.28.0
 withWriter
-  :: forall event eventSource e q b
+  :: forall event eventSource e q b h
   . ( HasCallStack
     , HasProcesses e q
-    , LogIo q
+    , Lifted IO q
+    , LogsTo h (Processes q)
+    , Member Logs q
     , IsObservable eventSource event
     , Member (Reader event) e
     , Tangible (Pdu eventSource 'Asynchronous)

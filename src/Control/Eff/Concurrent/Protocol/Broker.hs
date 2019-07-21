@@ -480,7 +480,7 @@ instance
         sendReply rt p
 
       LookupC i -> zoomToChildren @p $ do
-        p <- fmap _childEndpoint <$> lookupChildById @(ChildId p) @p i
+        p <- fmap (view childEndpoint) <$> lookupChildById @(ChildId p) @p i
         sendReply rt p
 
       StopC i t -> zoomToChildren @p $ do
@@ -524,7 +524,7 @@ instance
                     <> " for child "
                     <> pack (show i)
                     <> " => "
-                    <> pack (show (_childEndpoint c))
+                    <> pack (show (c^.childEndpoint))
                     )
             Stateful.zoomModel @(Broker p)
                 childEventObserverLens

@@ -1,4 +1,4 @@
-{-# LANGUAGE NumericUnderscores, UndecidableInstances #-}
+{-# LANGUAGE UndecidableInstances #-}
 module WatchdogTests(test_watchdogTests) where
 
 import Common  hiding (runTestCase)
@@ -12,7 +12,6 @@ import qualified Control.Eff.Concurrent.Protocol.Watchdog as Watchdog
 import Control.Lens
 import Data.Set (Set)
 import qualified Data.Set as Set
-import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe (isNothing, fromJust)
 
@@ -223,15 +222,16 @@ test_watchdogTests =
             let c0 = BookShelfId 0
             do
               void $ Broker.spawnOrLookup broker c0
-              OQ.await @(Broker.ChildEvent (Stateful BookShelf)) >>= logNotice . pack . show
+              awaitChildStartedEvent c0
               logNotice "bookshelf started"
 
               Broker.stopBroker broker
-              OQ.await @(Broker.ChildEvent (Stateful BookShelf)) >>= logNotice . pack . show -- broker shutting down event
-              void $ awaitProcessDown (broker ^. fromEndpoint)
-              logNotice "broker stopped"
+              awaitBrokershuttingDownEvent broker
+              lift (threadDelay 10_000)
+              logNotice "checking state"
+              Watchdog.getCrashReports wd >>= lift . assertBool "no crash reports expected" . null
 
-          awaitProcessDown (wd ^. fromEndpoint) >>= logNotice . pack . show
+          assertShutdown (wd ^. fromEndpoint) ExitNormally
           logNotice "watchdog stopped"
 
       , runTestCase "test 9: a child is only restarted if it crashes" $ do
@@ -244,14 +244,14 @@ test_watchdogTests =
             let shelfId = BookShelfId 0
             do
               shelf <- Broker.spawnOrLookup broker shelfId
-              OQ.await @(Broker.ChildEvent (Stateful BookShelf)) >>= logNotice . pack . show
+              awaitChildStartedEvent shelfId
               logNotice "bookshelf started"
 
               cast shelf StopShelf
-              OQ.await @(Broker.ChildEvent (Stateful BookShelf)) >>= logNotice . pack . show -- broker shutting down event
+              awaitChildDownEvent shelfId
               void $ awaitProcessDown (shelf ^. fromEndpoint)
               logNotice "shelf stopped"
-              lift (threadDelay 100000)
+              lift (threadDelay 10_000)
               Broker.lookupChild broker shelfId >>= lift . assertBool "child must not be restarted" . isNothing
 
           assertShutdown (wd ^. fromEndpoint) ExitNormally
@@ -288,7 +288,7 @@ test_watchdogTests =
                   logNotice "watchdog stopped"
 
               , runTestCase "test 11: if a child crashes 4 times within 1s it is not restarted\
-                            \ and the watchdog exits with an error and stop all supervisors" $ do
+                            \ and the watchdog exits with an error" $ do
                   broker <- Broker.startLink (Broker.statefulChild @BookShelf (TimeoutMicros 1_000_000) id)
                   logNotice "started broker"
                   wd <- Watchdog.startLink threeTimesASecond
@@ -304,6 +304,8 @@ test_watchdogTests =
                             spawnAndCrashBookShelf broker shelfId
                             logNotice "waiting for restart"
                             awaitChildStartedEvent shelfId
+                            cr <- Watchdog.getCrashReports @(Stateful BookShelf) wd
+                            logNotice (pack (show cr))
                             lift (threadDelay 100_000)
 
                     crash3Times
@@ -546,10 +548,10 @@ test_watchdogTests =
 
                         someChild3
                           <- OQ.observe @(Broker.ChildEvent (Stateful BookShelf))
-                              (100 :: Int) brokerT (spawnBookShelf brokerT someChildId3)
+                              (100 :: Int) brokerP (spawnBookShelf brokerP someChildId3)
                         do
                           cr <- Watchdog.getCrashReports @(Stateful BookShelf) wd
-                          logNotice (pack (show cr))
+                          logNotice ("crash-reports: " <> pack (show cr))
                           lift (assertBool "no crash reports expected" (Map.null cr))
 
                         OQ.observe @(Broker.ChildEvent (Stateful BookShelf)) (100 :: Int) brokerT $ do
@@ -558,17 +560,23 @@ test_watchdogTests =
                             crashBookShelf someChild2 someChildId2
                             awaitChildStartedEvent someChildId2
 
+                        OQ.observe @(Broker.ChildEvent (Stateful BookShelf)) (100 :: Int) brokerP $ do
+                            crashBookShelf someChild3 someChildId3
+                            awaitChildStartedEvent someChildId3
+
                         do
                           cr <- Watchdog.getCrashReports @(Stateful BookShelf) wd
-                          logNotice (pack (show cr))
-                          lift (assertBool "no crash reports expected" (Map.null cr))
+                          logNotice ("crash-reports: " <> pack (show cr))
+                          lift (assertEqual "wrong number of crash reports" 3 (Map.size cr))
+
+                        assertShutdown (brokerT ^. fromEndpoint) ExitNormally
+                        do
+                          cr <- Watchdog.getCrashReports @(Stateful BookShelf) wd
+                          logNotice ("crash-reports: " <> pack (show cr))
+                          lift (assertEqual "wrong number of crash reports" 1 (Map.size cr))
 
                         assertShutdown (wd ^. fromEndpoint) ExitNormally
-                        assertShutdown (brokerT ^. fromEndpoint) ExitNormally
                         assertShutdown (brokerP ^. fromEndpoint) ExitNormally
-
-                  , runTestCase "test 19: the children of an unknown broker are ignored" $ do
-                        error "TODO"
                  ]
               ]
       ]
@@ -637,6 +645,15 @@ crashBookShelf c00 c0 = do
    void $ awaitProcessDown (c00 ^. fromEndpoint)
    logNotice "shelf crashed"
    awaitChildDownEvent c0
+
+awaitBrokershuttingDownEvent broker = do
+   logNotice ("waiting for broker shutting down event of " <> pack (show broker))
+   evt <- OQ.await @(Broker.ChildEvent (Stateful BookShelf))
+   case evt of
+    (Broker.OnBrokerShuttingDown broker') | broker == broker' ->
+      logNotice ("broker shutting down: " <> pack (show broker))
+    otherEvent ->
+      lift (assertFailure ("wrong event received: " <> show otherEvent))
 
 awaitChildDownEvent c0 = do
    logNotice ("waiting for down event of " <> pack (show c0))

@@ -1,6 +1,5 @@
 {-# LANGUAGE QuantifiedConstraints #-}
 {-# LANGUAGE UndecidableInstances #-}
-{-# LANGUAGE NumericUnderscores #-}
 -- | Another  example for the library that uses embedded protocols with multiple server back
 -- ends and a polymorphic client, as well as the 'Broker' module to start multiple
 -- back-ends.

@@ -15,7 +15,9 @@ module Control.Eff.Concurrent.Protocol.StatefulServer
   , putModel
   , getAndPutModel
   , useModel
+  , preuseModel
   , zoomModel
+  , logModel
   , SettingsReader
   , askSettings
   , viewSettings
@@ -40,9 +42,11 @@ import Data.Coerce
 import Data.Default
 import Data.Kind
 import Data.String (fromString)
+import Data.Text (Text, pack)
 import Data.Typeable
 import GHC.Stack (HasCallStack)
 import Control.Eff.Extend (raise)
+import Data.Monoid (First)
 -- | A type class for server loops.
 --
 -- This class serves as interface for other mechanisms, for example /process supervision/
@@ -153,6 +157,7 @@ start
     , Typeable a
     , Effectful.Server (Stateful a) (Processes q)
     , Server a (Processes q)
+    , HandleLogWriter h
     , LogsTo h (Processes q)
     , HasProcesses r q
     )
@@ -194,6 +199,12 @@ getModel = get
 useModel :: forall a b e . Member (ModelState a) e => Getting b (Model a) b -> Eff e b
 useModel l = view l <$> getModel @a
 
+-- | Return a element selected by a 'Lens' of the 'Model' of a 'Server'.
+--
+-- @since 0.30.0
+preuseModel :: forall a b e . Member (ModelState a) e => Getting (First b) (Model a) b -> Eff e (Maybe b)
+preuseModel l = preview l <$> getModel @a
+
 -- | Overwrite the 'Model' of a 'Server'.
 --
 -- @since 0.24.0
@@ -215,6 +226,18 @@ zoomModel l a = do
   (c, m1) <- runState (view l m0) a
   modifyModel @a (l .~ m1)
   return c
+
+-- | Log the 'Model' of a 'Server' using 'logDebug'.
+--
+-- @since 0.30.0
+logModel
+  :: forall m e q. ( Show (Model m)
+                   , Member Logs e
+                   , HasProcesses e q
+                   , Member (ModelState m) e)
+  => Text -> Eff e ()
+logModel x =
+  getModel @m >>= logDebug . (x <>) . pack . show
 
 -- | The 'Eff'ect type of readonly 'Settings' in a 'Server' instance.
 --
