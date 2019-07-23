@@ -84,10 +84,10 @@ data Watchdog (child :: Type) deriving Typeable
 --
 -- @since 0.30.0
 startLink
-  :: forall child e q h
+  :: forall child e q
   . ( HasCallStack
     , Typeable child
-    , LogsTo h (Processes q)
+    , FilteredLogging (Processes q)
     , Member Logs q
     , HasProcesses e q
     , Tangible (Broker.ChildId child)
@@ -104,9 +104,9 @@ startLink = Stateful.startLink @(Watchdog child) . StartWatchDog
 --
 -- @since 0.30.0
 attachTemporary
-  :: forall child q e h
+  :: forall child q e
   . ( HasCallStack
-    , LogsTo h e
+    , FilteredLogging e
     , Typeable child
     , HasPdu (Effectful.ServerPdu child)
     , Tangible (Broker.ChildId child)
@@ -123,9 +123,9 @@ attachTemporary wd broker =
 --
 -- @since 0.30.0
 attachPermanent
-  :: forall child q e h
+  :: forall child q e
   . ( HasCallStack
-    , LogsTo h e
+    , FilteredLogging e
     , Typeable child
     , HasPdu (Effectful.ServerPdu child)
     , Tangible (Broker.ChildId child)
@@ -142,9 +142,9 @@ attachPermanent wd broker =
 --
 -- @since 0.30.0
 getCrashReports
-  :: forall child q e h
+  :: forall child q e
   . ( HasCallStack
-    , LogsTo h e
+    , FilteredLogging e
     , Typeable child
     , HasPdu (Effectful.ServerPdu child)
     , Tangible (Broker.ChildId child)

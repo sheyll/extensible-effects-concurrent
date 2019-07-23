@@ -24,7 +24,6 @@ import           Control.Eff.Extend
 import           Control.Eff.Concurrent.Misc
 import           Control.Eff.Concurrent.Process
 import           Control.Eff.Log
-import           Control.Eff.LogWriter.IO
 import           Control.Eff.LogWriter.Console
 import           Control.Lens            hiding ( (|>)
                                                 , Empty
@@ -112,7 +111,7 @@ getProcessStateFromScheduler pid sts = toPS <$> sts ^. msgQs . at pid
     toPS p =
       ( p ^. processInfoTitle
       , p ^. processInfoDetails
-      , case (p ^. processInfoMessageQ) -- TODO get more detailed state
+      , case p ^. processInfoMessageQ -- TODO get more detailed state
               of
           _ :<| _ -> ProcessBusy
           _ -> ProcessIdle)
@@ -220,9 +219,9 @@ diskontinue sts k e = (sts ^. runEff) (k (Interrupted e))
 --
 -- @since 0.3.0.2
 schedulePure
-  :: Eff (Processes '[Logs, LogWriterReader Logs]) a
+  :: Eff (Processes PureBaseEffects) a
   -> Either (Interrupt 'NoRecovery) a
-schedulePure e = run (scheduleM (withSomeLogging @Logs) (return ()) e)
+schedulePure e = run (scheduleM withoutLogging (return ()) e)
 
 -- | Invoke 'scheduleM' with @lift 'Control.Concurrent.yield'@ as yield effect.
 -- @scheduleIO runEff == 'scheduleM' (runLift . runEff) (liftIO 'yield')@
@@ -256,7 +255,7 @@ scheduleMonadIOEff = -- schedule (lift yield)
 -- @since 0.4.0.0
 scheduleIOWithLogging
   :: HasCallStack
-  => LogWriter (Lift IO)
+  => LogWriter
   -> Eff EffectsIo a
   -> IO (Either (Interrupt 'NoRecovery) a)
 scheduleIOWithLogging h = scheduleIO (withLogging h)
@@ -600,17 +599,21 @@ handleProcess sts allProcs@((!processState, !pid) :<| rest) =
 --
 -- To use another 'LogWriter' use 'defaultMainWithLogWriter' instead.
 defaultMain :: HasCallStack => Eff EffectsIo () -> IO ()
-defaultMain =
-  void
-    . runLift
-    . withLogging consoleLogWriter
-    . scheduleMonadIOEff
+defaultMain e =
+  consoleLogWriter >>=
+  (\lw ->
+      void
+        . runLift
+        . withLogging lw
+        . scheduleMonadIOEff
+        $ e)
+
 
 -- | Execute a 'Process' using 'scheduleM' on top of 'Lift' @IO@.
 -- All logging is written using the given 'LogWriter'.
 --
 -- @since 0.25.0
-defaultMainWithLogWriter :: HasCallStack => LogWriter (Lift IO) -> Eff EffectsIo () -> IO ()
+defaultMainWithLogWriter :: HasCallStack => LogWriter -> Eff EffectsIo () -> IO ()
 defaultMainWithLogWriter lw =
   void
     . runLift
@@ -637,7 +640,7 @@ type PureSafeEffects = SafeProcesses PureBaseEffects
 -- 'Logs' and the 'LogWriterReader' for 'PureLogWriter'.
 --
 -- @since 0.25.0
-type PureBaseEffects = '[Logs, LogWriterReader Logs]
+type PureBaseEffects = '[Logs, LogWriterReader]
 
 -- | Constraint for the existence of the underlying scheduler effects.
 --

@@ -1,11 +1,11 @@
--- | Examples for Logging.
+-- | Examples for FilteredLogging.
 module Control.Eff.Log.Examples
-  ( -- * Example Code for Logging
+  ( -- * Example Code for FilteredLogging
     exampleLogging
   , exampleWithLogging
   , exampleWithSomeLogging
-  , exampleLogPredicate
-  , exampleLogCapture
+  , exampleSetLogWriter
+  , exampleLogTrace
   , exampleAsyncLogging
   , exampleRFC5424Logging
   , exampleRFC3164WithRFC5424TimestampsLogging
@@ -23,8 +23,7 @@ import           Control.Eff.Log
 import           Control.Eff.LogWriter.Async
 import           Control.Eff.LogWriter.Console
 import           Control.Eff.LogWriter.DebugTrace
-import           Control.Eff.LogWriter.Capture
-import           Control.Eff.LogWriter.IO
+import           Control.Eff.LogWriter.Rich
 import           Control.Eff.LogWriter.UnixSocket
 import           Control.Eff.LogWriter.UDP
 import           Control.Eff
@@ -32,16 +31,14 @@ import           Control.Lens                   ( view
                                                 , (%~)
                                                 , to
                                                 )
-import           Data.Text                     as T
-import           Data.Text.IO                  as T
 import           GHC.Stack
 
--- * Logging examples
+-- * FilteredLogging examples
 
 -- | Example code for:
 --
 --  * 'withConsoleLogging'
---  * 'mkLogWriterIO'
+--  * 'MkLogWriter'
 -- See 'loggingExampleClient'
 exampleLogging :: HasCallStack => IO ()
 exampleLogging = runLift
@@ -52,32 +49,36 @@ exampleLogging = runLift
 --  * 'withLogging'
 --  * 'consoleLogWriter'
 exampleWithLogging :: HasCallStack => IO ()
-exampleWithLogging =
-  runLift $ withLogging consoleLogWriter $ logDebug "Oh, hi there"
+exampleWithLogging = do
+  lw <- consoleLogWriter
+  runLift $ withLogging lw $ logDebug "Oh, hi there"
 
 -- | Example code for:
 --
---  * 'withSomeLogging'
+--  * 'withoutLogging'
 --  * 'logDebug'
 exampleWithSomeLogging :: HasCallStack => ()
 exampleWithSomeLogging =
-  run $ withSomeLogging @Logs $ logDebug "Oh, hi there"
+  run $ withoutLogging $ logDebug "Oh, hi there"
 
--- | Example code for:
+-- | Example code for: 'setLogWriter'
 --
---  * 'setLogPredicate'
---  * 'modifyLogPredicate'
---  * 'lmMessageStartsWith'
---  * 'lmSeverityIs'
---  * 'lmSeverityIsAtLeast'
---  * 'includeLogMessages'
---  * 'excludeLogMessages'
-exampleLogPredicate :: HasCallStack => IO Int
-exampleLogPredicate =
+-- Also used:
+--  * 'stdoutLogWriter'
+--  * 'renderConsoleMinimalisticWide'
+--  * 'consoleLogWriter'
+--  * 'logAlert'
+--  * 'withLogging'
+exampleSetLogWriter :: HasCallStack => IO ()
+exampleSetLogWriter = do
+  lw1 <- stdoutLogWriter renderConsoleMinimalisticWide
+  lw2 <- consoleLogWriter
   runLift
-    $ withSomeLogging @(Lift IO)
-    $ setLogWriter consoleLogWriter
-    $ logPredicatesExampleClient
+    $ withLogging lw1
+    $ do  logAlert "test with log writer 1"
+          setLogWriter lw2 (logAlert "test with log writer 2")
+          logAlert "test with log writer 1 again"
+
 
 -- | Example code for:
 --
@@ -85,40 +86,37 @@ exampleLogPredicate =
 --  * 'captureLogWriter'
 --  * 'mappingLogWriter'
 --  * 'filteringLogWriter'
-exampleLogCapture :: IO ()
-exampleLogCapture = go >>= T.putStrLn
- where
-  go =
-    fmap (T.unlines . Prelude.map renderLogMessageConsoleLog . snd)
-      $ runLift
-      $ runCaptureLogWriter
-      $ withLogging captureLogWriter
-      $ addLogWriter
-          (mappingLogWriter (lmMessage %~ ("CAPTURED " <>)) captureLogWriter)
-      $ addLogWriter
-          (filteringLogWriter
-            severeMessages
-            (mappingLogWriter (lmMessage %~ ("TRACED " <>))
-                              (debugTraceLogWriter renderRFC5424)
-            )
+exampleLogTrace :: IO ()
+exampleLogTrace = do
+  lw <- consoleLogWriter
+  runLift
+    $ withRichLogging lw "test-app" local7 allLogMessages
+    $ addLogWriter
+        (filteringLogWriter
+          severeMessages
+          (mappingLogWriter (lmMessage %~ ("TRACED " <>))
+                            (debugTraceLogWriter renderRFC5424)
           )
-      $ do
-          logEmergency "test emergencySeverity 1"
-          logCritical "test criticalSeverity 2"
-          logAlert "test alertSeverity 3"
-          logError "test errorSeverity 4"
-          logWarning "test warningSeverity 5"
-          logInfo "test informationalSeverity 6"
-          logDebug "test debugSeverity 7"
-  severeMessages = view (lmSeverity . to (<= errorSeverity))
+        )
+    $ do
+        logEmergency "test emergencySeverity 1"
+        logCritical "test criticalSeverity 2"
+        logAlert "test alertSeverity 3"
+        logError "test errorSeverity 4"
+        logWarning "test warningSeverity 5"
+        logInfo "test informationalSeverity 6"
+        logDebug "test debugSeverity 7"
+  where
+    severeMessages = view (lmSeverity . to (<= errorSeverity))
 
 
 -- | Example code for:
 --
 --  * 'withAsyncLogging'
 exampleAsyncLogging :: IO ()
-exampleAsyncLogging =
-  runLift $ withLogging consoleLogWriter $ withAsyncLogWriter (1000 :: Int) $ do
+exampleAsyncLogging = do
+  lw <- stdoutLogWriter renderConsoleMinimalisticWide
+  runLift $ withLogging lw $ withAsyncLogWriter (1000 :: Int) $ do
     logInfo "test 1"
     logInfo "test 2"
     logInfo "test 3"
@@ -128,19 +126,19 @@ exampleAsyncLogging =
 exampleRFC5424Logging :: IO Int
 exampleRFC5424Logging =
   runLift
-    $ withSomeLogging @(Lift IO)
+    $ withoutLogging
     $ setLogWriter
-        (defaultIoLogWriter "myapp" local2 (debugTraceLogWriter renderRFC5424))
-    $ logPredicatesExampleClient
+        (richLogWriter "myapp" local2 (debugTraceLogWriter renderRFC5424))
+      logPredicatesExampleClient
 
 -- | Example code for RFC3164 with RFC5424 time stamp formatted logs.
 exampleRFC3164WithRFC5424TimestampsLogging :: IO Int
 exampleRFC3164WithRFC5424TimestampsLogging =
   runLift
-    $ withSomeLogging @(Lift IO)
+    $ withoutLogging
     $ setLogWriter
-        (defaultIoLogWriter "myapp" local2 (debugTraceLogWriter renderRFC3164WithRFC5424Timestamps))
-    $ logPredicatesExampleClient
+        (richLogWriter "myapp" local2 (debugTraceLogWriter renderRFC3164WithRFC5424Timestamps))
+      logPredicatesExampleClient
 
 -- | Example code logging via a unix domain socket to @/dev/log@.
 exampleDevLogSyslogLogging :: IO Int
@@ -186,7 +184,7 @@ exampleUdpRFC3164Logging =
 --  * 'logWarning'
 --  * 'logCritical'
 --  * 'lmMessage'
-loggingExampleClient :: (HasCallStack, Monad (LogWriterM h), LogsTo h e) => Eff e ()
+loggingExampleClient :: (HasCallStack, IoLogging e) => Eff e ()
 loggingExampleClient = do
   logDebug "test 1.1"
   logError "test 1.2"
@@ -209,7 +207,7 @@ loggingExampleClient = do
 --  * 'lmSeverityIsAtLeast'
 --  * 'includeLogMessages'
 --  * 'excludeLogMessages'
-logPredicatesExampleClient :: (HasCallStack, Monad (LogWriterM h), LogsTo h e) => Eff e Int
+logPredicatesExampleClient :: (HasCallStack, IoLogging e) => Eff e Int
 logPredicatesExampleClient = do
   logInfo "test"
   setLogPredicate

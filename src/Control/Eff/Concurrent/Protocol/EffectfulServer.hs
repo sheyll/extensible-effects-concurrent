@@ -83,11 +83,11 @@ class Server (a :: Type) (e :: [Type -> Type])
 --
 -- @since 0.24.0
 start
-  :: forall a r q h
+  :: forall a r q
   . ( Server a (Processes q)
     , Typeable a
     , Typeable (ServerPdu a)
-    , LogsTo h (Processes q)
+    , FilteredLogging (Processes q)
     , HasProcesses (ServerEffects a (Processes q)) q
     , HasProcesses r q
     , HasCallStack)
@@ -99,11 +99,11 @@ start a = asEndpoint <$> spawn (serverTitle a) (protocolServerLoop a)
 --
 -- @since 0.24.0
 startLink
-  :: forall a r q h
+  :: forall a r q
   . ( Typeable a
     , Typeable (ServerPdu a)
     , Server a (Processes q)
-    , LogsTo h (Processes q)
+    , FilteredLogging (Processes q)
     , HasProcesses (ServerEffects a (Processes q)) q
     , HasProcesses r q
     , HasCallStack)
@@ -115,9 +115,9 @@ startLink a = asEndpoint <$> spawnLink (serverTitle a) (protocolServerLoop a)
 --
 -- @since 0.24.0
 protocolServerLoop
-     :: forall q h a
+     :: forall q a
      . ( Server a (Processes q)
-       , LogsTo h (Processes q)
+       , FilteredLogging (Processes q)
        , HasProcesses (ServerEffects a (Processes q)) q
        , Typeable a
        , Typeable (ServerPdu a)

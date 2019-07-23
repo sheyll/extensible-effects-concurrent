@@ -89,7 +89,7 @@ type SupiCounter = (Counter, ObserverRegistry CounterChanged, SupiDupi)
 
 type instance ToPretty (Counter, ObserverRegistry CounterChanged, SupiDupi) = PutStr "supi-counter"
 
-instance (LogIo q) => Server SupiCounter (Processes q) where
+instance (IoLogging q) => Server SupiCounter (Processes q) where
 
   newtype instance Model SupiCounter = SupiCounterModel
     ( Integer
@@ -148,14 +148,14 @@ supiTarget =
     (\(SupiCounterModel (_,_,z)) -> z)
     (\(SupiCounterModel (x,y,_)) z -> SupiCounterModel (x,y,z))
 
-spawnCounter :: (LogIo q) => Eff (Processes q) ( Endpoint SupiCounter )
+spawnCounter :: (IoLogging q) => Eff (Processes q) ( Endpoint SupiCounter )
 spawnCounter = startLink MkEmptySupiCounter
 
 
 deriving instance Show (Pdu Counter x)
 
 logCounterObservations
-  :: (LogIo q, Typeable q)
+  :: (IoLogging q, Typeable q)
   => Eff (Processes q) (Endpoint (Observer CounterChanged))
 logCounterObservations = startLink OCCStart
 

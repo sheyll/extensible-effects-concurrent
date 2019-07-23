@@ -1,9 +1,5 @@
 {-# LANGUAGE UndecidableInstances #-}
--- | The 'LogWriter' type encapsulates an effectful function to write 'LogMessage's.
---
--- Used in conjunction with the 'HandleLogWriter' class, it
--- can be used to write messages from within an effectful
--- computation.
+-- | The 'LogWriter' type encapsulates an 'IO' action to write 'LogMessage's.
 module Control.Eff.Log.Writer
   (
   -- * 'LogWriter' Definition
@@ -13,192 +9,109 @@ module Control.Eff.Log.Writer
   , localLogWriterReader
   , askLogWriter
   , runLogWriterReader
-  -- * LogWriter Handler Class
-  , HandleLogWriter(..)
-  , LogWriterM(..)
+  -- * LogWriter utilities
+  , liftWriteLogMessage
   , noOpLogWriter
-  -- ** Writer Combinator
-  -- *** Pure Writer Combinator
   , filteringLogWriter
   , mappingLogWriter
-  -- *** Impure Writer Combinator
-  , mappingLogWriterM
+  , mappingLogWriterIO
+  , ioHandleLogWriter
+  , stdoutLogWriter
   )
 where
 
 import           Control.Eff
-import           Control.Eff.Extend
+import           Control.Eff.Reader.Strict
 import           Control.Eff.Log.Message
-import           Data.Default
-import           Data.Function                  ( fix )
+import           Control.Eff.Log.MessageRenderer
 import           Control.Monad                  ( (>=>)
                                                 , when
                                                 )
-import           Control.Monad.Base             ( MonadBase() )
-import qualified Control.Monad.Catch           as Catch
-import           Control.Monad.Trans.Control    ( MonadBaseControl
-                                                  ( restoreM
-                                                  , liftBaseWith
-                                                  , StM
-                                                  )
-                                                )
-import           Control.Eff.Writer.Strict      ( Writer, tell, runListWriter )
-import           Data.Kind
-import           Data.Foldable                  (traverse_)
+import qualified Data.Text.IO as Text
+import           Data.Text (Text)
+import qualified System.IO as IO
 
 -- | A function that takes a log message and returns an effect that
 -- /logs/ the message.
-newtype LogWriter writerM = MkLogWriter
-  { runLogWriter :: LogMessage -> LogWriterM writerM ()
+newtype LogWriter = MkLogWriter
+  { runLogWriter :: LogMessage -> IO ()
   }
 
-instance Applicative (LogWriterM w) => Default (LogWriter w) where
-  def = MkLogWriter (const (pure ()))
+instance Semigroup LogWriter where
+  (MkLogWriter l) <> (MkLogWriter r) = MkLogWriter (l >> r)
+
+instance Monoid LogWriter where
+  mempty = MkLogWriter (const (pure ()))
+
+-- | A 'Reader' effect for 'LogWriter's.
+--
+-- @since 0.31.0
+type LogWriterReader = Reader LogWriter
 
 -- | Provide the 'LogWriter'
 --
 -- Exposed for custom extensions, if in doubt use 'withLogging'.
-runLogWriterReader :: LogWriter h -> Eff (LogWriterReader h ': e) a -> Eff e a
-runLogWriterReader e m = fix (handle_relay (\x _ -> return x)) m e
+runLogWriterReader :: LogWriter -> Eff (Reader LogWriter ': e) a -> Eff e a
+runLogWriterReader = runReader
 
 -- | Get the current 'LogWriter'.
-askLogWriter
-  :: SetMember LogWriterReader (LogWriterReader h) e => Eff e (LogWriter h)
-askLogWriter = send AskLogWriter
+askLogWriter :: Member LogWriterReader e => Eff e LogWriter
+askLogWriter = ask
 
 -- | Modify the current 'LogWriter'.
 localLogWriterReader
-  :: forall h e a
-   . SetMember LogWriterReader (LogWriterReader h) e
-  => (LogWriter h -> LogWriter h)
+  :: forall e a
+   . Member LogWriterReader e
+  => (LogWriter -> LogWriter)
   -> Eff e a
   -> Eff e a
-localLogWriterReader f m =
-  f
-    <$> askLogWriter
-    >>= fix (respond_relay @(LogWriterReader h) (\x _ -> return x)) m
+localLogWriterReader = local
 
--- | A Reader specialized for 'LogWriter's
---
--- The existing @Reader@ couldn't be used together with 'SetMember', so this
--- lazy reader was written, specialized to reading 'LogWriter'.
-data LogWriterReader h v where
-  AskLogWriter :: LogWriterReader h (LogWriter h)
-
-instance Handle (LogWriterReader h) e a (LogWriter h -> k) where
-  handle k q AskLogWriter lw = k (q ^$ lw) lw
-
-instance forall h m r. (MonadBase m m, LiftedBase m r)
-  => MonadBaseControl m (Eff (LogWriterReader h ': r)) where
-  type StM (Eff (LogWriterReader h ': r)) a =  StM (Eff r) a
-  liftBaseWith f = do
-    lf <- askLogWriter
-    raise (liftBaseWith (\runInBase -> f (runInBase . runLogWriterReader lf)))
-  restoreM = raise . restoreM
-
-instance (LiftedBase m e, Catch.MonadThrow (Eff e))
-  => Catch.MonadThrow (Eff (LogWriterReader h ': e)) where
-  throwM exception = raise (Catch.throwM exception)
-
-instance (Applicative m, LiftedBase m e, Catch.MonadCatch (Eff e))
-  => Catch.MonadCatch (Eff (LogWriterReader h ': e)) where
-  catch effect handler = do
-    lf <- askLogWriter
-    let lower         = runLogWriterReader lf
-        nestedEffects = lower effect
-        nestedHandler exception = lower (handler exception)
-    raise (Catch.catch nestedEffects nestedHandler)
-
-instance (Applicative m, LiftedBase m e, Catch.MonadMask (Eff e))
-  => Catch.MonadMask (Eff (LogWriterReader h ': e)) where
-  mask maskedEffect = do
-    lf <- askLogWriter
-    let lower :: Eff (LogWriterReader h ': e) a -> Eff e a
-        lower = runLogWriterReader lf
-    raise
-      (Catch.mask
-        (\nestedUnmask -> lower (maskedEffect (raise . nestedUnmask . lower)))
-      )
-  uninterruptibleMask maskedEffect = do
-    lf <- askLogWriter
-    let lower :: Eff (LogWriterReader h ': e) a -> Eff e a
-        lower = runLogWriterReader lf
-    raise
-      (Catch.uninterruptibleMask
-        (\nestedUnmask -> lower (maskedEffect (raise . nestedUnmask . lower)))
-      )
-  generalBracket acquire release useIt = do
-    lf <- askLogWriter
-    let lower :: Eff (LogWriterReader h ': e) a -> Eff e a
-        lower = runLogWriterReader lf
-    raise
-      (Catch.generalBracket (lower acquire)
-                            (((.) . (.)) lower release)
-                            (lower . useIt)
-      )
-
--- * 'LogWriter' Zoo
-
--- | The instances of this class are the monads that define (side-) effect(s) of writting logs.
-class HandleLogWriter (writer :: Type -> Type) where
-  -- | The 'Eff'ects required by the 'handleLogWriterEffect' method.
-  --
-  -- @since 0.29.1
-  data family LogWriterM writer a
-
-  -- | Run the side effect of a 'LogWriter' in a compatible 'Eff'.
-  handleLogWriterEffect :: (Member writer e) => LogWriterM writer () -> Eff e ()
-
-  -- | Write a message using the 'LogWriter' found in the environment.
-  --
-  -- The semantics of this function are a combination of 'runLogWriter' and 'handleLogWriterEffect',
-  -- with the 'LogWriter' read from a 'LogWriterReader'.
-  liftWriteLogMessage :: ( SetMember LogWriterReader (LogWriterReader writer) e
-                         , Member writer e
-                         )
-                      => LogMessage
-                      -> Eff e ()
-  liftWriteLogMessage m = do
-    w <- askLogWriter
-    handleLogWriterEffect (runLogWriter w m)
-
--- | Embed 'IO' actions consuming all 'LogMessage's
---
--- @since 0.29.1
-instance HandleLogWriter (Lift IO) where
-  newtype instance LogWriterM (Lift IO) a = IOLogWriter { runIOLogWriter :: IO a }
-          deriving (Applicative, Functor, Monad)
-  handleLogWriterEffect = send . Lift . runIOLogWriter
-
-
--- | A 'LogWriter' monad for capturing messages using a 'Writer'.
---
--- The 'HandleLogWriter' instance for this type assumes a 'Writer' effect.
-instance HandleLogWriter (Writer LogMessage) where
-  -- | A 'LogWriter' monad that provides pure logging by capturing via the 'Writer' effect.
-  newtype LogWriterM (Writer LogMessage) a = MkCaptureLogs { unCaptureLogs :: Eff '[Writer LogMessage] a }
-    deriving (Functor, Applicative, Monad)
-  handleLogWriterEffect =
-    traverse_ (tell @LogMessage) . snd . run . runListWriter . unCaptureLogs
+-- | Write a message using the 'LogWriter' found in the environment.
+liftWriteLogMessage
+  :: ( Member LogWriterReader  e, Lifted IO e)
+  => LogMessage
+  -> Eff e ()
+liftWriteLogMessage m = do
+  w <- askLogWriter
+  lift (runLogWriter w m)
 
 -- | This 'LogWriter' will discard all messages.
 --
--- NOTE: This is just an alias for 'def'
-noOpLogWriter :: Applicative (LogWriterM m) => LogWriter m
-noOpLogWriter = def
+-- NOTE: This is just an alias for 'mempty'
+noOpLogWriter :: LogWriter
+noOpLogWriter = mempty
 
 -- | A 'LogWriter' that applies a predicate to the 'LogMessage' and delegates to
 -- to the given writer of the predicate is satisfied.
-filteringLogWriter :: Monad (LogWriterM e) => LogPredicate -> LogWriter e -> LogWriter e
+filteringLogWriter :: LogPredicate -> LogWriter -> LogWriter
 filteringLogWriter p lw =
   MkLogWriter (\msg -> when (p msg) (runLogWriter lw msg))
 
 -- | A 'LogWriter' that applies a function to the 'LogMessage' and delegates the result to
 -- to the given writer.
-mappingLogWriter :: (LogMessage -> LogMessage) -> LogWriter e -> LogWriter e
+mappingLogWriter :: (LogMessage -> LogMessage) -> LogWriter -> LogWriter
 mappingLogWriter f lw = MkLogWriter (runLogWriter lw . f)
 
 -- | Like 'mappingLogWriter' allow the function that changes the 'LogMessage' to have effects.
-mappingLogWriterM
-  :: Monad (LogWriterM e) => (LogMessage -> LogWriterM e LogMessage) -> LogWriter e -> LogWriter e
-mappingLogWriterM f lw = MkLogWriter (f >=> runLogWriter lw)
+mappingLogWriterIO
+  :: (LogMessage -> IO LogMessage) -> LogWriter -> LogWriter
+mappingLogWriterIO f lw = MkLogWriter (f >=> runLogWriter lw)
+
+-- | Append the 'LogMessage' to an 'IO.Handle' after rendering it.
+--
+-- @since 0.31.0
+ioHandleLogWriter :: IO.Handle -> LogMessageRenderer Text -> LogWriter
+ioHandleLogWriter outH r = MkLogWriter (Text.hPutStrLn outH . r)
+
+-- | Render a 'LogMessage' to 'IO.stdout'.
+--
+-- This function will also set the 'IO.BufferMode' of 'IO.stdout' to 'IO.LineBuffering'.
+--
+-- See 'ioHandleLogWriter'.
+--
+-- @since 0.31.0
+stdoutLogWriter :: LogMessageRenderer Text -> IO LogWriter
+stdoutLogWriter render = do
+  IO.hSetBuffering IO.stdout IO.LineBuffering
+  return (ioHandleLogWriter IO.stdout render)

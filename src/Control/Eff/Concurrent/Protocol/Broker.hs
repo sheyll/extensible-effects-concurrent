@@ -108,7 +108,7 @@ import Control.Applicative ((<|>))
 startLink
   :: forall p e
   . ( HasCallStack
-    , LogIo (Processes e)
+    , IoLogging (Processes e)
     , TangibleBroker p
     , Stateful.Server (Broker p) (Processes e)
     )
@@ -124,7 +124,7 @@ startLink = Stateful.startLink
 statefulChild
   :: forall p e
   . ( HasCallStack
-    , LogIo (Processes e)
+    , IoLogging (Processes e)
     , TangibleBroker (Stateful.Stateful p)
     , Stateful.Server (Broker (Stateful.Stateful p)) (Processes e)
     )
@@ -436,7 +436,7 @@ type TangibleBroker p =
 
 
 instance
-  ( LogIo q
+  ( IoLogging q
   , TangibleBroker p
   , Tangible (ChildId p)
   , Typeable (Effectful.ServerPdu p)

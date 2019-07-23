@@ -10,7 +10,7 @@ import           Control.Concurrent.STM
 import           Control.DeepSeq
 import           Control.Eff                   as Eff
 import           Control.Eff.Log
-import           Control.Eff.LogWriter.IO
+import           Control.Eff.LogWriter.Rich
 import           Control.Exception              ( evaluate )
 import           Control.Monad                  ( unless )
 import           Control.Monad.Trans.Control    ( MonadBaseControl
@@ -21,7 +21,7 @@ import           Data.Kind                      ( )
 import           Data.Text                     as T
 
 
--- | This is a wrapper around 'withAsyncLogWriter' and 'withIoLogging'.
+-- | This is a wrapper around 'withAsyncLogWriter' and 'withRichLogging'.
 --
 -- Example:
 --
@@ -36,17 +36,17 @@ import           Data.Text                     as T
 --
 withAsyncLogging
   :: (Lifted IO e, MonadBaseControl IO (Eff e), Integral len)
-  => LogWriter (Lift IO)
+  => LogWriter
   -> len -- ^ Size of the log message input queue. If the queue is full, message
          -- are dropped silently.
   -> Text -- ^ The default application name to put into the 'lmAppName' field.
   -> Facility -- ^ The default RFC-5424 facility to put into the 'lmFacility' field.
   -> LogPredicate -- ^ The inital predicate for log messages, there are some pre-defined in "Control.Eff.Log.Message#PredefinedPredicates"
-  -> Eff (Logs : LogWriterReader (Lift IO) : e) a
+  -> Eff (Logs : LogWriterReader : e) a
   -> Eff e a
 withAsyncLogging lw queueLength a f p e = liftBaseOp
-  (withAsyncLogChannel queueLength (runIOLogWriter . runLogWriter lw . force))
-  (\lc -> withIoLogging (makeLogChannelWriter lc) a f p e)
+  (withAsyncLogChannel queueLength (runLogWriter lw . force))
+  (\lc -> withRichLogging (makeLogChannelWriter lc) a f p e)
 
 
 -- | /Move/ the current 'LogWriter' into its own thread.
@@ -72,14 +72,14 @@ withAsyncLogging lw queueLength a f p e = liftBaseOp
 -- >
 --
 withAsyncLogWriter
-  :: (LogIo e, MonadBaseControl IO (Eff e), Integral len)
+  :: (IoLogging e, MonadBaseControl IO (Eff e), Integral len)
   => len -- ^ Size of the log message input queue. If the queue is full, message
          -- are dropped silently.
   -> Eff e a
   -> Eff e a
 withAsyncLogWriter queueLength e = do
   lw <- askLogWriter
-  liftBaseOp (withAsyncLogChannel queueLength (runIOLogWriter . runLogWriter lw . force))
+  liftBaseOp (withAsyncLogChannel queueLength (runLogWriter lw . force))
              (\lc -> setLogWriter (makeLogChannelWriter lc) e)
 
 withAsyncLogChannel
@@ -101,8 +101,8 @@ withAsyncLogChannel queueLen ioWriter action = do
     traverse_ ioWriter ms
     logLoop tq
 
-makeLogChannelWriter :: LogChannel -> LogWriter (Lift IO)
-makeLogChannelWriter lc = mkLogWriterIO logChannelPutIO
+makeLogChannelWriter :: LogChannel -> LogWriter
+makeLogChannelWriter lc = MkLogWriter logChannelPutIO
  where
   logChannelPutIO (force -> me) = do
     !m <- evaluate me

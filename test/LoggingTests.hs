@@ -7,13 +7,13 @@ import           Control.Eff.Concurrent
 import           Test.Tasty
 import           Test.Tasty.HUnit
 import           Common
-import           Control.Lens       ((.~))
+import           Control.Lens
 import           Control.Monad.Trans.Control (liftBaseOp)
 
 
 test_Logging :: TestTree
-test_Logging = setTravisTestOptions $ testGroup "Logging"
-  [ basics
+test_Logging = setTravisTestOptions $ testGroup "logging"
+  [ cencoredLogging
   , strictness
   , testGroup "IO"
     [ liftedIoLogging
@@ -24,31 +24,49 @@ test_Logging = setTravisTestOptions $ testGroup "Logging"
     ]
   ]
 
-
-basics :: HasCallStack => TestTree
-basics =
-  testCase "basic logging works" $
-      pureLogs demo @?= (lmSrcLoc .~ Nothing) <$> [infoMessage "jo", debugMessage "oh"]
+cencoredLogging :: HasCallStack => TestTree
+cencoredLogging =
+  testCase "log cencorship works" $ do
+      res <- fmap (view lmMessage) <$> censoredLoggingTestImpl demo
+      res @?=
+        view lmMessage <$>
+        [ infoMessage "1"
+        , debugMessage "2"
+        , infoMessage "x 1"
+        , debugMessage "x 2"
+        , infoMessage "x y 1"
+        , debugMessage "x y 2"
+        , infoMessage "x 1"
+        , debugMessage "x 2"
+        , infoMessage "1"
+        , debugMessage "2"
+        ]
  where
 
     demo :: ('[Logs] <:: e) => Eff e ()
     demo = do
-      logInfo "jo"
-      logDebug "oh"
+      logDebug "2"
+      logInfo "1"
 
-    pureLogs :: Eff '[Logs, LogWriterReader CaptureLogWriter, CaptureLogWriter] a -> [LogMessage]
-    pureLogs =
-        snd
-      . run
-      . runCaptureLogWriter
-      . withLogging captureLogWriter
-      . censorLogs @CaptureLogWriter (lmSrcLoc .~ Nothing)
+    censoredLoggingTestImpl :: Eff '[Logs, LogWriterReader, Lift IO] () -> IO [LogMessage]
+    censoredLoggingTestImpl e = do
+      logs <- newMVar []
+      runLift
+       $ withLogging (MkLogWriter (\lm -> modifyMVar_ logs (\lms -> return (lm : lms))))
+       $ do
+           e
+           censorLogs (lmMessage %~ ("x " <>)) $ do
+              e
+              censorLogs (lmMessage %~ ("y " <>)) e
+              e
+           e
+      takeMVar logs
 
 strictness :: HasCallStack => TestTree
 strictness =
   testCase "messages failing the predicate are not deeply evaluated"
     $ runLift
-    $ withLogging consoleLogWriter
+    $ withConsoleLogging "test-app" local0 allLogMessages
     $ excludeLogMessages (lmSeverityIs errorSeverity)
     $ do logDebug "test"
          logError' ("test" <> error "TEST FAILED: this log statement should not have been evaluated deeply")
@@ -56,14 +74,14 @@ strictness =
 
 liftedIoLogging :: HasCallStack => TestTree
 liftedIoLogging =
-  testCase "LogWriter can lifted through MonadBaseControl"
+  testCase "logging vs. MonadBaseControl"
     $ do outVar <- newEmptyMVar
          runLift
-          $ withLogging consoleLogWriter
+          $ withConsoleLogging "test-app" local0 allLogMessages
           $ (\ e -> liftBaseOp
                       (testWriter outVar)
                       (\doWrite ->
-                            addLogWriter (mkLogWriterIO doWrite) e))
+                            addLogWriter (MkLogWriter doWrite) e))
           $ logDebug "test"
          actual <- takeMVar outVar
          assertEqual "wrong log message" "test" actual
@@ -72,121 +90,41 @@ liftedIoLogging =
      testWriter outVar withWriter =
        withWriter (putMVar outVar . show)
 
+test1234 :: Member Logs e => Eff e ()
+test1234 = do
+  logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test 1~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
+  logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test 2~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
+  logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test 3~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
+  logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test 4~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
+
 udpLogging :: HasCallStack => TestTree
 udpLogging =
-  testCase "UDP logging"
-    $ do
-         runLift
-          -- $ withLogging consoleLogWriter
-          $ UDP.withUDPLogging renderRFC5424NoLocation "localhost" "9999" "test-app" local0 allLogMessages
-          $ do
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
+  testCase "udp logging"
+    $ runLift
+    $ UDP.withUDPLogging renderRFC5424NoLocation "localhost" "9999" "test-app" local0 allLogMessages
+      test1234
 
 udpNestedLogging :: HasCallStack => TestTree
 udpNestedLogging =
-  testCase "UDP Nested Logging"
-    $ do
-         runLift
-          $ withLogging consoleLogWriter
-          $ UDP.withUDPLogWriter renderRFC5424 "localhost" "9999"
-          $ do
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
+  testCase "udp nested filteredlogging"
+    $ runLift
+        $ withConsoleLogging "test-app" local0 allLogMessages
+        $ UDP.withUDPLogWriter renderRFC5424 "localhost" "9999"
+          test1234
 
 asyncLogging :: HasCallStack => TestTree
 asyncLogging =
-  testCase "Async Logging"
-    $ do
+  testCase "async filteredlogging"
+    $ do lw <- consoleLogWriter
          runLift
-          $ Async.withAsyncLogging consoleLogWriter (1000::Int) "app-name" local0 allLogMessages
-          $ do
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
+            $ Async.withAsyncLogging lw (1000::Int) "app-name" local0 allLogMessages
+              test1234
 
 asyncNestedLogging :: HasCallStack => TestTree
 asyncNestedLogging =
-  testCase "Async Nested Logging"
-    $ do
+  testCase "async nested filteredlogging"
+    $ do lw <- consoleLogWriter
          runLift
-          $ withLogging consoleLogWriter
+          $ withLogging lw
           $ Async.withAsyncLogWriter (1000::Int)
-          $ do
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-               logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
+            test1234

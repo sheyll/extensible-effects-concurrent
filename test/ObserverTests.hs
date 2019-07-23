@@ -297,7 +297,7 @@ instance Typeable r => Show (Pdu TestObservable r) where
   show StopTestObservable = "StopTestObservable"
   show (TestObsReg x) = "TestObsReg " ++ show x
 
-instance (LogIo r, HasProcesses r q) => S.Server TestObservable r where
+instance (IoLogging r, HasProcesses r q) => S.Server TestObservable r where
   data Init TestObservable r = TestObservableServerInit
   type ServerEffects TestObservable r = ObserverRegistryState String ': r
   runEffects _ _ = evalObserverRegistryState
@@ -341,7 +341,7 @@ instance HasPduPrism TestObserver (Observer String) where
   fromPdu _ = Nothing
 
 
-instance (LogIo r, HasProcesses r q) => M.Server TestObserver r where
+instance (IoLogging r, HasProcesses r q) => M.Server TestObserver r where
   data StartArgument TestObserver r = MkTestObserver
   newtype instance Model TestObserver = TestObserverModel {fromTestObserverModel :: [String]} deriving Default
   update _ MkTestObserver e =

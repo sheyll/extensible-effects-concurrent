@@ -41,11 +41,11 @@ import GHC.Stack (HasCallStack)
 --
 -- @since 0.29.1
 start
-  :: forall (tag :: Type) eLoop q h e.
+  :: forall (tag :: Type) eLoop q e.
      ( HasCallStack
      , TangibleCallbacks tag eLoop q
      , E.Server (Server tag eLoop) (Processes q)
-     , LogsTo h (Processes q)
+     , FilteredLogging (Processes q)
      , HasProcesses e q
      )
   => CallbacksEff tag eLoop q
@@ -57,11 +57,11 @@ start = E.start
 --
 -- @since 0.29.1
 startLink
-  :: forall (tag :: Type) eLoop q h e.
+  :: forall (tag :: Type) eLoop q e.
      ( HasCallStack
      , TangibleCallbacks tag eLoop q
      , E.Server (Server tag eLoop) (Processes q)
-     , LogsTo h (Processes q)
+     , FilteredLogging (Processes q)
      , HasProcesses e q
      )
   => CallbacksEff tag eLoop q
@@ -136,11 +136,11 @@ type Callbacks tag e = CallbacksEff tag (Processes e) e
 --
 -- @since 0.29.1
 callbacks
-  :: forall tag q h.
+  :: forall tag q.
      ( HasCallStack
      , TangibleCallbacks tag (Processes q) q
      , E.Server (Server tag (Processes q)) (Processes q)
-     , LogsTo h q
+     , FilteredLogging q
      )
   => (Endpoint tag -> Event tag -> Eff (Processes q) ())
   -> ServerId tag
@@ -151,11 +151,11 @@ callbacks evtCb i = callbacksEff (const id) evtCb i
 --
 -- @since 0.29.1
 onEvent
-  :: forall tag q h.
+  :: forall tag q .
      ( HasCallStack
      , TangibleCallbacks tag (Processes q) q
      , E.Server (Server tag (Processes q)) (Processes q)
-     , LogsTo h q
+     , FilteredLogging q
      )
   => (Event tag -> Eff (Processes q) ())
   -> ServerId (tag :: Type)
@@ -175,11 +175,11 @@ type CallbacksEff tag eLoop e = E.Init (Server tag eLoop) (Processes e)
 --
 -- @since 0.29.1
 callbacksEff
-  :: forall tag eLoop q h.
+  :: forall tag eLoop q.
      ( HasCallStack
      , TangibleCallbacks tag eLoop q
      , E.Server (Server tag eLoop) (Processes q)
-     , LogsTo h q
+     , FilteredLogging q
      )
   => (forall x . Endpoint tag -> Eff eLoop x -> Eff (Processes q) x)
   -> (Endpoint tag -> Event tag -> Eff eLoop ())
@@ -195,7 +195,7 @@ onEventEff
     ( HasCallStack
     , TangibleCallbacks tag eLoop q
     , E.Server (Server tag eLoop) (Processes q)
-    , LogsTo h q
+    , FilteredLogging q
     )
   => (forall a. Eff eLoop a -> Eff (Processes q) a)
   -> (Event tag -> Eff eLoop ())

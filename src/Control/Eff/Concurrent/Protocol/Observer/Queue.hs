@@ -125,12 +125,12 @@ flush = do
 --
 -- @since 0.28.0
 observe
-  :: forall event eventSource e q len b h
+  :: forall event eventSource e q len b
   . ( HasCallStack
     , HasProcesses e q
-    , LogsTo h e
-    , LogsTo h q
-    , LogsTo h (Processes q)
+    , FilteredLogging e
+    , FilteredLogging q
+    , FilteredLogging (Processes q)
     , Lifted IO e
     , Lifted IO q
     , IsObservable eventSource event
@@ -178,10 +178,10 @@ withObservationQueue queueLimit e = do
 --
 -- @since 0.28.0
 spawnWriter
-  :: forall event r q h
+  :: forall event r q
    . ( Member Logs q
      , Lifted IO q
-     , LogsTo h (Processes q)
+     , FilteredLogging (Processes q)
      , HasProcesses r q
      , Typeable event
      , HasCallStack
@@ -190,7 +190,7 @@ spawnWriter
   => ObservationQueue event
   -> Eff r (Endpoint (Observer event))
 spawnWriter q =
-  startLink @_ @r @q @h (MkObservationQueue q)
+  startLink @_ @r @q (MkObservationQueue q)
 
 -- | Spawn a process that can be used as an 'Observer' that enqueues the observations into an
 --   'ObservationQueue'. See 'withObservationQueue'.
@@ -201,11 +201,11 @@ spawnWriter q =
 --
 -- @since 0.28.0
 withWriter
-  :: forall event eventSource e q b h
+  :: forall event eventSource e q b
   . ( HasCallStack
     , HasProcesses e q
     , Lifted IO q
-    , LogsTo h (Processes q)
+    , FilteredLogging (Processes q)
     , Member Logs q
     , IsObservable eventSource event
     , Member (Reader event) e

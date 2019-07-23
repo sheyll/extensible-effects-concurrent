@@ -3,18 +3,15 @@ module Control.Eff.LogWriter.Console
   ( withConsoleLogWriter
   , withConsoleLogging
   , consoleLogWriter
-  , stdoutLogWriter
   ) where
 
 import Control.Eff as Eff
 import Control.Eff.Log
-import Control.Eff.LogWriter.IO
+import Control.Eff.LogWriter.Rich
 import Data.Text
-import qualified Data.Text.IO                  as T
-import qualified System.IO                     as IO
 
 -- | Enable logging to @standard output@ using the 'consoleLogWriter', with some 'LogMessage' fields preset
--- as in 'withIoLogging'.
+-- as in 'withRichLogging'.
 --
 -- Log messages are rendered using 'renderLogMessageConsoleLog'.
 --
@@ -26,17 +23,17 @@ import qualified System.IO                     as IO
 -- >   $ withConsoleLogging "my-app" local7 allLogMessages
 -- >   $ logInfo "Oh, hi there"
 --
--- To vary the 'LogWriter' use 'withIoLogging'.
+-- To vary the 'LogWriter' use 'withRichLogging'.
 withConsoleLogging
   :: Lifted IO e
   => Text -- ^ The default application name to put into the 'lmAppName' field.
   -> Facility -- ^ The default RFC-5424 facility to put into the 'lmFacility' field.
   -> LogPredicate -- ^ The inital predicate for log messages, there are some pre-defined in "Control.Eff.Log.Message#PredefinedPredicates"
-  -> Eff (Logs : LogWriterReader (Lift IO) : e) a
+  -> Eff (Logs : LogWriterReader : e) a
   -> Eff e a
 withConsoleLogging a b c d = do
-  lift (IO.hSetBuffering IO.stdout IO.LineBuffering)
-  withIoLogging consoleLogWriter a b c d
+  lw <- lift consoleLogWriter
+  withRichLogging lw a b c d
 
 
 -- | Enable logging to @standard output@ using the 'consoleLogWriter'.
@@ -48,22 +45,21 @@ withConsoleLogging a b c d = do
 -- > exampleWithConsoleLogWriter :: IO ()
 -- > exampleWithConsoleLogWriter =
 -- >     runLift
--- >   $ withSomeLogging @IO
+-- >   $ withoutLogging @IO
 -- >   $ withConsoleLogWriter
 -- >   $ logInfo "Oh, hi there"
 withConsoleLogWriter
-  :: (LogIo e)
+  :: (IoLogging e)
   => Eff e a -> Eff e a
 withConsoleLogWriter e = do
-  lift (IO.hSetBuffering IO.stdout IO.LineBuffering)
-  addLogWriter consoleLogWriter e
+  lw <- lift consoleLogWriter
+  addLogWriter lw e
 
--- | Write 'LogMessage's to standard output, formatted with 'printLogMessage'.
+
+-- | Render a 'LogMessage' to 'IO.stdout' using 'renderLogMessageConsoleLog'.
 --
--- It uses 'stdoutLogWriter' with 'renderLogMessageConsoleLog'.
-consoleLogWriter :: LogWriter (Lift IO)
-consoleLogWriter = mkLogWriterIO (T.putStrLn . renderLogMessageConsoleLog)
-
--- | A 'LogWriter' that uses a 'LogMessageRenderer' to render, and 'T.putStrLn' to print it.
-stdoutLogWriter :: LogMessageRenderer Text -> LogWriter (Lift IO)
-stdoutLogWriter render = mkLogWriterIO (T.putStrLn . render)
+-- See 'stdoutLogWriter'.
+--
+-- @since 0.31.0
+consoleLogWriter :: IO LogWriter
+consoleLogWriter = stdoutLogWriter renderLogMessageConsoleLog

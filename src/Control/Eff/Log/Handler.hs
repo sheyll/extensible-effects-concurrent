@@ -5,7 +5,7 @@
 -- Good support for logging to a file or to the network,
 -- as well as asynchronous logging in another thread.
 module Control.Eff.Log.Handler
-  ( -- * Logging API
+  ( -- * FilteredLogging API
     -- ** Sending Log Messages
     logMsg
   , logWithSeverity
@@ -46,18 +46,20 @@ module Control.Eff.Log.Handler
 
   -- *** Log Message Modification
   , censorLogs
-  , censorLogsM
+  , censorLogsIo
 
   -- ** 'Logs' Effect Handling
   , Logs()
-  , LogsTo
-  , LogIo
+  , FilteredLogging
+  , IoLogging
+  , LoggingAndIo
   , withLogging
-  , withSomeLogging
+  , withoutLogging
 
   -- ** Low-Level API for Custom Extensions
   -- *** Log Message Interception
   , runLogs
+  , runLogsWithoutLogging
   , respondToLogMessage
   , interceptLogMessages
 
@@ -111,34 +113,34 @@ instance forall e a k. Handle Logs e a (LogPredicate -> k) where
 -- | This instance allows lifting the 'Logs' effect into a base monad, e.g. 'IO'.
 -- This instance needs a 'LogWriterReader' in the base monad,
 -- that is capable to handle 'logMsg' invocations.
-instance forall m e. (MonadBase m m, LiftedBase m e, LogsTo (Lift m) (Logs ': e))
+instance forall m e. (MonadBase m IO, MonadBaseControl IO (Eff e), LiftedBase m e, Lifted IO e, IoLogging (Logs ': e))
   => MonadBaseControl m (Eff (Logs ': e)) where
     type StM (Eff (Logs ': e)) a =  StM (Eff e) a
     liftBaseWith f = do
       lf <- askLogPredicate
-      raise (liftBaseWith (\runInBase -> f (runInBase . runLogs @(Lift m) lf)))
+      raise (liftBaseWith (\runInBase -> f (runInBase . runLogs lf)))
     restoreM = raise . restoreM
 
 instance (LiftedBase m e, Catch.MonadThrow (Eff e))
   => Catch.MonadThrow (Eff (Logs ': e)) where
   throwM exception = raise (Catch.throwM exception)
 
-instance (Applicative m, LiftedBase m e, Catch.MonadCatch (Eff e), LogsTo (Lift m) (Logs ': e))
+instance (Applicative m, MonadBaseControl IO (Eff e), LiftedBase m e, Catch.MonadCatch (Eff e), IoLogging (Logs ': e), Lifted IO e)
   => Catch.MonadCatch (Eff (Logs ': e)) where
   catch effect handler = do
     lf <- askLogPredicate
-    let lower                   = runLogs @(Lift m) lf
+    let lower                   = runLogs lf
         nestedEffects           = lower effect
         nestedHandler exception = lower (handler exception)
     raise (Catch.catch nestedEffects nestedHandler)
 
-instance (Applicative m, LiftedBase m e, Catch.MonadMask (Eff e), LogsTo (Lift m) (Logs ': e))
+instance (Applicative m, MonadBaseControl IO (Eff e), LiftedBase m e, Catch.MonadMask (Eff e), IoLogging (Logs ': e), Lifted IO e)
   => Catch.MonadMask (Eff (Logs ': e)) where
   mask maskedEffect = do
     lf <- askLogPredicate
     let
       lower :: Eff (Logs ': e) a -> Eff e a
-      lower = runLogs @(Lift m) lf
+      lower = runLogs lf
     raise
         (Catch.mask
           (\nestedUnmask -> lower
@@ -151,7 +153,7 @@ instance (Applicative m, LiftedBase m e, Catch.MonadMask (Eff e), LogsTo (Lift m
     lf <- askLogPredicate
     let
       lower :: Eff (Logs ': e) a -> Eff e a
-      lower = runLogs @(Lift m) lf
+      lower = runLogs lf
     raise
         (Catch.uninterruptibleMask
           (\nestedUnmask -> lower
@@ -164,7 +166,7 @@ instance (Applicative m, LiftedBase m e, Catch.MonadMask (Eff e), LogsTo (Lift m
     lf <- askLogPredicate
     let
       lower :: Eff (Logs ': e) a -> Eff e a
-      lower = runLogs @(Lift m) lf
+      lower = runLogs lf
     raise
         (Catch.generalBracket
           (lower acquire)
@@ -172,41 +174,41 @@ instance (Applicative m, LiftedBase m e, Catch.MonadMask (Eff e), LogsTo (Lift m
           (lower . useIt)
       )
 
-
--- | A constraint alias for effects that requires a 'LogWriterReader', as well as that the
--- contained 'LogWriterReader' has a 'HandleLogWriter' instance.
+-- | A constraint that requires @'Logs' e@ and @'Lifted' 'IO' e@.
 --
--- The requirements of this constraint are provided by:
+-- Provided by 'withLogging' and 'runLogs'.
 --
--- * 'withIoLogging'
--- * 'withLogging'
--- * 'withSomeLogging'
+-- It contains 'FilteredLogging' and allows in addition:
 --
-type LogsTo h e =
-  ( Member Logs e
-  , HandleLogWriter h
-  , Member h e
-  , SetMember LogWriterReader (LogWriterReader h) e
-  )
-
--- | This instance is for pure logging - i.e. discarding all messages.
+-- * censorLogsIo
 --
--- @since 0.29.1
-instance HandleLogWriter Logs where
-  data LogWriterM Logs a = MkPureLogging deriving (Functor)
-  handleLogWriterEffect = const (pure ())
-
-instance Applicative (LogWriterM Logs) where
-  pure = const MkPureLogging
-  MkPureLogging <*> MkPureLogging = MkPureLogging
-
-instance Monad (LogWriterM Logs) where
-  MkPureLogging >>= _ = MkPureLogging
-
--- | A constraint that required @'LogsTo' 'IO' e@ and @'Lifted' 'IO' e@.
+-- Don't infect everything with 'IO', if you can fall back to
+-- 'FilteredLogging'.
 --
 -- @since 0.24.0
-type LogIo e = (LogsTo (Lift IO) e, Lifted IO e)
+type IoLogging e = (FilteredLogging e, Lifted IO e)
+
+-- | A constraint that requires 'Logs' and 'LogWriterReader',
+-- and hence supports the functions to filter and modify
+-- logs:
+--
+-- * setLogWriter
+-- * addLogWriter
+-- * modifyLogWriter
+-- * censorLogs
+--
+-- Provided by 'withLogging', 'runLogs', and also
+-- 'withoutLogging' and 'runLogsWithoutLogging'.
+--
+-- @since 0.31.0
+type FilteredLogging e = (Member Logs e, Member LogWriterReader e)
+
+-- | The concrete list of 'Eff'ects for logging with a
+-- 'LogWriter', and a 'LogWriterReader'.
+--
+-- This also provides both 'IoLogging' and 'FilteredLogging'.
+type LoggingAndIo = '[Logs, LogWriterReader, Lift IO]
+
 
 -- | Handle the 'Logs' and 'LogWriterReader' effects.
 --
@@ -221,43 +223,56 @@ type LogIo e = (LogsTo (Lift IO) e, Lifted IO e)
 -- >   $ withLogging consoleLogWriter
 -- >   $ logDebug "Oh, hi there"
 --
-withLogging ::
-     forall h e a. (Applicative (LogWriterM h), LogsTo h (Logs ': LogWriterReader h ': e))
-  => LogWriter h -> Eff (Logs ': LogWriterReader h ': e) a -> Eff e a
+-- This provides the 'IoLogging' and 'FilteredLogging' effects.
+--
+-- See also 'runLogs'.
+--
+withLogging :: Lifted IO e => LogWriter -> Eff (Logs ': LogWriterReader ': e) a -> Eff e a
 withLogging lw = runLogWriterReader lw . runLogs allLogMessages
 
--- | Handles the 'Logs' and 'LogWriterReader' effects.
+-- | Handles the 'Logs' and 'LogWriterReader' effects, while not invoking the 'LogWriter' at all.
 --
--- By default it uses the 'noOpLogWriter', but using 'setLogWriter' the
--- 'LogWriter' can be replaced.
---
--- This is like 'withLogging' applied to 'noOpLogWriter'
+-- There is no way to get log output when this logger is used.
 --
 -- Example:
 --
 -- > exampleWithSomeLogging :: ()
 -- > exampleWithSomeLogging =
 -- >     run
--- >   $ withSomeLogging @PureLogWriter
--- >   $ logDebug "Oh, hi there"
+-- >   $ withoutLogging
+-- >   $ logDebug "Oh, hi there" -- Nothing written
 --
-withSomeLogging ::
-     forall h e a.
-     (Applicative (LogWriterM h), LogsTo h (Logs ': LogWriterReader h ': e))
-  => Eff (Logs ': LogWriterReader h ': e) a
-  -> Eff e a
-withSomeLogging = withLogging (noOpLogWriter @h)
+-- This provides the 'FilteredLogging' effect.
+--
+-- See also 'runLogsWithoutLogging'.
+--
+withoutLogging :: Eff (Logs ': LogWriterReader ': e) a -> Eff e a
+withoutLogging = runLogWriterReader mempty . runLogsWithoutLogging noLogMessages
 
 -- | Raw handling of the 'Logs' effect.
 -- Exposed for custom extensions, if in doubt use 'withLogging'.
 runLogs
-  :: forall h e b .
-     (LogsTo h (Logs ': e))
+  :: forall e b .
+     ( Member LogWriterReader (Logs ': e)
+     , Lifted IO e
+     )
   => LogPredicate
   -> Eff (Logs ': e) b
   -> Eff e b
 runLogs p m =
   fix (handle_relay (\a _ -> return a)) (sendLogMessageToLogWriter  m) p
+
+-- | Raw handling of the 'Logs' effect.
+-- Exposed for custom extensions, if in doubt use 'withoutLogging'.
+runLogsWithoutLogging
+  :: forall e b .
+     ( Member LogWriterReader (Logs ': e)
+     )
+  => LogPredicate
+  -> Eff (Logs ': e) b
+  -> Eff e b
+runLogsWithoutLogging p m =
+  fix (handle_relay (\a _ -> return a)) m p
 
 -- | Log a message.
 --
@@ -475,7 +490,7 @@ logCallStack =
 
 -- | Issue a log statement for each item in the list prefixed with a line number and a message hash.
 --
--- When several concurrent processes issue log statements, multiline log statements are often
+-- When several concurrent processes issue log statements, multi line log statements are often
 -- interleaved.
 --
 -- In order to make the logs easier to read, this function will count the items and calculate a unique
@@ -539,8 +554,8 @@ askLogPredicate = send @Logs AskLogFilter
 --
 -- E.g. to keep only messages which begin with @"OMG"@:
 --
--- > exampleLogPredicate :: IO Int
--- > exampleLogPredicate =
+-- > exampleSetLogWriter :: IO Int
+-- > exampleSetLogWriter =
 -- >     runLift
 -- >   $ withLogging consoleLogWriter
 -- >   $ do logMsg "test"
@@ -678,38 +693,30 @@ interceptLogMessages
 interceptLogMessages f = respondToLogMessage (f >=> logMsg)
 
 -- | Internal function.
-sendLogMessageToLogWriter
-  :: forall h e b . (LogsTo h e) => Eff e b -> Eff e b
+sendLogMessageToLogWriter :: IoLogging e => Eff e b -> Eff e b
 sendLogMessageToLogWriter = respondToLogMessage liftWriteLogMessage
 
 -- | Change the current 'LogWriter'.
-modifyLogWriter
-  :: forall h e a
-   . (LogsTo h e)
-  => (LogWriter h -> LogWriter h)
-  -> Eff e a
-  -> Eff e a
+modifyLogWriter :: IoLogging e => (LogWriter -> LogWriter) -> Eff e a -> Eff e a
 modifyLogWriter f = localLogWriterReader f . sendLogMessageToLogWriter
 
 -- | Replace the current 'LogWriter'.
 -- To add an additional log message consumer use 'addLogWriter'
-setLogWriter :: forall h e a. (LogsTo h e) => LogWriter h -> Eff e a -> Eff e a
+setLogWriter :: IoLogging e => LogWriter -> Eff e a -> Eff e a
 setLogWriter = modifyLogWriter  . const
 
 -- | Modify the the 'LogMessage's written in the given sub-expression.
 --
 -- Note: This is equivalent to @'modifyLogWriter' . 'mappingLogWriter'@
-censorLogs :: (LogsTo h e) => (LogMessage -> LogMessage) -> Eff e a -> Eff e a
+censorLogs :: IoLogging e => (LogMessage -> LogMessage) -> Eff e a -> Eff e a
 censorLogs = modifyLogWriter . mappingLogWriter
 
 -- | Modify the the 'LogMessage's written in the given sub-expression, as in 'censorLogs'
 -- but with a effectful function.
 --
--- Note: This is equivalent to @'modifyLogWriter' . 'mappingLogWriterM'@
-censorLogsM
-  :: (LogsTo h e, Monad (LogWriterM h))
-  => (LogMessage -> LogWriterM h LogMessage) -> Eff e a -> Eff e a
-censorLogsM = modifyLogWriter . mappingLogWriterM
+-- Note: This is equivalent to @'modifyLogWriter' . 'mappingLogWriterIO'@
+censorLogsIo :: IoLogging e => (LogMessage -> IO LogMessage) -> Eff e a -> Eff e a
+censorLogsIo = modifyLogWriter . mappingLogWriterIO
 
 -- | Combine the effects of a given 'LogWriter' and the existing one.
 --
@@ -735,7 +742,5 @@ censorLogsM = modifyLogWriter . mappingLogWriterM
 -- >        severeMessages = view (lmSeverity . to (<= errorSeverity))
 -- >
 --
-addLogWriter :: forall h e a .
-     (HasCallStack, LogsTo h e, Monad (LogWriterM h))
-  => LogWriter h -> Eff e a -> Eff e a
+addLogWriter :: IoLogging e => LogWriter -> Eff e a -> Eff e a
 addLogWriter lw2 = modifyLogWriter (\lw1 -> MkLogWriter (\m -> runLogWriter lw1 m >> runLogWriter lw2 m))

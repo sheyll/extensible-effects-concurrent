@@ -5,8 +5,10 @@ module Control.Eff.Log.MessageRenderer
 
   -- * Log Message Text Rendering
     LogMessageRenderer
+  , LogMessageTextRenderer
   , renderLogMessageSyslog
   , renderLogMessageConsoleLog
+  , renderConsoleMinimalisticWide
   , renderRFC3164
   , renderRFC3164WithRFC5424Timestamps
   , renderRFC3164WithTimestamp
@@ -46,6 +48,11 @@ import           Text.Printf
 -- | 'LogMessage' rendering function
 type LogMessageRenderer a = LogMessage -> a
 
+-- | 'LogMessage' to 'T.Text' rendering function.
+--
+-- @since 0.31.0
+type LogMessageTextRenderer = LogMessageRenderer T.Text
+
 -- | A rendering function for the 'lmTimestamp' field.
 newtype LogMessageTimeRenderer =
   MkLogMessageTimeRenderer { renderLogMessageTime :: UTCTime -> T.Text }
@@ -76,14 +83,14 @@ rfc5424NoZTimestamp =
   mkLogMessageTimeRenderer (iso8601DateFormat (Just "%H:%M:%S%6Q"))
 
 -- | Print the thread id, the message and the source file location, seperated by simple white space.
-renderLogMessageBody :: LogMessageRenderer T.Text
+renderLogMessageBody :: LogMessageTextRenderer
 renderLogMessageBody = T.unwords . filter (not . T.null) <$> sequence
   [ renderLogMessageBodyNoLocation
   , fromMaybe "" <$> renderLogMessageSrcLoc
   ]
 
 -- | Print the thread id, the message and the source file location, seperated by simple white space.
-renderLogMessageBodyNoLocation :: LogMessageRenderer T.Text
+renderLogMessageBodyNoLocation :: LogMessageTextRenderer
 renderLogMessageBodyNoLocation = T.unwords . filter (not . T.null) <$> sequence
   [ renderShowMaybeLogMessageLens "" lmThreadId
   , view lmMessage
@@ -91,7 +98,7 @@ renderLogMessageBodyNoLocation = T.unwords . filter (not . T.null) <$> sequence
 
 -- | Print the /body/ of a 'LogMessage' with fix size fields (60) for the message itself
 -- and 30 characters for the location
-renderLogMessageBodyFixWidth :: LogMessageRenderer T.Text
+renderLogMessageBodyFixWidth :: LogMessageTextRenderer
 renderLogMessageBodyFixWidth l@(MkLogMessage _f _s _ts _hn _an _pid _mi _sd ti _ msg)
   = T.unwords $ filter
     (not . T.null)
@@ -102,7 +109,7 @@ renderLogMessageBodyFixWidth l@(MkLogMessage _f _s _ts _hn _an _pid _mi _sd ti _
 
 -- | Render a field of a 'LogMessage' using the corresponsing lens.
 renderMaybeLogMessageLens
-  :: T.Text -> Getter LogMessage (Maybe T.Text) -> LogMessageRenderer T.Text
+  :: T.Text -> Getter LogMessage (Maybe T.Text) -> LogMessageTextRenderer
 renderMaybeLogMessageLens x l = fromMaybe x . view l
 
 -- | Render a field of a 'LogMessage' using the corresponsing lens.
@@ -110,7 +117,7 @@ renderShowMaybeLogMessageLens
   :: Show a
   => T.Text
   -> Getter LogMessage (Maybe a)
-  -> LogMessageRenderer T.Text
+  -> LogMessageTextRenderer
 renderShowMaybeLogMessageLens x l =
   renderMaybeLogMessageLens x (l . to (fmap (T.pack . show)))
 
@@ -133,7 +140,7 @@ renderLogMessageSrcLoc = view
 -- Render e.g. as @\<192\>@.
 --
 -- Useful as header for syslog compatible log output.
-renderSyslogSeverityAndFacility :: LogMessageRenderer T.Text
+renderSyslogSeverityAndFacility :: LogMessageTextRenderer
 renderSyslogSeverityAndFacility (MkLogMessage !f !s _ _ _ _ _ _ _ _ _) =
   "<" <> T.pack (show (fromSeverity s + fromFacility f * 8)) <> ">"
 
@@ -144,7 +151,7 @@ renderSyslogSeverityAndFacility (MkLogMessage !f !s _ _ _ _ _ _ _ _ _) =
 -- Render the header using 'renderSyslogSeverity'
 --
 -- Useful for logging to @/dev/log@
-renderLogMessageSyslog :: LogMessageRenderer T.Text
+renderLogMessageSyslog :: LogMessageTextRenderer
 renderLogMessageSyslog l@(MkLogMessage _ _ _ _ an _ mi _ _ _ _)
   = renderSyslogSeverityAndFacility l <> (T.unwords
     . filter (not . T.null)
@@ -154,30 +161,47 @@ renderLogMessageSyslog l@(MkLogMessage _ _ _ _ an _ mi _ _ _ _)
       ])
 
 -- | Render a 'LogMessage' human readable, for console logging
-renderLogMessageConsoleLog :: LogMessageRenderer T.Text
-renderLogMessageConsoleLog l@(MkLogMessage _ _ ts _ _ pd _ sd _ _ _) =
+renderLogMessageConsoleLog :: LogMessageTextRenderer
+renderLogMessageConsoleLog l@(MkLogMessage _ _ ts _ _ _ _ sd _ _ _) =
   T.unwords $ filter
     (not . T.null)
-    [ view (lmSeverity . to (T.pack . show)) l
-    , fromMaybe " no proc " pd
+    [ T.pack (show (view lmSeverity  l))
+    , let p = fromMaybe "no process" (l ^. lmProcessId)
+      in p <> T.replicate (max 0 (55 - T.length p)) " "
     , maybe "" (renderLogMessageTime rfc5424Timestamp) ts
     , renderLogMessageBodyFixWidth l
     , if null sd then "" else T.concat (renderSdElement <$> sd)
     ]
 
+-- | Render a 'LogMessage' human readable, for console logging
+--
+-- @since 0.31.0
+renderConsoleMinimalisticWide :: LogMessageRenderer T.Text
+renderConsoleMinimalisticWide l =
+  T.unwords $ filter
+    (not . T.null)
+    [ let s = T.pack (show (view lmSeverity  l))
+      in s <> T.replicate (max 0 (15 - T.length s)) " "
+    , let p = fromMaybe "no process" (l ^. lmProcessId)
+      in p <> T.replicate (max 0 (55 - T.length p)) " "
+    , let msg = l^.lmMessage
+      in  msg <> T.replicate (max 0 (100 - T.length msg)) " "
+    -- , fromMaybe "" (renderLogMessageSrcLoc l)
+    ]
+
 -- | Render a 'LogMessage' according to the rules in the RFC-3164.
-renderRFC3164 :: LogMessageRenderer T.Text
+renderRFC3164 :: LogMessageTextRenderer
 renderRFC3164 = renderRFC3164WithTimestamp rfc3164Timestamp
 
 -- | Render a 'LogMessage' according to the rules in the RFC-3164 but use
 -- RFC5424 time stamps.
-renderRFC3164WithRFC5424Timestamps :: LogMessageRenderer T.Text
+renderRFC3164WithRFC5424Timestamps :: LogMessageTextRenderer
 renderRFC3164WithRFC5424Timestamps =
   renderRFC3164WithTimestamp rfc5424Timestamp
 
 -- | Render a 'LogMessage' according to the rules in the RFC-3164 but use the custom
 -- 'LogMessageTimeRenderer'.
-renderRFC3164WithTimestamp :: LogMessageTimeRenderer -> LogMessageRenderer T.Text
+renderRFC3164WithTimestamp :: LogMessageTimeRenderer -> LogMessageTextRenderer
 renderRFC3164WithTimestamp renderTime l@(MkLogMessage _ _ ts hn an pid mi _ _ _ _) =
   T.unwords
     . filter (not . T.null)
@@ -196,7 +220,7 @@ renderRFC3164WithTimestamp renderTime l@(MkLogMessage _ _ ts hn an pid mi _ _ _ 
 -- Equivalent to @'renderRFC5424Header' <> const " " <> 'renderLogMessageBody'@.
 --
 -- @since 0.21.0
-renderRFC5424 :: LogMessageRenderer T.Text
+renderRFC5424 :: LogMessageTextRenderer
 renderRFC5424  = renderRFC5424Header <> const " " <> renderLogMessageBody
 
 -- | Render a 'LogMessage' according to the rules in the RFC-5424, like 'renderRFC5424' but
@@ -205,14 +229,14 @@ renderRFC5424  = renderRFC5424Header <> const " " <> renderLogMessageBody
 -- Equivalent to @'renderRFC5424Header' <> const " " <> 'renderLogMessageBodyNoLocation'@.
 --
 -- @since 0.21.0
-renderRFC5424NoLocation :: LogMessageRenderer T.Text
+renderRFC5424NoLocation :: LogMessageTextRenderer
 renderRFC5424NoLocation  = renderRFC5424Header <> const " " <> renderLogMessageBodyNoLocation
 
 -- | Render the header and strucuted data of  a 'LogMessage' according to the rules in the RFC-5424, but do not
 -- render the 'lmMessage'.
 --
 -- @since 0.22.0
-renderRFC5424Header :: LogMessageRenderer T.Text
+renderRFC5424Header :: LogMessageTextRenderer
 renderRFC5424Header l@(MkLogMessage _ _ ts hn an pid mi sd _ _ _) =
   T.unwords
     . filter (not . T.null)

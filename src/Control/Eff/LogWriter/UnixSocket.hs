@@ -7,7 +7,7 @@ where
 
 import           Control.Eff                   as Eff
 import           Control.Eff.Log
-import           Control.Eff.LogWriter.IO
+import           Control.Eff.LogWriter.Rich
 import           Data.Text                     as T
 import           Data.Text.Encoding            as T
 import qualified Control.Exception.Safe        as Safe
@@ -21,7 +21,7 @@ import           Network.Socket          hiding ( sendTo )
 import           Network.Socket.ByteString
 
 -- | Enable logging to a /unix domain socket/, with some 'LogMessage' fields preset
--- as in 'withIoLogging'.
+-- as in 'withRichLogging'.
 --
 -- See 'Control.Eff.Log.Examples.exampleDevLogSyslogLogging'
 withUnixSocketLogging
@@ -31,17 +31,17 @@ withUnixSocketLogging
   -> Text -- ^ The default application name to put into the 'lmAppName' field.
   -> Facility -- ^ The default RFC-5424 facility to put into the 'lmFacility' field.
   -> LogPredicate -- ^ The inital predicate for log messages, there are some pre-defined in "Control.Eff.Log.Message#PredefinedPredicates"
-  -> Eff (Logs : LogWriterReader (Lift IO) : e) a
+  -> Eff (Logs : LogWriterReader : e) a
   -> Eff e a
 withUnixSocketLogging render socketPath a f p e = liftBaseOp
   (withUnixSocketSocket render socketPath)
-  (\lw -> withIoLogging lw a f p e)
+  (\lw -> withRichLogging lw a f p e)
 
 -- | Enable logging to a (remote-) host via UnixSocket.
 --
 -- See 'Control.Eff.Log.Examples.exampleDevLogSyslogLogging'
 withUnixSocketLogWriter
-  :: (LogIo e, MonadBaseControl IO (Eff e), HasCallStack)
+  :: (IoLogging e, MonadBaseControl IO (Eff e), HasCallStack)
   => LogMessageRenderer Text -- ^ 'LogMessage' rendering function
   -> FilePath -- ^ Path to the socket file
   -> Eff e b
@@ -53,7 +53,7 @@ withUnixSocketSocket
   :: HasCallStack
   => LogMessageRenderer Text -- ^ 'LogMessage' rendering function
   -> FilePath -- ^ Path to the socket file
-  -> (LogWriter (Lift IO) -> IO a)
+  -> (LogWriter -> IO a)
   -> IO a
 withUnixSocketSocket render socketPath ioE = Safe.bracket
   (socket AF_UNIX Datagram defaultProtocol)
@@ -62,7 +62,7 @@ withUnixSocketSocket render socketPath ioE = Safe.bracket
       let addr = SockAddrUnix socketPath
       in
         ioE
-          (mkLogWriterIO
+          (MkLogWriter
             (\lmStr ->
               void $ sendTo s (T.encodeUtf8 (render lmStr)) addr
             )

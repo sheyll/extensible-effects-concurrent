@@ -33,13 +33,11 @@ import           Control.Eff.Concurrent.Process.ForkIOScheduler
                                                as Scheduler
 import           Control.Eff.Extend
 import           Control.Monad
-import           Control.Lens
 import           Data.Default
 import           Data.Foldable
 import           Data.Text                      ( Text
                                                 , pack
                                                 )
-import qualified Data.Text                     as T
 import           Data.Typeable           hiding ( cast )
 import           GHC.Stack
 import           Test.Tasty              hiding ( Timeout
@@ -67,28 +65,13 @@ timeoutSeconds seconds =
 runTestCase :: TestName -> Eff Effects () -> TestTree
 runTestCase msg et =
   testCase msg $ do
-    IO.hSetBuffering IO.stdout IO.LineBuffering
+    lw <- stdoutLogWriter renderConsoleMinimalisticWide
     runLift
-      $ withIoLogging (stdoutLogWriter renderMinimalisticWide) "unit-tests" local0 allLogMessages
+      $ withRichLogging lw "unit-tests" local0 allLogMessages
       $ Scheduler.schedule
       $ handleInterrupts onInt
         et
   where onInt = lift . assertFailure . show
-
--- | Render a 'LogMessage' human readable, for console logging
-renderMinimalisticWide :: LogMessageRenderer T.Text
-renderMinimalisticWide l =
-  T.unwords $ filter
-    (not . T.null)
-    [ let s = l ^. lmSeverity . to (T.pack . show)
-      in s <> T.replicate (max 0 (15 - T.length s)) " "
-    , let p = fromMaybe " no proc " (l ^. lmProcessId)
-      in p <> T.replicate (max 0 (55 - T.length p)) " "
-    , let msg = l^.lmMessage
-      in  msg <> T.replicate (max 0 (100 - T.length msg)) " "
-    -- , fromMaybe "" (renderLogMessageSrcLoc l)
-    ]
-
 
 withTestLogC :: (e -> IO ()) -> (IO (e -> IO ()) -> TestTree) -> TestTree
 withTestLogC doSchedule k = k (return doSchedule)
@@ -102,7 +85,7 @@ untilInterrupted pa = do
 
 scheduleAndAssert
   :: forall r
-   . (LogIo r)
+   . (IoLogging r)
   => IO (Eff (Processes r) () -> IO ())
   -> ((String -> Bool -> Eff (Processes r) ()) -> Eff (Processes r) ())
   -> IO ()
@@ -121,7 +104,7 @@ scheduleAndAssert schedulerFactory testCaseAction = withFrozenCallStack $ do
 
 applySchedulerFactory
   :: forall r
-   . (LogIo r)
+   . (IoLogging r)
   => IO (Eff (Processes r) () -> IO ())
   -> Eff (Processes r) ()
   -> IO ()

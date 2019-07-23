@@ -32,7 +32,7 @@ instance Show (Pdu Small r) where
 
 -- ----------------------------------------------------------------------------
 
-instance LogIo e => S.Server Small (Processes e) where
+instance IoLogging e => S.Server Small (Processes e) where
   data StartArgument Small (Processes e) = MkSmall
   newtype instance Model Small = SmallModel String deriving Default
   update _me MkSmall x =
@@ -76,7 +76,7 @@ instance HasPduPrism Big Small where
 
 -- ----------------------------------------------------------------------------
 
-instance LogIo e => S.Server Big (Processes e) where
+instance IoLogging e => S.Server Big (Processes e) where
   data instance StartArgument Big (Processes e) = MkBig
   newtype Model Big = BigModel String deriving Default
   update me MkBig = \case

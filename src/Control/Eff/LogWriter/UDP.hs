@@ -7,7 +7,7 @@ where
 
 import           Control.Eff                   as Eff
 import           Control.Eff.Log
-import           Control.Eff.LogWriter.IO
+import           Control.Eff.LogWriter.Rich
 import           Data.Text                     as T
 import           Data.Text.Encoding            as T
 import qualified Control.Exception.Safe        as Safe
@@ -21,7 +21,7 @@ import           Network.Socket          hiding ( sendTo )
 import           Network.Socket.ByteString
 
 -- | Enable logging to a remote host via __UDP__, with some 'LogMessage' fields preset
--- as in 'withIoLogging'.
+-- as in 'withRichLogging'.
 --
 -- See 'Control.Eff.Log.Examples.exampleUdpRFC3164Logging'
 withUDPLogging
@@ -32,18 +32,18 @@ withUDPLogging
   -> Text -- ^ The default application name to put into the 'lmAppName' field.
   -> Facility -- ^ The default RFC-5424 facility to put into the 'lmFacility' field.
   -> LogPredicate -- ^ The inital predicate for log messages, there are some pre-defined in "Control.Eff.Log.Message#PredefinedPredicates"
-  -> Eff (Logs : LogWriterReader (Lift IO) : e) a
+  -> Eff (Logs : LogWriterReader : e) a
   -> Eff e a
 withUDPLogging render hostname port a f p e = liftBaseOp
   (withUDPSocket render hostname port)
-  (\lw -> withIoLogging lw a f p e)
+  (\lw -> withRichLogging lw a f p e)
 
 
 -- | Enable logging to a (remote-) host via UDP.
 --
 -- See 'Control.Eff.Log.Examples.exampleUdpRFC3164Logging'
 withUDPLogWriter
-  :: (LogIo e, MonadBaseControl IO (Eff e), HasCallStack)
+  :: (IoLogging e, MonadBaseControl IO (Eff e), HasCallStack)
   => (LogMessage -> Text) -- ^ 'LogMessage' rendering function
   -> String -- ^ Hostname or IP
   -> String -- ^ Port e.g. @"514"@
@@ -58,7 +58,7 @@ withUDPSocket
   => (LogMessage -> Text) -- ^ 'LogMessage' rendering function
   -> String -- ^ Hostname or IP
   -> String -- ^ Port e.g. @"514"@
-  -> (LogWriter (Lift IO) -> IO a)
+  -> (LogWriter -> IO a)
   -> IO a
 withUDPSocket render hostname port ioE = Safe.bracket
   (do
@@ -72,7 +72,7 @@ withUDPSocket render hostname port ioE = Safe.bracket
       let addr = addrAddress a
       in
         ioE
-          (mkLogWriterIO
+          (MkLogWriter
             (\lmStr ->
               void $ sendTo s (T.encodeUtf8 (render lmStr)) addr
             )

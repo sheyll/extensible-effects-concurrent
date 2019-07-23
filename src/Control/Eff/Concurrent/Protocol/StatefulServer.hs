@@ -137,10 +137,10 @@ instance Server a q => Effectful.Server (Stateful a) q where
 --
 -- @since 0.24.0
 startLink
-  :: forall a r q h
+  :: forall a r q
   . ( HasCallStack
     , Typeable a
-    , LogsTo h (Processes q)
+    , FilteredLogging (Processes q)
     , Effectful.Server (Stateful a) (Processes q)
     , Server a (Processes q)
     , HasProcesses r q
@@ -152,13 +152,12 @@ startLink = Effectful.startLink . Init
 --
 -- @since 0.24.0
 start
-  :: forall a r q h
+  :: forall a r q
   . ( HasCallStack
     , Typeable a
     , Effectful.Server (Stateful a) (Processes q)
     , Server a (Processes q)
-    , HandleLogWriter h
-    , LogsTo h (Processes q)
+    , FilteredLogging (Processes q)
     , HasProcesses r q
     )
   => StartArgument a (Processes q) -> Eff r (Endpoint (Protocol a))

@@ -1,6 +1,6 @@
--- | Logging via @extensible-effects@
+-- | FilteredLogging via @extensible-effects@
 --
--- Logging consist of __two__ effects:
+-- FilteredLogging consist of __two__ effects:
 --
 -- * __Receiving__ log messages sent by the code using e.g. 'logInfo'; this also include deep evaluation and
 --    dropping messages not satisfying the current 'LogPredicate'.
@@ -64,10 +64,10 @@
 --
 -- === 'LogWriter's
 --
--- * Logging in a 'Control.Concurrent.Async.withAsync' spawned thread is done using 'withAsyncLogging'.
+-- * FilteredLogging in a 'Control.Concurrent.Async.withAsync' spawned thread is done using 'withAsyncLogging'.
 
 module Control.Eff.Log
-  ( -- * Logging API
+  ( -- * FilteredLogging API
     -- ** Sending Log Messages #SendingLogs#
     logMsg
   , logWithSeverity
@@ -109,14 +109,15 @@ module Control.Eff.Log
 
     -- *** Log Message Modification
   , censorLogs
-  , censorLogsM
+  , censorLogsIo
 
     -- ** 'Logs' Effect Handling
   , Logs()
-  , LogsTo
-  , LogIo
+  , FilteredLogging
+  , IoLogging
+  , LoggingAndIo
   , withLogging
-  , withSomeLogging
+  , withoutLogging
 
     -- ** Low-Level API for Custom Extensions
     -- *** Log Message Interception

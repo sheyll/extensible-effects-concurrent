@@ -18,9 +18,9 @@ test_loopTests =
             "Loops without space leaks"
             [ testCase
                     "scheduleMonadIOEff with many yields from replicateCheapM_"
-                $ do
+                $ do  lw <- consoleLogWriter
                       res <-
-                          Scheduler.scheduleIOWithLogging  consoleLogWriter
+                          Scheduler.scheduleIOWithLogging  lw
                               $ replicateCheapM_ soMany yieldProcess
                       res @=? Right ()
             , testCase
@@ -38,7 +38,7 @@ test_loopTests =
             , testCase
                     "'foreverCheap' inside a child process and 'replicateCheapM_' in the main process"
                 $ do
-                      res <- Scheduler.scheduleIOWithLogging  (mkLogWriterIO (T.putStrLn . (">>> " <>) . renderLogMessageConsoleLog))
+                      res <- Scheduler.scheduleIOWithLogging  (MkLogWriter (T.putStrLn . (">>> " <>) . renderLogMessageConsoleLog))
                               $ do
                                     me <- self
                                     spawn_ "test" (foreverCheap $ sendMessage me ())
@@ -59,7 +59,7 @@ test_loopWithLeaksTests =
             [ testCase "scheduleMonadIOEff with many yields from replicateM_"
                 $ do
                       res <-
-                          Scheduler.scheduleIOWithLogging  (mkLogWriterIO (T.putStrLn . (">>> " <>) . renderLogMessageConsoleLog))
+                          Scheduler.scheduleIOWithLogging  (MkLogWriter (T.putStrLn . (">>> " <>) . renderLogMessageConsoleLog))
                               $ replicateM_ soMany yieldProcess
                       res @=? Right ()
             , testCase
@@ -79,7 +79,7 @@ test_loopWithLeaksTests =
                     "'forever' inside a child process and 'replicateM_' in the main process"
                 $ do
                       res <-
-                          Scheduler.scheduleIOWithLogging  (mkLogWriterIO (T.putStrLn . (">>> " <>) . renderLogMessageConsoleLog))
+                          Scheduler.scheduleIOWithLogging  (MkLogWriter (T.putStrLn . (">>> " <>) . renderLogMessageConsoleLog))
                               $ do
                                     me <- self
                                     spawn_ "test" (forever $ sendMessage me ())

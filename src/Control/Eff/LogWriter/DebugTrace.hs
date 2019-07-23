@@ -9,11 +9,11 @@ where
 import           Debug.Trace
 import           Control.Eff                   as Eff
 import           Control.Eff.Log
-import           Control.Eff.LogWriter.IO
+import           Control.Eff.LogWriter.Rich
 import           Data.Text                     as T
 
 -- | Enable logging via 'traceM' using the 'debugTraceLogWriter', with some 'LogMessage' fields preset
--- as in 'withIoLogging'.
+-- as in 'withRichLogging'.
 --
 -- Log messages are rendered using 'renderLogMessageConsoleLog'.
 --
@@ -29,9 +29,9 @@ withTraceLogging
   => Text -- ^ The default application name to put into the 'lmAppName' field.
   -> Facility -- ^ The default RFC-5424 facility to put into the 'lmFacility' field.
   -> LogPredicate -- ^ The inital predicate for log messages, there are some pre-defined in "Control.Eff.Log.Message#PredefinedPredicates"
-  -> Eff (Logs : LogWriterReader (Lift IO) : e) a
+  -> Eff (Logs : LogWriterReader : e) a
   -> Eff e a
-withTraceLogging = withIoLogging (debugTraceLogWriter renderLogMessageConsoleLog)
+withTraceLogging = withRichLogging (debugTraceLogWriter renderLogMessageConsoleLog)
 
 
 -- | Enable logging via 'traceM' using the 'debugTraceLogWriter'. The
@@ -44,12 +44,12 @@ withTraceLogging = withIoLogging (debugTraceLogWriter renderLogMessageConsoleLog
 -- > exampleWithTraceLogWriter :: IO ()
 -- > exampleWithTraceLogWriter =
 -- >     runLift
--- >   $ withSomeLogging @IO
+-- >   $ withoutLogging @IO
 -- >   $ withTraceLogWriter
 -- >   $ logInfo "Oh, hi there"
-withTraceLogWriter :: forall h e a . (Monad (LogWriterM h), LogsTo h e) => Eff e a -> Eff e a
-withTraceLogWriter = addLogWriter @h (debugTraceLogWriter renderLogMessageConsoleLog)
+withTraceLogWriter :: IoLogging e => Eff e a -> Eff e a
+withTraceLogWriter = addLogWriter (debugTraceLogWriter renderLogMessageConsoleLog)
 
 -- | Write 'LogMessage's  via 'traceM'.
-debugTraceLogWriter :: forall h . (Monad (LogWriterM h)) => LogMessageRenderer Text -> LogWriter h
+debugTraceLogWriter :: LogMessageTextRenderer -> LogWriter
 debugTraceLogWriter render = MkLogWriter (traceM . T.unpack . render)

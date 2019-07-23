@@ -1,5 +1,20 @@
 # Changelog for extensible-effects-concurrent
 
+## 0.31.0
+
+- **Logging**
+   - Fix runtime crash caused by logging
+     See: [#2](https://github.com/sheyll/extensible-effects-concurrent/issues/2)            
+    - Replace polymorphic `LogWriter` with
+      a monomorphic one based on `IO`
+    - Rename type aliases:
+       - `LogsTo` -> `FilteredLogging`
+       - `LogIo` -> `IoLogging`
+    - Remove `Capturing` log writer
+    - Remove `Capturing` log writer
+    - Fix ghci log buffering issue 
+       [#1](https://github.com/sheyll/extensible-effects-concurrent/issues/1) 
+    
 ## 0.30.0
 - Improve inline code documentation
 - **Supervisor:** 

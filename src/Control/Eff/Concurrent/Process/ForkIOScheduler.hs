@@ -31,7 +31,6 @@ import qualified Control.Eff.ExceptionExtra    as ExcExtra
                                                 ( )
 import           Control.Eff.Extend
 import           Control.Eff.Log
-import           Control.Eff.LogWriter.IO
 import           Control.Eff.LogWriter.Console
 import           Control.Eff.LogWriter.Async
 import           Control.Eff.Reader.Strict     as Reader
@@ -119,11 +118,11 @@ logSchedulerState s = do
     return (np, pt, pct, pm, nm)
   logDebug "ForkIO Scheduler info"
   logDebug $ "nextPid: " <> np
-  logDebug $ "process table:"
+  logDebug "process table:"
   traverse_ logDebug pt
-  logDebug $ "process cancellation table:"
+  logDebug "process cancellation table:"
   traverse_ logDebug pct
-  logDebug $ "process monitors:"
+  logDebug "process monitors:"
   traverse_ logDebug pm
   logDebug $ "nextMonitorIndex: " <> nm
 
@@ -149,7 +148,7 @@ addMonitoring monitorRef@(MonitorReference _ target) owner schedulerState =
                check (   targetState == ProcessShuttingDown
                       || targetState == ProcessBusyReceiving
                       || targetState == ProcessIdle)
-               if targetState /= ProcessShuttingDown then do
+               if targetState /= ProcessShuttingDown then
                 insertMonitoringReference >> pure 1
                else
                 processAlreadyDead >> pure 2
@@ -175,7 +174,7 @@ triggerAndRemoveMonitor downPid reason schedulerState = do
   monRefs <- readTVar (schedulerState ^. processMonitors)
   catMaybes <$> traverse go (toList monRefs)
  where
-  go (mr, owner) = do
+  go (mr, owner) =
     if monitoredProcess mr == downPid
      then do
         let processDownMessage = ProcessDown mr reason downPid
@@ -293,12 +292,14 @@ type BaseEffects = Reader SchedulerState : LoggingAndIo
 -- | Start the message passing concurrency system then execute a 'Process' on
 -- top of 'BaseEffects' effect. All logging is sent to standard output.
 defaultMain :: HasCallStack => Eff Effects () -> IO ()
-defaultMain = defaultMainWithLogWriter consoleLogWriter
+defaultMain e = do
+  lw <- consoleLogWriter
+  defaultMainWithLogWriter lw e
 
 -- | Start the message passing concurrency system then execute a 'Process' on
 -- top of 'BaseEffects' effect. All logging is sent to standard output.
 defaultMainWithLogWriter
-  :: HasCallStack => LogWriter (Lift IO) -> Eff Effects () -> IO ()
+  :: HasCallStack => LogWriter -> Eff Effects () -> IO ()
 defaultMainWithLogWriter lw =
   runLift . withLogging lw . withAsyncLogWriter (1024 :: Int) . schedule
 
@@ -555,7 +556,7 @@ handleProcess myProcessInfo actionToRun = fix
         >>= lift
         .   atomically
         .   enqueueMessageOtherProcess toPid msg
-    interpretSendShutdownOrInterrupt !toPid !msg = do
+    interpretSendShutdownOrInterrupt !toPid !msg =
       setMyProcessState
           (either (const ProcessBusySendingShutdown)
                   (const ProcessBusySendingInterrupt)
@@ -682,7 +683,7 @@ spawnNewProcess mLinkedParent title mfa = do
     let addProcessId = over
           lmProcessId
           (maybe (Just (T.pack (show title ++ show pid))) Just)
-    in  censorLogs @(Lift IO) addProcessId
+    in  censorLogs addProcessId
   triggerProcessLinksAndMonitors
     :: ProcessId -> Interrupt 'NoRecovery -> TVar (Set ProcessId) -> Eff BaseEffects ()
   triggerProcessLinksAndMonitors !pid !reason !linkSetVar = do
@@ -730,7 +731,7 @@ spawnNewProcess mLinkedParent title mfa = do
         )
       )
       res
-    when (not (null downMessageSendResults)) $
+    unless (null downMessageSendResults) $
       logWarning
         (  "failed to enqueue monitor down messages for: "
         <> T.pack(show downMessageSendResults)

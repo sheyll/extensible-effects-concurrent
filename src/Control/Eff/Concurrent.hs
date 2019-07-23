@@ -38,7 +38,7 @@ module Control.Eff.Concurrent
     module Control.Eff.Concurrent.Protocol.Observer
   ,
     -- * Utilities
-    -- ** Logging Effect
+    -- ** FilteredLogging Effect
     module Control.Eff.Log
   ,
     -- ** Log Writer
@@ -54,14 +54,11 @@ module Control.Eff.Concurrent
     -- *** UDP
     module Control.Eff.LogWriter.UDP
 
-  , -- *** Non-IO Log Message Capturing
-    module Control.Eff.LogWriter.Capture
-
   , -- *** "Debug.Trace"
     module Control.Eff.LogWriter.DebugTrace
 
   , -- *** Generic IO
-    module Control.Eff.LogWriter.IO
+    module Control.Eff.LogWriter.Rich
 
   , -- *** Unix Domain Socket
     module Control.Eff.LogWriter.UnixSocket
@@ -253,11 +250,10 @@ import           Control.Eff.Concurrent.Process.ForkIOScheduler
                                                 )
 import           Control.Eff.Log
 import           Control.Eff.LogWriter.Async
-import           Control.Eff.LogWriter.Capture
 import           Control.Eff.LogWriter.Console
 import           Control.Eff.LogWriter.DebugTrace
 import           Control.Eff.LogWriter.File
-import           Control.Eff.LogWriter.IO
+import           Control.Eff.LogWriter.Rich
 import           Control.Eff.LogWriter.UDP
 import           Control.Eff.LogWriter.UnixSocket
 import           Control.Eff.Loop

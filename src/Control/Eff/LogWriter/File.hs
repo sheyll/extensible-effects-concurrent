@@ -7,7 +7,7 @@ where
 
 import           Control.Eff                   as Eff
 import           Control.Eff.Log
-import           Control.Eff.LogWriter.IO
+import           Control.Eff.LogWriter.Rich
 import           GHC.Stack
 import           Data.Text                     as T
 import qualified System.IO                     as IO
@@ -22,7 +22,7 @@ import           Control.Monad.Trans.Control    ( MonadBaseControl
                                                 )
 
 -- | Enable logging to a file, with some 'LogMessage' fields preset
--- as described in 'withIoLogging'.
+-- as described in 'withRichLogging'.
 --
 -- If the file or its directory does not exist, it will be created.
 --
@@ -31,20 +31,21 @@ import           Control.Monad.Trans.Control    ( MonadBaseControl
 -- > exampleWithFileLogging :: IO ()
 -- > exampleWithFileLogging =
 -- >     runLift
--- >   $ withFileLogging "/var/log/my-app.log" "my-app" local7 allLogMessages
+-- >   $ withFileLogging "/var/log/my-app.log" "my-app" local7 allLogMessages renderLogMessageConsoleLog
 -- >   $ logInfo "Oh, hi there"
 --
--- To vary the 'LogWriter' use 'withIoLogging'.
+-- To vary the 'LogWriter' use 'withRichLogging'.
 withFileLogging
-  :: (Lifted IO e, MonadBaseControl IO (Eff e))
+  :: (Lifted IO e, MonadBaseControl IO (Eff e), HasCallStack)
   => FilePath -- ^ Path to the log-file.
   -> Text -- ^ The default application name to put into the 'lmAppName' field.
   -> Facility -- ^ The default RFC-5424 facility to put into the 'lmFacility' field.
   -> LogPredicate -- ^ The inital predicate for log messages, there are some pre-defined in "Control.Eff.Log.Message#PredefinedPredicates"
-  -> Eff (Logs : LogWriterReader (Lift IO) : e) a
+  -> LogMessageTextRenderer -- ^ The 'LogMessage' render function
+  -> Eff (Logs : LogWriterReader : e) a
   -> Eff e a
-withFileLogging fnIn a f p e = do
-  liftBaseOp (withOpenedLogFile fnIn) (\lw -> withIoLogging lw a f p e)
+withFileLogging fnIn a f p render e = do
+  liftBaseOp (withOpenedLogFile fnIn render) (\lw -> withRichLogging lw a f p e)
 
 
 -- | Enable logging to a file.
@@ -55,19 +56,25 @@ withFileLogging fnIn a f p e = do
 -- > exampleWithFileLogWriter :: IO ()
 -- > exampleWithFileLogWriter =
 -- >     runLift
--- >   $ withSomeLogging @IO
--- >   $ withFileLogWriter "test.log"
+-- >   $ withoutLogging
+-- >   $ withFileLogWriter "test.log" renderLogMessageConsoleLog
 -- >   $ logInfo "Oh, hi there"
 withFileLogWriter
-  :: (LogIo e, MonadBaseControl IO (Eff e))
+  :: (IoLogging e, MonadBaseControl IO (Eff e), HasCallStack)
   => FilePath -- ^ Path to the log-file.
+  -> LogMessageTextRenderer
   -> Eff e b
   -> Eff e b
-withFileLogWriter fnIn e =
-  liftBaseOp (withOpenedLogFile fnIn) (`addLogWriter` e)
+withFileLogWriter fnIn render e =
+  liftBaseOp (withOpenedLogFile fnIn render) (`addLogWriter` e)
 
-withOpenedLogFile :: HasCallStack => FilePath -> (LogWriter (Lift IO) -> IO a) -> IO a
-withOpenedLogFile fnIn ioE = Safe.bracket
+withOpenedLogFile
+  :: HasCallStack
+  => FilePath
+  -> LogMessageTextRenderer
+  -> (LogWriter -> IO a)
+  -> IO a
+withOpenedLogFile fnIn render ioE = Safe.bracket
   (do
     fnCanon <- canonicalizePath fnIn
     createDirectoryIfMissing True (takeDirectory fnCanon)
@@ -76,4 +83,4 @@ withOpenedLogFile fnIn ioE = Safe.bracket
     return h
   )
   (\h -> Safe.try @IO @Catch.SomeException (IO.hFlush h) >> IO.hClose h)
-  (\h -> ioE (ioHandleLogWriter h))
+  (\h -> ioE (ioHandleLogWriter h render))

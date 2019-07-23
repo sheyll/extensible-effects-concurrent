@@ -10,7 +10,6 @@ import qualified Control.Eff.Concurrent.Process.ForkIOScheduler
 import qualified Control.Eff.Concurrent.Process.SingleThreadedScheduler
                                                as SingleThreaded
 import           Control.Applicative
-import           Control.Lens                   ( view )
 import           Data.List                      ( sort )
 import           Data.Foldable                  ( traverse_ )
 import           Data.Maybe
@@ -24,14 +23,15 @@ testInterruptReason = ErrorInterrupt "test interrupt"
 
 test_forkIo :: TestTree
 test_forkIo = setTravisTestOptions $ withTestLogC
-  (\c ->
-    runLift
-      $ withLogging
-          (filteringLogWriter (lmSeverityIsAtLeast errorSeverity)
-                              consoleLogWriter
-          )
-      $ withAsyncLogWriter (100 :: Int)
-      $ ForkIO.schedule c
+  (\c -> do
+            lw <- stdoutLogWriter renderConsoleMinimalisticWide
+            runLift
+              $ withLogging
+                  (filteringLogWriter (lmSeverityIsAtLeast errorSeverity)
+                                      lw
+                  )
+              $ withAsyncLogWriter (100 :: Int)
+              $ ForkIO.schedule c
   )
   (\factory -> testGroup "ForkIOScheduler" [allTests factory])
 
@@ -40,17 +40,19 @@ test_singleThreaded :: TestTree
 test_singleThreaded = setTravisTestOptions $ withTestLogC
   (\e ->
     let runEff :: Eff LoggingAndIo a -> IO a
-        runEff = runLift . withLogging
-          (mkLogWriterIO
-            (\m -> when (view lmSeverity m < errorSeverity) (printLogMessage m))
-          )
+        runEff e' = do
+          lw <- stdoutLogWriter renderConsoleMinimalisticWide
+          runLift
+           $ withLogging
+               (filteringLogWriter (lmSeverityIsAtLeast errorSeverity) lw)
+               e'
     in  void $ SingleThreaded.scheduleM runEff yield e
   )
   (\factory -> testGroup "SingleThreadedScheduler" [allTests factory])
 
 allTests
   :: forall r
-   . (LogIo r, Typeable r)
+   . (IoLogging r, Typeable r)
   => IO (Eff (Processes r) () -> IO ())
   -> TestTree
 allTests schedulerFactory = localOption
@@ -111,7 +113,7 @@ stopReturnToSender toP = call toP StopReturnToSender
 
 returnToSenderServer
   :: forall q
-   . (HasCallStack, LogIo q, Typeable q)
+   . (HasCallStack, IoLogging q, Typeable q)
   => Eff (Processes q) (Endpoint ReturnToSender)
 returnToSenderServer = Callback.startLink @ReturnToSender $ Callback.onEvent
   (\evt -> case evt of
@@ -128,7 +130,7 @@ returnToSenderServer = Callback.startLink @ReturnToSender $ Callback.onEvent
 
 selectiveReceiveTests
   :: forall r
-   . (LogIo r, Typeable r)
+   . (IoLogging r, Typeable r)
   => IO (Eff (Processes r) () -> IO ())
   -> TestTree
 selectiveReceiveTests schedulerFactory = setTravisTestOptions
@@ -208,7 +210,7 @@ selectiveReceiveTests schedulerFactory = setTravisTestOptions
 
 
 delayTests
-  :: forall r . (LogIo r) => IO (Eff (Processes r) () -> IO ()) -> TestTree
+  :: forall r . (IoLogging r) => IO (Eff (Processes r) () -> IO ()) -> TestTree
 delayTests schedulerFactory =
   let maxN = 100000
   in  setTravisTestOptions
@@ -262,7 +264,7 @@ delayTests schedulerFactory =
         )
 
 yieldLoopTests
-  :: forall r . (LogIo r) => IO (Eff (Processes r) () -> IO ()) -> TestTree
+  :: forall r . (IoLogging r) => IO (Eff (Processes r) () -> IO ()) -> TestTree
 yieldLoopTests schedulerFactory =
   let maxN = 100000
   in  setTravisTestOptions
@@ -301,7 +303,7 @@ data Pong = Pong
 instance NFData Pong
 
 pingPongTests
-  :: forall r . (LogIo r) => IO (Eff (Processes r) () -> IO ()) -> TestTree
+  :: forall r . (IoLogging r) => IO (Eff (Processes r) () -> IO ()) -> TestTree
 pingPongTests schedulerFactory = testGroup
   "Yield Tests"
   [ testCase "ping pong a message between two processes, both don't yield"
@@ -373,7 +375,7 @@ pingPongTests schedulerFactory = testGroup
   ]
 
 errorTests
-  :: forall r . (LogIo r) => IO (Eff (Processes r) () -> IO ()) -> TestTree
+  :: forall r . (IoLogging r) => IO (Eff (Processes r) () -> IO ()) -> TestTree
 errorTests schedulerFactory = testGroup
   "causing and handling errors"
   [ testGroup
@@ -416,7 +418,7 @@ errorTests schedulerFactory = testGroup
   ]
 
 concurrencyTests
-  :: forall r . (LogIo r) => IO (Eff (Processes r) () -> IO ()) -> TestTree
+  :: forall r . (IoLogging r) => IO (Eff (Processes r) () -> IO ()) -> TestTree
 concurrencyTests schedulerFactory =
   let n = 100
   in
@@ -533,7 +535,7 @@ concurrencyTests schedulerFactory =
       ]
 
 exitTests
-  :: forall r . (LogIo r) => IO (Eff (Processes r) () -> IO ()) -> TestTree
+  :: forall r . (IoLogging r) => IO (Eff (Processes r) () -> IO ()) -> TestTree
 exitTests schedulerFactory =
   testGroup "process exit tests"
     $ [ testGroup
@@ -705,7 +707,7 @@ exitTests schedulerFactory =
 
 
 sendShutdownTests
-  :: forall r . (LogIo r) => IO (Eff (Processes r) () -> IO ()) -> TestTree
+  :: forall r . (IoLogging r) => IO (Eff (Processes r) () -> IO ()) -> TestTree
 sendShutdownTests schedulerFactory = testGroup
   "sendShutdown"
   [ testCase "... self" $ applySchedulerFactory schedulerFactory $ do
@@ -801,7 +803,7 @@ sendShutdownTests schedulerFactory = testGroup
   ]
 
 linkingTests
-  :: forall r . (LogIo r) => IO (Eff (Processes r) () -> IO ()) -> TestTree
+  :: forall r . (IoLogging r) => IO (Eff (Processes r) () -> IO ()) -> TestTree
 linkingTests schedulerFactory = setTravisTestOptions
   (testGroup
     "process linking tests"
@@ -1021,7 +1023,7 @@ linkingTests schedulerFactory = setTravisTestOptions
   )
 
 monitoringTests
-  :: forall r . (LogIo r) => IO (Eff (Processes r) () -> IO ()) -> TestTree
+  :: forall r . (IoLogging r) => IO (Eff (Processes r) () -> IO ()) -> TestTree
 monitoringTests schedulerFactory = setTravisTestOptions
   (testGroup
     "process monitoring tests"
@@ -1123,7 +1125,7 @@ monitoringTests schedulerFactory = setTravisTestOptions
   )
 
 timerTests
-  :: forall r . (LogIo r) => IO (Eff (Processes r) () -> IO ()) -> TestTree
+  :: forall r . (IoLogging r) => IO (Eff (Processes r) () -> IO ()) -> TestTree
 timerTests schedulerFactory = setTravisTestOptions
   (testGroup
     "process timer tests"
@@ -1179,7 +1181,7 @@ timerTests schedulerFactory = setTravisTestOptions
   )
 
 processDetailsTests
-  :: forall r . (LogIo r) => IO (Eff (Processes r) () -> IO ()) -> TestTree
+  :: forall r . (IoLogging r) => IO (Eff (Processes r) () -> IO ()) -> TestTree
 processDetailsTests schedulerFactory = setTravisTestOptions
   (testGroup
     "process info tests"
