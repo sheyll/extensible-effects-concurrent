@@ -13,24 +13,12 @@ where
 
 import           Control.Eff                   as Eff
 import           Control.Eff.Log
-import           Control.Eff.Extend
+import           Control.Monad                  ( (>=>) )
 import           Control.Lens                   (set)
 import           Data.Text
 import qualified System.IO                     as IO
 import           GHC.Stack
 import qualified Data.Text.IO                  as T
-import           Data.Function                  ( fix )
-import           Control.Monad                  ( (>=>)
-                                                , when
-                                                )
-import           Control.Monad.Base             ( MonadBase() )
-import qualified Control.Monad.Catch           as Catch
-import           Control.Monad.Trans.Control    ( MonadBaseControl
-                                                  ( restoreM
-                                                  , liftBaseWith
-                                                  , StM
-                                                  )
-                                                )
 
 -- | A 'LogWriter' that uses an 'IO' action to write the message.
 --
@@ -94,62 +82,8 @@ defaultIoLogWriter appName facility = mappingLogWriterM
   )
 
 -- | The concrete list of 'Eff'ects for logging with an IO based 'LogWriter', and a 'LogWriterReader'.
-type LoggingAndIo = '[Logs, LogWriterReader IoLogger, IoLogger, Lift IO]
+type LoggingAndIo = '[Logs, LogWriterReader (Lift IO), Lift IO]
 
 -- | Render a 'LogMessage' but set the timestamp and thread id fields.
 printLogMessage :: LogMessage -> IO ()
 printLogMessage = T.putStrLn . renderLogMessageConsoleLog
-
-data IoLogger v where
-  IoLogger :: IoLogger ()
-
--- | Embed 'IO' actions consuming all 'LogMessage's
---
--- @since 0.29.1
-instance HandleLogWriter IoLogger where
-  newtype instance LogWriterM IoLogger a = IOLogWriter { runIOLogWriter :: IO a }
-          deriving (Applicative, Functor, Monad)
-  handleLogWriterEffect = send . Lift . runIOLogWriter
-
-instance Handle IoLogger e a k where
-  handle k q IoLogger  = k (q ^$ ())
-
-runIoLogger :: Lifted IO e => Eff (IoLogger ': e) a -> Eff e a
-runIoLogger = fix (handle_relay return)
-
-instance forall r. (Lifted IO r, LiftedBase IO r)
-  => MonadBaseControl IO (Eff (IoLogger ': r)) where
-  type StM (Eff (IoLogger ': r)) a =  StM (Eff r) a
-  liftBaseWith f =
-    raise (liftBaseWith (\runInBase -> f (runInBase . runIoLogger)))
-  restoreM = raise . restoreM
-
-instance (LiftedBase IO r, Catch.MonadThrow (Eff r))
-  => Catch.MonadThrow (Eff (IoLogger ': r)) where
-  throwM exception = raise (Catch.throwM exception)
-
-instance (LiftedBase IO r, Catch.MonadCatch (Eff r))
-  => Catch.MonadCatch (Eff (IoLogger ': r)) where
-  catch effect handler = do
-    let nestedEffects = runIoLogger effect
-        nestedHandler exception = runIoLogger (handler exception)
-    raise (Catch.catch nestedEffects nestedHandler)
-
-instance (LiftedBase IO r, Catch.MonadMask (Eff r))
-  => Catch.MonadMask (Eff (IoLogger ': r)) where
-  mask maskedEffect =
-    raise
-      (Catch.mask
-        (\nestedUnmask -> runIoLogger (maskedEffect (raise . nestedUnmask . runIoLogger)))
-      )
-  uninterruptibleMask maskedEffect =
-    raise
-      (Catch.uninterruptibleMask
-        (\nestedUnmask -> runIoLogger (maskedEffect (raise . nestedUnmask . runIoLogger)))
-      )
-  generalBracket acquire release useIt =
-    raise
-      (Catch.generalBracket (runIoLogger acquire)
-                            (((.) . (.)) runIoLogger release)
-                            (runIoLogger . useIt)
-      )
