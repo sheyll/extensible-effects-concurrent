@@ -17,3 +17,5 @@ TAGS
 /dist/
 /dist-new/
 /out/
+*.hie
+*.dump-hi
