@@ -10,8 +10,7 @@ import           Control.Lens
 main :: IO ()
 main =
   runLift
-  $  withoutLogging @(Lift IO)
-  $  withFileLogWriter  "extensible-effects-concurrent-example-3.log"
+  $  withFileLogging  "extensible-effects-concurrent-example-3.log" "test-app" local0 allLogMessages renderConsoleMinimalisticWide
   $  addLogWriter (filteringLogWriter severeMessages (mappingLogWriter (lmMessage %~ ("traced: " <>)) (debugTraceLogWriter renderRFC5424)))
   $  modifyLogWriter (richLogWriter "example-3" local0)
   $  addLogWriter (filteringLogWriter severeMessages (mappingLogWriter (lmMessage %~ ("traced without timestamp: " <>)) (debugTraceLogWriter renderRFC5424)))
