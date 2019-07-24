@@ -97,7 +97,7 @@ instance (IoLogging q) => Server SupiCounter (Processes q) where
     , Maybe (ReplyTarget SupiCounter (Maybe ()))
     )
 
-  data instance StartArgument SupiCounter (Processes q) = MkEmptySupiCounter
+  data instance StartArgument SupiCounter = MkEmptySupiCounter
 
   setup _ _ = return (SupiCounterModel (0, emptyObserverRegistry, Nothing), ())
 
@@ -160,7 +160,7 @@ logCounterObservations
 logCounterObservations = startLink OCCStart
 
 instance Member Logs q => Server (Observer CounterChanged) (Processes q) where
-  data instance StartArgument (Observer CounterChanged) (Processes q) = OCCStart
+  data instance StartArgument (Observer CounterChanged) = OCCStart
   newtype instance Model (Observer CounterChanged) = CounterChangedModel () deriving Default
   update _ _ e =
     case e of

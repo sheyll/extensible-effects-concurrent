@@ -227,7 +227,7 @@ withWriter eventSource e = do
 instance (Typeable event, Lifted IO q, Member Logs q) => Server (ObservationQueue event) (Processes q) where
   type instance Protocol (ObservationQueue event) = Observer event
 
-  data instance StartArgument (ObservationQueue event) (Processes q) =
+  data instance StartArgument (ObservationQueue event) =
      MkObservationQueue (ObservationQueue event)
 
   newtype instance Model (ObservationQueue event) = MkObservationQueueModel () deriving Default

@@ -214,7 +214,7 @@ instance
   , Member Logs e
   ) => Stateful.Server (Watchdog child) (Processes e) where
 
-  data instance StartArgument (Watchdog child) (Processes e) =
+  data instance StartArgument (Watchdog child) =
     StartWatchDog { _crashRate :: CrashRate
                   }
       deriving Typeable
@@ -327,7 +327,7 @@ instance
 
 -- ------------------ Start Argument
 
-crashRate :: Lens' (Stateful.StartArgument (Watchdog child) (Processes e)) CrashRate
+crashRate :: Lens' (Stateful.StartArgument (Watchdog child)) CrashRate
 crashRate = lens _crashRate (\m x -> m {_crashRate = x})
 
 -- ----------------- Crash Rate

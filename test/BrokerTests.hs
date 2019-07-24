@@ -361,7 +361,7 @@ instance Stateful.Server TestProtocol Effects where
             exitBecause (interruptToExit x)
       _ ->
         logDebug (pack (show tId) <> ": got some info: " <> pack (show evt))
-  data instance StartArgument TestProtocol Effects = TestServerArgs TestProtocolServerMode Int
+  data instance StartArgument TestProtocol = TestServerArgs TestProtocolServerMode Int
 
 type instance ChildId TestProtocol = Int
 

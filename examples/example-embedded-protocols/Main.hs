@@ -78,7 +78,7 @@ embeddedExample = do
 
 instance Stateful.Server App Effects where
   newtype instance Model App = MkApp (Maybe SomeBackend) deriving Default
-  data instance StartArgument App Effects = InitApp
+  data instance StartArgument App = InitApp
   update me _x e =
     case e of
       OnCall rt (SetBackend b) -> do
@@ -203,7 +203,7 @@ data Backend1 deriving Typeable
 instance Stateful.Server Backend1 Effects where
   type instance Protocol Backend1 = (Backend, ObserverRegistry BackendEvent)
   newtype instance Model Backend1 = MkBackend1 (Int, ObserverRegistry BackendEvent)
-  data instance StartArgument Backend1 Effects = InitBackend1
+  data instance StartArgument Backend1 = InitBackend1
   setup _ _ = pure ( MkBackend1 (0, emptyObserverRegistry), () )
   update me _ e = do
     model <- getModel @Backend1
@@ -259,7 +259,7 @@ instance HasPduPrism Backend2 (ObserverRegistry BackendEvent) where
 
 instance Effectful.Server Backend2 Effects where
   type instance ServerEffects Backend2 Effects = State Int ': ObserverRegistryState BackendEvent ': Effects
-  data instance Init Backend2 Effects = InitBackend2 Int
+  data instance Init Backend2 = InitBackend2 Int
   serverTitle (InitBackend2 x) = fromString ("backend-2: " ++ show x)
   runEffects _me _ e =  evalObserverRegistryState (evalState 0 e)
   onEvent me _ e = do

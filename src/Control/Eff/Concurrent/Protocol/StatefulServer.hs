@@ -67,7 +67,7 @@ import Data.Monoid (First)
 class (Typeable (Protocol a)) => Server (a :: Type) q where
   -- | The value that defines what is required to initiate a 'Server'
   -- loop.
-  data StartArgument a q
+  data StartArgument a
   -- | The index type of the 'Event's that this server processes.
   -- This is the first parameter to the 'Request' and therefore of
   -- the 'Pdu' family.
@@ -87,28 +87,28 @@ class (Typeable (Protocol a)) => Server (a :: Type) q where
   -- while it is running.
   --
   -- @since 0.30.0
-  title :: StartArgument a q -> ProcessTitle
+  title :: StartArgument a -> ProcessTitle
 
-  default title :: Typeable a => StartArgument a q -> ProcessTitle
+  default title :: Typeable a => StartArgument a -> ProcessTitle
   title _ = fromString $ showSTypeable @a ""
 
   -- | Return an initial 'Model' and 'Settings'
   setup ::
        Endpoint (Protocol a)
-    -> StartArgument a q
+    -> StartArgument a
     -> Eff q (Model a, Settings a)
 
   default setup ::
        (Default (Model a), Default (Settings a))
     => Endpoint (Protocol a)
-    -> StartArgument a q
+    -> StartArgument a
     -> Eff q (Model a, Settings a)
   setup _ _ = pure (def, def)
 
   -- | Update the 'Model' based on the 'Event'.
   update ::
        Endpoint (Protocol a)
-    -> StartArgument a q
+    -> StartArgument a
     -> Effectful.Event (Protocol a)
     -> Eff (ModelState a ': SettingsReader a ': q) ()
 
@@ -121,7 +121,7 @@ class (Typeable (Protocol a)) => Server (a :: Type) q where
 data Stateful a deriving Typeable
 
 instance Server a q => Effectful.Server (Stateful a) q where
-  data Init (Stateful a) q = Init (StartArgument a q)
+  data Init (Stateful a) = Init (StartArgument a)
   type ServerPdu (Stateful a) = Protocol a
   type ServerEffects (Stateful a) q = ModelState a ': SettingsReader a ': q
 
@@ -131,7 +131,7 @@ instance Server a q => Effectful.Server (Stateful a) q where
 
   onEvent selfEndpoint (Init sa) = update selfEndpoint sa
 
-  serverTitle (Init startArg) = title startArg
+  serverTitle (Init startArg) = title @_ @q startArg
 
 -- | Execute the server loop.
 --
@@ -145,7 +145,7 @@ startLink
     , Server a (Processes q)
     , HasProcesses r q
     )
-  => StartArgument a (Processes q) -> Eff r (Endpoint (Protocol a))
+  => StartArgument a -> Eff r (Endpoint (Protocol a))
 startLink = Effectful.startLink . Init
 
 -- | Execute the server loop. Please use 'startLink' if you can.
@@ -160,7 +160,7 @@ start
     , FilteredLogging (Processes q)
     , HasProcesses r q
     )
-  => StartArgument a (Processes q) -> Eff r (Endpoint (Protocol a))
+  => StartArgument a -> Eff r (Endpoint (Protocol a))
 start = Effectful.start . Init
 
 -- | The 'Eff'ect type of mutable 'Model' in a 'Server' instance.

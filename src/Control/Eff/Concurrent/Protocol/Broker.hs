@@ -112,7 +112,7 @@ startLink
     , TangibleBroker p
     , Stateful.Server (Broker p) (Processes e)
     )
-  => Stateful.StartArgument (Broker p) (Processes e)
+  => Stateful.StartArgument (Broker p)
   -> Eff (Processes e) (Endpoint (Broker p))
 startLink = Stateful.startLink
 
@@ -124,13 +124,13 @@ startLink = Stateful.startLink
 statefulChild
   :: forall p e
   . ( HasCallStack
-    , IoLogging (Processes e)
+    , IoLogging e
     , TangibleBroker (Stateful.Stateful p)
-    , Stateful.Server (Broker (Stateful.Stateful p)) (Processes e)
+    , Stateful.Server (Broker (Stateful.Stateful p)) e
     )
   => Timeout
-  -> (ChildId p -> Stateful.StartArgument p (Processes e))
-  -> Stateful.StartArgument (Broker (Stateful.Stateful p)) (Processes e)
+  -> (ChildId p -> Stateful.StartArgument p)
+  -> Stateful.StartArgument (Broker (Stateful.Stateful p))
 statefulChild t f = MkBrokerConfig t (Stateful.Init . f)
 
 -- | Stop the broker and shutdown all processes.
@@ -452,10 +452,10 @@ instance
   -- * the 'Timeout' after requesting a normal child exit before brutally killing the child.
   --
   -- @since 0.24.0
-  data instance StartArgument (Broker p) (Processes q) = MkBrokerConfig
+  data instance StartArgument (Broker p) = MkBrokerConfig
     {
       brokerConfigChildStopTimeout :: Timeout
-    , brokerConfigStartFun :: ChildId p -> Effectful.Init p (Processes q)
+    , brokerConfigStartFun :: ChildId p -> Effectful.Init p
     }
 
   data instance Model (Broker p) =

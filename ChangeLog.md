@@ -1,5 +1,10 @@
 # Changelog for extensible-effects-concurrent
 
+## 0.32.0
+
+- **Protocol-Server**
+    - Remove effect parameter from `StartArgument` and `Init`
+
 ## 0.31.0
 
 - **Logging**

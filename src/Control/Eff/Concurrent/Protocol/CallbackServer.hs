@@ -44,7 +44,7 @@ start
   :: forall (tag :: Type) eLoop q e.
      ( HasCallStack
      , TangibleCallbacks tag eLoop q
-     , E.Server (Server tag eLoop) (Processes q)
+     , E.Server (Server tag eLoop q) (Processes q)
      , FilteredLogging (Processes q)
      , HasProcesses e q
      )
@@ -60,7 +60,7 @@ startLink
   :: forall (tag :: Type) eLoop q e.
      ( HasCallStack
      , TangibleCallbacks tag eLoop q
-     , E.Server (Server tag eLoop) (Processes q)
+     , E.Server (Server tag eLoop q) (Processes q)
      , FilteredLogging (Processes q)
      , HasProcesses e q
      )
@@ -71,7 +71,7 @@ startLink = E.startLink
 -- | Phantom type to indicate a callback based 'E.Server' instance.
 --
 -- @since 0.27.0
-data Server tag eLoop deriving Typeable
+data Server tag eLoop e deriving Typeable
 
 -- | The constraints for a /tangible/ 'Server' instance.
 --
@@ -99,10 +99,10 @@ instance (Typeable tag) => Show (ServerId tag) where
       . showSTypeRep (typeOf px)
       )
 
-instance (TangibleCallbacks tag eLoop e) => E.Server (Server (tag :: Type) eLoop) (Processes e) where
-  type ServerPdu (Server tag eLoop) = tag
-  type ServerEffects (Server tag eLoop) (Processes e) = eLoop
-  data instance Init (Server tag eLoop) (Processes e) =
+instance (TangibleCallbacks tag eLoop e) => E.Server (Server (tag :: Type) eLoop e) (Processes e) where
+  type ServerPdu (Server tag eLoop e) = tag
+  type ServerEffects (Server tag eLoop e) (Processes e) = eLoop
+  data instance Init (Server tag eLoop e) =
         MkServer
          { genServerId :: ServerId tag
          , genServerRunEffects :: forall x . (Endpoint tag -> Eff eLoop x -> Eff (Processes e) x)
@@ -111,10 +111,10 @@ instance (TangibleCallbacks tag eLoop e) => E.Server (Server (tag :: Type) eLoop
   runEffects myEp svr = genServerRunEffects svr myEp
   onEvent myEp svr = genServerOnEvent svr myEp
 
-instance (TangibleCallbacks tag eLoop e) => NFData (E.Init (Server (tag :: Type) eLoop) (Processes e)) where
+instance (TangibleCallbacks tag eLoop e) => NFData (E.Init (Server (tag :: Type) eLoop e)) where
   rnf (MkServer x y z) = rnf x `seq` y `seq` z `seq` ()
 
-instance (TangibleCallbacks tag eLoop e) => Show (E.Init (Server (tag :: Type) eLoop) (Processes e)) where
+instance (TangibleCallbacks tag eLoop e) => Show (E.Init (Server (tag :: Type) eLoop e)) where
   showsPrec d svr =
     showParen (d>=10)
       ( showsPrec 11 (genServerId svr)
@@ -139,7 +139,7 @@ callbacks
   :: forall tag q.
      ( HasCallStack
      , TangibleCallbacks tag (Processes q) q
-     , E.Server (Server tag (Processes q)) (Processes q)
+     , E.Server (Server tag (Processes q) q) (Processes q)
      , FilteredLogging q
      )
   => (Endpoint tag -> Event tag -> Eff (Processes q) ())
@@ -154,7 +154,7 @@ onEvent
   :: forall tag q .
      ( HasCallStack
      , TangibleCallbacks tag (Processes q) q
-     , E.Server (Server tag (Processes q)) (Processes q)
+     , E.Server (Server tag (Processes q) q) (Processes q)
      , FilteredLogging q
      )
   => (Event tag -> Eff (Processes q) ())
@@ -169,7 +169,7 @@ onEvent = onEventEff id
 -- See 'Callbacks'.
 --
 -- @since 0.29.1
-type CallbacksEff tag eLoop e = E.Init (Server tag eLoop) (Processes e)
+type CallbacksEff tag eLoop e = E.Init (Server tag eLoop e)
 
 -- | A smart constructor for 'CallbacksEff'.
 --
@@ -178,7 +178,7 @@ callbacksEff
   :: forall tag eLoop q.
      ( HasCallStack
      , TangibleCallbacks tag eLoop q
-     , E.Server (Server tag eLoop) (Processes q)
+     , E.Server (Server tag eLoop q) (Processes q)
      , FilteredLogging q
      )
   => (forall x . Endpoint tag -> Eff eLoop x -> Eff (Processes q) x)
@@ -194,7 +194,7 @@ onEventEff
   ::
     ( HasCallStack
     , TangibleCallbacks tag eLoop q
-    , E.Server (Server tag eLoop) (Processes q)
+    , E.Server (Server tag eLoop q) (Processes q)
     , FilteredLogging q
     )
   => (forall a. Eff eLoop a -> Eff (Processes q) a)

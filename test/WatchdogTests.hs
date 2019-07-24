@@ -32,7 +32,7 @@ test_watchdogTests =
           wd <- Watchdog.startLink def
           unlinkProcess (wd ^. fromEndpoint)
           do
-            broker <- Broker.startLink (Broker.statefulChild @BookShelf (TimeoutMicros 1_000_000) id)
+            broker <- Broker.startLink (Broker.statefulChild @BookShelf @Effects (TimeoutMicros 1_000_000) id)
             unlinkProcess (broker ^. fromEndpoint)
             logNotice "started broker"
             Watchdog.attachTemporary wd broker
@@ -41,7 +41,7 @@ test_watchdogTests =
             logNotice "stopped broker"
 
           do
-            broker <- Broker.startLink (Broker.statefulChild @BookShelf (TimeoutMicros 1_000_000) id)
+            broker <- Broker.startLink (Broker.statefulChild @BookShelf @Effects (TimeoutMicros 1_000_000) id)
             unlinkProcess (broker ^. fromEndpoint)
             logNotice "started new broker"
             Watchdog.attachTemporary wd broker
@@ -61,7 +61,7 @@ test_watchdogTests =
           unlinkProcess (wd ^. fromEndpoint)
           logNotice "started watchdog"
           do
-            broker <- Broker.startLink (Broker.statefulChild @BookShelf (TimeoutMicros 1_000_000) id)
+            broker <- Broker.startLink (Broker.statefulChild @BookShelf @Effects (TimeoutMicros 1_000_000) id)
             unlinkProcess (broker ^. fromEndpoint)
             logNotice "started broker"
             Watchdog.attachPermanent wd broker
@@ -82,7 +82,7 @@ test_watchdogTests =
           unlinkProcess (wd ^. fromEndpoint)
           logNotice "started watchdog"
           do
-            broker <- Broker.startLink (Broker.statefulChild @BookShelf (TimeoutMicros 1_000_000) id)
+            broker <- Broker.startLink (Broker.statefulChild @BookShelf @Effects (TimeoutMicros 1_000_000) id)
             unlinkProcess (broker ^. fromEndpoint)
             logNotice "started broker"
             Watchdog.attachTemporary wd broker
@@ -99,7 +99,7 @@ test_watchdogTests =
           unlinkProcess (wd ^. fromEndpoint)
           logNotice "started watchdog"
           do
-            broker <- Broker.startLink (Broker.statefulChild @BookShelf (TimeoutMicros 1_000_000) id)
+            broker <- Broker.startLink (Broker.statefulChild @BookShelf @Effects (TimeoutMicros 1_000_000) id)
             unlinkProcess (broker ^. fromEndpoint)
             logNotice "started broker"
             Watchdog.attachPermanent wd broker
@@ -114,7 +114,7 @@ test_watchdogTests =
             assertShutdown (broker ^. fromEndpoint) expected
             logNotice "crashed broker"
           do
-            broker <- Broker.startLink (Broker.statefulChild @BookShelf (TimeoutMicros 1_000_000) id)
+            broker <- Broker.startLink (Broker.statefulChild @BookShelf @Effects (TimeoutMicros 1_000_000) id)
             unlinkProcess (broker ^. fromEndpoint)
             logNotice "started new broker"
             Watchdog.attachTemporary wd broker
@@ -132,7 +132,7 @@ test_watchdogTests =
           mwd <- monitor (wd ^. fromEndpoint)
           logNotice "started watchdog"
           do
-            broker <- Broker.startLink (Broker.statefulChild @BookShelf (TimeoutMicros 1_000_000) id)
+            broker <- Broker.startLink (Broker.statefulChild @BookShelf @Effects (TimeoutMicros 1_000_000) id)
             unlinkProcess (broker ^. fromEndpoint)
             logNotice "started broker"
             Watchdog.attachTemporary wd broker
@@ -161,18 +161,18 @@ test_watchdogTests =
           wdMon <- monitor (wd ^. fromEndpoint)
           logNotice "started watchdog"
           do
-            broker1 <- Broker.startLink (Broker.statefulChild @BookShelf (TimeoutMicros 1_000_000) id)
+            broker1 <- Broker.startLink (Broker.statefulChild @BookShelf @Effects (TimeoutMicros 1_000_000) id)
             unlinkProcess (broker1^.fromEndpoint)
             logNotice "started broker 1"
             Watchdog.attachPermanent wd broker1
             logNotice "attached + linked broker 1"
 
-            broker2 <- Broker.startLink (Broker.statefulChild @BookShelf (TimeoutMicros 1_000_000) id)
+            broker2 <- Broker.startLink (Broker.statefulChild @BookShelf @Effects (TimeoutMicros 1_000_000) id)
             logNotice "started broker 2"
             Watchdog.attachTemporary wd broker2
             logNotice "attached broker 2"
 
-            broker3 <- Broker.startLink (Broker.statefulChild @BookShelf (TimeoutMicros 1_000_000) id)
+            broker3 <- Broker.startLink (Broker.statefulChild @BookShelf @Effects (TimeoutMicros 1_000_000) id)
             logNotice "started broker 3"
             Watchdog.attachTemporary wd broker3
             logNotice "attached broker 3"
@@ -199,7 +199,7 @@ test_watchdogTests =
       ]
     , testGroup "restarting children"
       [ runTestCase "test 7: when a child exits it is restarted" $ do
-          broker <- Broker.startLink (Broker.statefulChild @BookShelf (TimeoutMicros 1_000_000) id)
+          broker <- Broker.startLink (Broker.statefulChild @BookShelf @Effects (TimeoutMicros 1_000_000) id)
           logNotice "started broker"
           wd <- Watchdog.startLink def
           logNotice "started watchdog"
@@ -211,7 +211,7 @@ test_watchdogTests =
 
       , runTestCase "test 8: when the broker emits the shutting down\
                     \ event the watchdog does not restart children" $ do
-          broker <- Broker.startLink (Broker.statefulChild @BookShelf (TimeoutMicros 1_000_000) id)
+          broker <- Broker.startLink (Broker.statefulChild @BookShelf @Effects (TimeoutMicros 1_000_000) id)
           unlinkProcess (broker ^. fromEndpoint)
           logNotice "started broker"
           wd <- Watchdog.startLink def
@@ -235,7 +235,7 @@ test_watchdogTests =
           logNotice "watchdog stopped"
 
       , runTestCase "test 9: a child is only restarted if it crashes" $ do
-          broker <- Broker.startLink (Broker.statefulChild @BookShelf (TimeoutMicros 1_000_000) id)
+          broker <- Broker.startLink (Broker.statefulChild @BookShelf @Effects (TimeoutMicros 1_000_000) id)
           logNotice "started broker"
           wd <- Watchdog.startLink def
           logNotice "started watchdog"
@@ -262,7 +262,7 @@ test_watchdogTests =
           in  [ runTestCase "test 10: if a child crashes 3 times in 300ms, waits 1.1 seconds\
                             \ and crashes again 3 times, and is restarted three times" $ do
 
-                  broker <- Broker.startLink (Broker.statefulChild @BookShelf (TimeoutMicros 1_000_000) id)
+                  broker <- Broker.startLink (Broker.statefulChild @BookShelf @Effects (TimeoutMicros 1_000_000) id)
                   logNotice "started broker"
                   wd <- Watchdog.startLink threeTimesASecond
                   logNotice "started watchdog"
@@ -289,7 +289,7 @@ test_watchdogTests =
 
               , runTestCase "test 11: if a child crashes 4 times within 1s it is not restarted\
                             \ and the watchdog exits with an error" $ do
-                  broker <- Broker.startLink (Broker.statefulChild @BookShelf (TimeoutMicros 1_000_000) id)
+                  broker <- Broker.startLink (Broker.statefulChild @BookShelf @Effects (TimeoutMicros 1_000_000) id)
                   logNotice "started broker"
                   wd <- Watchdog.startLink threeTimesASecond
                   logNotice "started watchdog"
@@ -322,7 +322,7 @@ test_watchdogTests =
               , runTestCase "test 12: if a child of a linked broker crashes too often,\
                             \ the watchdog exits with an error and interrupts the broker" $ do
 
-                  broker <- Broker.startLink (Broker.statefulChild @BookShelf (TimeoutMicros 1_000_000) id)
+                  broker <- Broker.startLink (Broker.statefulChild @BookShelf @Effects (TimeoutMicros 1_000_000) id)
                   logNotice "started broker"
                   unlinkProcess (broker ^. fromEndpoint)
                   mBroker <- monitor (broker ^. fromEndpoint)
@@ -371,11 +371,11 @@ test_watchdogTests =
                   unlinkProcess (wd ^. fromEndpoint)
                   logNotice "started watchdog"
 
-                  brokerT <- Broker.startLink (Broker.statefulChild @BookShelf (TimeoutMicros 1_000_000) id)
+                  brokerT <- Broker.startLink (Broker.statefulChild @BookShelf @Effects (TimeoutMicros 1_000_000) id)
                   unlinkProcess (brokerT^.fromEndpoint)
                   logNotice "started temporary broker"
 
-                  brokerP <- Broker.startLink (Broker.statefulChild @BookShelf (TimeoutMicros 1_000_000) id)
+                  brokerP <- Broker.startLink (Broker.statefulChild @BookShelf @Effects (TimeoutMicros 1_000_000) id)
                   unlinkProcess (brokerP^.fromEndpoint)
                   logNotice "started permanent broker"
 
@@ -427,7 +427,7 @@ test_watchdogTests =
                   wd <- Watchdog.startLink (1 `Watchdog.crashesPerSeconds` 1)
                   logNotice "started watchdog"
 
-                  brokerT <- Broker.startLink (Broker.statefulChild @BookShelf (TimeoutMicros 1_000_000) id)
+                  brokerT <- Broker.startLink (Broker.statefulChild @BookShelf @Effects (TimeoutMicros 1_000_000) id)
                   logNotice "started temporary broker"
 
                   OQ.observe @(Broker.ChildEvent (Stateful BookShelf)) (100 :: Int) brokerT $ do
@@ -452,7 +452,7 @@ test_watchdogTests =
                   wd <- Watchdog.startLink (1 `Watchdog.crashesPerSeconds` 10)
                   logNotice "started watchdog"
 
-                  brokerT <- Broker.startLink (Broker.statefulChild @BookShelf (TimeoutMicros 1_000_000) id)
+                  brokerT <- Broker.startLink (Broker.statefulChild @BookShelf @Effects (TimeoutMicros 1_000_000) id)
                   logNotice "started temporary broker"
 
                   OQ.observe @(Broker.ChildEvent (Stateful BookShelf)) (100 :: Int) brokerT $ do
@@ -492,11 +492,11 @@ test_watchdogTests =
                   setup k = do
                     wd <- Watchdog.startLink (4 `Watchdog.crashesPerSeconds` 30)
                     logNotice "started watchdog"
-                    brokerT <- Broker.startLink (Broker.statefulChild @BookShelf (TimeoutMicros 1_000_000) id)
+                    brokerT <- Broker.startLink (Broker.statefulChild @BookShelf @Effects (TimeoutMicros 1_000_000) id)
                     logNotice "started temporary broker"
                     Watchdog.attachTemporary wd brokerT
                     logNotice "attached temporary broker"
-                    brokerP <- Broker.startLink (Broker.statefulChild @BookShelf (TimeoutMicros 1_000_000) id)
+                    brokerP <- Broker.startLink (Broker.statefulChild @BookShelf @Effects (TimeoutMicros 1_000_000) id)
                     logNotice "started permanent broker"
                     Watchdog.attachTemporary wd brokerP
                     logNotice "attached permanent broker"
@@ -586,7 +586,7 @@ test_watchdogTests =
 bookshelfDemo :: HasCallStack => Eff Effects ()
 bookshelfDemo = do
   logNotice "Bookshelf Demo Begin"
-  broker <- Broker.startLink (Broker.statefulChild @BookShelf (TimeoutMicros 1_000_000) id)
+  broker <- Broker.startLink (Broker.statefulChild @BookShelf @Effects (TimeoutMicros 1_000_000) id)
   shelf1 <- Broker.spawnOrLookup broker (BookShelfId 1)
   call shelf1 (AddBook "Solaris")
   call shelf1 GetBookList >>= logDebug . pack . show
@@ -687,7 +687,7 @@ instance HasPdu BookShelf where
       deriving Typeable
 
 instance Stateful.Server BookShelf Effects where
-  newtype StartArgument BookShelf Effects = BookShelfId Int
+  newtype StartArgument BookShelf = BookShelfId Int
     deriving (Show, Eq, Ord, Num, NFData, Typeable)
 
   newtype instance Model BookShelf = BookShelfModel (Set String) deriving (Eq, Show, Default)
@@ -722,7 +722,7 @@ instance Stateful.Server BookShelf Effects where
 bookShelfModel :: Iso' (Stateful.Model BookShelf) (Set String)
 bookShelfModel = iso (\(BookShelfModel s) -> s) BookShelfModel
 
-type instance Broker.ChildId BookShelf = Stateful.StartArgument BookShelf Effects
+type instance Broker.ChildId BookShelf = Stateful.StartArgument BookShelf
 
 instance NFData (Pdu BookShelf r) where
   rnf GetBookList = ()

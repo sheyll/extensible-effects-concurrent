@@ -44,7 +44,7 @@ class Server (a :: Type) (e :: [Type -> Type])
   where
   -- | The value that defines what is required to initiate a 'Server'
   -- loop.
-  data Init a e
+  data Init a
 
   -- | The index type of the 'Event's that this server processes.
   -- This is the first parameter to the 'Request' and therefore of
@@ -61,21 +61,21 @@ class Server (a :: Type) (e :: [Type -> Type])
   -- | Return the 'ProcessTitle'.
   --
   -- Usually you should rely on the default implementation
-  serverTitle :: Init a e -> ProcessTitle
+  serverTitle :: Init a -> ProcessTitle
 
-  default serverTitle :: Typeable a => Init a e -> ProcessTitle
+  default serverTitle :: Typeable a => Init a -> ProcessTitle
   serverTitle _ = fromString $ showSTypeable @a ""
 
   -- | Process the effects of the implementation
-  runEffects :: Endpoint (ServerPdu a) -> Init a e -> Eff (ServerEffects a e) x -> Eff e x
+  runEffects :: Endpoint (ServerPdu a) -> Init a -> Eff (ServerEffects a e) x -> Eff e x
 
-  default runEffects :: ServerEffects a e ~ e => Endpoint (ServerPdu a) -> Init a e -> Eff (ServerEffects a e) x -> Eff e x
+  default runEffects :: ServerEffects a e ~ e => Endpoint (ServerPdu a) -> Init a -> Eff (ServerEffects a e) x -> Eff e x
   runEffects _ = const id
 
   -- | Update the 'Model' based on the 'Event'.
-  onEvent :: Endpoint (ServerPdu a) -> Init a e -> Event (ServerPdu a) -> Eff (ServerEffects a e) ()
+  onEvent :: Endpoint (ServerPdu a) -> Init a -> Event (ServerPdu a) -> Eff (ServerEffects a e) ()
 
-  default onEvent :: (Show (Init a e),  Member Logs (ServerEffects a e)) => Endpoint (ServerPdu a) -> Init a e -> Event (ServerPdu a) -> Eff (ServerEffects a e) ()
+  default onEvent :: (Show (Init a),  Member Logs (ServerEffects a e)) => Endpoint (ServerPdu a) -> Init a -> Event (ServerPdu a) -> Eff (ServerEffects a e) ()
   onEvent _ i e = logInfo ("unhandled: " <> T.pack (show i) <> " " <> T.pack (show e))
 
 
@@ -91,9 +91,9 @@ start
     , HasProcesses (ServerEffects a (Processes q)) q
     , HasProcesses r q
     , HasCallStack)
-  => Init a (Processes q)
+  => Init a
   -> Eff r (Endpoint (ServerPdu a))
-start a = asEndpoint <$> spawn (serverTitle a) (protocolServerLoop a)
+start a = asEndpoint <$> spawn (serverTitle @_ @(Processes q) a) (protocolServerLoop a)
 
 -- | Execute the server loop.
 --
@@ -107,9 +107,9 @@ startLink
     , HasProcesses (ServerEffects a (Processes q)) q
     , HasProcesses r q
     , HasCallStack)
-  => Init a (Processes q)
+  => Init a
   -> Eff r (Endpoint (ServerPdu a))
-startLink a = asEndpoint <$> spawnLink (serverTitle a) (protocolServerLoop a)
+startLink a = asEndpoint <$> spawnLink (serverTitle @_ @(Processes q) a) (protocolServerLoop a)
 
 -- | Execute the server loop.
 --
@@ -122,7 +122,7 @@ protocolServerLoop
        , Typeable a
        , Typeable (ServerPdu a)
        )
-  => Init a (Processes q) -> Eff (Processes q) ()
+  => Init a -> Eff (Processes q) ()
 protocolServerLoop a = do
   myEp <- asEndpoint @(ServerPdu a) <$> self
   logDebug ("starting")
@@ -138,13 +138,13 @@ protocolServerLoop a = do
         onRequest :: Request (ServerPdu a) -> Event (ServerPdu a)
         onRequest (Call o m) = OnCall (replyTarget (MkSerializer toStrictDynamic) o) m
         onRequest (Cast m) = OnCast m
-    handleInt myEp i = onEvent myEp a (OnInterrupt i) *> pure Nothing
+    handleInt myEp i = onEvent @_ @(Processes q) myEp a (OnInterrupt i) *> pure Nothing
     mainLoop :: (Typeable a)
       => Endpoint (ServerPdu a)
       -> Either (Interrupt 'Recoverable) (Event (ServerPdu a))
       -> Eff (ServerEffects a (Processes q)) (Maybe ())
     mainLoop myEp (Left i) = handleInt myEp i
-    mainLoop myEp (Right i) = onEvent myEp a i *> pure Nothing
+    mainLoop myEp (Right i) = onEvent @_ @(Processes q) myEp a i *> pure Nothing
 
 -- | This event sum-type is used to communicate incoming messages and other events to the
 -- instances of 'Server'.
