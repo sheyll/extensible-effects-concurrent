@@ -13,6 +13,7 @@ import           Control.Eff                   as Eff
 import           Control.Eff.Log
 import           Control.Eff.LogWriter.Rich
 import           Control.Exception              ( evaluate )
+import           Control.Lens
 import           Control.Monad                  ( unless, when )
 import           Control.Monad.Trans.Control    ( MonadBaseControl
                                                 , liftBaseOp
@@ -107,7 +108,17 @@ makeLogChannelWriter lc = MkLogWriter logChannelPutIO
  where
   logChannelPutIO (force -> me) = do
     !m <- evaluate me
-    atomically (writeTBQueue logQ m)
+    isFull <- atomically (
+      if m^.lmSeverity <= warningSeverity then do
+        writeTBQueue logQ m
+        return False
+      else do
+        isFull <- isFullTBQueue logQ
+        unless isFull (writeTBQueue logQ m)
+        return isFull
+      )
+    when isFull $
+      threadDelay 1_000
   logQ = fromLogChannel lc
 
 data LogChannel = ConcurrentLogChannel

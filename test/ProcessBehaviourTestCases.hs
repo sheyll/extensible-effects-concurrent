@@ -1238,12 +1238,22 @@ processDetailsTests schedulerFactory = setTravisTestOptions
             (do
               let expected1 = "test details 1"
                   expected2 = "test details 2"
-              updateProcessDetails expected1
-              (_, actual1, _) <- fromJust <$> (self >>= getProcessState)
+              parent <- self
+              testPid <- spawnLink "test" $ do
+                updateProcessDetails expected1
+                sendMessage parent ()
+                () <- receiveMessage
+                updateProcessDetails expected2
+                sendMessage parent ()
+                receiveMessage
+              () <- receiveMessage
+              (_, actual1, _) <- fromJust <$> (getProcessState testPid)
               lift (assertEqual "1" expected1 actual1)
-              updateProcessDetails expected2
-              (_, actual2, _) <- fromJust <$> (self >>= getProcessState)
+              sendMessage testPid ()
+              () <- receiveMessage
+              (_, actual2, _) <- fromJust <$> (getProcessState testPid)
               lift (assertEqual "2" expected2 actual2)
+              sendMessage testPid ()
             )
           )
       ]
