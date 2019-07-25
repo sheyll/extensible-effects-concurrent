@@ -50,10 +50,12 @@ richLogWriter
   -> Facility -- ^ The default RFC-5424 facility to put into the 'lmFacility' field.
   -> LogWriter -- ^ The IO based writer to decorate
   -> LogWriter
-richLogWriter appName facility = mappingLogWriterIO
-  (   setLogMessageTimestamp
-  >=> setLogMessageHostname
-  >=> pure
-  .   set lmFacility facility
-  .   set lmAppName  (Just appName)
-  )
+richLogWriter appName facility =
+  mappingLogWriterIO
+    (   setLogMessageTimestamp
+    >=> setLogMessageHostname
+    )
+  . mappingLogWriter
+    ( set lmFacility facility
+    . set lmAppName  (Just appName)
+    )

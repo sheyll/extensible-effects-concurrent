@@ -5,6 +5,7 @@ module Control.Eff.LogWriter.Async
   )
 where
 
+import           Control.Concurrent (threadDelay)
 import           Control.Concurrent.Async
 import           Control.Concurrent.STM
 import           Control.DeepSeq
@@ -12,7 +13,7 @@ import           Control.Eff                   as Eff
 import           Control.Eff.Log
 import           Control.Eff.LogWriter.Rich
 import           Control.Exception              ( evaluate )
-import           Control.Monad                  ( unless )
+import           Control.Monad                  ( unless, when )
 import           Control.Monad.Trans.Control    ( MonadBaseControl
                                                 , liftBaseOp
                                                 )
@@ -106,11 +107,7 @@ makeLogChannelWriter lc = MkLogWriter logChannelPutIO
  where
   logChannelPutIO (force -> me) = do
     !m <- evaluate me
-    atomically
-      (do
-        dropMessage <- isFullTBQueue logQ
-        unless dropMessage (writeTBQueue logQ m)
-      )
+    atomically (writeTBQueue logQ m)
   logQ = fromLogChannel lc
 
 data LogChannel = ConcurrentLogChannel

@@ -107,24 +107,24 @@ data SchedulerState = SchedulerState
 
 makeLenses ''SchedulerState
 
-logSchedulerState :: (HasCallStack, Member Logs e, Lifted IO e) => SchedulerState -> Eff e ()
-logSchedulerState s = do
-  (np, pt, pct, pm, nm) <- lift $ atomically $ do
+renderSchedulerState :: SchedulerState -> IO ProcessDetails
+renderSchedulerState s = do
+  (np, pt, pct, pm, nm) <- atomically $ do
     np  <- T.pack . show <$> readTVar (s ^. nextPid)
-    pt  <- fmap (T.pack . show) <$> readTVar (s ^. processTable)
-    pct <- fmap (T.pack . show) . Map.keys <$> readTVar (s ^. processCancellationTable)
-    pm  <- fmap (T.pack . show) . Set.toList <$> readTVar (s ^. processMonitors)
+    pt  <- T.pack . show . Map.size <$> readTVar (s ^. processTable)
+    pct <- T.pack . show . Map.size <$> readTVar (s ^. processCancellationTable)
+    pm  <- T.pack . show . Set.size  <$> readTVar (s ^. processMonitors)
     nm  <- T.pack . show <$> readTVar (s ^. nextMonitorIndex)
     return (np, pt, pct, pm, nm)
-  logDebug "ForkIO Scheduler info"
-  logDebug $ "nextPid: " <> np
-  logDebug "process table:"
-  traverse_ logDebug pt
-  logDebug "process cancellation table:"
-  traverse_ logDebug pct
-  logDebug "process monitors:"
-  traverse_ logDebug pm
-  logDebug $ "nextMonitorIndex: " <> nm
+  return
+    $ MkProcessDetails
+    $ T.unlines
+        [ "ForkIO Scheduler nextPid: " <> np
+        , "ForkIO Scheduler process table entries: " <> pt
+        , "ForkIO Scheduler process cancellation table entries: " <> pct
+        , "ForkIO Scheduler process monitors entries: " <> pm
+        , "ForkIO Scheduler nextMonitorIndex: " <> nm
+        ]
 
 -- | Allocate a new 'MonitorReference'
 nextMonitorReference :: ProcessId -> SchedulerState -> STM MonitorReference
@@ -171,6 +171,11 @@ addMonitoring monitorRef@(MonitorReference _ target) owner schedulerState =
 triggerAndRemoveMonitor
   :: ProcessId -> Interrupt 'NoRecovery -> SchedulerState -> STM [ProcessId]
 triggerAndRemoveMonitor downPid reason schedulerState = do
+  -- remove the monitor entries that the downPid process owned:
+  modifyTVar' (schedulerState ^. processMonitors)
+              (Set.filter (\(_, downPid') -> downPid' /= downPid))
+  -- now send the process down message and remove the entries that monitor
+  -- the downPid process:
   monRefs <- readTVar (schedulerState ^. processMonitors)
   catMaybes <$> traverse go (toList monRefs)
  where
@@ -252,7 +257,7 @@ withNewSchedulerState mainProcessAction = Safe.bracketWithError
     void
       (liftBaseWith
         (\runS -> timeout
-          5000000
+          5_000_000
           (  Async.mapConcurrently
               (\a -> do
                 Async.cancel a
@@ -526,14 +531,16 @@ handleProcess myProcessInfo actionToRun = fix
     interpretGetProcessState !toPid = do
       setMyProcessState ProcessBusy
       schedulerState <- getSchedulerState
-      when (toPid == 1) $
-        logSchedulerState schedulerState
       let procInfoVar = schedulerState ^. processTable
+      initPd <- if toPid == 1
+                    then Just <$> lift (renderSchedulerState schedulerState)
+                    else pure Nothing
       lift $ atomically $ do
         procInfoTable <- readTVar procInfoVar
         traverse (\toProcInfo -> do
                       (pDetails, pState) <- readTVar (toProcInfo ^. processState)
-                      return (toProcInfo ^. processTitle, pDetails, pState))
+                      let pDetails' = fromMaybe pDetails initPd
+                      return (toProcInfo ^. processTitle, pDetails', pState))
                  (procInfoTable ^. at toPid)
     interpretUpdateDetails !td = do
       setMyProcessState ProcessBusyUpdatingDetails
@@ -781,9 +788,9 @@ spawnNewProcess mLinkedParent title mfa = do
    where
     exitReasonFromException exc = case Safe.fromException exc of
       Just Async.AsyncCancelled -> ExitProcessCancelled Nothing
-      Nothing -> ExitUnhandledError (  "runtime exception: "
+      Nothing -> ExitUnhandledError (  "runtime exception:\n"
                                     <> T.pack (prettyCallStack callStack)
-                                    <> " "
+                                    <> "\n"
                                     <> T.pack (Safe.displayException exc)
                                     )
     logExitAndTriggerLinksAndMonitors reason pid = do

@@ -4,6 +4,15 @@
 
 - **Protocol-Server**
     - Remove effect parameter from `StartArgument` and `Init`
+    
+- **ForkIO Scheduler**
+    - Fix monitor reference leak
+    - Shorten the process detail output,
+      and return it from `getProcessState`
+
+- **Async Logging**
+    - Fix the Asynchronous LogWriter so it does not stop logging after a flood of log messages
+    
 
 ## 0.31.0
 
