@@ -97,9 +97,9 @@ withAsyncLogChannel queueLen ioWriter action = do
  where
   logLoop tq = do
     ms <- atomically $ do
-      h <- readTBQueue tq
-      t <- flushTBQueue tq
-      return (h : t)
+      isEmpty <- isEmptyTBQueue logQ
+      when isEmpty retry
+      flushTBQueue tq
     traverse_ ioWriter ms
     logLoop tq
 
