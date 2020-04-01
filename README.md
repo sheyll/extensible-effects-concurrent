@@ -10,7 +10,7 @@ This project is an attempt to implement core ideas learned from the **Erlang/OTP
 framework in Haskell using **[extensible-effects](http://hackage.haskell.org/package/extensible-effects)**.
 
 This library sketches my personal history of working on a large, real world Erlang
-application, trying to bring some of the ideas over to Haskell.
+application, trying to bring some ideas over to Haskell.
 
 I know about cloud-haskell and transient, but I wanted something based on 
 'extensible-effects', and I also wanted to deepen my understanding of it.
@@ -245,11 +245,11 @@ This library offers an API for defining practically safe to
   in internal state called __Model__, and some nice 
   helper functions to access the model. These functions
   allow the use of lenses. 
-  Unlike the effectful server, the effects that the 
+  Unlike the effect server, the effects that the 
   callback functions can use are defined in this module.
 
 * [CallbackServer](./src/Control/Eff/Concurrent/Protocol/CallbackServer.hs) A server based on the `EffectfulServer` that does not require a type class
-   instance like the stateful and effectful servers do.
+   instance like the stateful and effect servers do.
    It can be used to define _inline_ servers.
   
 #### Events and Observers
@@ -269,8 +269,7 @@ stuff that crashes, this is done in conjunction by two modules:
 * [Watchdog](./src/Control/Eff/Concurrent/Protocol/Watchdog.hs)
 
 A client of a process that might be restarted cannot use the `ProcessId` 
-directly, but has to use an abstract ID and lookup the `ProcessId` from a 
-process **[broker](./src/Control/Eff/Concurrent/Protocol/Broker.hs)**, that manages the current `ProcessId` of protocol server
+directly, but has to use an abstract ID and lookup the `ProcessId` from a process **[broker](./src/Control/Eff/Concurrent/Protocol/Broker.hs)**, that manages the current `ProcessId` of protocol server
 processes.
 
 That way, when ever the server process registered at a broker crashes,
@@ -278,7 +277,7 @@ That way, when ever the server process registered at a broker crashes,
 
 ### Additional services
 
-Currently a **logging effect** is also part of the code base.
+Currently, a **logging effect** is also part of the code base.
 
 ## Usage and Implementation
 
@@ -292,7 +291,6 @@ choose different Scheduler implementations.
 
 - AllowAmbiguousTypes
 - TypeApplications
-
 
 ## Planned Features
 
