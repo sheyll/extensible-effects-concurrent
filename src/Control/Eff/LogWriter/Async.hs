@@ -88,7 +88,7 @@ withAsyncLogChannel
   :: forall a len
    . (Integral len)
   => len
-  -> (LogMessage -> IO ())
+  -> (LogEvent -> IO ())
   -> (LogChannel -> IO a)
   -> IO a
 withAsyncLogChannel queueLen ioWriter action = do
@@ -122,6 +122,6 @@ makeLogChannelWriter lc = MkLogWriter logChannelPutIO
   logQ = fromLogChannel lc
 
 data LogChannel = ConcurrentLogChannel
-  { fromLogChannel :: TBQueue LogMessage
+  { fromLogChannel :: TBQueue LogEvent
   , _logChannelThread :: Async ()
   }

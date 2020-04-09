@@ -21,7 +21,7 @@ import           Control.Monad.Trans.Control    ( MonadBaseControl
                                                 , liftBaseOp
                                                 )
 
--- | Enable logging to a file, with some 'LogMessage' fields preset
+-- | Enable logging to a file, with some 'LogEvent' fields preset
 -- as described in 'withRichLogging'.
 --
 -- If the file or its directory does not exist, it will be created.
@@ -41,7 +41,7 @@ withFileLogging
   -> Text -- ^ The default application name to put into the 'lmAppName' field.
   -> Facility -- ^ The default RFC-5424 facility to put into the 'lmFacility' field.
   -> LogPredicate -- ^ The inital predicate for log messages, there are some pre-defined in "Control.Eff.Log.Message#PredefinedPredicates"
-  -> LogMessageTextRenderer -- ^ The 'LogMessage' render function
+  -> LogMessageTextRenderer -- ^ The 'LogEvent' render function
   -> Eff (Logs : LogWriterReader : e) a
   -> Eff e a
 withFileLogging fnIn a f p render e = do

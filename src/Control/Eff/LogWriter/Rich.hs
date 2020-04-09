@@ -1,4 +1,4 @@
--- | Enrich 'LogMessage's with timestamps and OS dependent information.
+-- | Enrich 'LogEvent's with timestamps and OS dependent information.
 module Control.Eff.LogWriter.Rich
   ( richLogWriter
   , withRichLogging
@@ -37,7 +37,7 @@ withRichLogging lw appName facility defaultPredicate =
   withLogging (richLogWriter appName facility lw)
     . setLogPredicate defaultPredicate
 
--- | Decorate an IO based 'LogWriter' to fill out these fields in 'LogMessage's:
+-- | Decorate an IO based 'LogWriter' to fill out these fields in 'LogEvent's:
 --
 -- * The messages will carry the given application name in the 'lmAppName' field.
 -- * The 'lmTimestamp' field contains the UTC time of the log event
@@ -52,8 +52,8 @@ richLogWriter
   -> LogWriter
 richLogWriter appName facility =
   mappingLogWriterIO
-    (   setLogMessageTimestamp
-    >=> setLogMessageHostname
+    (   setLogEventsTimestamp
+    >=> setLogEventsHostname
     )
   . mappingLogWriter
     ( set lmFacility facility

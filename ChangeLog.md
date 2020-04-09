@@ -4,7 +4,7 @@
 
 - **Protocol-Server**
     - Remove effect parameter from `StartArgument` and `Init`
-    
+
 - **ForkIO Scheduler**
     - Fix monitor reference leak
     - Shorten the process detail output,
@@ -12,13 +12,13 @@
 
 - **Async Logging**
     - Fix the Asynchronous LogWriter so it does not stop logging after a flood of log messages
-    
+
 
 ## 0.31.0
 
 - **Logging**
    - Fix runtime crash caused by logging
-     See: [#2](https://github.com/sheyll/extensible-effects-concurrent/issues/2)            
+     See: [#2](https://github.com/sheyll/extensible-effects-concurrent/issues/2)
     - Replace polymorphic `LogWriter` with
       a monomorphic one based on `IO`
     - Rename type aliases:
@@ -26,14 +26,14 @@
        - `LogIo` -> `IoLogging`
     - Remove `Capturing` log writer
     - Remove `Capturing` log writer
-    - Fix ghci log buffering issue 
-       [#1](https://github.com/sheyll/extensible-effects-concurrent/issues/1) 
-    
+    - Fix ghci log buffering issue
+       [#1](https://github.com/sheyll/extensible-effects-concurrent/issues/1)
+
 ## 0.30.0
 - Improve inline code documentation
-- **Supervisor:** 
-    - Rename to **[Broker](./src/Control/Eff/Concurrent/Protocol/Broker.hs)**  
-    - Add the `ChildEvent` needed by the new **watchdog**  
+- **Supervisor:**
+    - Rename to **[Broker](./src/Control/Eff/Concurrent/Protocol/Broker.hs)**
+    - Add the `ChildEvent` needed by the new **watchdog**
     - Add `callById` and `castById`
 - [Process](./src/Control/Eff/Concurrent/Process.hs)
     - Introduce a new `Interrupt NoRecovery` clause: `ExitOtherProcessNotRunning`
@@ -42,26 +42,26 @@
       for all categories with an existential
       parameter, that must have `NFData`, `Show`
       and `Typeable` constraints.
-    - Introduce a new timing primitive: `Delay`   
+    - Introduce a new timing primitive: `Delay`
 - [StatefulServer](./src/Control/Eff/Concurrent/Protocol/StatefulServer.hs)
     - _Upgrade_ the associated **type alias** `Model`  to an associated **type**.
-    - Add `mapEffects` 
-    - Add `coerceEffects`        
+    - Add `mapEffects`
+    - Add `coerceEffects`
 - Export the `TimeoutMicros` constructor
-- Add **[Watchdog](./src/Control/Eff/Concurrent/Protocol/Watchdog.hs)** a server that watches 
+- Add **[Watchdog](./src/Control/Eff/Concurrent/Protocol/Watchdog.hs)** a server that watches
   a **[Broker](./src/Control/Eff/Concurrent/Protocol/Broker.hs)** and restarts crashed
   processes registered at the broker.
-        
+
 - **[Logging](./src/Control/Eff/Log.hs)**
     - Add `logCallStack`
-    - Add `logMultiLine`      
+    - Add `logMultiLine`
 
 -  **[Timer](./src/Control/Eff/Concurrent/Process/Timer.hs)**
     - Allow timers to have custom titles via:
         - `sendAfterWithTitle`
         - `startTimerWithTitle`
-    - Switch to use the new `Delay` primitive    
-            
+    - Switch to use the new `Delay` primitive
+
 ## 0.29.2
 - Improve `Supervisor` API: Use `Init` from the effectful server as start
   argument type.
@@ -71,10 +71,10 @@
 - Improve the `CallbackServer`
 - Add `LogWriterEffects`
 - Rewrite `HandleLogWriter` so that the instance types have to be effects.
-  TL,DR; This allows shorter type signatures than before.  
+  TL,DR; This allows shorter type signatures than before.
 
 ## 0.29.0
-- Remove the reply type parameter from `HasPdu` 
+- Remove the reply type parameter from `HasPdu`
 - Make a new constraint `Embeds` that replaces `EmbedProtocol`
 - Rename `EmbedProtocol` to `HasPduPrism`
 - Add `EmbeddedPduList` to `HasPdu`
@@ -93,16 +93,16 @@
 - Improve/fix `EmbedProtocol` type class
 - Add a _this_ like parameter to the methods of `EffectfulServer`
 - Rename `IsPdu` to `HasPdu`
-- Remove `GenServer` from `EffectfulServer` and put it into a 
+- Remove `GenServer` from `EffectfulServer` and put it into a
   new module: `Control.Eff.Concurrent.Protocol.CallbackServer`
 - Rename `Control.Eff.Concurrent.Protocol.Request` to `(...).Wrapper`
 
 ## 0.26.1
 - Documentation fixes
-- `Supervisor`: Don't start a new process when a process for a child-id exists 
+- `Supervisor`: Don't start a new process when a process for a child-id exists
 
 ## 0.26.0
-- Introduce `ReplyTarget` 
+- Introduce `ReplyTarget`
 - Change the `sendReply` signature to accept a `ReplyTarget`
 
 ## 0.25.1
@@ -412,7 +412,7 @@ API Stabilization and cleanup release with major API changes.
 ## 0.7.1
 
 - Improve call-stack support in log messages
-- Expose `setLogMessageTimestamp` and `setLogMessageThreadId`
+- Expose `setLogEventsTimestamp` and `setLogEventsThreadId`
 
 ## 0.7.0
 

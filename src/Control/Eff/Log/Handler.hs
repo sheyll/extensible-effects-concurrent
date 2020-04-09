@@ -31,8 +31,8 @@ module Control.Eff.Log.Handler
   , logMultiLine'
 
   -- ** Log Message Pre-Filtering #LogPredicate#
-  , includeLogMessages
-  , excludeLogMessages
+  , whitelistLogEvents
+  , blacklistLogEvents
   , setLogPredicate
   , modifyLogPredicate
   , askLogPredicate
@@ -60,7 +60,7 @@ module Control.Eff.Log.Handler
   -- *** Log Message Interception
   , runLogs
   , runLogsWithoutLogging
-  , respondToLogMessage
+  , respondToLogEvent
   , interceptLogMessages
 
   )
@@ -94,7 +94,7 @@ import           GHC.Stack                      ( HasCallStack
 import Data.Foldable                           ( traverse_ )
 import Text.Printf                             ( printf )
 
--- | This effect sends 'LogMessage's and is a reader for a 'LogPredicate'.
+-- | This effect sends 'LogEvent's and is a reader for a 'LogPredicate'.
 --
 -- Logs are sent via 'logMsg';
 -- for more information about log predicates, see "Control.Eff.Log#LogPredicate"
@@ -104,7 +104,7 @@ data Logs v where
   AskLogFilter
     :: Logs LogPredicate
   WriteLogMessage
-    :: !LogMessage -> Logs ()
+    :: !LogEvent -> Logs ()
 
 instance forall e a k. Handle Logs e a (LogPredicate -> k) where
   handle h q AskLogFilter p         = h (q ^$ p ) p
@@ -280,14 +280,14 @@ runLogsWithoutLogging p m =
 --
 -- This function is the only place where the 'LogPredicate' is applied.
 --
--- Also, 'LogMessage's are evaluated using 'deepseq', __after__ they pass the 'LogPredicate'.
-logMsg :: forall e . (HasCallStack, Member Logs e) => LogMessage -> Eff e ()
+-- Also, 'LogEvent's are evaluated using 'deepseq', __after__ they pass the 'LogPredicate'.
+logMsg :: forall e . (HasCallStack, Member Logs e) => LogEvent -> Eff e ()
 logMsg = withFrozenCallStack $ \msgIn -> do
     lf <- askLogPredicate
     when (lf msgIn) $
       msgIn `deepseq` send @Logs (WriteLogMessage msgIn)
 
--- | Log a 'T.Text' as 'LogMessage' with a given 'Severity'.
+-- | Log a 'T.Text' as 'LogEvent' with a given 'Severity'.
 logWithSeverity
   :: forall e .
      ( HasCallStack
@@ -302,7 +302,7 @@ logWithSeverity = withFrozenCallStack $ \s ->
     . set lmSeverity s
     . flip (set lmMessage) def
 
--- | Log a 'T.Text' as 'LogMessage' with a given 'Severity'.
+-- | Log a 'T.Text' as 'LogEvent' with a given 'Severity'.
 logWithSeverity'
   :: forall e .
      ( HasCallStack
@@ -606,45 +606,45 @@ modifyLogPredicate lpIn e = askLogPredicate >>= fix step e . lpIn
       respond_relay @Logs ret k (q ^$ ()) lp
     step k m lp = respond_relay @Logs ret k m lp
 
--- | Include 'LogMessage's that match a 'LogPredicate'.
+-- | Include 'LogEvent's that match a 'LogPredicate'.
 --
--- @includeLogMessages p@ allows log message to be logged if @p m@
+-- @whitelistLogEvents p@ allows log message to be logged if @p m@
 --
 -- Although it is enough if the previous predicate holds.
--- See 'excludeLogMessages' and 'modifyLogPredicate'.
+-- See 'blacklistLogEvents' and 'modifyLogPredicate'.
 --
 -- See "Control.Eff.Log#LogPredicate"
-includeLogMessages
+whitelistLogEvents
   :: forall e a . (Member Logs e)
   => LogPredicate -> Eff e a -> Eff e a
-includeLogMessages p = modifyLogPredicate (\p' m -> p' m || p m)
+whitelistLogEvents p = modifyLogPredicate (\p' m -> p' m || p m)
 
--- | Exclude 'LogMessage's that match a 'LogPredicate'.
+-- | Exclude 'LogEvent's that match a 'LogPredicate'.
 --
--- @excludeLogMessages p@ discards logs if @p m@
+-- @blacklistLogEvents p@ discards logs if @p m@
 --
 -- Also the previous predicate must also hold for a
 -- message to be logged.
--- See 'excludeLogMessages' and 'modifyLogPredicate'.
+-- See 'blacklistLogEvents' and 'modifyLogPredicate'.
 --
 -- See "Control.Eff.Log#LogPredicate"
-excludeLogMessages
+blacklistLogEvents
   :: forall e a . (Member Logs e)
   => LogPredicate -> Eff e a -> Eff e a
-excludeLogMessages p = modifyLogPredicate (\p' m -> not (p m) && p' m)
+blacklistLogEvents p = modifyLogPredicate (\p' m -> not (p m) && p' m)
 
 -- | Consume log messages.
 --
 -- Exposed for custom extensions, if in doubt use 'withLogging'.
 --
--- Respond to all 'LogMessage's logged from the given action,
+-- Respond to all 'LogEvent's logged from the given action,
 -- up to any 'MonadBaseControl' liftings.
 --
 -- Note that all logging is done through 'logMsg' and that means
 -- only messages passing the 'LogPredicate' are received.
 --
--- The 'LogMessage's are __consumed__ once they are passed to the
--- given callback function, previous 'respondToLogMessage' invocations
+-- The 'LogEvent's are __consumed__ once they are passed to the
+-- given callback function, previous 'respondToLogEvent' invocations
 -- further up in the call stack will not get the messages anymore.
 --
 -- Use 'interceptLogMessages' if the messages shall be passed
@@ -656,13 +656,13 @@ excludeLogMessages p = modifyLogPredicate (\p' m -> not (p m) && p' m)
 -- In contrast the functions based on modifying the 'LogWriter',
 -- such as 'addLogWriter' or 'censorLogs', are save to use in combination
 -- with the aforementioned liftings.
-respondToLogMessage
+respondToLogEvent
   :: forall r b
    . (Member Logs r)
-  => (LogMessage -> Eff r ())
+  => (LogEvent -> Eff r ())
   -> Eff r b
   -> Eff r b
-respondToLogMessage f e = askLogPredicate >>= fix step e
+respondToLogEvent f e = askLogPredicate >>= fix step e
   where
     step :: (Eff r b -> LogPredicate -> Eff r b) ->  Eff r b -> LogPredicate -> Eff r b
     step k (E q (prj -> Just (WriteLogMessage !l))) lp = do
@@ -671,11 +671,11 @@ respondToLogMessage f e = askLogPredicate >>= fix step e
     step k m lp = respond_relay @Logs ret k m lp
     ret x _lf = return x
 
--- | Change the 'LogMessage's using an effectful function.
+-- | Change the 'LogEvent's using an effectful function.
 --
 -- Exposed for custom extensions, if in doubt use 'withLogging'.
 --
--- This differs from 'respondToLogMessage' in that the intercepted messages will be
+-- This differs from 'respondToLogEvent' in that the intercepted messages will be
 -- written either way, albeit in altered form.
 --
 -- NOTE: The effects of this function are __lost__ when using
@@ -687,14 +687,14 @@ respondToLogMessage f e = askLogPredicate >>= fix step e
 interceptLogMessages
   :: forall r b
    . (Member Logs r)
-  => (LogMessage -> Eff r LogMessage)
+  => (LogEvent -> Eff r LogEvent)
   -> Eff r b
   -> Eff r b
-interceptLogMessages f = respondToLogMessage (f >=> logMsg)
+interceptLogMessages f = respondToLogEvent (f >=> logMsg)
 
 -- | Internal function.
 sendLogMessageToLogWriter :: IoLogging e => Eff e b -> Eff e b
-sendLogMessageToLogWriter = respondToLogMessage liftWriteLogMessage
+sendLogMessageToLogWriter = respondToLogEvent liftWriteLogMessage
 
 -- | Change the current 'LogWriter'.
 modifyLogWriter :: IoLogging e => (LogWriter -> LogWriter) -> Eff e a -> Eff e a
@@ -705,17 +705,17 @@ modifyLogWriter f = localLogWriterReader f . sendLogMessageToLogWriter
 setLogWriter :: IoLogging e => LogWriter -> Eff e a -> Eff e a
 setLogWriter = modifyLogWriter  . const
 
--- | Modify the the 'LogMessage's written in the given sub-expression.
+-- | Modify the the 'LogEvent's written in the given sub-expression.
 --
 -- Note: This is equivalent to @'modifyLogWriter' . 'mappingLogWriter'@
-censorLogs :: IoLogging e => (LogMessage -> LogMessage) -> Eff e a -> Eff e a
+censorLogs :: IoLogging e => (LogEvent -> LogEvent) -> Eff e a -> Eff e a
 censorLogs = modifyLogWriter . mappingLogWriter
 
--- | Modify the the 'LogMessage's written in the given sub-expression, as in 'censorLogs'
+-- | Modify the the 'LogEvent's written in the given sub-expression, as in 'censorLogs'
 -- but with a effectful function.
 --
 -- Note: This is equivalent to @'modifyLogWriter' . 'mappingLogWriterIO'@
-censorLogsIo :: IoLogging e => (LogMessage -> IO LogMessage) -> Eff e a -> Eff e a
+censorLogsIo :: IoLogging e => (LogEvent -> IO LogEvent) -> Eff e a -> Eff e a
 censorLogsIo = modifyLogWriter . mappingLogWriterIO
 
 -- | Combine the effects of a given 'LogWriter' and the existing one.

@@ -1,5 +1,5 @@
 {-# LANGUAGE UndecidableInstances #-}
--- | The 'LogWriter' type encapsulates an 'IO' action to write 'LogMessage's.
+-- | The 'LogWriter' type encapsulates an 'IO' action to write 'LogEvent's.
 module Control.Eff.Log.Writer
   (
   -- * 'LogWriter' Definition
@@ -34,7 +34,7 @@ import qualified System.IO as IO
 -- | A function that takes a log message and returns an effect that
 -- /logs/ the message.
 newtype LogWriter = MkLogWriter
-  { runLogWriter :: LogMessage -> IO ()
+  { runLogWriter :: LogEvent -> IO ()
   }
 
 instance Semigroup LogWriter where
@@ -70,7 +70,7 @@ localLogWriterReader = local
 -- | Write a message using the 'LogWriter' found in the environment.
 liftWriteLogMessage
   :: ( Member LogWriterReader  e, Lifted IO e)
-  => LogMessage
+  => LogEvent
   -> Eff e ()
 liftWriteLogMessage m = do
   w <- askLogWriter
@@ -82,29 +82,29 @@ liftWriteLogMessage m = do
 noOpLogWriter :: LogWriter
 noOpLogWriter = mempty
 
--- | A 'LogWriter' that applies a predicate to the 'LogMessage' and delegates to
+-- | A 'LogWriter' that applies a predicate to the 'LogEvent' and delegates to
 -- to the given writer of the predicate is satisfied.
 filteringLogWriter :: LogPredicate -> LogWriter -> LogWriter
 filteringLogWriter p lw =
   MkLogWriter (\msg -> when (p msg) (runLogWriter lw msg))
 
--- | A 'LogWriter' that applies a function to the 'LogMessage' and delegates the result to
+-- | A 'LogWriter' that applies a function to the 'LogEvent' and delegates the result to
 -- to the given writer.
-mappingLogWriter :: (LogMessage -> LogMessage) -> LogWriter -> LogWriter
+mappingLogWriter :: (LogEvent -> LogEvent) -> LogWriter -> LogWriter
 mappingLogWriter f lw = MkLogWriter (runLogWriter lw . f)
 
--- | Like 'mappingLogWriter' allow the function that changes the 'LogMessage' to have effects.
+-- | Like 'mappingLogWriter' allow the function that changes the 'LogEvent' to have effects.
 mappingLogWriterIO
-  :: (LogMessage -> IO LogMessage) -> LogWriter -> LogWriter
+  :: (LogEvent -> IO LogEvent) -> LogWriter -> LogWriter
 mappingLogWriterIO f lw = MkLogWriter (f >=> runLogWriter lw)
 
--- | Append the 'LogMessage' to an 'IO.Handle' after rendering it.
+-- | Append the 'LogEvent' to an 'IO.Handle' after rendering it.
 --
 -- @since 0.31.0
 ioHandleLogWriter :: IO.Handle -> LogMessageRenderer Text -> LogWriter
 ioHandleLogWriter outH r = MkLogWriter (Text.hPutStrLn outH . r)
 
--- | Render a 'LogMessage' to 'IO.stdout'.
+-- | Render a 'LogEvent' to 'IO.stdout'.
 --
 -- This function will also set the 'IO.BufferMode' of 'IO.stdout' to 'IO.LineBuffering'.
 --

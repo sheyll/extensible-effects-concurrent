@@ -20,13 +20,13 @@ import           GHC.Stack
 import           Network.Socket          hiding ( sendTo )
 import           Network.Socket.ByteString
 
--- | Enable logging to a remote host via __UDP__, with some 'LogMessage' fields preset
+-- | Enable logging to a remote host via __UDP__, with some 'LogEvent' fields preset
 -- as in 'withRichLogging'.
 --
 -- See 'Control.Eff.Log.Examples.exampleUdpRFC3164Logging'
 withUDPLogging
   :: (HasCallStack, MonadBaseControl IO (Eff e), Lifted IO e)
-  => (LogMessage -> Text) -- ^ 'LogMessage' rendering function
+  => (LogEvent -> Text) -- ^ 'LogEvent' rendering function
   -> String -- ^ Hostname or IP
   -> String -- ^ Port e.g. @"514"@
   -> Text -- ^ The default application name to put into the 'lmAppName' field.
@@ -44,7 +44,7 @@ withUDPLogging render hostname port a f p e = liftBaseOp
 -- See 'Control.Eff.Log.Examples.exampleUdpRFC3164Logging'
 withUDPLogWriter
   :: (IoLogging e, MonadBaseControl IO (Eff e), HasCallStack)
-  => (LogMessage -> Text) -- ^ 'LogMessage' rendering function
+  => (LogEvent -> Text) -- ^ 'LogEvent' rendering function
   -> String -- ^ Hostname or IP
   -> String -- ^ Port e.g. @"514"@
   -> Eff e b
@@ -55,7 +55,7 @@ withUDPLogWriter render hostname port e =
 
 withUDPSocket
   :: HasCallStack
-  => (LogMessage -> Text) -- ^ 'LogMessage' rendering function
+  => (LogEvent -> Text) -- ^ 'LogEvent' rendering function
   -> String -- ^ Hostname or IP
   -> String -- ^ Port e.g. @"514"@
   -> (LogWriter -> IO a)

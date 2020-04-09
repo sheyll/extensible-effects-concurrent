@@ -175,7 +175,7 @@ exampleUdpRFC3164Logging =
 --  * 'addLogWriter'
 --  * 'debugTraceLogWriter'
 --  * 'setLogPredicate'
---  * 'prefixLogMessagesWith'
+--  * 'prefixLogEventsWith'
 --  * 'renderRFC3164'
 --  * 'logMsg'
 --  * 'logDebug'
@@ -188,7 +188,7 @@ loggingExampleClient :: (HasCallStack, IoLogging e) => Eff e ()
 loggingExampleClient = do
   logDebug "test 1.1"
   logError "test 1.2"
-  censorLogs (prefixLogMessagesWith "NESTED: ") $ do
+  censorLogs (prefixLogEventsWith "NESTED: ") $ do
     addLogWriter (debugTraceLogWriter renderRFC3164)
       $ setLogPredicate (\m -> view lmMessage m /= "not logged")
       $ do
@@ -205,8 +205,8 @@ loggingExampleClient = do
 --  * 'lmMessageStartsWith'
 --  * 'lmSeverityIs'
 --  * 'lmSeverityIsAtLeast'
---  * 'includeLogMessages'
---  * 'excludeLogMessages'
+--  * 'whitelistLogEvents'
+--  * 'blacklistLogEvents'
 logPredicatesExampleClient :: (HasCallStack, IoLogging e) => Eff e Int
 logPredicatesExampleClient = do
   logInfo "test"
@@ -220,13 +220,13 @@ logPredicatesExampleClient = do
         logInfo "Not logged"
         logError "Logged"
         logEmergency "Not Logged"
-        includeLogMessages (lmSeverityIsAtLeast warningSeverity) $ do
+        whitelistLogEvents (lmSeverityIsAtLeast warningSeverity) $ do
           logInfo "Not logged"
           logError "Logged"
           logEmergency "Logged"
           logWarning "Logged"
           logDebug "OMG still Logged"
-          excludeLogMessages (lmMessageStartsWith "OMG") $ do
+          blacklistLogEvents (lmMessageStartsWith "OMG") $ do
             logDebug "OMG NOT Logged"
             logError "OMG ALSO NOT Logged"
             logEmergency "Still Logged"

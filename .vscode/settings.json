@@ -51,5 +51,6 @@
     "**/*.o": true
   },
   "files.trimFinalNewlines": true,
-  "editor.tabSize": 2
+  "editor.tabSize": 2,
+  "nixEnvSelector.nixShellConfig": "${workspaceRoot}/shell.nix"
 }

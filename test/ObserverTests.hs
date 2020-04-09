@@ -261,9 +261,13 @@ observerQueueTests =
             call testObservable (SendTestEvent "3")
             call testObservable (SendTestEvent "4")
             call testObservable (SendTestEvent "5")
+            delay (TimeoutMicros 100_000)
             OQ.flush @String >>= lift . (["1", "2", "3"] @=?)
+            delay (TimeoutMicros 100_000)
             OQ.flush @String >>= lift . ([] @=?)
+            delay (TimeoutMicros 100_000)
             OQ.tryRead @String >>= lift . (Nothing @=?)
+            delay (TimeoutMicros 100_000)
             call testObservable (SendTestEvent "6")
             OQ.await @String >>= lift . ("6" @=?)
 
@@ -275,7 +279,7 @@ observerQueueTests =
 data TestObservable deriving Typeable
 
 instance HasPdu TestObservable where
-     type instance EmbeddedPduList TestObservable = '[ObserverRegistry String]
+     type EmbeddedPduList TestObservable = '[ObserverRegistry String]
      data Pdu TestObservable r where
       SendTestEvent :: String -> Pdu TestObservable ('Synchronous ())
       StopTestObservable :: Pdu TestObservable 'Asynchronous
@@ -343,7 +347,7 @@ instance HasPduPrism TestObserver (Observer String) where
 
 instance (IoLogging r, HasProcesses r q) => M.Server TestObserver r where
   data StartArgument TestObserver = MkTestObserver
-  newtype instance Model TestObserver = TestObserverModel {fromTestObserverModel :: [String]} deriving Default
+  newtype Model TestObserver = TestObserverModel {fromTestObserverModel :: [String]} deriving Default
   update _ MkTestObserver e =
     case e of
       M.OnCall rt GetCapturedEvents ->

@@ -20,13 +20,13 @@ import           GHC.Stack
 import           Network.Socket          hiding ( sendTo )
 import           Network.Socket.ByteString
 
--- | Enable logging to a /unix domain socket/, with some 'LogMessage' fields preset
+-- | Enable logging to a /unix domain socket/, with some 'LogEvent' fields preset
 -- as in 'withRichLogging'.
 --
 -- See 'Control.Eff.Log.Examples.exampleDevLogSyslogLogging'
 withUnixSocketLogging
   :: (HasCallStack, MonadBaseControl IO (Eff e), Lifted IO e)
-  => LogMessageRenderer Text -- ^ 'LogMessage' rendering function
+  => LogMessageRenderer Text -- ^ 'LogEvent' rendering function
   -> FilePath -- ^ Path to the socket file
   -> Text -- ^ The default application name to put into the 'lmAppName' field.
   -> Facility -- ^ The default RFC-5424 facility to put into the 'lmFacility' field.
@@ -42,7 +42,7 @@ withUnixSocketLogging render socketPath a f p e = liftBaseOp
 -- See 'Control.Eff.Log.Examples.exampleDevLogSyslogLogging'
 withUnixSocketLogWriter
   :: (IoLogging e, MonadBaseControl IO (Eff e), HasCallStack)
-  => LogMessageRenderer Text -- ^ 'LogMessage' rendering function
+  => LogMessageRenderer Text -- ^ 'LogEvent' rendering function
   -> FilePath -- ^ Path to the socket file
   -> Eff e b
   -> Eff e b
@@ -51,7 +51,7 @@ withUnixSocketLogWriter render socketPath e =
 
 withUnixSocketSocket
   :: HasCallStack
-  => LogMessageRenderer Text -- ^ 'LogMessage' rendering function
+  => LogMessageRenderer Text -- ^ 'LogEvent' rendering function
   -> FilePath -- ^ Path to the socket file
   -> (LogWriter -> IO a)
   -> IO a

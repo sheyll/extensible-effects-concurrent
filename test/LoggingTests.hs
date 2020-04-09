@@ -11,6 +11,8 @@ import           Control.Lens
 import           Control.Monad.Trans.Control (liftBaseOp)
 
 
+
+
 test_Logging :: TestTree
 test_Logging = setTravisTestOptions $ testGroup "logging"
   [ cencoredLogging
@@ -48,7 +50,7 @@ cencoredLogging =
       logDebug "2"
       logInfo "1"
 
-    censoredLoggingTestImpl :: Eff '[Logs, LogWriterReader, Lift IO] () -> IO [LogMessage]
+    censoredLoggingTestImpl :: Eff '[Logs, LogWriterReader, Lift IO] () -> IO [LogEvent]
     censoredLoggingTestImpl e = do
       logs <- newMVar []
       runLift
@@ -67,7 +69,7 @@ strictness =
   testCase "messages failing the predicate are not deeply evaluated"
     $ runLift
     $ withConsoleLogging "test-app" local0 allLogMessages
-    $ excludeLogMessages (lmSeverityIs errorSeverity)
+    $ blacklistLogEvents (lmSeverityIs errorSeverity)
     $ do logDebug "test"
          logError' ("test" <> error "TEST FAILED: this log statement should not have been evaluated deeply")
 
@@ -96,6 +98,41 @@ test1234 = do
   logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test 2~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
   logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test 3~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
   logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test 4~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
+  let yumi = Yumi 123
+      bubu = Bubu
+      this = True
+      that = 0.4
+      t :: Text
+      t = "test"
+  logNoticeX t
+
+
+data Yumi = Yumi Int
+
+data Bubu = Bubu
+
+newtype LogMsgTxt = LogMsgTxt Text
+
+class LogBuilder a where
+  buildMsg :: Severity -> LogMsgTxt -> a
+
+instance (Member Logs e) => LogBuilder (Eff e ()) where
+  buildMsg s (LogMsgTxt m) = log  m
+
+instance (LogBuilder b, ToLogMsg a) => LogBuilder (a -> b) where
+  buildMsg m a =
+    buildMsg (m <> toLogMsg a)
+
+
+class ToLogMsg a where
+  toLogMsg :: a -> LogMsgTxt
+
+instance ToLogMsg Text where
+  toLogMsg = LogMsgTxt
+
+logNoticeX :: LogBuilder a => a
+logNoticeX = undefined
+
 
 udpLogging :: HasCallStack => TestTree
 udpLogging =

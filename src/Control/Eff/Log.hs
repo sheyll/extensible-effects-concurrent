@@ -18,7 +18,7 @@
 -- >   $ do
 -- >       logDebug "test 1.1"
 -- >       logError "test 1.2"
--- >       censorLogs (prefixLogMessagesWith "NESTED: ")
+-- >       censorLogs (prefixLogEventsWith "NESTED: ")
 -- >        $ do
 -- >             addLogWriter debugTraceLogWriter
 -- >              $ setLogPredicate (\m -> (view lmMessage m) /= "not logged")
@@ -30,16 +30,16 @@
 --
 -- == Log Message Data Type
 --
--- A singular /logging event/  is contained in a __'LogMessage's__ value.
+-- A singular /logging event/  is contained in a __'LogEvent's__ value.
 --
--- The 'LogMessage' is modelled along RFC-5424.
+-- The 'LogEvent' is modelled along RFC-5424.
 --
--- There is the 'ToLogMessage' class for converting to 'LogMessage'.
+-- There is the 'ToLogEntry' class for converting to 'LogEvent'.
 --  /Although the author is not clear on how to pursue the approach./
 --
 -- == Receiving and Filtering
 --
--- 'LogMessage's are sent using 'logMsg' and friends, see "Control.Eff.Log#SendingLogs"
+-- 'LogEvent's are sent using 'logMsg' and friends, see "Control.Eff.Log#SendingLogs"
 --
 -- === Log Message Predicates
 --
@@ -48,7 +48,7 @@
 --
 -- This is done by the 'logMsg' function.
 --
--- Also, 'LogMessage's are evaluated using 'Control.DeepSeq.deepseq', __after__ they pass the 'LogPredicate',
+-- Also, 'LogEvent's are evaluated using 'Control.DeepSeq.deepseq', __after__ they pass the 'LogPredicate',
 -- also inside 'logMsg'.
 --
 -- See "Control.Eff.Log#LogPredicate"
@@ -94,8 +94,8 @@ module Control.Eff.Log
 
     -- ** Log Message Pre-Filtering #LogPredicate#
     -- $LogPredicate
-  , includeLogMessages
-  , excludeLogMessages
+  , whitelistLogEvents
+  , blacklistLogEvents
   , setLogPredicate
   , modifyLogPredicate
   , askLogPredicate
@@ -122,15 +122,15 @@ module Control.Eff.Log
     -- ** Low-Level API for Custom Extensions
     -- *** Log Message Interception
   , runLogs
-  , respondToLogMessage
+  , respondToLogEvent
   , interceptLogMessages
 
     -- * Module Re-Exports
-    -- | The module that contains the 'LogMessage' and 'LogPredicate' definitions.
+    -- | The module that contains the 'LogEvent' and 'LogPredicate' definitions.
     --
     -- The log message type corresponds roughly to RFC-5424, including structured data.
   , module Control.Eff.Log.Message
-    -- | Rendering functions for 'LogMessage's
+    -- | Rendering functions for 'LogEvent's
     --
     -- The functions have been seperated from "Control.Eff.Log.Message"
   , module Control.Eff.Log.MessageRenderer
@@ -152,8 +152,8 @@ import           Control.Eff.Log.Writer
 --
 --  * 'setLogPredicate'.
 --  * 'modifyLogPredicate'.
---  * 'includeLogMessages'
---  * 'excludeLogMessages'
+--  * 'whitelistLogEvents'
+--  * 'blacklistLogEvents'
 --
 -- The current predicate is retrieved via 'askLogPredicate'.
 --

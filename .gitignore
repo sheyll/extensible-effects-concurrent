@@ -15,7 +15,7 @@ TAGS
 /.idea/
 *.iml
 /dist/
-/dist-new/
+/dist-newstyle/
 /out/
 *.hie
 *.dump-hi

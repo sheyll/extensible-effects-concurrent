@@ -10,7 +10,7 @@ import Control.Eff.Log
 import Control.Eff.LogWriter.Rich
 import Data.Text
 
--- | Enable logging to @standard output@ using the 'consoleLogWriter', with some 'LogMessage' fields preset
+-- | Enable logging to @standard output@ using the 'consoleLogWriter', with some 'LogEvent' fields preset
 -- as in 'withRichLogging'.
 --
 -- Log messages are rendered using 'renderLogMessageConsoleLog'.
@@ -56,7 +56,7 @@ withConsoleLogWriter e = do
   addLogWriter lw e
 
 
--- | Render a 'LogMessage' to 'IO.stdout' using 'renderLogMessageConsoleLog'.
+-- | Render a 'LogEvent' to 'IO.stdout' using 'renderLogMessageConsoleLog'.
 --
 -- See 'stdoutLogWriter'.
 --

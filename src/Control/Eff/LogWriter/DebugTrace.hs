@@ -12,7 +12,7 @@ import           Control.Eff.Log
 import           Control.Eff.LogWriter.Rich
 import           Data.Text                     as T
 
--- | Enable logging via 'traceM' using the 'debugTraceLogWriter', with some 'LogMessage' fields preset
+-- | Enable logging via 'traceM' using the 'debugTraceLogWriter', with some 'LogEvent' fields preset
 -- as in 'withRichLogging'.
 --
 -- Log messages are rendered using 'renderLogMessageConsoleLog'.
@@ -50,6 +50,6 @@ withTraceLogging = withRichLogging (debugTraceLogWriter renderLogMessageConsoleL
 withTraceLogWriter :: IoLogging e => Eff e a -> Eff e a
 withTraceLogWriter = addLogWriter (debugTraceLogWriter renderLogMessageConsoleLog)
 
--- | Write 'LogMessage's  via 'traceM'.
+-- | Write 'LogEvent's  via 'traceM'.
 debugTraceLogWriter :: LogMessageTextRenderer -> LogWriter
 debugTraceLogWriter render = MkLogWriter (traceM . T.unpack . render)
