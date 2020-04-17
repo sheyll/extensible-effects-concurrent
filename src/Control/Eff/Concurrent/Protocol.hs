@@ -53,6 +53,7 @@ module Control.Eff.Concurrent.Protocol
   )
 where
 
+import           Control.Eff.Log.Message
 import           Control.Eff.Concurrent.Misc
 import           Control.DeepSeq
 import           Control.Eff.Concurrent.Process
@@ -82,6 +83,9 @@ instance Typeable protocol => Show (Endpoint protocol) where
   showsPrec d (Endpoint c) =
     showParen (d>=10)
     (showSTypeRep (SomeTypeRep (typeRep @protocol)) . showsPrec 10 c)
+
+instance Typeable protocol => ToLogMsg (Endpoint protocol) where
+  toLogMsg = packLogMsg . show
 
 -- | This type class and the associated data family defines the
 -- __protocol data units__ (PDU) of a /protocol/.
@@ -186,6 +190,7 @@ type Tangible i =
   ( NFData i
   , Typeable i
   , Show i
+  , ToLogMsg i
   )
 
 -- | A 'Constraint' that bundles the requirements for the

@@ -12,7 +12,7 @@
 --
 -- >>> s <- forkInteractiveScheduler Control.Eff.Concurrent.Process.SingleThreadedScheduler.defaultMain
 --
--- >>> fooPid <- submit s (spawn (foreverCheap (receiveAnyMessage SP >>= (logMsg . fromMaybe "Huh!??" . fromDynamic))))
+-- >>> fooPid <- submit s (spawn (foreverCheap (receiveAnyMessage SP >>= (sendLogEvent . fromMaybe "Huh!??" . fromDynamic))))
 --
 -- >>> fooPid
 -- <0.1.0>
@@ -100,7 +100,7 @@ forkInteractiveScheduler ioScheduler = do
 killInteractiveScheduler :: SchedulerSession r -> IO ()
 killInteractiveScheduler (SchedulerSession qVar) =
   atomically (void (tryTakeTMVar qVar))
-                         
+
 -- | Send a 'Process' effect to the main process of a scheduler, this blocks
 -- until the effect is executed.
 submit

@@ -38,7 +38,7 @@ test_loopTests =
             , testCase
                     "'foreverCheap' inside a child process and 'replicateCheapM_' in the main process"
                 $ do
-                      res <- Scheduler.scheduleIOWithLogging  (MkLogWriter (T.putStrLn . (">>> " <>) . renderLogMessageConsoleLog))
+                      res <- Scheduler.scheduleIOWithLogging  (MkLogWriter (T.putStrLn . (">>> " <>) . renderLogEventConsoleLog))
                               $ do
                                     me <- self
                                     spawn_ "test" (foreverCheap $ sendMessage me ())
@@ -59,7 +59,7 @@ test_loopWithLeaksTests =
             [ testCase "scheduleMonadIOEff with many yields from replicateM_"
                 $ do
                       res <-
-                          Scheduler.scheduleIOWithLogging  (MkLogWriter (T.putStrLn . (">>> " <>) . renderLogMessageConsoleLog))
+                          Scheduler.scheduleIOWithLogging  (MkLogWriter (T.putStrLn . (">>> " <>) . renderLogEventConsoleLog))
                               $ replicateM_ soMany yieldProcess
                       res @=? Right ()
             , testCase
@@ -79,7 +79,7 @@ test_loopWithLeaksTests =
                     "'forever' inside a child process and 'replicateM_' in the main process"
                 $ do
                       res <-
-                          Scheduler.scheduleIOWithLogging  (MkLogWriter (T.putStrLn . (">>> " <>) . renderLogMessageConsoleLog))
+                          Scheduler.scheduleIOWithLogging  (MkLogWriter (T.putStrLn . (">>> " <>) . renderLogEventConsoleLog))
                               $ do
                                     me <- self
                                     spawn_ "test" (forever $ sendMessage me ())

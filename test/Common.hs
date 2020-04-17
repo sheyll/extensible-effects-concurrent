@@ -67,7 +67,7 @@ runTestCase msg et =
   testCase msg $ do
     lw <- stdoutLogWriter renderConsoleMinimalisticWide
     runLift
-      $ withRichLogging lw "unit-tests" local0 allLogMessages
+      $ withRichLogging lw "unit-tests" local0 allLogEvents
       $ Scheduler.schedule
       $ handleInterrupts onInt
         et
@@ -153,5 +153,3 @@ awaitProcessDownAny = do
   logInfo "awaitProcessDownAny"
   logCallStack debugSeverity
   receiveMessage
-
-

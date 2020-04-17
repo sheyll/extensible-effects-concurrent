@@ -27,7 +27,7 @@ test_forkIo = setTravisTestOptions $ withTestLogC
             lw <- stdoutLogWriter renderConsoleMinimalisticWide
             runLift
               $ withLogging
-                  (filteringLogWriter (lmSeverityIsAtLeast errorSeverity)
+                  (filteringLogWriter (logEventSeverityIsAtLeast errorSeverity)
                                       lw
                   )
               $ withAsyncLogWriter (100 :: Int)
@@ -44,7 +44,7 @@ test_singleThreaded = setTravisTestOptions $ withTestLogC
           lw <- stdoutLogWriter renderConsoleMinimalisticWide
           runLift
            $ withLogging
-               (filteringLogWriter (lmSeverityIsAtLeast errorSeverity) lw)
+               (filteringLogWriter (logEventSeverityIsAtLeast errorSeverity) lw)
                e'
     in  void $ SingleThreaded.scheduleM runEff yield e
   )

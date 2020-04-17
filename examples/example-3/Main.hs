@@ -10,10 +10,10 @@ import           Control.Lens
 main :: IO ()
 main =
   runLift
-  $  withFileLogging  "extensible-effects-concurrent-example-3.log" "test-app" local0 allLogMessages renderConsoleMinimalisticWide
-  $  addLogWriter (filteringLogWriter severeMessages (mappingLogWriter (lmMessage %~ ("traced: " <>)) (debugTraceLogWriter renderRFC5424)))
+  $  withFileLogging  "extensible-effects-concurrent-example-3.log" "test-app" local0 allLogEvents renderConsoleMinimalisticWide
+  $  addLogWriter (filteringLogWriter severeMessages (mappingLogWriter (logEventMessage %~ ("traced: " <>)) (debugTraceLogWriter renderRFC5424)))
   $  modifyLogWriter (richLogWriter "example-3" local0)
-  $  addLogWriter (filteringLogWriter severeMessages (mappingLogWriter (lmMessage %~ ("traced without timestamp: " <>)) (debugTraceLogWriter renderRFC5424)))
+  $  addLogWriter (filteringLogWriter severeMessages (mappingLogWriter (logEventMessage %~ ("traced without timestamp: " <>)) (debugTraceLogWriter renderRFC5424)))
   $  do
         logEmergency "test emergencySeverity 1"
         logCritical "test criticalSeverity 2"
@@ -25,4 +25,4 @@ main =
 
 
 severeMessages :: LogPredicate
-severeMessages = view (lmSeverity . to (<= errorSeverity))
+severeMessages = view (logEventSeverity . to (<= errorSeverity))

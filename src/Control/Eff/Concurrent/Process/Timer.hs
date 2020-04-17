@@ -67,9 +67,9 @@ receiveSelectedAfter
 receiveSelectedAfter sel t = do
   let timerTitle =
         MkProcessTitle
-          ("receive-timer-"
+          (  pack "receive-timer-"
           <> pack (showSTypeable @a "")
-          <> "-"
+          <> pack "-"
           <> pack (show t)
           )
   timerRef <- startTimerWithTitle timerTitle t
@@ -95,11 +95,11 @@ receiveSelectedWithMonitorAfter
 receiveSelectedWithMonitorAfter pid sel t =
   let timerTitle =
         MkProcessTitle
-          ("receive-timer-"
+          (  pack "receive-timer-"
           <> pack (showSTypeable @a "")
-          <> "-monitoring-"
+          <> pack "-monitoring-"
           <> pack (show pid)
-          <> "-"
+          <> pack "-"
           <> pack (show t)
           )
   in receiveSelectedWithMonitorAfterWithTitle pid sel t timerTitle
@@ -220,7 +220,7 @@ sendAfter
   -> Eff r TimerReference
 sendAfter pid t mkMsg =
   sendAfterWithTitle
-    (MkProcessTitle ("send-after-timer-" <> T.pack (show t) <> "-" <> T.pack (showSTypeable @message "") <> "-" <> T.pack (show pid)))
+    (MkProcessTitle ( T.pack "send-after-timer-" <> T.pack (show t) <>  T.pack "-" <> T.pack (showSTypeable @message "") <>  T.pack "-" <> T.pack (show pid)))
     pid
     t
     mkMsg

@@ -1,6 +1,6 @@
 cabal-version:  2.0
 name:           extensible-effects-concurrent
-version:        0.32.0
+version:        1.0.0
 description:    Please see the README on GitHub at <https://github.com/sheyll/extensible-effects-concurrent#readme>
 synopsis:       Message passing concurrency as extensible-effect
 homepage:       https://github.com/sheyll/extensible-effects-concurrent#readme
@@ -114,7 +114,6 @@ library
                      GADTs,
                      GeneralizedNewtypeDeriving,
                      LambdaCase,
-                     OverloadedStrings,
                      MultiParamTypeClasses,
                      NumericUnderscores,
                      RankNTypes,
@@ -128,6 +127,7 @@ library
                      TypeOperators,
                      ViewPatterns
   other-extensions:  ImplicitParams,
+                     OverloadedStrings,
                      UndecidableInstances
   default-language: Haskell2010
   ghc-options: -Wall -fno-full-laziness

@@ -42,7 +42,7 @@ import           GHC.Stack
 -- See 'loggingExampleClient'
 exampleLogging :: HasCallStack => IO ()
 exampleLogging = runLift
-  $ withConsoleLogging "my-app" local7 allLogMessages loggingExampleClient
+  $ withConsoleLogging "my-app" local7 allLogEvents loggingExampleClient
 
 -- | Example code for:
 --
@@ -90,11 +90,11 @@ exampleLogTrace :: IO ()
 exampleLogTrace = do
   lw <- consoleLogWriter
   runLift
-    $ withRichLogging lw "test-app" local7 allLogMessages
+    $ withRichLogging lw "test-app" local7 allLogEvents
     $ addLogWriter
         (filteringLogWriter
           severeMessages
-          (mappingLogWriter (lmMessage %~ ("TRACED " <>))
+          (mappingLogWriter (logEventMessage %~ ("TRACED " <>))
                             (debugTraceLogWriter renderRFC5424)
           )
         )
@@ -107,7 +107,7 @@ exampleLogTrace = do
         logInfo "test informationalSeverity 6"
         logDebug "test debugSeverity 7"
   where
-    severeMessages = view (lmSeverity . to (<= errorSeverity))
+    severeMessages = view (logEventSeverity . to (<= errorSeverity))
 
 
 -- | Example code for:
@@ -144,7 +144,7 @@ exampleRFC3164WithRFC5424TimestampsLogging =
 exampleDevLogSyslogLogging :: IO Int
 exampleDevLogSyslogLogging =
   runLift
-    $ withUnixSocketLogging renderLogMessageSyslog "/dev/log" "myapp" local2 allLogMessages
+    $ withUnixSocketLogging renderLogEventSyslog "/dev/log" "myapp" local2 allLogEvents
       logPredicatesExampleClient
 
 
@@ -152,7 +152,7 @@ exampleDevLogSyslogLogging =
 exampleDevLogRFC5424Logging :: IO Int
 exampleDevLogRFC5424Logging =
   runLift
-    $ withUnixSocketLogging renderRFC5424 "/dev/log" "myapp" local2 allLogMessages
+    $ withUnixSocketLogging renderRFC5424 "/dev/log" "myapp" local2 allLogEvents
       logPredicatesExampleClient
 
 
@@ -160,14 +160,14 @@ exampleDevLogRFC5424Logging =
 exampleUdpRFC5424Logging :: IO Int
 exampleUdpRFC5424Logging =
   runLift
-    $ withUDPLogging renderRFC5424 "localhost" "514"  "myapp" local2 allLogMessages
+    $ withUDPLogging renderRFC5424 "localhost" "514"  "myapp" local2 allLogEvents
       logPredicatesExampleClient
 
 -- | Example code logging RFC5424 via UDP port 514 on localhost.
 exampleUdpRFC3164Logging :: IO Int
 exampleUdpRFC3164Logging =
   runLift
-    $ withUDPLogging renderRFC3164 "localhost" "514"  "myapp" local1 allLogMessages
+    $ withUDPLogging renderRFC3164 "localhost" "514"  "myapp" local1 allLogEvents
       logPredicatesExampleClient
 
 -- | Example logging client code
@@ -177,23 +177,23 @@ exampleUdpRFC3164Logging =
 --  * 'setLogPredicate'
 --  * 'prefixLogEventsWith'
 --  * 'renderRFC3164'
---  * 'logMsg'
+--  * 'sendLogEvent'
 --  * 'logDebug'
 --  * 'logError'
 --  * 'logInfo'
 --  * 'logWarning'
 --  * 'logCritical'
---  * 'lmMessage'
+--  * 'logEventMessage'
 loggingExampleClient :: (HasCallStack, IoLogging e) => Eff e ()
 loggingExampleClient = do
   logDebug "test 1.1"
   logError "test 1.2"
   censorLogs (prefixLogEventsWith "NESTED: ") $ do
     addLogWriter (debugTraceLogWriter renderRFC3164)
-      $ setLogPredicate (\m -> view lmMessage m /= "not logged")
+      $ setLogPredicate (\m -> view logEventMessage m /= "not logged")
       $ do
           logInfo "not logged"
-          logMsg "test 2.1"
+          sendLogEvent "test 2.1"
     logWarning "test 2.2"
   logCritical "test 1.3"
 
@@ -202,31 +202,31 @@ loggingExampleClient = do
 --
 --  * 'setLogPredicate'
 --  * 'modifyLogPredicate'
---  * 'lmMessageStartsWith'
---  * 'lmSeverityIs'
---  * 'lmSeverityIsAtLeast'
+--  * 'logEventMessageStartsWith'
+--  * 'logEventSeverityIs'
+--  * 'logEventSeverityIsAtLeast'
 --  * 'whitelistLogEvents'
 --  * 'blacklistLogEvents'
 logPredicatesExampleClient :: (HasCallStack, IoLogging e) => Eff e Int
 logPredicatesExampleClient = do
   logInfo "test"
   setLogPredicate
-    (lmMessageStartsWith "OMG")
+    (logEventMessageStartsWith "OMG")
     (do
       logInfo "this message will not be logged"
       logInfo "OMG logged"
-      modifyLogPredicate (\p lm -> p lm || lmSeverityIs errorSeverity lm) $ do
+      modifyLogPredicate (\p lm -> p lm || logEventSeverityIs errorSeverity lm) $ do
         logDebug "OMG logged"
         logInfo "Not logged"
         logError "Logged"
         logEmergency "Not Logged"
-        whitelistLogEvents (lmSeverityIsAtLeast warningSeverity) $ do
+        whitelistLogEvents (logEventSeverityIsAtLeast warningSeverity) $ do
           logInfo "Not logged"
           logError "Logged"
           logEmergency "Logged"
           logWarning "Logged"
           logDebug "OMG still Logged"
-          blacklistLogEvents (lmMessageStartsWith "OMG") $ do
+          blacklistLogEvents (logEventMessageStartsWith "OMG") $ do
             logDebug "OMG NOT Logged"
             logError "OMG ALSO NOT Logged"
             logEmergency "Still Logged"

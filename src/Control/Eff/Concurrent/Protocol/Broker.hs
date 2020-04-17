@@ -148,11 +148,11 @@ stopBroker
   => Endpoint (Broker p)
   -> Eff e ()
 stopBroker ep = do
-  logInfo ("stopping broker: " <> pack (show ep))
+  logInfo "stopping broker: " ep
   mr <- monitor (_fromEndpoint ep)
   sendInterrupt (_fromEndpoint ep) NormalExitRequested
   r <- receiveSelectedMessage (selectProcessDown mr)
-  logInfo ("broker stopped: " <> pack (show ep) <> " " <> pack (show r))
+  logInfo "broker stopped: " ep " " (show r)
 
 -- | Check if a broker process is still alive.
 --
@@ -287,7 +287,7 @@ callById broker cId pdu tMax =
   lookupChild broker cId
    >>=
     maybe
-      (do logError ("callById failed for: " <> pack (show pdu))
+      (do logError "callById failed for: " (show pdu)
           interrupt (InterruptedBy (ChildNotFound cId broker))
       )
       (\cEp -> callWithTimeout cEp pdu tMax)
@@ -473,7 +473,7 @@ instance
   update me brokerConfig (Stateful.OnCall rt req) =
     case req of
       ChildEventObserverRegistry x ->
-        logEmergency ("unreachable: " <> pack (show x))
+        logEmergency "unreachable: " x
 
       GetDiagnosticInfo -> zoomToChildren @p $ do
         p <- (pack . show <$> getChildren @(ChildId p) @p)
@@ -514,25 +514,20 @@ instance
         childEventObserverLens
         (observerRegistryRemoveProcess @(ChildEvent p) (downProcess pd))
       if wasObserver
-       then logInfo ("observer process died: " <> pack (show pd))
+       then logInfo "observer process died: " pd
        else do
         oldEntry <- zoomToChildren @p $ lookupAndRemoveChildByMonitor @(ChildId p) @p (downReference pd)
         case oldEntry of
-          Nothing -> logWarning ("unexpected: " <> pack (show pd))
+          Nothing -> logWarning "unexpected: " pd
           Just (i, c) -> do
-            logInfo (  pack (show pd)
-                    <> " for child "
-                    <> pack (show i)
-                    <> " => "
-                    <> pack (show (c^.childEndpoint))
-                    )
+            logInfo pd " for child " i " => " (c^.childEndpoint)
             Stateful.zoomModel @(Broker p)
                 childEventObserverLens
                 (observerRegistryNotify @(ChildEvent p) (OnChildDown me i (c^.childEndpoint) (downReason pd)))
   update me brokerConfig (Stateful.OnInterrupt e) =
     case e of
       NormalExitRequested -> do
-        logDebug ("broker stopping: " <> pack (show e))
+        logDebug "broker stopping: " e
         Stateful.zoomModel @(Broker p)
             childEventObserverLens
             (observerRegistryNotify @(ChildEvent p) (OnBrokerShuttingDown me))
@@ -541,14 +536,14 @@ instance
       LinkedProcessCrashed linked ->
         logNotice (pack (show linked))
       _ -> do
-        logWarning ("broker interrupted: " <> pack (show e))
+        logWarning "broker interrupted: " e
         Stateful.zoomModel @(Broker p)
             childEventObserverLens
             (observerRegistryNotify @(ChildEvent p) (OnBrokerShuttingDown me))
         stopAllChildren @p me (brokerConfigChildStopTimeout brokerConfig)
         exitBecause (interruptToExit e)
 
-  update _ _brokerConfig o = logWarning ("unexpected: " <> pack (show o))
+  update _ _brokerConfig o = logWarning "unexpected: " o
 
 
 zoomToChildren :: forall p c e
@@ -586,6 +581,7 @@ stopOrKillChild
      , Member Logs e
      , Member (Stateful.ModelState (Broker p)) e
      , TangibleBroker p
+     , ToLogMsg (ChildId p)
      , Typeable (Effectful.ServerPdu p)
      )
   => ChildId p
@@ -596,7 +592,7 @@ stopOrKillChild cId c stopTimeout =
       do
         broker <- asEndpoint @(Broker p) <$> self
         t <- startTimerWithTitle
-                (MkProcessTitle ("child-exit-timer-" <> pack (show broker) <> "-" <> pack (show cId)))
+                (MkProcessTitle (pack "child-exit-timer-" <> pack (show broker) <> pack "-" <> pack (show cId)))
                 stopTimeout
         sendInterrupt (_fromEndpoint (c^.childEndpoint)) NormalExitRequested
         r1 <- receiveSelectedMessage (   Right <$> selectProcessDown (c^.childMonitoring)
@@ -605,14 +601,14 @@ stopOrKillChild cId c stopTimeout =
         unlinkProcess (_fromEndpoint (c^.childEndpoint))
         case r1 of
           Left timerElapsed -> do
-            logWarning (pack (show timerElapsed) <> ": child "<> pack (show cId) <>" => " <> pack(show (c^.childEndpoint)) <>" did not shutdown in time")
+            logWarning (show timerElapsed) ": child " cId " => " (c^.childEndpoint) " did not shutdown in time"
             let reason = interruptToExit (TimeoutInterrupt
                                            ("child did not shut down in time and was terminated by the "
                                              ++ show broker))
             sendShutdown (_fromEndpoint (c^.childEndpoint)) reason
             return reason
           Right downMsg -> do
-            logInfo ("child "<> pack (show cId) <>" => " <> pack(show (c^.childEndpoint)) <>" terminated: " <> pack (show (downReason downMsg)))
+            logInfo "child " cId " => " (c^.childEndpoint) " terminated: " (downReason downMsg)
             return (downReason downMsg)
 
 stopAllChildren
@@ -625,6 +621,8 @@ stopAllChildren
      , Member (Stateful.ModelState (Broker p)) e
      , TangibleBroker p
      , Typeable (Effectful.ServerPdu p)
+     , ToLogMsg (ChildId p)
+     , ToLogMsg (Child p)
      )
   => Endpoint (Broker p) -> Timeout -> Eff e ()
 stopAllChildren me stopTimeout =
@@ -641,5 +639,5 @@ stopAllChildren me stopTimeout =
 
       where
         crash e = do
-          logError (pack (show e) <> " while stopping child: " <> pack (show cId) <> " " <> pack (show c))
+          logError e " while stopping child: " cId " " c
           return (interruptToExit e)

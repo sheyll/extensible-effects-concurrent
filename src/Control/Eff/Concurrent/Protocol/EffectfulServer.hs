@@ -25,7 +25,6 @@ import Data.Kind
 import Data.String
 import Data.Typeable
 import Data.Type.Pretty
-import qualified Data.Text as T
 import GHC.Stack (HasCallStack)
 
 -- | A type class for effectful server loops.
@@ -76,7 +75,7 @@ class Server (a :: Type) (e :: [Type -> Type])
   onEvent :: Endpoint (ServerPdu a) -> Init a -> Event (ServerPdu a) -> Eff (ServerEffects a e) ()
 
   default onEvent :: (Show (Init a),  Member Logs (ServerEffects a e)) => Endpoint (ServerPdu a) -> Init a -> Event (ServerPdu a) -> Eff (ServerEffects a e) ()
-  onEvent _ i e = logInfo ("unhandled: " <> T.pack (show i) <> " " <> T.pack (show e))
+  onEvent _ i e = logInfo ("unhandled: " :: String)  (show i) (show e)
 
 
 -- | Execute the server loop.
@@ -125,8 +124,8 @@ protocolServerLoop
   => Init a -> Eff (Processes q) ()
 protocolServerLoop a = do
   myEp <- asEndpoint @(ServerPdu a) <$> self
-  logDebug ("starting")
-  runEffects  myEp a (receiveSelectedLoop sel (mainLoop myEp))
+  logDebug ("starting" :: String)
+  runEffects myEp a (receiveSelectedLoop sel (mainLoop myEp))
   return ()
   where
     sel :: MessageSelector (Event (ServerPdu a))

@@ -142,6 +142,7 @@ import           Control.Eff
 import           Control.Eff.Exception
 import           Control.Eff.Extend
 import           Control.Eff.Log.Handler
+import           Control.Eff.Log.Message
 import qualified Control.Exception             as Exc
 import           Control.Lens
 import           Control.Monad                  ( void
@@ -153,7 +154,7 @@ import           Data.Functor.Contravariant     ()
 import           Data.Kind
 import           Data.Function
 import           Data.Maybe
-import           Data.String                    ( IsString, fromString )
+import           Data.String
 import           Data.Text                      ( Text, pack, unpack)
 import qualified Data.Text                     as T
 import           Type.Reflection                ( SomeTypeRep(..), typeRep )
@@ -660,6 +661,24 @@ instance Show (Interrupt x) where
 instance Exc.Exception (Interrupt 'Recoverable)
 instance Exc.Exception (Interrupt 'NoRecovery )
 
+instance ToLogMsg (Interrupt x) where
+  toLogMsg =
+    \case
+       NormalExitRequested -> packLogMsg "interrupt: A normal exit was requested"
+       NormalExitRequestedWith p -> packLogMsg "interrupt: A normal exit was requested: " <> packLogMsg (show p)
+       OtherProcessNotRunning p -> packLogMsg "interrupt: Another process is not running: " <> toLogMsg p
+       TimeoutInterrupt reason -> packLogMsg "interrupt: A timeout occured: " <> toLogMsg reason
+       LinkedProcessCrashed m -> packLogMsg "interrupt: A linked process " <> toLogMsg m <> packLogMsg " crashed"
+       InterruptedBy reason -> packLogMsg "interrupt: " <> packLogMsg (show reason)
+       ErrorInterrupt reason -> packLogMsg "interrupt: An error occured: " <> toLogMsg reason
+       ExitNormally -> packLogMsg "exit: Process finished successfully"
+       ExitNormallyWith reason -> packLogMsg "exit: Process finished successfully: " <> packLogMsg (show reason)
+       ExitUnhandledError w -> packLogMsg "exit: Unhandled " <> MkLogMsg w
+       ExitProcessCancelled Nothing -> packLogMsg "exit: The process was cancelled by a runtime exception"
+       ExitProcessCancelled (Just origin) -> packLogMsg "exit: The process was cancelled by: " <> toLogMsg origin
+       ExitOtherProcessNotRunning p -> packLogMsg "exit: Another process is not running: " <> toLogMsg p
+
+
 instance NFData (Interrupt x) where
   rnf NormalExitRequested             = rnf ()
   rnf (NormalExitRequestedWith   !l)  = rnf l
@@ -906,8 +925,8 @@ toCrashReason e | isCrash e = Just (T.pack (show e))
 -- | Log the 'Interrupt's
 logProcessExit
   :: forall e x . (Member Logs e, HasCallStack) => Interrupt x -> Eff e ()
-logProcessExit (toCrashReason -> Just ex) = withFrozenCallStack (logWarning ex)
-logProcessExit ex = withFrozenCallStack (logDebug (fromString (show ex)))
+logProcessExit (toCrashReason -> Just ex) = withFrozenCallStack (logWarning (MkLogMsg ex))
+logProcessExit ex = withFrozenCallStack (logDebug ex)
 
 
 -- | Execute a and action and return the result;
@@ -1219,10 +1238,14 @@ makeReference = executeAndResumeOrThrow MakeReference
 --
 -- @since 0.12.0
 data MonitorReference =
-  MonitorReference { monitorIndex :: Int
-                   , monitoredProcess :: ProcessId
+  MonitorReference { monitorIndex     :: !Int
+                   , monitoredProcess :: !ProcessId
                    }
   deriving (Read, Eq, Ord, Generic, Typeable)
+
+instance ToLogMsg MonitorReference where
+  toLogMsg (MonitorReference ref pid) =
+    packLogMsg "monitor: " <> toLogMsg (show ref) <> packLogMsg " " <> toLogMsg pid
 
 instance NFData MonitorReference
 
@@ -1301,6 +1324,10 @@ data ProcessDown =
     , downProcess   :: !ProcessId
     }
   deriving (Typeable, Generic, Eq, Ord)
+
+instance ToLogMsg ProcessDown where
+  toLogMsg (ProcessDown ref reason pid) =
+    toLogMsg ref <> packLogMsg " " <> toLogMsg reason <> packLogMsg " " <> toLogMsg pid
 
 -- | Make an 'Interrupt' for a 'ProcessDown' message.
 --
@@ -1397,6 +1424,9 @@ exitWithError = exitBecause . interruptToExit . ErrorInterrupt
 -- values to address messages to processes.
 newtype ProcessId = ProcessId { _fromProcessId :: Int }
   deriving (Eq,Ord,Typeable,Bounded,Num, Enum, Integral, Real, NFData)
+
+instance ToLogMsg ProcessId where
+  toLogMsg (ProcessId !p) = toLogMsg (show p)
 
 instance Read ProcessId where
   readsPrec _ ('!' : rest1) = case reads rest1 of

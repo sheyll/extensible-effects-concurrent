@@ -92,6 +92,10 @@ instance Show event => Show (Pdu (Observer event) r) where
   showsPrec d (Observed event) =
     showParen (d >= 10) (showString "observered: " . showsPrec 10 event)
 
+instance ToLogMsg event => ToLogMsg (Pdu (Observer event) r) where
+  toLogMsg (Observed event) =
+    packLogMsg "observered: " <> toLogMsg event
+
 -- | The Information necessary to wrap an 'Observed' event to a process specific
 -- message, e.g. the embedded 'Observer' 'Pdu' instance, and the 'MonitorReference' of
 -- the destination process.
@@ -255,15 +259,15 @@ observerRegistryHandlePdu = \case
           observer = MkObserver (Arg pid sink)
       modify @(ObserverRegistry event) (over observerRegistry (Map.insert pid sink))
       os <- get @(ObserverRegistry event)
-      logDebug ( "registered "
-               <> pack (show observer)
-               <> " current number of observers: "  -- TODO put this info into the process details
-               <> pack (show (Map.size (view observerRegistry os))))
+      logDebug ("registered " :: String)
+               (show observer)
+               " current number of observers: "  -- TODO put this info into the process details
+               (show (Map.size (view observerRegistry os)))
 
     ForgetObserver ob -> do
       wasRemoved <- observerRegistryRemoveProcess @event ob
       unless wasRemoved $
-        logDebug (pack (show ("unknown observer " ++ show ob)))
+        logDebug "unknown observer " (show ob)
 
 
 -- | Remove the entry in the 'ObserverRegistry' for the 'ProcessId'
@@ -290,10 +294,10 @@ observerRegistryRemoveProcess ob = do
  where
   foundIt os sink@(MkObservationSink _ monRef) = do
     demonitor monRef
-    logDebug (  "removed: "
-           <> (pack $ show $ MkObserver $ Arg ob sink)
-           <> " current number of observers: "
-           <> pack (show (Map.size (view observerRegistry os))))
+    logDebug "removed: "
+             (show $ MkObserver $ Arg ob sink)
+             " current number of observers: "
+             (show (Map.size (view observerRegistry os)))
     pure True
 
 -- | Keep track of registered 'Observer's.

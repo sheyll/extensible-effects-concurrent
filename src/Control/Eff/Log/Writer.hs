@@ -101,7 +101,7 @@ mappingLogWriterIO f lw = MkLogWriter (f >=> runLogWriter lw)
 -- | Append the 'LogEvent' to an 'IO.Handle' after rendering it.
 --
 -- @since 0.31.0
-ioHandleLogWriter :: IO.Handle -> LogMessageRenderer Text -> LogWriter
+ioHandleLogWriter :: IO.Handle -> LogEventReader Text -> LogWriter
 ioHandleLogWriter outH r = MkLogWriter (Text.hPutStrLn outH . r)
 
 -- | Render a 'LogEvent' to 'IO.stdout'.
@@ -111,7 +111,7 @@ ioHandleLogWriter outH r = MkLogWriter (Text.hPutStrLn outH . r)
 -- See 'ioHandleLogWriter'.
 --
 -- @since 0.31.0
-stdoutLogWriter :: LogMessageRenderer Text -> IO LogWriter
+stdoutLogWriter :: LogEventReader Text -> IO LogWriter
 stdoutLogWriter render = do
   IO.hSetBuffering IO.stdout IO.LineBuffering
   return (ioHandleLogWriter IO.stdout render)

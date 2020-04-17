@@ -24,8 +24,6 @@ import           Control.Exception.Safe        as Safe
 import           Control.Lens
 import           Control.Monad.IO.Class
 import           Control.Monad                  ( unless, when )
-import qualified Data.Text                     as T
-import           Data.Typeable
 import           GHC.Stack
 import Data.Default (Default)
 
@@ -36,8 +34,8 @@ newtype ObservationQueue a = ObservationQueue (TBQueue a)
 -- | A 'Reader' for an 'ObservationQueue'.
 type Reader a = Eff.Reader (ObservationQueue a)
 
-logPrefix :: forall event proxy . (HasCallStack, Typeable event) => proxy event -> T.Text
-logPrefix _px = "observation queue: " <> T.pack (showSTypeable @event "")
+instance (Typeable event) => ToLogMsg (ObservationQueue event) where
+  toLogMsg _ = packLogMsg "observation queue: " <> packLogMsg (showSTypeable @event "")
 
 -- | Read queued observations captured and enqueued in the shared 'ObservationQueue' by 'observe'.
 --
@@ -161,13 +159,19 @@ withObservationQueue
   -> Eff e b
 withObservationQueue queueLimit e = do
   q   <- lift (newTBQueueIO (fromIntegral queueLimit))
+  let oq = ObservationQueue q
   res <- handleInterrupts (return . Left)
-                          (Right <$> Eff.runReader (ObservationQueue q) e)
+                          (Right <$> Eff.runReader oq e)
   rest <- lift (atomically (flushTBQueue q))
   unless
     (null rest)
-    (logNotice (logPrefix (Proxy @event) <> " unread observations: " <> T.pack (show rest)))
-  either (\em -> logError (T.pack (show em)) >> lift (throwIO em)) return res
+    (logNotice oq " unread observations: " (show rest))
+  either (\em ->
+            do
+              logError (show em)
+              lift (throwIO em))
+         return
+         res
 
 -- | Spawn a process that can be used as an 'Observer' that enqueues the observations into an
 --   'ObservationQueue'. See 'withObservationQueue' for an example.
@@ -242,4 +246,4 @@ instance (Typeable event, Lifted IO q, Member Logs q) => Server (ObservationQueu
         when isFull $
           logWarning "queue full"
       otherMsg ->
-        logError ("unexpected: " <> T.pack (show otherMsg))
+        logError "unexpected: " (show otherMsg)

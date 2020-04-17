@@ -18,17 +18,17 @@ import           Control.Eff.Reader.Lazy
 
 -- | A message data type inspired by the RFC-5424 Syslog Protocol
 data LogEvent =
-  MkLogEvent { _lmFacility :: !Facility
-               , _lmSeverity :: !Severity
-               , _lmTimestamp :: (Maybe UTCTime)
-               , _lmHostname :: (Maybe T.Text)
-               , _lmAppName :: (Maybe T.Text)
-               , _lmProcessId :: (Maybe T.Text)
-               , _lmMessageId :: (Maybe T.Text)
-               , _lmStructuredData :: [StructuredDataElement]
-               , _lmThreadId :: (Maybe ThreadId)
-               , _lmSrcLoc :: (Maybe SrcLoc)
-               , _lmMessage :: T.Text}
+  MkLogEvent { _logEventFacility :: !Facility
+               , _logEventSeverity :: !Severity
+               , _logEventTimestamp :: (Maybe UTCTime)
+               , _logEventHostname :: (Maybe T.Text)
+               , _logEventAppName :: (Maybe T.Text)
+               , _logEventProcessId :: (Maybe T.Text)
+               , _logEventMessageId :: (Maybe T.Text)
+               , _logEventStructuredData :: [StructuredDataElement]
+               , _logEventThreadId :: (Maybe ThreadId)
+               , _logEventSrcLoc :: (Maybe SrcLoc)
+               , _logEventMessage :: T.Text}
   deriving (Eq, Generic)
 
 instance Default LogEvent where
@@ -92,49 +92,49 @@ instance Show Severity where
 
 -- | Smart constructor for the RFC-5424 __emergency__ 'LogEvent' 'Severity'.
 -- This corresponds to the severity value __0__.
--- See 'lmSeverity'.
+-- See 'logEventSeverity'.
 emergencySeverity :: Severity
 emergencySeverity = Severity 0
 
 -- | Smart constructor for the RFC-5424 __alert__ 'LogEvent' 'Severity'.
 -- This corresponds to the severity value __1__.
--- See 'lmSeverity'.
+-- See 'logEventSeverity'.
 alertSeverity :: Severity
 alertSeverity = Severity 1
 
 -- | Smart constructor for the RFC-5424 __critical__ 'LogEvent' 'Severity'.
 -- This corresponds to the severity value __2__.
--- See 'lmSeverity'.
+-- See 'logEventSeverity'.
 criticalSeverity :: Severity
 criticalSeverity = Severity 2
 
 -- | Smart constructor for the RFC-5424 __error__ 'LogEvent' 'Severity'.
 -- This corresponds to the severity value __3__.
--- See 'lmSeverity'.
+-- See 'logEventSeverity'.
 errorSeverity :: Severity
 errorSeverity = Severity 3
 
 -- | Smart constructor for the RFC-5424 __warning__ 'LogEvent' 'Severity'.
 -- This corresponds to the severity value __4__.
--- See 'lmSeverity'.
+-- See 'logEventSeverity'.
 warningSeverity :: Severity
 warningSeverity = Severity 4
 
 -- | Smart constructor for the RFC-5424 __notice__ 'LogEvent' 'Severity'.
 -- This corresponds to the severity value __5__.
--- See 'lmSeverity'.
+-- See 'logEventSeverity'.
 noticeSeverity :: Severity
 noticeSeverity = Severity 5
 
 -- | Smart constructor for the RFC-5424 __informational__ 'LogEvent' 'Severity'.
 -- This corresponds to the severity value __6__.
--- See 'lmSeverity'.
+-- See 'logEventSeverity'.
 informationalSeverity :: Severity
 informationalSeverity = Severity 6
 
 -- | Smart constructor for the RFC-5424 __debug__ 'LogEvent' 'Severity'.
 -- This corresponds to the severity value __7__.
--- See 'lmSeverity'.
+-- See 'logEventSeverity'.
 debugSeverity :: Severity
 debugSeverity = Severity 7
 
@@ -147,117 +147,117 @@ newtype Facility = Facility {fromFacility :: Int}
   deriving (Eq, Ord, Show, Generic, NFData)
 
 -- | Smart constructor for the RFC-5424 'LogEvent' facility @kernelMessages@.
--- See 'lmFacility'.
+-- See 'logEventFacility'.
 kernelMessages :: Facility
 kernelMessages = Facility 0
 
 -- | Smart constructor for the RFC-5424 'LogEvent' facility @userLevelMessages@.
--- See 'lmFacility'.
+-- See 'logEventFacility'.
 userLevelMessages :: Facility
 userLevelMessages = Facility 1
 
 -- | Smart constructor for the RFC-5424 'LogEvent' facility @mailSystem@.
--- See 'lmFacility'.
+-- See 'logEventFacility'.
 mailSystem :: Facility
 mailSystem = Facility 2
 
 -- | Smart constructor for the RFC-5424 'LogEvent' facility @systemDaemons@.
--- See 'lmFacility'.
+-- See 'logEventFacility'.
 systemDaemons :: Facility
 systemDaemons = Facility 3
 
 -- | Smart constructor for the RFC-5424 'LogEvent' facility @securityAuthorizationMessages4@.
--- See 'lmFacility'.
+-- See 'logEventFacility'.
 securityAuthorizationMessages4 :: Facility
 securityAuthorizationMessages4 = Facility 4
 
 -- | Smart constructor for the RFC-5424 'LogEvent' facility @linePrinterSubsystem@.
--- See 'lmFacility'.
+-- See 'logEventFacility'.
 linePrinterSubsystem :: Facility
 linePrinterSubsystem = Facility 6
 
 -- | Smart constructor for the RFC-5424 'LogEvent' facility @networkNewsSubsystem@.
--- See 'lmFacility'.
+-- See 'logEventFacility'.
 networkNewsSubsystem :: Facility
 networkNewsSubsystem = Facility 7
 
 -- | Smart constructor for the RFC-5424 'LogEvent' facility @uucpSubsystem@.
--- See 'lmFacility'.
+-- See 'logEventFacility'.
 uucpSubsystem :: Facility
 uucpSubsystem = Facility 8
 
 -- | Smart constructor for the RFC-5424 'LogEvent' facility @clockDaemon@.
--- See 'lmFacility'.
+-- See 'logEventFacility'.
 clockDaemon :: Facility
 clockDaemon = Facility 9
 
 -- | Smart constructor for the RFC-5424 'LogEvent' facility @securityAuthorizationMessages10@.
--- See 'lmFacility'.
+-- See 'logEventFacility'.
 securityAuthorizationMessages10 :: Facility
 securityAuthorizationMessages10 = Facility 10
 
 -- | Smart constructor for the RFC-5424 'LogEvent' facility @ftpDaemon@.
--- See 'lmFacility'.
+-- See 'logEventFacility'.
 ftpDaemon :: Facility
 ftpDaemon = Facility 11
 
 -- | Smart constructor for the RFC-5424 'LogEvent' facility @ntpSubsystem@.
--- See 'lmFacility'.
+-- See 'logEventFacility'.
 ntpSubsystem :: Facility
 ntpSubsystem = Facility 12
 
 -- | Smart constructor for the RFC-5424 'LogEvent' facility @logAuditFacility@.
--- See 'lmFacility'.
+-- See 'logEventFacility'.
 logAuditFacility :: Facility
 logAuditFacility = Facility 13
 
 -- | Smart constructor for the RFC-5424 'LogEvent' facility @logAlertFacility@.
--- See 'lmFacility'.
+-- See 'logEventFacility'.
 logAlertFacility :: Facility
 logAlertFacility = Facility 14
 
 -- | Smart constructor for the RFC-5424 'LogEvent' facility @clockDaemon2@.
--- See 'lmFacility'.
+-- See 'logEventFacility'.
 clockDaemon2 :: Facility
 clockDaemon2 = Facility 15
 
 -- | Smart constructor for the RFC-5424 'LogEvent' facility @local0@.
--- See 'lmFacility'.
+-- See 'logEventFacility'.
 local0 :: Facility
 local0 = Facility 16
 
 -- | Smart constructor for the RFC-5424 'LogEvent' facility @local1@.
--- See 'lmFacility'.
+-- See 'logEventFacility'.
 local1 :: Facility
 local1 = Facility 17
 
 -- | Smart constructor for the RFC-5424 'LogEvent' facility @local2@.
--- See 'lmFacility'.
+-- See 'logEventFacility'.
 local2 :: Facility
 local2 = Facility 18
 
 -- | Smart constructor for the RFC-5424 'LogEvent' facility @local3@.
--- See 'lmFacility'.
+-- See 'logEventFacility'.
 local3 :: Facility
 local3 = Facility 19
 
 -- | Smart constructor for the RFC-5424 'LogEvent' facility @local4@.
--- See 'lmFacility'.
+-- See 'logEventFacility'.
 local4 :: Facility
 local4 = Facility 20
 
 -- | Smart constructor for the RFC-5424 'LogEvent' facility @local5@.
--- See 'lmFacility'.
+-- See 'logEventFacility'.
 local5 :: Facility
 local5 = Facility 21
 
 -- | Smart constructor for the RFC-5424 'LogEvent' facility @local6@.
--- See 'lmFacility'.
+-- See 'logEventFacility'.
 local6 :: Facility
 local6 = Facility 22
 
 -- | Smart constructor for the RFC-5424 'LogEvent' facility @local7@.
--- See 'lmFacility'.
+-- See 'logEventFacility'.
 local7 :: Facility
 local7 = Facility 23
 
@@ -284,7 +284,7 @@ makeLensesWith (lensRules & generateSignatures .~ False) ''LogEvent
 
 -- | A lens for the UTC time of a 'LogEvent'
 -- The function 'setLogEventsTimestamp' can be used to set the field.
-lmTimestamp
+logEventTimestamp
   :: Functor f
   => (Maybe UTCTime -> f (Maybe UTCTime))
   -> LogEvent
@@ -292,57 +292,57 @@ lmTimestamp
 
 -- | A lens for the 'ThreadId' of a 'LogEvent'
 -- The function 'setLogEventsThreadId' can be used to set the field.
-lmThreadId
+logEventThreadId
   :: Functor f
   => (Maybe ThreadId -> f (Maybe ThreadId))
   -> LogEvent
   -> f LogEvent
 
 -- | A lens for the 'StructuredDataElement' of a 'LogEvent'
-lmStructuredData
+logEventStructuredData
   :: Functor f
   => ([StructuredDataElement] -> f [StructuredDataElement])
   -> LogEvent
   -> f LogEvent
 
 -- | A lens for the 'SrcLoc' of a 'LogEvent'
-lmSrcLoc
+logEventSrcLoc
   :: Functor f
   => (Maybe SrcLoc -> f (Maybe SrcLoc))
   -> LogEvent
   -> f LogEvent
 
 -- | A lens for the 'Severity' of a 'LogEvent'
-lmSeverity
+logEventSeverity
   :: Functor f => (Severity -> f Severity) -> LogEvent -> f LogEvent
 
 -- | A lens for a user defined of /process/ id of a 'LogEvent'
-lmProcessId
+logEventProcessId
   :: Functor f
   => (Maybe T.Text -> f (Maybe T.Text))
   -> LogEvent
   -> f LogEvent
 
 -- | A lens for a user defined /message id/ of a 'LogEvent'
-lmMessageId
+logEventMessageId
   :: Functor f
   => (Maybe T.Text -> f (Maybe T.Text))
   -> LogEvent
   -> f LogEvent
 
 -- | A lens for the user defined textual message of a 'LogEvent'
-lmMessage :: Functor f => (T.Text -> f T.Text) -> LogEvent -> f LogEvent
+logEventMessage :: Functor f => (T.Text -> f T.Text) -> LogEvent -> f LogEvent
 
 -- | A lens for the hostname of a 'LogEvent'
 -- The function 'setLogEventsHostname' can be used to set the field.
-lmHostname
+logEventHostname
   :: Functor f
   => (Maybe T.Text -> f (Maybe T.Text))
   -> LogEvent
   -> f LogEvent
 
 -- | A lens for the 'Facility' of a 'LogEvent'
-lmFacility
+logEventFacility
   :: Functor f => (Facility -> f Facility) -> LogEvent -> f LogEvent
 
 -- | A lens for the RFC 5424 /application/ name of a 'LogEvent'
@@ -352,10 +352,10 @@ lmFacility
 -- messages from third party libraries:
 --
 -- > debugLogsForAppName myAppName lm =
--- >   view lmAppName lm == Just myAppName || lmSeverityIsAtLeast warningSeverity lm
+-- >   view logEventAppName lm == Just myAppName || logEventSeverityIsAtLeast warningSeverity lm
 --
 -- This concept is also implemented in 'discriminateByAppName'.
-lmAppName
+logEventAppName
   :: Functor f
   => (Maybe T.Text -> f (Maybe T.Text))
   -> LogEvent

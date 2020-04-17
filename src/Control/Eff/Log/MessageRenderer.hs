@@ -1,13 +1,13 @@
-{-# LANGUAGE QuantifiedConstraints #-}
+{-# LANGUAGE QuantifiedConstraints, OverloadedStrings #-}
 -- | Rendering functions for 'LogEvent's.
 module Control.Eff.Log.MessageRenderer
   (
 
   -- * Log Message Text Rendering
-    LogMessageRenderer
-  , LogMessageTextRenderer
-  , renderLogMessageSyslog
-  , renderLogMessageConsoleLog
+    LogEventReader
+  , LogEventPrinter
+  , renderLogEventSyslog
+  , renderLogEventConsoleLog
   , renderConsoleMinimalisticWide
   , renderRFC3164
   , renderRFC3164WithRFC5424Timestamps
@@ -25,8 +25,8 @@ module Control.Eff.Log.MessageRenderer
   , renderLogEventBodyFixWidth
 
   -- ** Timestamp Rendering
-  , LogMessageTimeRenderer()
-  , mkLogMessageTimeRenderer
+  , LogEventTimeRenderer()
+  , mkLogEventTimeRenderer
   , suppressTimestamp
   , rfc3164Timestamp
   , rfc5424Timestamp
@@ -46,60 +46,60 @@ import           Text.Printf
 
 
 -- | 'LogEvent' rendering function
-type LogMessageRenderer a = LogEvent -> a
+type LogEventReader a = LogEvent -> a
 
 -- | 'LogEvent' to 'T.Text' rendering function.
 --
 -- @since 0.31.0
-type LogMessageTextRenderer = LogMessageRenderer T.Text
+type LogEventPrinter = LogEventReader T.Text
 
--- | A rendering function for the 'lmTimestamp' field.
-newtype LogMessageTimeRenderer =
-  MkLogEventTimeRenderer { renderLogMessageTime :: UTCTime -> T.Text }
+-- | A rendering function for the 'logEventTimestamp' field.
+newtype LogEventTimeRenderer =
+  MkLogEventTimeRenderer { renderLogEventTime :: UTCTime -> T.Text }
 
--- | Make a  'LogMessageTimeRenderer' using 'formatTime' in the 'defaultLocale'.
-mkLogMessageTimeRenderer
+-- | Make a  'LogEventTimeRenderer' using 'formatTime' in the 'defaultLocale'.
+mkLogEventTimeRenderer
   :: String -- ^ The format string that is passed to 'formatTime'
-  -> LogMessageTimeRenderer
-mkLogMessageTimeRenderer s =
+  -> LogEventTimeRenderer
+mkLogEventTimeRenderer s =
   MkLogEventTimeRenderer (T.pack . formatTime defaultTimeLocale s)
 
 -- | Don't render the time stamp
-suppressTimestamp :: LogMessageTimeRenderer
+suppressTimestamp :: LogEventTimeRenderer
 suppressTimestamp = MkLogEventTimeRenderer (const "")
 
 -- | Render the time stamp using @"%h %d %H:%M:%S"@
-rfc3164Timestamp :: LogMessageTimeRenderer
-rfc3164Timestamp = mkLogMessageTimeRenderer "%h %d %H:%M:%S"
+rfc3164Timestamp :: LogEventTimeRenderer
+rfc3164Timestamp = mkLogEventTimeRenderer "%h %d %H:%M:%S"
 
 -- | Render the time stamp to @'iso8601DateFormat' (Just "%H:%M:%S%6QZ")@
-rfc5424Timestamp :: LogMessageTimeRenderer
+rfc5424Timestamp :: LogEventTimeRenderer
 rfc5424Timestamp =
-  mkLogMessageTimeRenderer (iso8601DateFormat (Just "%H:%M:%S%6QZ"))
+  mkLogEventTimeRenderer (iso8601DateFormat (Just "%H:%M:%S%6QZ"))
 
 -- | Render the time stamp like 'rfc5424Timestamp' does, but omit the terminal @Z@ character.
-rfc5424NoZTimestamp :: LogMessageTimeRenderer
+rfc5424NoZTimestamp :: LogEventTimeRenderer
 rfc5424NoZTimestamp =
-  mkLogMessageTimeRenderer (iso8601DateFormat (Just "%H:%M:%S%6Q"))
+  mkLogEventTimeRenderer (iso8601DateFormat (Just "%H:%M:%S%6Q"))
 
 -- | Print the thread id, the message and the source file location, seperated by simple white space.
-renderLogEventBody :: LogMessageTextRenderer
+renderLogEventBody :: LogEventPrinter
 renderLogEventBody = T.unwords . filter (not . T.null) <$> sequence
   [ renderLogMessageBodyNoLocation
   , fromMaybe "" <$> renderLogMessageSrcLoc
   ]
 
 -- | Print the thread id, the message and the source file location, seperated by simple white space.
-renderLogMessageBodyNoLocation :: LogMessageTextRenderer
+renderLogMessageBodyNoLocation :: LogEventPrinter
 renderLogMessageBodyNoLocation = T.unwords . filter (not . T.null) <$> sequence
-  [ renderShowMaybeLogMessageLens "" lmThreadId
-  , view lmMessage
+  [ renderShowMaybeLogMessageLens "" logEventThreadId
+  , view (logEventMessage . fromLogMsg)
   ]
 
 -- | Print the /body/ of a 'LogEvent' with fix size fields (60) for the message itself
 -- and 30 characters for the location
-renderLogEventBodyFixWidth :: LogMessageTextRenderer
-renderLogEventBodyFixWidth l@(MkLogEvent _f _s _ts _hn _an _pid _mi _sd ti _ msg)
+renderLogEventBodyFixWidth :: LogEventPrinter
+renderLogEventBodyFixWidth l@(MkLogEvent _f _s _ts _hn _an _pid _mi _sd ti _ (MkLogMsg msg))
   = T.unwords $ filter
     (not . T.null)
     [ maybe "" ((<> " ") . T.pack . show) ti
@@ -109,7 +109,7 @@ renderLogEventBodyFixWidth l@(MkLogEvent _f _s _ts _hn _an _pid _mi _sd ti _ msg
 
 -- | Render a field of a 'LogEvent' using the corresponsing lens.
 renderMaybeLogMessageLens
-  :: T.Text -> Getter LogEvent (Maybe T.Text) -> LogMessageTextRenderer
+  :: T.Text -> Getter LogEvent (Maybe T.Text) -> LogEventPrinter
 renderMaybeLogMessageLens x l = fromMaybe x . view l
 
 -- | Render a field of a 'LogEvent' using the corresponsing lens.
@@ -117,14 +117,14 @@ renderShowMaybeLogMessageLens
   :: Show a
   => T.Text
   -> Getter LogEvent (Maybe a)
-  -> LogMessageTextRenderer
+  -> LogEventPrinter
 renderShowMaybeLogMessageLens x l =
   renderMaybeLogMessageLens x (l . to (fmap (T.pack . show)))
 
 -- | Render the source location as: @at filepath:linenumber@.
-renderLogMessageSrcLoc :: LogMessageRenderer (Maybe T.Text)
+renderLogMessageSrcLoc :: LogEventReader (Maybe T.Text)
 renderLogMessageSrcLoc = view
-  ( lmSrcLoc
+  ( logEventSrcLoc
   . to
       (fmap
         (\sl -> T.pack $ printf "at %s:%i"
@@ -140,7 +140,7 @@ renderLogMessageSrcLoc = view
 -- Render e.g. as @\<192\>@.
 --
 -- Useful as header for syslog compatible log output.
-renderSyslogSeverityAndFacility :: LogMessageTextRenderer
+renderSyslogSeverityAndFacility :: LogEventPrinter
 renderSyslogSeverityAndFacility (MkLogEvent !f !s _ _ _ _ _ _ _ _ _) =
   "<" <> T.pack (show (fromSeverity s + fromFacility f * 8)) <> ">"
 
@@ -151,8 +151,8 @@ renderSyslogSeverityAndFacility (MkLogEvent !f !s _ _ _ _ _ _ _ _ _) =
 -- Render the header using 'renderSyslogSeverity'
 --
 -- Useful for logging to @/dev/log@
-renderLogMessageSyslog :: LogMessageTextRenderer
-renderLogMessageSyslog l@(MkLogEvent _ _ _ _ an _ mi _ _ _ _)
+renderLogEventSyslog :: LogEventPrinter
+renderLogEventSyslog l@(MkLogEvent _ _ _ _ an _ mi _ _ _ _)
   = renderSyslogSeverityAndFacility l <> (T.unwords
     . filter (not . T.null)
     $ [ fromMaybe "" an
@@ -161,14 +161,14 @@ renderLogMessageSyslog l@(MkLogEvent _ _ _ _ an _ mi _ _ _ _)
       ])
 
 -- | Render a 'LogEvent' human readable, for console logging
-renderLogMessageConsoleLog :: LogMessageTextRenderer
-renderLogMessageConsoleLog l@(MkLogEvent _ _ ts _ _ _ _ sd _ _ _) =
+renderLogEventConsoleLog :: LogEventPrinter
+renderLogEventConsoleLog l@(MkLogEvent _ _ ts _ _ _ _ sd _ _ _) =
   T.unwords $ filter
     (not . T.null)
-    [ T.pack (show (view lmSeverity  l))
-    , let p = fromMaybe "no process" (l ^. lmProcessId)
+    [ severityToText (view logEventSeverity l)
+    , let p = fromMaybe "no process" (l ^. logEventProcessId)
       in p <> T.replicate (max 0 (55 - T.length p)) " "
-    , maybe "" (renderLogMessageTime rfc5424Timestamp) ts
+    , maybe "" (renderLogEventTime rfc5424Timestamp) ts
     , renderLogEventBodyFixWidth l
     , if null sd then "" else T.concat (renderSdElement <$> sd)
     ]
@@ -176,38 +176,38 @@ renderLogMessageConsoleLog l@(MkLogEvent _ _ ts _ _ _ _ sd _ _ _) =
 -- | Render a 'LogEvent' human readable, for console logging
 --
 -- @since 0.31.0
-renderConsoleMinimalisticWide :: LogMessageRenderer T.Text
+renderConsoleMinimalisticWide :: LogEventReader T.Text
 renderConsoleMinimalisticWide l =
   T.unwords $ filter
     (not . T.null)
-    [ let s = T.pack (show (view lmSeverity  l))
+    [ let s = severityToText (view logEventSeverity l)
       in s <> T.replicate (max 0 (15 - T.length s)) " "
-    , let p = fromMaybe "no process" (l ^. lmProcessId)
+    , let p = fromMaybe "no process" (l ^. logEventProcessId)
       in p <> T.replicate (max 0 (55 - T.length p)) " "
-    , let msg = l^.lmMessage
+    , let msg = l^.logEventMessage.fromLogMsg
       in  msg <> T.replicate (max 0 (100 - T.length msg)) " "
     -- , fromMaybe "" (renderLogMessageSrcLoc l)
     ]
 
 -- | Render a 'LogEvent' according to the rules in the RFC-3164.
-renderRFC3164 :: LogMessageTextRenderer
+renderRFC3164 :: LogEventPrinter
 renderRFC3164 = renderRFC3164WithTimestamp rfc3164Timestamp
 
 -- | Render a 'LogEvent' according to the rules in the RFC-3164 but use
 -- RFC5424 time stamps.
-renderRFC3164WithRFC5424Timestamps :: LogMessageTextRenderer
+renderRFC3164WithRFC5424Timestamps :: LogEventPrinter
 renderRFC3164WithRFC5424Timestamps =
   renderRFC3164WithTimestamp rfc5424Timestamp
 
 -- | Render a 'LogEvent' according to the rules in the RFC-3164 but use the custom
--- 'LogMessageTimeRenderer'.
-renderRFC3164WithTimestamp :: LogMessageTimeRenderer -> LogMessageTextRenderer
+-- 'LogEventTimeRenderer'.
+renderRFC3164WithTimestamp :: LogEventTimeRenderer -> LogEventPrinter
 renderRFC3164WithTimestamp renderTime l@(MkLogEvent _ _ ts hn an pid mi _ _ _ _) =
   T.unwords
     . filter (not . T.null)
     $ [ renderSyslogSeverityAndFacility l -- PRI
       , maybe "1979-05-29T00:17:17.000001Z"
-              (renderLogMessageTime renderTime)
+              (renderLogEventTime renderTime)
               ts
       , fromMaybe "localhost" hn
       , fromMaybe "haskell" an <> maybe "" (("[" <>) . (<> "]")) pid <> ":"
@@ -220,7 +220,7 @@ renderRFC3164WithTimestamp renderTime l@(MkLogEvent _ _ ts hn an pid mi _ _ _ _)
 -- Equivalent to @'renderRFC5424Header' <> const " " <> 'renderLogEventBody'@.
 --
 -- @since 0.21.0
-renderRFC5424 :: LogMessageTextRenderer
+renderRFC5424 :: LogEventPrinter
 renderRFC5424  = renderRFC5424Header <> const " " <> renderLogEventBody
 
 -- | Render a 'LogEvent' according to the rules in the RFC-5424, like 'renderRFC5424' but
@@ -229,19 +229,19 @@ renderRFC5424  = renderRFC5424Header <> const " " <> renderLogEventBody
 -- Equivalent to @'renderRFC5424Header' <> const " " <> 'renderLogMessageBodyNoLocation'@.
 --
 -- @since 0.21.0
-renderRFC5424NoLocation :: LogMessageTextRenderer
+renderRFC5424NoLocation :: LogEventPrinter
 renderRFC5424NoLocation  = renderRFC5424Header <> const " " <> renderLogMessageBodyNoLocation
 
 -- | Render the header and strucuted data of  a 'LogEvent' according to the rules in the RFC-5424, but do not
--- render the 'lmMessage'.
+-- render the 'logEventMessage'.
 --
 -- @since 0.22.0
-renderRFC5424Header :: LogMessageTextRenderer
+renderRFC5424Header :: LogEventPrinter
 renderRFC5424Header l@(MkLogEvent _ _ ts hn an pid mi sd _ _ _) =
   T.unwords
     . filter (not . T.null)
     $ [ renderSyslogSeverityAndFacility l <> "1" -- PRI VERSION
-      , maybe "-" (renderLogMessageTime rfc5424Timestamp) ts
+      , maybe "-" (renderLogEventTime rfc5424Timestamp) ts
       , fromMaybe "-" hn
       , fromMaybe "-" an
       , fromMaybe "-" pid

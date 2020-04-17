@@ -29,9 +29,9 @@ test_Logging = setTravisTestOptions $ testGroup "logging"
 cencoredLogging :: HasCallStack => TestTree
 cencoredLogging =
   testCase "log cencorship works" $ do
-      res <- fmap (view lmMessage) <$> censoredLoggingTestImpl demo
+      res <- fmap (view logEventMessage) <$> censoredLoggingTestImpl demo
       res @?=
-        view lmMessage <$>
+        view logEventMessage <$>
         [ infoMessage "1"
         , debugMessage "2"
         , infoMessage "x 1"
@@ -57,9 +57,9 @@ cencoredLogging =
        $ withLogging (MkLogWriter (\lm -> modifyMVar_ logs (\lms -> return (lm : lms))))
        $ do
            e
-           censorLogs (lmMessage %~ ("x " <>)) $ do
+           censorLogs (logEventMessage %~ ("x " <>)) $ do
               e
-              censorLogs (lmMessage %~ ("y " <>)) e
+              censorLogs (logEventMessage %~ ("y " <>)) e
               e
            e
       takeMVar logs
@@ -68,8 +68,8 @@ strictness :: HasCallStack => TestTree
 strictness =
   testCase "messages failing the predicate are not deeply evaluated"
     $ runLift
-    $ withConsoleLogging "test-app" local0 allLogMessages
-    $ blacklistLogEvents (lmSeverityIs errorSeverity)
+    $ withConsoleLogging "test-app" local0 allLogEvents
+    $ blacklistLogEvents (logEventSeverityIs errorSeverity)
     $ do logDebug "test"
          logError' ("test" <> error "TEST FAILED: this log statement should not have been evaluated deeply")
 
@@ -79,7 +79,7 @@ liftedIoLogging =
   testCase "logging vs. MonadBaseControl"
     $ do outVar <- newEmptyMVar
          runLift
-          $ withConsoleLogging "test-app" local0 allLogMessages
+          $ withConsoleLogging "test-app" local0 allLogEvents
           $ (\ e -> liftBaseOp
                       (testWriter outVar)
                       (\doWrite ->
@@ -138,14 +138,14 @@ udpLogging :: HasCallStack => TestTree
 udpLogging =
   testCase "udp logging"
     $ runLift
-    $ UDP.withUDPLogging renderRFC5424NoLocation "localhost" "9999" "test-app" local0 allLogMessages
+    $ UDP.withUDPLogging renderRFC5424NoLocation "localhost" "9999" "test-app" local0 allLogEvents
       test1234
 
 udpNestedLogging :: HasCallStack => TestTree
 udpNestedLogging =
   testCase "udp nested filteredlogging"
     $ runLift
-        $ withConsoleLogging "test-app" local0 allLogMessages
+        $ withConsoleLogging "test-app" local0 allLogEvents
         $ UDP.withUDPLogWriter renderRFC5424 "localhost" "9999"
           test1234
 
@@ -154,7 +154,7 @@ asyncLogging =
   testCase "async filteredlogging"
     $ do lw <- consoleLogWriter
          runLift
-            $ Async.withAsyncLogging lw (1000::Int) "app-name" local0 allLogMessages
+            $ Async.withAsyncLogging lw (1000::Int) "app-name" local0 allLogEvents
               test1234
 
 asyncNestedLogging :: HasCallStack => TestTree

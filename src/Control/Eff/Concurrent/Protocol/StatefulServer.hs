@@ -236,7 +236,7 @@ logModel
                    , Member (ModelState m) e)
   => Text -> Eff e ()
 logModel x =
-  getModel @m >>= logDebug . (x <>) . pack . show
+  getModel @m >>= logDebug . MkLogMsg . (x <>) . pack . show
 
 -- | The 'Eff'ect type of readonly 'Settings' in a 'Server' instance.
 --

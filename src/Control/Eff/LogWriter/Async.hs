@@ -30,10 +30,10 @@ import           Data.Text                     as T
 -- > exampleWithAsyncLogging :: IO ()
 -- > exampleWithAsyncLogging =
 -- >     runLift
--- >   $ withAsyncLogWriter consoleLogWriter (1000::Int) "my-app" local0 allLogMessages
--- >   $ do logMsg "test 1"
--- >        logMsg "test 2"
--- >        logMsg "test 3"
+-- >   $ withAsyncLogWriter consoleLogWriter (1000::Int) "my-app" local0 allLogEvents
+-- >   $ do sendLogEvent "test 1"
+-- >        sendLogEvent "test 2"
+-- >        sendLogEvent "test 3"
 -- >
 --
 withAsyncLogging
@@ -41,8 +41,8 @@ withAsyncLogging
   => LogWriter
   -> len -- ^ Size of the log message input queue. If the queue is full, message
          -- are dropped silently.
-  -> Text -- ^ The default application name to put into the 'lmAppName' field.
-  -> Facility -- ^ The default RFC-5424 facility to put into the 'lmFacility' field.
+  -> Text -- ^ The default application name to put into the 'logEventAppName' field.
+  -> Facility -- ^ The default RFC-5424 facility to put into the 'logEventFacility' field.
   -> LogPredicate -- ^ The inital predicate for log messages, there are some pre-defined in "Control.Eff.Log.Message#PredefinedPredicates"
   -> Eff (Logs : LogWriterReader : e) a
   -> Eff e a
@@ -68,9 +68,9 @@ withAsyncLogging lw queueLength a f p e = liftBaseOp
 -- >     runLift
 -- >   $ withLogging consoleLogWriter
 -- >   $ withAsyncLogWriter (1000::Int)
--- >   $ do logMsg "test 1"
--- >        logMsg "test 2"
--- >        logMsg "test 3"
+-- >   $ do sendLogEvent "test 1"
+-- >        sendLogEvent "test 2"
+-- >        sendLogEvent "test 3"
 -- >
 --
 withAsyncLogWriter
@@ -109,7 +109,7 @@ makeLogChannelWriter lc = MkLogWriter logChannelPutIO
   logChannelPutIO (force -> me) = do
     !m <- evaluate me
     isFull <- atomically (
-      if m^.lmSeverity <= warningSeverity then do
+      if m^.logEventSeverity <= warningSeverity then do
         writeTBQueue logQ m
         return False
       else do

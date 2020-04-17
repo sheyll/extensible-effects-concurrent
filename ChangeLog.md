@@ -373,7 +373,7 @@ API Stabilization and cleanup release with major API changes.
 - Rewrite logging to be a `Reader` of a `LogWriter`
 - Remove pure logging, the `Logs...` constraint must be
   accompanied by `Lifted IO` (or `MonadIO`) in many log functions
-  most prominently `logMsg`
+  most prominently `sendLogEvent`
 - Add a `lmDistance` field in `LogMessage`
 - Add `increaseLogMessageDistance` and `dropDistantLogMessages`
   using the new `lmDistance` field

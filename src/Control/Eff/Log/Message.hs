@@ -4,17 +4,17 @@ module Control.Eff.Log.Message
   ( -- * Log Event Data Type
     LogEvent(..)
    -- ** Field Accessors
-  , lmFacility
-  , lmSeverity
-  , lmTimestamp
-  , lmHostname
-  , lmAppName
-  , lmProcessId
-  , lmMessageId
-  , lmStructuredData
-  , lmSrcLoc
-  , lmThreadId
-  , lmMessage
+  , logEventFacility
+  , logEventSeverity
+  , logEventTimestamp
+  , logEventHostname
+  , logEventAppName
+  , logEventProcessId
+  , logEventMessageId
+  , logEventStructuredData
+  , logEventSrcLoc
+  , logEventThreadId
+  , logEventMessage
 
   -- *** IO Based 'LogEvent' Modification
   , setCallStack
@@ -23,13 +23,16 @@ module Control.Eff.Log.Message
   , setLogEventsThreadId
   , setLogEventsHostname
 
-  -- ** Log Message Construction
+  -- ** Log Event Construction
   , errorMessage
   , infoMessage
   , debugMessage
 
-  -- *** Type Class for Conversion to 'LogEvent'
-  , ToLogEntry(..)
+  -- *** Log Message Texts
+  , LogMsg(..)
+  , fromLogMsg
+  , ToLogMsg(..)
+  , packLogMsg
 
   -- *** IO Based Constructor
   , errorMessageIO
@@ -39,11 +42,11 @@ module Control.Eff.Log.Message
   -- * 'LogEvent' Predicates #PredefinedPredicates#
   -- $PredefinedPredicates
   , LogPredicate
-  , allLogMessages
-  , noLogMessages
-  , lmSeverityIs
-  , lmSeverityIsAtLeast
-  , lmMessageStartsWith
+  , allLogEvents
+  , noLogEvents
+  , logEventSeverityIs
+  , logEventSeverityIsAtLeast
+  , logEventMessageStartsWith
   , discriminateByAppName
 
   -- ** RFC-5424 Structured Data
@@ -54,6 +57,7 @@ module Control.Eff.Log.Message
 
   -- * RFC 5424 Severity
   , Severity(fromSeverity)
+  , severityToText
   , emergencySeverity
   , alertSeverity
   , criticalSeverity
@@ -95,9 +99,10 @@ where
 import           Control.Concurrent
 import           Control.DeepSeq
 import           Control.Lens
-import           Control.Monad                  ( (>=>) )
+import           Control.Monad
 import           Control.Monad.IO.Class
 import           Data.Default
+import           Data.Hashable
 import           Data.Maybe
 import           Data.String                    (IsString(..))
 import qualified Data.Text                     as T
@@ -111,28 +116,42 @@ import           Network.HostName              as Network
 -- The fields are modelled to ressamble all fields mentioned for the
 -- RFC-5424 Syslog Protocol.
 data LogEvent =
-  MkLogEvent { _lmFacility :: !Facility
-             , _lmSeverity :: !Severity
-             , _lmTimestamp :: (Maybe UTCTime)
-             , _lmHostname :: (Maybe T.Text)
-             , _lmAppName :: (Maybe T.Text)
-             , _lmProcessId :: (Maybe T.Text)
-             , _lmMessageId :: (Maybe T.Text)
-             , _lmStructuredData :: [StructuredDataElement]
-             , _lmThreadId :: (Maybe ThreadId)
-             , _lmSrcLoc :: (Maybe SrcLoc)
-             , _lmMessage :: T.Text
+  MkLogEvent { _logEventFacility :: !Facility
+             , _logEventSeverity :: !Severity
+             , _logEventTimestamp :: (Maybe UTCTime)
+             , _logEventHostname :: (Maybe T.Text)
+             , _logEventAppName :: (Maybe T.Text)
+             , _logEventProcessId :: (Maybe T.Text)
+             , _logEventMessageId :: (Maybe T.Text)
+             , _logEventStructuredData :: [StructuredDataElement]
+             , _logEventThreadId :: (Maybe ThreadId)
+             , _logEventSrcLoc :: (Maybe SrcLoc)
+             , _logEventMessage :: LogMsg
              }
   deriving (Eq, Generic)
 
 instance Default LogEvent where
-  def = MkLogEvent def def def def def def def def def def ""
+  def = MkLogEvent def def def def def def def def def def (packLogMsg "")
 
 -- | This instance is __only__ supposed to be used for unit tests and debugging.
 instance Show LogEvent where
-  show = T.unpack . _lmMessage
+  show = T.unpack . _fromLogMsg . _logEventMessage
 
 instance NFData LogEvent
+
+-- | Convert a 'String' to a 'LogMsg'.
+--
+-- @since 1.0.0
+packLogMsg :: String -> LogMsg
+packLogMsg = MkLogMsg . T.pack
+
+-- | The main, human readable, log message text.
+--
+-- A newtype wrapper around 'T.Text'.
+--
+-- @since 1.0.0
+newtype LogMsg = MkLogMsg { _fromLogMsg :: T.Text }
+  deriving (Eq, Ord, NFData, Generic, Semigroup, Monoid, Hashable)
 
 -- | RFC-5424 defines how structured data can be included in a log message.
 data StructuredDataElement =
@@ -154,62 +173,66 @@ newtype Severity =
   Severity {fromSeverity :: Int}
   deriving (Eq, Ord, Generic, NFData)
 
-instance Show Severity where
-  show (Severity 1) = "ALERT    "
-  show (Severity 2) = "CRITICAL "
-  show (Severity 3) = "ERROR    "
-  show (Severity 4) = "WARNING  "
-  show (Severity 5) = "NOTICE   "
-  show (Severity 6) = "INFO     "
-  show (Severity x) | x <= 0    = "EMERGENCY"
-                    | otherwise = "DEBUG    "
+-- | Convert a 'Severity' to 'T.Text'
+--
+-- @since 1.0.0
+severityToText :: Severity -> T.Text
+severityToText (Severity 1) = T.pack "ALERT    "
+severityToText (Severity 2) = T.pack "CRITICAL "
+severityToText (Severity 3) = T.pack "ERROR    "
+severityToText (Severity 4) = T.pack "WARNING  "
+severityToText (Severity 5) = T.pack "NOTICE   "
+severityToText (Severity 6) = T.pack "INFO     "
+severityToText (Severity x) | x <= 0    = T.pack "EMERGENCY"
+                            | otherwise = T.pack "DEBUG    "
+
 --  *** Severities
 
 -- | Smart constructor for the RFC-5424 __emergency__ 'LogEvent' 'Severity'.
 -- This corresponds to the severity value __0__.
--- See 'lmSeverity'.
+-- See 'logEventSeverity'.
 emergencySeverity :: Severity
 emergencySeverity = Severity 0
 
 -- | Smart constructor for the RFC-5424 __alert__ 'LogEvent' 'Severity'.
 -- This corresponds to the severity value __1__.
--- See 'lmSeverity'.
+-- See 'logEventSeverity'.
 alertSeverity :: Severity
 alertSeverity = Severity 1
 
 -- | Smart constructor for the RFC-5424 __critical__ 'LogEvent' 'Severity'.
 -- This corresponds to the severity value __2__.
--- See 'lmSeverity'.
+-- See 'logEventSeverity'.
 criticalSeverity :: Severity
 criticalSeverity = Severity 2
 
 -- | Smart constructor for the RFC-5424 __error__ 'LogEvent' 'Severity'.
 -- This corresponds to the severity value __3__.
--- See 'lmSeverity'.
+-- See 'logEventSeverity'.
 errorSeverity :: Severity
 errorSeverity = Severity 3
 
 -- | Smart constructor for the RFC-5424 __warning__ 'LogEvent' 'Severity'.
 -- This corresponds to the severity value __4__.
--- See 'lmSeverity'.
+-- See 'logEventSeverity'.
 warningSeverity :: Severity
 warningSeverity = Severity 4
 
 -- | Smart constructor for the RFC-5424 __notice__ 'LogEvent' 'Severity'.
 -- This corresponds to the severity value __5__.
--- See 'lmSeverity'.
+-- See 'logEventSeverity'.
 noticeSeverity :: Severity
 noticeSeverity = Severity 5
 
 -- | Smart constructor for the RFC-5424 __informational__ 'LogEvent' 'Severity'.
 -- This corresponds to the severity value __6__.
--- See 'lmSeverity'.
+-- See 'logEventSeverity'.
 informationalSeverity :: Severity
 informationalSeverity = Severity 6
 
 -- | Smart constructor for the RFC-5424 __debug__ 'LogEvent' 'Severity'.
 -- This corresponds to the severity value __7__.
--- See 'lmSeverity'.
+-- See 'logEventSeverity'.
 debugSeverity :: Severity
 debugSeverity = Severity 7
 
@@ -222,117 +245,117 @@ newtype Facility = Facility {fromFacility :: Int}
   deriving (Eq, Ord, Show, Generic, NFData)
 
 -- | Smart constructor for the RFC-5424 'LogEvent' facility @kernelMessages@.
--- See 'lmFacility'.
+-- See 'logEventFacility'.
 kernelMessages :: Facility
 kernelMessages = Facility 0
 
 -- | Smart constructor for the RFC-5424 'LogEvent' facility @userLevelMessages@.
--- See 'lmFacility'.
+-- See 'logEventFacility'.
 userLevelMessages :: Facility
 userLevelMessages = Facility 1
 
 -- | Smart constructor for the RFC-5424 'LogEvent' facility @mailSystem@.
--- See 'lmFacility'.
+-- See 'logEventFacility'.
 mailSystem :: Facility
 mailSystem = Facility 2
 
 -- | Smart constructor for the RFC-5424 'LogEvent' facility @systemDaemons@.
--- See 'lmFacility'.
+-- See 'logEventFacility'.
 systemDaemons :: Facility
 systemDaemons = Facility 3
 
 -- | Smart constructor for the RFC-5424 'LogEvent' facility @securityAuthorizationMessages4@.
--- See 'lmFacility'.
+-- See 'logEventFacility'.
 securityAuthorizationMessages4 :: Facility
 securityAuthorizationMessages4 = Facility 4
 
 -- | Smart constructor for the RFC-5424 'LogEvent' facility @linePrinterSubsystem@.
--- See 'lmFacility'.
+-- See 'logEventFacility'.
 linePrinterSubsystem :: Facility
 linePrinterSubsystem = Facility 6
 
 -- | Smart constructor for the RFC-5424 'LogEvent' facility @networkNewsSubsystem@.
--- See 'lmFacility'.
+-- See 'logEventFacility'.
 networkNewsSubsystem :: Facility
 networkNewsSubsystem = Facility 7
 
 -- | Smart constructor for the RFC-5424 'LogEvent' facility @uucpSubsystem@.
--- See 'lmFacility'.
+-- See 'logEventFacility'.
 uucpSubsystem :: Facility
 uucpSubsystem = Facility 8
 
 -- | Smart constructor for the RFC-5424 'LogEvent' facility @clockDaemon@.
--- See 'lmFacility'.
+-- See 'logEventFacility'.
 clockDaemon :: Facility
 clockDaemon = Facility 9
 
 -- | Smart constructor for the RFC-5424 'LogEvent' facility @securityAuthorizationMessages10@.
--- See 'lmFacility'.
+-- See 'logEventFacility'.
 securityAuthorizationMessages10 :: Facility
 securityAuthorizationMessages10 = Facility 10
 
 -- | Smart constructor for the RFC-5424 'LogEvent' facility @ftpDaemon@.
--- See 'lmFacility'.
+-- See 'logEventFacility'.
 ftpDaemon :: Facility
 ftpDaemon = Facility 11
 
 -- | Smart constructor for the RFC-5424 'LogEvent' facility @ntpSubsystem@.
--- See 'lmFacility'.
+-- See 'logEventFacility'.
 ntpSubsystem :: Facility
 ntpSubsystem = Facility 12
 
 -- | Smart constructor for the RFC-5424 'LogEvent' facility @logAuditFacility@.
--- See 'lmFacility'.
+-- See 'logEventFacility'.
 logAuditFacility :: Facility
 logAuditFacility = Facility 13
 
 -- | Smart constructor for the RFC-5424 'LogEvent' facility @logAlertFacility@.
--- See 'lmFacility'.
+-- See 'logEventFacility'.
 logAlertFacility :: Facility
 logAlertFacility = Facility 14
 
 -- | Smart constructor for the RFC-5424 'LogEvent' facility @clockDaemon2@.
--- See 'lmFacility'.
+-- See 'logEventFacility'.
 clockDaemon2 :: Facility
 clockDaemon2 = Facility 15
 
 -- | Smart constructor for the RFC-5424 'LogEvent' facility @local0@.
--- See 'lmFacility'.
+-- See 'logEventFacility'.
 local0 :: Facility
 local0 = Facility 16
 
 -- | Smart constructor for the RFC-5424 'LogEvent' facility @local1@.
--- See 'lmFacility'.
+-- See 'logEventFacility'.
 local1 :: Facility
 local1 = Facility 17
 
 -- | Smart constructor for the RFC-5424 'LogEvent' facility @local2@.
--- See 'lmFacility'.
+-- See 'logEventFacility'.
 local2 :: Facility
 local2 = Facility 18
 
 -- | Smart constructor for the RFC-5424 'LogEvent' facility @local3@.
--- See 'lmFacility'.
+-- See 'logEventFacility'.
 local3 :: Facility
 local3 = Facility 19
 
 -- | Smart constructor for the RFC-5424 'LogEvent' facility @local4@.
--- See 'lmFacility'.
+-- See 'logEventFacility'.
 local4 :: Facility
 local4 = Facility 20
 
 -- | Smart constructor for the RFC-5424 'LogEvent' facility @local5@.
--- See 'lmFacility'.
+-- See 'logEventFacility'.
 local5 :: Facility
 local5 = Facility 21
 
 -- | Smart constructor for the RFC-5424 'LogEvent' facility @local6@.
--- See 'lmFacility'.
+-- See 'logEventFacility'.
 local6 :: Facility
 local6 = Facility 22
 
 -- | Smart constructor for the RFC-5424 'LogEvent' facility @local7@.
--- See 'lmFacility'.
+-- See 'logEventFacility'.
 local7 :: Facility
 local7 = Facility 23
 
@@ -359,7 +382,7 @@ makeLensesWith (lensRules & generateSignatures .~ False) ''LogEvent
 
 -- | A lens for the UTC time of a 'LogEvent'
 -- The function 'setLogEventsTimestamp' can be used to set the field.
-lmTimestamp
+logEventTimestamp
   :: Functor f
   => (Maybe UTCTime -> f (Maybe UTCTime))
   -> LogEvent
@@ -367,57 +390,57 @@ lmTimestamp
 
 -- | A lens for the 'ThreadId' of a 'LogEvent'
 -- The function 'setLogEventsThreadId' can be used to set the field.
-lmThreadId
+logEventThreadId
   :: Functor f
   => (Maybe ThreadId -> f (Maybe ThreadId))
   -> LogEvent
   -> f LogEvent
 
 -- | A lens for the 'StructuredDataElement' of a 'LogEvent'
-lmStructuredData
+logEventStructuredData
   :: Functor f
   => ([StructuredDataElement] -> f [StructuredDataElement])
   -> LogEvent
   -> f LogEvent
 
 -- | A lens for the 'SrcLoc' of a 'LogEvent'
-lmSrcLoc
+logEventSrcLoc
   :: Functor f
   => (Maybe SrcLoc -> f (Maybe SrcLoc))
   -> LogEvent
   -> f LogEvent
 
 -- | A lens for the 'Severity' of a 'LogEvent'
-lmSeverity
+logEventSeverity
   :: Functor f => (Severity -> f Severity) -> LogEvent -> f LogEvent
 
 -- | A lens for a user defined of /process/ id of a 'LogEvent'
-lmProcessId
+logEventProcessId
   :: Functor f
   => (Maybe T.Text -> f (Maybe T.Text))
   -> LogEvent
   -> f LogEvent
 
 -- | A lens for a user defined /message id/ of a 'LogEvent'
-lmMessageId
+logEventMessageId
   :: Functor f
   => (Maybe T.Text -> f (Maybe T.Text))
   -> LogEvent
   -> f LogEvent
 
 -- | A lens for the user defined textual message of a 'LogEvent'
-lmMessage :: Functor f => (T.Text -> f T.Text) -> LogEvent -> f LogEvent
+logEventMessage :: Functor f => (LogMsg -> f LogMsg) -> LogEvent -> f LogEvent
 
 -- | A lens for the hostname of a 'LogEvent'
 -- The function 'setLogEventsHostname' can be used to set the field.
-lmHostname
+logEventHostname
   :: Functor f
   => (Maybe T.Text -> f (Maybe T.Text))
   -> LogEvent
   -> f LogEvent
 
 -- | A lens for the 'Facility' of a 'LogEvent'
-lmFacility
+logEventFacility
   :: Functor f => (Facility -> f Facility) -> LogEvent -> f LogEvent
 
 -- | A lens for the RFC 5424 /application/ name of a 'LogEvent'
@@ -427,141 +450,113 @@ lmFacility
 -- messages from third party libraries:
 --
 -- > debugLogsForAppName myAppName lm =
--- >   view lmAppName lm == Just myAppName || lmSeverityIsAtLeast warningSeverity lm
+-- >   view logEventAppName lm == Just myAppName || logEventSeverityIsAtLeast warningSeverity lm
 --
 -- This concept is also implemented in 'discriminateByAppName'.
-lmAppName
+logEventAppName
   :: Functor f
   => (Maybe T.Text -> f (Maybe T.Text))
   -> LogEvent
   -> f LogEvent
 
--- | Put the source location of the given callstack in 'lmSrcLoc'
+-- | Put the source location of the given callstack in 'logEventSrcLoc'
 setCallStack :: CallStack -> LogEvent -> LogEvent
 setCallStack cs m = case getCallStack cs of
   []              -> m
-  (_, srcLoc) : _ -> m & lmSrcLoc ?~ srcLoc
+  (_, srcLoc) : _ -> m & logEventSrcLoc ?~ srcLoc
 
--- | Prefix the 'lmMessage'.
-prefixLogEventsWith :: T.Text -> LogEvent -> LogEvent
-prefixLogEventsWith = over lmMessage . (<>)
+-- | Prefix the 'logEventMessage'.
+prefixLogEventsWith :: LogMsg -> LogEvent -> LogEvent
+prefixLogEventsWith = over logEventMessage . (<>)
 
--- | An IO action that sets the current UTC time in 'lmTimestamp'.
+-- | An IO action that sets the current UTC time in 'logEventTimestamp'.
 setLogEventsTimestamp :: LogEvent -> IO LogEvent
-setLogEventsTimestamp m = if isNothing (m ^. lmTimestamp)
+setLogEventsTimestamp m = if isNothing (m ^. logEventTimestamp)
   then do
     now <- getCurrentTime
-    return (m & lmTimestamp ?~ now)
+    return (m & logEventTimestamp ?~ now)
   else return m
 
 -- | An IO action appends the the 'ThreadId' of the calling process (see 'myThreadId')
--- to 'lmMessage'.
+-- to 'logEventMessage'.
 setLogEventsThreadId :: LogEvent -> IO LogEvent
-setLogEventsThreadId m = if isNothing (m ^. lmThreadId)
+setLogEventsThreadId m = if isNothing (m ^. logEventThreadId)
   then do
     t <- myThreadId
-    return (m & lmThreadId ?~ t)
+    return (m & logEventThreadId ?~ t)
   else return m
 
--- | An IO action that sets the current hosts fully qualified hostname in 'lmHostname'.
+-- | An IO action that sets the current hosts fully qualified hostname in 'logEventHostname'.
 setLogEventsHostname :: LogEvent -> IO LogEvent
-setLogEventsHostname m = if isNothing (m ^. lmHostname)
+setLogEventsHostname m = if isNothing (m ^. logEventHostname)
   then do
     fqdn <- Network.getHostName
-    return (m & lmHostname ?~ T.pack fqdn)
+    return (m & logEventHostname ?~ T.pack fqdn)
   else return m
 
 -- | Construct a 'LogEvent' with 'errorSeverity'
-errorMessage :: HasCallStack => T.Text -> LogEvent
+errorMessage :: HasCallStack => LogMsg -> LogEvent
 errorMessage m = withFrozenCallStack
-  (def & lmSeverity .~ errorSeverity & lmMessage .~ m & setCallStack callStack)
+  (def & logEventSeverity .~ errorSeverity & logEventMessage .~ m & setCallStack callStack)
 
 -- | Construct a 'LogEvent' with 'informationalSeverity'
-infoMessage :: HasCallStack => T.Text -> LogEvent
+infoMessage :: HasCallStack => LogMsg -> LogEvent
 infoMessage m = withFrozenCallStack
   (  def
-  &  lmSeverity
+  &  logEventSeverity
   .~ informationalSeverity
-  &  lmMessage
+  &  logEventMessage
   .~ m
   &  setCallStack callStack
   )
 
 -- | Construct a 'LogEvent' with 'debugSeverity'
-debugMessage :: HasCallStack => T.Text -> LogEvent
+debugMessage :: HasCallStack => LogMsg -> LogEvent
 debugMessage m = withFrozenCallStack
-  (def & lmSeverity .~ debugSeverity & lmMessage .~ m & setCallStack callStack)
+  (def & logEventSeverity .~ debugSeverity & logEventMessage .~ m & setCallStack callStack)
 
 -- | Construct a 'LogEvent' with 'errorSeverity'
-errorMessageIO :: (HasCallStack, MonadIO m) => T.Text -> m LogEvent
+errorMessageIO :: (HasCallStack, MonadIO m) => LogMsg -> m LogEvent
 errorMessageIO =
   withFrozenCallStack
     $ (liftIO . setLogEventsThreadId >=> liftIO . setLogEventsTimestamp)
     . errorMessage
 
 -- | Construct a 'LogEvent' with 'informationalSeverity'
-infoMessageIO :: (HasCallStack, MonadIO m) => T.Text -> m LogEvent
+infoMessageIO :: (HasCallStack, MonadIO m) => LogMsg -> m LogEvent
 infoMessageIO =
   withFrozenCallStack
     $ (liftIO . setLogEventsThreadId >=> liftIO . setLogEventsTimestamp)
     . infoMessage
 
 -- | Construct a 'LogEvent' with 'debugSeverity'
-debugMessageIO :: (HasCallStack, MonadIO m) => T.Text -> m LogEvent
+debugMessageIO :: (HasCallStack, MonadIO m) => LogMsg -> m LogEvent
 debugMessageIO =
   withFrozenCallStack
     $ (liftIO . setLogEventsThreadId >=> liftIO . setLogEventsTimestamp)
     . debugMessage
 
--- | Things that can become a 'LogEvent'
-class ToLogEntry a where
-  -- | Convert the value to a 'LogEvent'
-  toLogEntry :: a -> LogEvent
+makeLensesWith (lensRules & generateSignatures .~ False) ''LogMsg
 
-instance ToLogEntry LogEvent where
-  toLogEntry = id
+-- | A lens (iso) to access the 'T.Text' of a 'LogMsg'.
+--
+-- @since 1.0.0
+fromLogMsg :: Iso' LogMsg T.Text
 
-instance ToLogEntry T.Text where
-  toLogEntry = infoMessage
-
+-- | A type class to convert a type to a log message
+--
+-- @since 1.0.0
 class ToLogMsg a where
+  toLogMsg :: a -> LogMsg
 
+instance ToLogMsg String where
+  toLogMsg = MkLogMsg . fromString
 
-newtype EMERGENCY a = EMERGENCY a
-newtype ALERT a = ALERT a
-newtype CRITICAL a = CRITICAL a
-newtype ERROR a = ERROR a
-newtype WARNING a = WARNING a
-newtype NOTICE a = NOTICE a
-newtype INFO a = INFO a
-newtype DEBUG a = DEBUG a
+-- instance ToLogMsg T.Text where
+--   toLogMsg = MkLogMsg
 
--- TODO renamte LogEvent -> LogEntry
--- TODO add newtype LogMessageText
-
-instance ToLogEntry a => ToLogEntry (Severity, a) where
-  toLogEntry (s, a) =
-      let m = toLogEntry a
-      in m & lmSeverity .~ s
-
-instance IsString LogEvent where
-  fromString = infoMessage . T.pack
-
--- $PredefinedPredicates
--- == Log Message Predicates
---
--- These are the predefined 'LogPredicate's:
---
---  * 'allLogMessages'
---  * 'noLogMessages'
---  * 'lmSeverityIsAtLeast'
---  * 'lmSeverityIs'
---  * 'lmMessageStartsWith'
---  * 'discriminateByAppName'
---
--- To find out how to use these predicates,
--- goto "Control.Eff.Log#LogPredicate"
-
+instance ToLogMsg LogMsg where
+  toLogMsg = id
 
 -- | The filter predicate for message that shall be logged.
 --
@@ -571,38 +566,38 @@ type LogPredicate = LogEvent -> Bool
 -- | All messages.
 --
 -- See "Control.Eff.Log.Message#PredefinedPredicates" for more predicates.
-allLogMessages :: LogPredicate
-allLogMessages = const True
+allLogEvents :: LogPredicate
+allLogEvents = const True
 
 -- | No messages.
 --
 -- See "Control.Eff.Log.Message#PredefinedPredicates" for more predicates.
-noLogMessages :: LogPredicate
-noLogMessages = const False
+noLogEvents :: LogPredicate
+noLogEvents = const False
 
 -- | Match 'LogEvent's that have exactly the given severity.
--- See 'lmSeverityIsAtLeast'.
+-- See 'logEventSeverityIsAtLeast'.
 --
 -- See "Control.Eff.Log.Message#PredefinedPredicates" for more predicates.
-lmSeverityIs :: Severity -> LogPredicate
-lmSeverityIs s = view (lmSeverity . to (== s))
+logEventSeverityIs :: Severity -> LogPredicate
+logEventSeverityIs s = view (logEventSeverity . to (== s))
 
 -- | Match 'LogEvent's that have the given severity __or worse__.
--- See 'lmSeverityIs'.
+-- See 'logEventSeverityIs'.
 --
 -- See "Control.Eff.Log.Message#PredefinedPredicates" for more predicates.
-lmSeverityIsAtLeast :: Severity -> LogPredicate
-lmSeverityIsAtLeast s = view (lmSeverity . to (<= s))
+logEventSeverityIsAtLeast :: Severity -> LogPredicate
+logEventSeverityIsAtLeast s = view (logEventSeverity . to (<= s))
 
--- | Match 'LogEvent's whose 'lmMessage' starts with the given string.
+-- | Match 'LogEvent's whose 'logEventMessage' starts with the given string.
 --
 -- See "Control.Eff.Log.Message#PredefinedPredicates" for more predicates.
-lmMessageStartsWith :: T.Text -> LogPredicate
-lmMessageStartsWith prefix lm = case T.length prefix of
+logEventMessageStartsWith :: LogMsg -> LogPredicate
+logEventMessageStartsWith (MkLogMsg prefix) lm = case T.length prefix of
   0         -> True
-  prefixLen -> T.take prefixLen (lm ^. lmMessage) == prefix
+  prefixLen -> T.take prefixLen (lm ^. logEventMessage . fromLogMsg) == prefix
 
--- | Apply a 'LogPredicate' based on the 'lmAppName' and delegate
+-- | Apply a 'LogPredicate' based on the 'logEventAppName' and delegate
 -- to one of two 'LogPredicate's.
 --
 -- One useful application for this is to allow info and debug message
@@ -613,6 +608,6 @@ lmMessageStartsWith prefix lm = case T.length prefix of
 -- See "Control.Eff.Log.Message#PredefinedPredicates" for more predicates.
 discriminateByAppName :: T.Text -> LogPredicate -> LogPredicate -> LogPredicate
 discriminateByAppName appName appPredicate otherPredicate lm =
-  if view lmAppName lm == Just appName
+  if view logEventAppName lm == Just appName
     then appPredicate lm
     else otherPredicate lm

@@ -31,17 +31,17 @@ import           Control.Monad.Trans.Control    ( MonadBaseControl
 -- > exampleWithFileLogging :: IO ()
 -- > exampleWithFileLogging =
 -- >     runLift
--- >   $ withFileLogging "/var/log/my-app.log" "my-app" local7 allLogMessages renderLogMessageConsoleLog
+-- >   $ withFileLogging "/var/log/my-app.log" "my-app" local7 allLogEvents renderLogEventConsoleLog
 -- >   $ logInfo "Oh, hi there"
 --
 -- To vary the 'LogWriter' use 'withRichLogging'.
 withFileLogging
   :: (Lifted IO e, MonadBaseControl IO (Eff e), HasCallStack)
   => FilePath -- ^ Path to the log-file.
-  -> Text -- ^ The default application name to put into the 'lmAppName' field.
-  -> Facility -- ^ The default RFC-5424 facility to put into the 'lmFacility' field.
+  -> Text -- ^ The default application name to put into the 'logEventAppName' field.
+  -> Facility -- ^ The default RFC-5424 facility to put into the 'logEventFacility' field.
   -> LogPredicate -- ^ The inital predicate for log messages, there are some pre-defined in "Control.Eff.Log.Message#PredefinedPredicates"
-  -> LogMessageTextRenderer -- ^ The 'LogEvent' render function
+  -> LogEventPrinter -- ^ The 'LogEvent' render function
   -> Eff (Logs : LogWriterReader : e) a
   -> Eff e a
 withFileLogging fnIn a f p render e = do
@@ -57,12 +57,12 @@ withFileLogging fnIn a f p render e = do
 -- > exampleWithFileLogWriter =
 -- >     runLift
 -- >   $ withoutLogging
--- >   $ withFileLogWriter "test.log" renderLogMessageConsoleLog
+-- >   $ withFileLogWriter "test.log" renderLogEventConsoleLog
 -- >   $ logInfo "Oh, hi there"
 withFileLogWriter
   :: (IoLogging e, MonadBaseControl IO (Eff e), HasCallStack)
   => FilePath -- ^ Path to the log-file.
-  -> LogMessageTextRenderer
+  -> LogEventPrinter
   -> Eff e b
   -> Eff e b
 withFileLogWriter fnIn render e =
@@ -71,7 +71,7 @@ withFileLogWriter fnIn render e =
 withOpenedLogFile
   :: HasCallStack
   => FilePath
-  -> LogMessageTextRenderer
+  -> LogEventPrinter
   -> (LogWriter -> IO a)
   -> IO a
 withOpenedLogFile fnIn render ioE = Safe.bracket

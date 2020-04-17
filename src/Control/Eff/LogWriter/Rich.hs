@@ -22,14 +22,14 @@ import           Data.Text
 -- >   $ withRichLogging debugTraceLogWriter
 -- >                   "my-app"
 -- >                   local7
--- >                   (lmSeverityIsAtLeast informationalSeverity)
+-- >                   (logEventSeverityIsAtLeast informationalSeverity)
 -- >   $ logInfo "Oh, hi there"
 --
 withRichLogging
   :: Lifted IO e
   => LogWriter -- ^ The 'LogWriter' that will be used to write log messages.
-  -> Text -- ^ The default application name to put into the 'lmAppName' field.
-  -> Facility -- ^ The default RFC-5424 facility to put into the 'lmFacility' field.
+  -> Text -- ^ The default application name to put into the 'logEventAppName' field.
+  -> Facility -- ^ The default RFC-5424 facility to put into the 'logEventFacility' field.
   -> LogPredicate -- ^ The inital predicate for log messages, there are some pre-defined in "Control.Eff.Log.Message#PredefinedPredicates"
   -> Eff (Logs : LogWriterReader : e) a
   -> Eff e a
@@ -39,15 +39,15 @@ withRichLogging lw appName facility defaultPredicate =
 
 -- | Decorate an IO based 'LogWriter' to fill out these fields in 'LogEvent's:
 --
--- * The messages will carry the given application name in the 'lmAppName' field.
--- * The 'lmTimestamp' field contains the UTC time of the log event
--- * The 'lmHostname' field contains the FQDN of the current host
--- * The 'lmFacility' field contains the given 'Facility'
+-- * The messages will carry the given application name in the 'logEventAppName' field.
+-- * The 'logEventTimestamp' field contains the UTC time of the log event
+-- * The 'logEventHostname' field contains the FQDN of the current host
+-- * The 'logEventFacility' field contains the given 'Facility'
 --
 -- It works by using 'mappingLogWriterIO'.
 richLogWriter
-  :: Text -- ^ The default application name to put into the 'lmAppName' field.
-  -> Facility -- ^ The default RFC-5424 facility to put into the 'lmFacility' field.
+  :: Text -- ^ The default application name to put into the 'logEventAppName' field.
+  -> Facility -- ^ The default RFC-5424 facility to put into the 'logEventFacility' field.
   -> LogWriter -- ^ The IO based writer to decorate
   -> LogWriter
 richLogWriter appName facility =
@@ -56,6 +56,6 @@ richLogWriter appName facility =
     >=> setLogEventsHostname
     )
   . mappingLogWriter
-    ( set lmFacility facility
-    . set lmAppName  (Just appName)
+    ( set logEventFacility facility
+    . set logEventAppName  (Just appName)
     )

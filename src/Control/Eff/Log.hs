@@ -21,10 +21,10 @@
 -- >       censorLogs (prefixLogEventsWith "NESTED: ")
 -- >        $ do
 -- >             addLogWriter debugTraceLogWriter
--- >              $ setLogPredicate (\m -> (view lmMessage m) /= "not logged")
+-- >              $ setLogPredicate (\m -> (view logEventMessage m) /= "not logged")
 -- >              $ do
 -- >                   logInfo "not logged"
--- >                   logMsg "test 2.1"
+-- >                   sendLogEvent "test 2.1"
 -- >             logWarning "test 2.2"
 -- >       logCritical "test 1.3"
 --
@@ -39,17 +39,17 @@
 --
 -- == Receiving and Filtering
 --
--- 'LogEvent's are sent using 'logMsg' and friends, see "Control.Eff.Log#SendingLogs"
+-- 'LogEvent's are sent using 'sendLogEvent' and friends, see "Control.Eff.Log#SendingLogs"
 --
 -- === Log Message Predicates
 --
 -- There is a single global 'LogPredicate' that can be used to suppress logs before
 -- they are passed to any 'LogWriter'.
 --
--- This is done by the 'logMsg' function.
+-- This is done by the 'sendLogEvent' function.
 --
 -- Also, 'LogEvent's are evaluated using 'Control.DeepSeq.deepseq', __after__ they pass the 'LogPredicate',
--- also inside 'logMsg'.
+-- also inside 'sendLogEvent'.
 --
 -- See "Control.Eff.Log#LogPredicate"
 --
@@ -60,7 +60,7 @@
 --
 -- === Log Message Rendering
 --
--- Message are rendered by 'LogMessageRenderer's found in the "Control.Eff.Log.MessageRenderer".
+-- Message are rendered by 'LogEventReader's found in the "Control.Eff.Log.MessageRenderer".
 --
 -- === 'LogWriter's
 --
@@ -69,28 +69,17 @@
 module Control.Eff.Log
   ( -- * FilteredLogging API
     -- ** Sending Log Messages #SendingLogs#
-    logMsg
-  , logWithSeverity
-  , logWithSeverity'
+    LogEventSender(..)
   , logEmergency
-  , logEmergency'
   , logAlert
-  , logAlert'
   , logCritical
-  , logCritical'
   , logError
-  , logError'
   , logWarning
-  , logWarning'
   , logNotice
-  , logNotice'
   , logInfo
-  , logInfo'
   , logDebug
-  , logDebug'
   , logCallStack
-  , logMultiLine
-  , logMultiLine'
+
 
     -- ** Log Message Pre-Filtering #LogPredicate#
     -- $LogPredicate

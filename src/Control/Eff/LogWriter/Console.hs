@@ -13,21 +13,21 @@ import Data.Text
 -- | Enable logging to @standard output@ using the 'consoleLogWriter', with some 'LogEvent' fields preset
 -- as in 'withRichLogging'.
 --
--- Log messages are rendered using 'renderLogMessageConsoleLog'.
+-- Log messages are rendered using 'renderLogEventConsoleLog'.
 --
 -- Example:
 --
 -- > exampleWithConsoleLogging :: IO ()
 -- > exampleWithConsoleLogging =
 -- >     runLift
--- >   $ withConsoleLogging "my-app" local7 allLogMessages
+-- >   $ withConsoleLogging "my-app" local7 allLogEvents
 -- >   $ logInfo "Oh, hi there"
 --
 -- To vary the 'LogWriter' use 'withRichLogging'.
 withConsoleLogging
   :: Lifted IO e
-  => Text -- ^ The default application name to put into the 'lmAppName' field.
-  -> Facility -- ^ The default RFC-5424 facility to put into the 'lmFacility' field.
+  => Text -- ^ The default application name to put into the 'logEventAppName' field.
+  -> Facility -- ^ The default RFC-5424 facility to put into the 'logEventFacility' field.
   -> LogPredicate -- ^ The inital predicate for log messages, there are some pre-defined in "Control.Eff.Log.Message#PredefinedPredicates"
   -> Eff (Logs : LogWriterReader : e) a
   -> Eff e a
@@ -38,7 +38,7 @@ withConsoleLogging a b c d = do
 
 -- | Enable logging to @standard output@ using the 'consoleLogWriter'.
 --
--- Log messages are rendered using 'renderLogMessageConsoleLog'.
+-- Log messages are rendered using 'renderLogEventConsoleLog'.
 --
 -- Example:
 --
@@ -56,10 +56,10 @@ withConsoleLogWriter e = do
   addLogWriter lw e
 
 
--- | Render a 'LogEvent' to 'IO.stdout' using 'renderLogMessageConsoleLog'.
+-- | Render a 'LogEvent' to 'IO.stdout' using 'renderLogEventConsoleLog'.
 --
 -- See 'stdoutLogWriter'.
 --
 -- @since 0.31.0
 consoleLogWriter :: IO LogWriter
-consoleLogWriter = stdoutLogWriter renderLogMessageConsoleLog
+consoleLogWriter = stdoutLogWriter renderLogEventConsoleLog

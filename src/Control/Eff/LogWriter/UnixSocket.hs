@@ -26,10 +26,10 @@ import           Network.Socket.ByteString
 -- See 'Control.Eff.Log.Examples.exampleDevLogSyslogLogging'
 withUnixSocketLogging
   :: (HasCallStack, MonadBaseControl IO (Eff e), Lifted IO e)
-  => LogMessageRenderer Text -- ^ 'LogEvent' rendering function
+  => LogEventReader Text -- ^ 'LogEvent' rendering function
   -> FilePath -- ^ Path to the socket file
-  -> Text -- ^ The default application name to put into the 'lmAppName' field.
-  -> Facility -- ^ The default RFC-5424 facility to put into the 'lmFacility' field.
+  -> Text -- ^ The default application name to put into the 'logEventAppName' field.
+  -> Facility -- ^ The default RFC-5424 facility to put into the 'logEventFacility' field.
   -> LogPredicate -- ^ The inital predicate for log messages, there are some pre-defined in "Control.Eff.Log.Message#PredefinedPredicates"
   -> Eff (Logs : LogWriterReader : e) a
   -> Eff e a
@@ -42,7 +42,7 @@ withUnixSocketLogging render socketPath a f p e = liftBaseOp
 -- See 'Control.Eff.Log.Examples.exampleDevLogSyslogLogging'
 withUnixSocketLogWriter
   :: (IoLogging e, MonadBaseControl IO (Eff e), HasCallStack)
-  => LogMessageRenderer Text -- ^ 'LogEvent' rendering function
+  => LogEventReader Text -- ^ 'LogEvent' rendering function
   -> FilePath -- ^ Path to the socket file
   -> Eff e b
   -> Eff e b
@@ -51,7 +51,7 @@ withUnixSocketLogWriter render socketPath e =
 
 withUnixSocketSocket
   :: HasCallStack
-  => LogMessageRenderer Text -- ^ 'LogEvent' rendering function
+  => LogEventReader Text -- ^ 'LogEvent' rendering function
   -> FilePath -- ^ Path to the socket file
   -> (LogWriter -> IO a)
   -> IO a

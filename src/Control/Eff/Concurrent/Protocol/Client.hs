@@ -124,9 +124,9 @@ callWithTimeout serverP@(Endpoint pidInternal) req timeOut = do
             extractResult (Reply origin' result) =
               if origin == origin' then Just result else Nothing
         in selectMessageWith extractResult
-  let timerTitle = MkProcessTitle ( "call-timer-" <> pack (show serverP)
-                                  <> "-" <> pack (show origin)
-                                  <> "-" <> pack (show timeOut))
+  let timerTitle = MkProcessTitle (pack "call-timer-" <> pack (show serverP)
+                                  <> pack "-" <> pack (show origin)
+                                  <> pack "-" <> pack (show timeOut))
   resultOrError <- receiveSelectedWithMonitorAfterWithTitle pidInternal selectResult timeOut timerTitle
   let onTimeout timerRef = do
         let msg = "call timed out after "
@@ -134,10 +134,10 @@ callWithTimeout serverP@(Endpoint pidInternal) req timeOut = do
                   ++ show serverP ++ " from "
                   ++ show fromPid ++ " "
                   ++ show timerRef
-        logWarning' msg
+        logWarning msg
         interrupt (TimeoutInterrupt msg)
       onProcDown p = do
-        logWarning' ("call to dead server: "++ show serverP ++ " from " ++ show fromPid)
+        logWarning "call to dead server: " serverP " from " fromPid
         interrupt (becauseProcessIsDown p)
   either (either onProcDown onTimeout) return resultOrError
 

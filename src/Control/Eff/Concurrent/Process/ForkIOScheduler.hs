@@ -688,7 +688,7 @@ spawnNewProcess mLinkedParent title mfa = do
       modifyTVar' (parent ^. processLinks)     (Set.insert toPid)
   logAppendProcInfo pid =
     let addProcessId = over
-          lmProcessId
+          logEventProcessId
           (maybe (Just (T.pack (show title ++ show pid))) Just)
     in  censorLogs addProcessId
   triggerProcessLinksAndMonitors
