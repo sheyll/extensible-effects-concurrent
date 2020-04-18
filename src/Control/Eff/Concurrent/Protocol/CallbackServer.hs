@@ -31,6 +31,7 @@ import Control.Eff.Concurrent.Protocol.EffectfulServer (Event(..))
 import Control.Eff.Extend ()
 import Control.Eff.Log
 import Data.Kind
+import Data.Proxy
 import Data.String
 import Data.Typeable
 import qualified Data.Text as T
@@ -73,6 +74,9 @@ startLink = E.startLink
 -- @since 0.27.0
 data Server tag eLoop e deriving Typeable
 
+instance ToTypeLogMsg tag => ToTypeLogMsg (Server tag eLoop e) where
+  toTypeLogMsg _ = toTypeLogMsg (Proxy @tag)
+
 -- | The constraints for a /tangible/ 'Server' instance.
 --
 -- @since 0.27.0
@@ -99,7 +103,7 @@ instance (Typeable tag) => Show (ServerId tag) where
       . showSTypeRep (typeOf px)
       )
 
-instance (TangibleCallbacks tag eLoop e) => E.Server (Server (tag :: Type) eLoop e) (Processes e) where
+instance (ToTypeLogMsg tag, TangibleCallbacks tag eLoop e) => E.Server (Server (tag :: Type) eLoop e) (Processes e) where
   type ServerPdu (Server tag eLoop e) = tag
   type ServerEffects (Server tag eLoop e) (Processes e) = eLoop
   data instance Init (Server tag eLoop e) =
@@ -202,4 +206,3 @@ onEventEff
   -> ServerId (tag :: Type)
   -> CallbacksEff tag eLoop q
 onEventEff h f i = callbacksEff (const h) (const f) i
-

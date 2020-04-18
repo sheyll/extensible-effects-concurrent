@@ -39,7 +39,7 @@ import GHC.Stack (HasCallStack)
 -- instances exist, like 2-,3-,4-, or 5-tuple.
 --
 -- @since 0.24.1
-class Server (a :: Type) (e :: [Type -> Type])
+class ToTypeLogMsg a => Server (a :: Type) (e :: [Type -> Type])
   where
   -- | The value that defines what is required to initiate a 'Server'
   -- loop.
@@ -155,12 +155,19 @@ data Event a where
   --
   -- @since 0.24.1
   OnCall
-    :: forall a r. (Tangible r, TangiblePdu a ('Synchronous r))
+    :: forall a r.
+       ( Tangible r
+       , TangiblePdu a ('Synchronous r)
+       , ToLogMsg (Pdu a ('Synchronous r))
+       )
     => ReplyTarget a r
     -> Pdu a ('Synchronous r)
     -> Event a
   OnCast
-    :: forall a. TangiblePdu a 'Asynchronous
+    :: forall a.
+       ( TangiblePdu a 'Asynchronous
+       , ToLogMsg (Pdu a 'Asynchronous)
+       )
     => Pdu a 'Asynchronous
     -> Event a
   OnInterrupt :: Interrupt 'Recoverable -> Event a
@@ -168,6 +175,17 @@ data Event a where
   OnTimeOut :: TimerElapsed -> Event a
   OnMessage :: StrictDynamic -> Event a
   deriving Typeable
+
+instance ToLogMsg a => ToLogMsg (Event a) where
+  toLogMsg x =
+    packLogMsg "event: " <>
+    case x of
+      OnCall o p -> toLogMsg (Call (view replyTargetOrigin o) p)
+      OnCast p -> toLogMsg (Cast p)
+      OnInterrupt r -> toLogMsg r
+      OnDown r -> toLogMsg r
+      OnTimeOut r -> toLogMsg r
+      OnMessage r -> packLogMsg "message: " <> packLogMsg (show r)
 
 instance Show (Event a) where
   showsPrec d e =

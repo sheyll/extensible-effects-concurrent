@@ -101,6 +101,8 @@ module Control.Eff.Concurrent.Process
   , selectProcessDownByProcessId
   , becauseProcessIsDown
   , MonitorReference(..)
+  , monitorIndex
+  , monitoredProcess
   , withMonitor
   , receiveWithMonitor
   -- *** Exit and Interrupt Reasons
@@ -1238,22 +1240,22 @@ makeReference = executeAndResumeOrThrow MakeReference
 --
 -- @since 0.12.0
 data MonitorReference =
-  MonitorReference { monitorIndex     :: !Int
-                   , monitoredProcess :: !ProcessId
-                   }
+  MkMonitorReference { _monitorIndex     :: !Int
+                     , _monitoredProcess :: !ProcessId
+                     }
   deriving (Read, Eq, Ord, Generic, Typeable)
 
 instance ToLogMsg MonitorReference where
-  toLogMsg (MonitorReference ref pid) =
-    packLogMsg "monitor: " <> toLogMsg (show ref) <> packLogMsg " " <> toLogMsg pid
+  toLogMsg (MkMonitorReference ref pid) =
+   toLogMsg pid <> packLogMsg "_" <>  packLogMsg "monitor_" <> toLogMsg (show ref)
 
 instance NFData MonitorReference
 
 instance Show MonitorReference where
   showsPrec d m = showParen
     (d >= 10)
-    (showString "monitor: " . shows (monitorIndex m) . showChar ' ' . shows
-      (monitoredProcess m)
+    (showString "monitor: " . shows (_monitorIndex m) . showChar ' ' . shows
+      (_monitoredProcess m)
     )
 
 -- | Monitor another process. When the monitored process exits a
@@ -1335,7 +1337,7 @@ instance ToLogMsg ProcessDown where
 --
 -- @since 0.12.0
 becauseProcessIsDown :: ProcessDown -> Interrupt 'Recoverable
-becauseProcessIsDown = OtherProcessNotRunning . monitoredProcess . downReference
+becauseProcessIsDown = OtherProcessNotRunning . _monitoredProcess . downReference
 
 instance NFData ProcessDown
 
@@ -1438,6 +1440,7 @@ instance Show ProcessId where
   showsPrec _ (ProcessId !c) = showChar '!' . shows c
 
 makeLenses ''ProcessId
+makeLenses ''MonitorReference
 
 -- | Serialize and send a message to the process in a 'Receiver'.
 --

@@ -24,6 +24,7 @@ where
 
 import           Control.Eff.Concurrent.Process
 import           Control.Eff.Concurrent.Misc
+import           Control.Eff.Log.Message
 import           Control.Eff
 import           Control.DeepSeq
 import           Data.Typeable
@@ -188,6 +189,10 @@ selectTimerElapsed timerRef =
 newtype TimerReference = TimerReference ProcessId
   deriving (NFData, Ord,Eq, Num, Integral, Real, Enum, Typeable)
 
+instance ToLogMsg TimerReference where
+  toLogMsg (TimerReference p) =
+    packLogMsg "timer_" <> packLogMsg (show (_fromProcessId p))
+
 instance Show TimerReference where
   showsPrec d (TimerReference t) =
     showParen (d >= 10) (showString "timer: " . shows t)
@@ -201,6 +206,9 @@ newtype TimerElapsed = TimerElapsed {fromTimerElapsed :: TimerReference}
 instance Show TimerElapsed where
   showsPrec d (TimerElapsed t) =
     showParen (d >= 10) (shows t . showString " elapsed")--
+
+instance ToLogMsg TimerElapsed where
+  toLogMsg x = toLogMsg (fromTimerElapsed x) <> packLogMsg " elapsed"
 
 -- | Send a message to a given process after waiting. The message is created by
 -- applying the function parameter to the 'TimerReference', such that the

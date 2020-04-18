@@ -70,6 +70,7 @@ module Control.Eff.Concurrent.Protocol.Broker
   , ChildEvent(OnChildSpawned, OnChildDown, OnBrokerShuttingDown)
   ) where
 
+import Control.Applicative ((<|>))
 import Control.DeepSeq (NFData(rnf))
 import Control.Eff as Eff
 import Control.Eff.Concurrent.Protocol
@@ -90,11 +91,11 @@ import Data.Dynamic
 import Data.Foldable
 import Data.Kind
 import qualified Data.Map as Map
+import Data.Proxy
 import Data.Text (Text, pack)
 import Data.Type.Pretty
 import GHC.Generics (Generic)
 import GHC.Stack
-import Control.Applicative ((<|>))
 
 -- * Broker Server API
 
@@ -272,11 +273,14 @@ callById ::
      , Embeds (Effectful.ServerPdu destination) protocol
      , Ord (ChildId destination)
      , Tangible (ChildId destination)
+     , ToLogMsg (ChildId destination)
      , Typeable (Effectful.ServerPdu destination)
      , Tangible result
      , NFData (Pdu protocol ( 'Synchronous result))
      , NFData (Pdu (Effectful.ServerPdu destination) ( 'Synchronous result))
-     , Show (Pdu (Effectful.ServerPdu destination) ( 'Synchronous result))
+     , ToLogMsg (Pdu (Effectful.ServerPdu destination) ( 'Synchronous result))
+     , ToTypeLogMsg (Effectful.ServerPdu destination)
+     , Show (Pdu (Effectful.ServerPdu destination) ('Synchronous result))
      )
   => Endpoint (Broker destination)
   -> ChildId destination
@@ -348,6 +352,9 @@ getDiagnosticInfo s = call s (GetDiagnosticInfo @p)
 -- @since 0.24.0
 data Broker (p :: Type) deriving Typeable
 
+instance ToTypeLogMsg p => ToTypeLogMsg (Broker p) where
+  toTypeLogMsg _ = toTypeLogMsg (Proxy @p) <> packLogMsg "_broker"
+
 instance Typeable p => HasPdu (Broker p) where
   type instance EmbeddedPduList (Broker p) = '[ObserverRegistry (ChildEvent p)]
   -- | The 'Pdu' instance contains methods to start, stop and lookup a child
@@ -361,6 +368,9 @@ instance Typeable p => HasPdu (Broker p) where
           GetDiagnosticInfo :: Pdu (Broker p) ('Synchronous Text)
           ChildEventObserverRegistry :: Pdu (ObserverRegistry (ChildEvent p)) r -> Pdu (Broker p) r
       deriving Typeable
+
+instance ToTypeLogMsg p => ToLogMsg (Pdu (Broker p) r) where
+
 
 instance (Typeable p, Show (ChildId p)) => Show (Pdu (Broker p) r) where
   showsPrec d (StartC c) = showParen (d >= 10) (showString "StartC " . showsPrec 10 c)
@@ -402,7 +412,20 @@ data ChildEvent p where
   OnBrokerShuttingDown :: Endpoint (Broker p) -> ChildEvent p -- ^ The broker is shutting down and will soon begin stopping/killing its children
   deriving (Typeable, Generic)
 
+instance ToTypeLogMsg p => ToTypeLogMsg (ChildEvent p) where
+  toTypeLogMsg _ = toTypeLogMsg (Proxy @p) <> packLogMsg "_broker_event"
+
 instance (NFData (ChildId p)) => NFData (ChildEvent p)
+
+instance (ToTypeLogMsg p, ToTypeLogMsg (Effectful.ServerPdu p), ToLogMsg (ChildId p)) => ToLogMsg (ChildEvent p) where
+  toLogMsg x =
+   case x of
+     OnChildSpawned s i e ->
+        toLogMsg s <> packLogMsg ": child-spawned: " <> toLogMsg i <> packLogMsg " " <> toLogMsg e
+     OnChildDown s i e r ->
+        toLogMsg s <> packLogMsg ": child-down: " <> toLogMsg i <> packLogMsg " " <> toLogMsg e <> packLogMsg " " <> toLogMsg r
+     OnBrokerShuttingDown s ->
+        toLogMsg s <> packLogMsg ": shutting down"
 
 instance (Typeable p, Typeable (Effectful.ServerPdu p), Show (ChildId p)) => Show (ChildEvent p) where
   showsPrec d x =
@@ -432,6 +455,8 @@ type TangibleBroker p =
   ( Tangible (ChildId p)
   , Ord (ChildId p)
   , Typeable p
+  , ToTypeLogMsg p
+  , ToLogMsg (ChildId p)
   )
 
 
@@ -480,7 +505,7 @@ instance
         sendReply rt p
 
       LookupC i -> zoomToChildren @p $ do
-        p <- fmap (view childEndpoint) <$> lookupChildById @(ChildId p) @p i
+        p <- fmap childEndpoint <$> lookupChildById @(ChildId p) @p i
         sendReply rt p
 
       StopC i t -> zoomToChildren @p $ do
@@ -492,7 +517,7 @@ instance
             sendReply rt True
             Stateful.zoomModel @(Broker p)
               childEventObserverLens
-              (observerRegistryNotify @(ChildEvent p) (OnChildDown me i (existingChild^.childEndpoint) reason))
+              (observerRegistryNotify @(ChildEvent p) (OnChildDown me i (childEndpoint existingChild) reason))
 
       StartC i -> do
         mExisting <- zoomToChildren @p $ lookupChildById @(ChildId p) @p i
@@ -501,13 +526,13 @@ instance
             childEp <- raise (raise (Effectful.startLink (brokerConfigStartFun brokerConfig i)))
             let childPid = _fromEndpoint childEp
             cMon <- monitor childPid
-            zoomToChildren @p $ putChild i (MkChild @p childEp cMon)
+            zoomToChildren @p $ putChild i (MkChild @p cMon)
             sendReply rt (Right childEp)
             Stateful.zoomModel @(Broker p)
               childEventObserverLens
               (observerRegistryNotify @(ChildEvent p) (OnChildSpawned me i childEp))
           Just existingChild ->
-            sendReply rt (Left (AlreadyStarted i (existingChild ^. childEndpoint)))
+            sendReply rt (Left (AlreadyStarted i (childEndpoint existingChild)))
 
   update me _brokerConfig (Stateful.OnDown pd) = do
       wasObserver <- Stateful.zoomModel @(Broker p)
@@ -520,10 +545,10 @@ instance
         case oldEntry of
           Nothing -> logWarning "unexpected: " pd
           Just (i, c) -> do
-            logInfo pd " for child " i " => " (c^.childEndpoint)
+            logInfo pd " for child " i " => " (childEndpoint c)
             Stateful.zoomModel @(Broker p)
                 childEventObserverLens
-                (observerRegistryNotify @(ChildEvent p) (OnChildDown me i (c^.childEndpoint) (downReason pd)))
+                (observerRegistryNotify @(ChildEvent p) (OnChildDown me i (childEndpoint c) (downReason pd)))
   update me brokerConfig (Stateful.OnInterrupt e) =
     case e of
       NormalExitRequested -> do
@@ -583,6 +608,7 @@ stopOrKillChild
      , TangibleBroker p
      , ToLogMsg (ChildId p)
      , Typeable (Effectful.ServerPdu p)
+     , ToTypeLogMsg (Effectful.ServerPdu p)
      )
   => ChildId p
   -> Child p
@@ -594,21 +620,21 @@ stopOrKillChild cId c stopTimeout =
         t <- startTimerWithTitle
                 (MkProcessTitle (pack "child-exit-timer-" <> pack (show broker) <> pack "-" <> pack (show cId)))
                 stopTimeout
-        sendInterrupt (_fromEndpoint (c^.childEndpoint)) NormalExitRequested
+        sendInterrupt (_fromEndpoint (childEndpoint c)) NormalExitRequested
         r1 <- receiveSelectedMessage (   Right <$> selectProcessDown (c^.childMonitoring)
                                      <|> Left  <$> selectTimerElapsed t )
         demonitor (c^.childMonitoring)
-        unlinkProcess (_fromEndpoint (c^.childEndpoint))
+        unlinkProcess (_fromEndpoint (childEndpoint c))
         case r1 of
           Left timerElapsed -> do
-            logWarning (show timerElapsed) ": child " cId " => " (c^.childEndpoint) " did not shutdown in time"
+            logWarning (show timerElapsed) ": child " cId " => " (childEndpoint c) " did not shutdown in time"
             let reason = interruptToExit (TimeoutInterrupt
                                            ("child did not shut down in time and was terminated by the "
                                              ++ show broker))
-            sendShutdown (_fromEndpoint (c^.childEndpoint)) reason
+            sendShutdown (_fromEndpoint (childEndpoint c)) reason
             return reason
           Right downMsg -> do
-            logInfo "child " cId " => " (c^.childEndpoint) " terminated: " (downReason downMsg)
+            logInfo "child " cId " => " (childEndpoint c) " terminated: " (downReason downMsg)
             return (downReason downMsg)
 
 stopAllChildren
@@ -621,8 +647,7 @@ stopAllChildren
      , Member (Stateful.ModelState (Broker p)) e
      , TangibleBroker p
      , Typeable (Effectful.ServerPdu p)
-     , ToLogMsg (ChildId p)
-     , ToLogMsg (Child p)
+     , ToTypeLogMsg p
      )
   => Endpoint (Broker p) -> Timeout -> Eff e ()
 stopAllChildren me stopTimeout =
@@ -635,7 +660,7 @@ stopAllChildren me stopTimeout =
       reason <- provideInterrupts (stopOrKillChild cId c stopTimeout) >>= either crash return
       Stateful.zoomModel @(Broker p)
           childEventObserverLens
-          (observerRegistryNotify @(ChildEvent p) (OnChildDown me cId (c^.childEndpoint) reason))
+          (observerRegistryNotify @(ChildEvent p) (OnChildDown me cId (childEndpoint c) reason))
 
       where
         crash e = do

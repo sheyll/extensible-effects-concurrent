@@ -41,9 +41,8 @@ cast
   :: forall destination protocol r q
    . ( HasCallStack
      , HasProcesses r q
-     , HasPdu destination
+     , TangiblePdu destination 'Asynchronous
      , HasPdu protocol
-     , Tangible (Pdu destination 'Asynchronous)
      , Embeds destination protocol
      )
   => Endpoint destination
@@ -191,9 +190,8 @@ castEndpointReader
   :: forall o r q .
      ( HasEndpointReader o r
      , HasProcesses r q
-     , Tangible (Pdu o 'Asynchronous)
      , HasCallStack
-     , HasPdu o
+     , TangiblePdu o 'Asynchronous
      , Embeds o o
      )
   => Pdu o 'Asynchronous
@@ -235,9 +233,8 @@ castSingleton
   :: forall outer inner q e
   . ( HasCallStack
     , Member (EndpointReader outer) e
-    , Tangible (Pdu outer 'Asynchronous)
     , HasProcesses e q
-    , HasPdu outer
+    , TangiblePdu outer 'Asynchronous
     , HasPdu inner
     , Embeds outer inner
     , Embeds outer outer

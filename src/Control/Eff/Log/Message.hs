@@ -33,6 +33,7 @@ module Control.Eff.Log.Message
   , fromLogMsg
   , ToLogMsg(..)
   , packLogMsg
+  , ToTypeLogMsg(..)
 
   -- *** IO Based Constructor
   , errorMessageIO
@@ -557,6 +558,19 @@ instance ToLogMsg String where
 
 instance ToLogMsg LogMsg where
   toLogMsg = id
+
+
+-- | A class for 'LogMsg' values for phantom types, like
+-- those used to discern 'Pdu's.
+--
+-- Instead of a value, a proxy is used to form the log message,
+-- which is why the log message generated for instances of this
+-- class describe the given type.
+--
+-- @since 1.0.0
+class ToTypeLogMsg (a :: k) where
+  -- | Generate a 'LogMsg' for the given proxy value.
+  toTypeLogMsg :: proxy a -> LogMsg
 
 -- | The filter predicate for message that shall be logged.
 --

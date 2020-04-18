@@ -41,6 +41,7 @@ import Control.Lens
 import Data.Coerce
 import Data.Default
 import Data.Kind
+import Data.Proxy
 import Data.String (fromString)
 import Data.Text (Text, pack)
 import Data.Typeable
@@ -64,7 +65,7 @@ import Data.Monoid (First)
 -- 'State' and 'Reader' effect.
 --
 -- @since 0.24.0
-class (Typeable (Protocol a)) => Server (a :: Type) q where
+class (Typeable (Protocol a), ToTypeLogMsg (Protocol a)) => Server (a :: Type) q where
   -- | The value that defines what is required to initiate a 'Server'
   -- loop.
   data StartArgument a
@@ -120,7 +121,10 @@ class (Typeable (Protocol a)) => Server (a :: Type) q where
 -- @since 0.24.0
 data Stateful a deriving Typeable
 
-instance Server a q => Effectful.Server (Stateful a) q where
+instance ToTypeLogMsg a => ToTypeLogMsg (Stateful a) where
+  toTypeLogMsg _ = toTypeLogMsg (Proxy @a)
+
+instance (ToTypeLogMsg a, Server a q) => Effectful.Server (Stateful a) q where
   data Init (Stateful a) = Init (StartArgument a)
   type ServerPdu (Stateful a) = Protocol a
   type ServerEffects (Stateful a) q = ModelState a ': SettingsReader a ': q

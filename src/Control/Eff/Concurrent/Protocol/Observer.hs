@@ -44,7 +44,7 @@ import           Data.Kind
 import           Data.Semigroup
 import           Data.Map                       ( Map )
 import qualified Data.Map                      as Map
-import           Data.Text                      ( pack )
+import           Data.Proxy
 import           Data.Type.Pretty
 import           GHC.Generics
 import           GHC.Stack
@@ -70,6 +70,12 @@ newtype Observer event =
   MkObserver (Arg ProcessId (ObservationSink event))
   deriving (Eq, Ord, Typeable)
 
+instance ToTypeLogMsg event => ToLogMsg (Observer event) where
+  toLogMsg (MkObserver (Arg t _)) = toTypeLogMsg (Proxy @(Observer event)) <> toLogMsg  t
+
+instance ToTypeLogMsg event => ToTypeLogMsg (Observer event) where
+  toTypeLogMsg _ = toTypeLogMsg (Proxy @event) <> packLogMsg "_observer"
+
 instance NFData (Observer event) where
   rnf (MkObserver (Arg x y)) = rnf x `seq` rnf y
 
@@ -77,8 +83,8 @@ instance Typeable event => Show (Observer event) where
   showsPrec d (MkObserver (Arg x (MkObservationSink _ m))) =
     showParen (d>=10) (showString "observer: " . showSTypeable @event . showString " ". showsPrec 10 x . showChar ' ' . showsPrec 10 m )
 
-type instance ToPretty (Observer event) =
-  PrettyParens ("observing" <:> ToPretty event)
+type instance ToPretty (Observer event) = -- TODO use ToPretty instead of ToTypeLogMsg
+  PrettyParens (ToPretty event <++> PutStr "_observer")
 
 instance (Tangible event) => HasPdu (Observer event) where
   data Pdu (Observer event) r where
@@ -90,11 +96,11 @@ instance NFData event => NFData (Pdu (Observer event) r) where
 
 instance Show event => Show (Pdu (Observer event) r) where
   showsPrec d (Observed event) =
-    showParen (d >= 10) (showString "observered: " . showsPrec 10 event)
+    showParen (d >= 10) (showString "observed: " . showsPrec 10 event)
 
 instance ToLogMsg event => ToLogMsg (Pdu (Observer event) r) where
   toLogMsg (Observed event) =
-    packLogMsg "observered: " <> toLogMsg event
+    packLogMsg "observed: " <> toLogMsg event
 
 -- | The Information necessary to wrap an 'Observed' event to a process specific
 -- message, e.g. the embedded 'Observer' 'Pdu' instance, and the 'MonitorReference' of
@@ -118,6 +124,8 @@ type IsObservable eventSource event =
   ( Tangible event
   , Embeds eventSource (ObserverRegistry event)
   , HasPdu eventSource
+  , ToTypeLogMsg event
+  , ToLogMsg event
   )
 
 -- | Convenience type alias.
@@ -139,9 +147,9 @@ registerObserver
   :: forall event eventSink eventSource r q .
      ( HasCallStack
      , HasProcesses r q
+     , TangiblePdu eventSource 'Asynchronous
      , IsObservable eventSource event
-     , Tangible (Pdu eventSource 'Asynchronous)
-     , Tangible (Pdu eventSink 'Asynchronous)
+     , TangiblePdu eventSink 'Asynchronous
      , CanObserve eventSink event
      )
   => Endpoint eventSource
@@ -165,9 +173,9 @@ forgetObserver
   :: forall event eventSink eventSource r q .
      ( HasProcesses r q
      , HasCallStack
-     , Tangible (Pdu eventSource 'Asynchronous)
-     , Tangible (Pdu eventSink 'Asynchronous)
+     , TangiblePdu eventSource 'Asynchronous
      , IsObservable eventSource event
+     , TangiblePdu eventSink 'Asynchronous
      , CanObserve eventSink event
      )
   => Endpoint eventSource
@@ -183,7 +191,7 @@ forgetObserverUnsafe
   :: forall event eventSource r q .
      ( HasProcesses r q
      , HasCallStack
-     , Tangible (Pdu eventSource 'Asynchronous)
+     , TangiblePdu eventSource 'Asynchronous
      , IsObservable eventSource event
      )
   => Endpoint eventSource
@@ -236,6 +244,10 @@ instance NFData (Pdu (ObserverRegistry event) r) where
 instance Typeable event => Show (Pdu (ObserverRegistry event) r) where
   showsPrec d (RegisterObserver ser pid) = showParen (d >= 10) (showString "register observer: " . shows ser . showChar ' ' . shows pid)
   showsPrec d (ForgetObserver p) = showParen (d >= 10) (showString "forget observer: " . shows p)
+
+instance ToTypeLogMsg event => ToLogMsg (Pdu (ObserverRegistry event) r) where
+  toLogMsg (RegisterObserver _ser pid) = packLogMsg "register " <> toTypeLogMsg (Proxy @event) <> packLogMsg " observer " <> toLogMsg pid
+  toLogMsg (ForgetObserver pid) = packLogMsg "forget " <> toTypeLogMsg (Proxy @event) <> packLogMsg " observer " <> toLogMsg pid
 
 -- ** Protocol for integrating 'ObserverRegistry' into processes.
 

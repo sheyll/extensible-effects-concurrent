@@ -60,6 +60,7 @@ import           Control.Eff.Concurrent.Process
 import           Control.Lens
 import           Data.Dynamic
 import           Data.Kind
+import           Data.Proxy
 import           Data.Typeable ()
 import           Data.Type.Pretty
 import           Type.Reflection
@@ -84,8 +85,11 @@ instance Typeable protocol => Show (Endpoint protocol) where
     showParen (d>=10)
     (showSTypeRep (SomeTypeRep (typeRep @protocol)) . showsPrec 10 c)
 
-instance Typeable protocol => ToLogMsg (Endpoint protocol) where
-  toLogMsg = packLogMsg . show
+instance ToTypeLogMsg protocol => ToLogMsg (Endpoint protocol) where
+  toLogMsg ep = toTypeLogMsg ep <> toLogMsg (_fromEndpoint ep)
+
+instance ToTypeLogMsg protocol => ToTypeLogMsg (Endpoint protocol) where
+  toTypeLogMsg _ = toTypeLogMsg (Proxy @protocol) <> packLogMsg "_endpoint"
 
 -- | This type class and the associated data family defines the
 -- __protocol data units__ (PDU) of a /protocol/.
@@ -178,8 +182,12 @@ type family IsProtocolOneOf (x :: k) (xs :: [k]) (orig :: [k]) :: IsEmbeddedProt
 -- --------------------------
 
 
-type instance ToPretty (Pdu x y) =
-  PrettySurrounded (PutStr "<") (PutStr ">") ("protocol" <:> ToPretty x <+> ToPretty y)
+type instance ToPretty (Pdu x 'Asynchronous) =
+  PutStr "async_pdu" <+> ToPretty x
+
+type instance ToPretty (Pdu x ( 'Synchronous y )) =
+  PutStr "sync_pdu" <+> ToPretty x <+> ToPretty y
+
 
 -- | A set of constraints for types that can evaluated via 'NFData', compared via 'Ord' and presented
 -- dynamically via 'Typeable', and represented both as values
@@ -190,7 +198,7 @@ type Tangible i =
   ( NFData i
   , Typeable i
   , Show i
-  , ToLogMsg i
+  -- , ToLogMsg i
   )
 
 -- | A 'Constraint' that bundles the requirements for the
@@ -205,6 +213,8 @@ type TangiblePdu p r =
   , Typeable r
   , Tangible (Pdu p r)
   , HasPdu p
+  , ToTypeLogMsg p
+  , ToLogMsg (Pdu p r)
   )
 
 -- | The (promoted) constructors of this type specify (at the type level) the

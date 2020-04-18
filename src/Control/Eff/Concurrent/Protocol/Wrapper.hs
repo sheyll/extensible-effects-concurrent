@@ -21,6 +21,7 @@ module Control.Eff.Concurrent.Protocol.Wrapper
 
 import Control.DeepSeq
 import Control.Eff
+import Control.Eff.Log.Message
 import Control.Eff.Concurrent.Process
 import Control.Eff.Concurrent.Protocol
 import Control.Lens
@@ -37,21 +38,31 @@ data Request protocol where
     :: forall protocol reply.
        ( Tangible reply
        , TangiblePdu protocol ('Synchronous reply)
+       , ToLogMsg (Pdu protocol ('Synchronous reply))
        )
     => RequestOrigin protocol reply
     -> Pdu protocol ('Synchronous reply)
     -> Request protocol
   Cast
-    :: forall protocol. (TangiblePdu protocol 'Asynchronous, NFData (Pdu protocol 'Asynchronous))
+    :: forall protocol.
+       ( TangiblePdu protocol 'Asynchronous
+       , NFData (Pdu protocol 'Asynchronous)
+       , ToLogMsg (Pdu protocol 'Asynchronous)
+       )
     => Pdu protocol 'Asynchronous
     -> Request protocol
-  deriving (Typeable)
+  deriving Typeable
 
 instance Show (Request protocol) where
   showsPrec d (Call o r) =
     showParen (d >= 10) (showString "call-request: " . showsPrec 11 o . showString ": " . showsPrec 11 r)
   showsPrec d (Cast r) =
     showParen (d >= 10) (showString "cast-request: " . showsPrec 11 r)
+
+instance ToLogMsg (Request protocol) where
+  toLogMsg = \case
+    Call orig pdu -> packLogMsg "call from: " <> toLogMsg orig <> packLogMsg " pdu: " <> toLogMsg pdu
+    Cast pdu -> packLogMsg "cast pdu: " <> toLogMsg pdu
 
 instance NFData (Request protocol) where
   rnf (Call o req) = rnf o `seq` rnf req
@@ -75,6 +86,13 @@ instance Show r => Show (Reply p r) where
   showsPrec d (Reply o r) =
     showParen (d >= 10) (showString "request-reply: " . showsPrec 11 o . showString ": " . showsPrec 11 r)
 
+instance (ToLogMsg r, ToTypeLogMsg p) => ToLogMsg (Reply p r) where
+  toLogMsg rp =
+       packLogMsg "reply: "
+    <> toLogMsg (_replyValue rp)
+    <> packLogMsg " to: "
+    <> toLogMsg (_replyTo rp)
+
 -- | Wraps the source 'ProcessId' and a unique identifier for a 'Call'.
 --
 -- @since 0.15.0
@@ -82,6 +100,11 @@ data RequestOrigin (proto :: Type) reply = RequestOrigin
   { _requestOriginPid     :: !ProcessId
   , _requestOriginCallRef :: !Int
   } deriving (Typeable, Generic, Eq, Ord)
+
+instance ToTypeLogMsg p => ToLogMsg (RequestOrigin p r) where
+  toLogMsg ro =
+       toLogMsg (Endpoint @p (_requestOriginPid ro))
+    <> packLogMsg ('?' : show (_requestOriginCallRef ro))
 
 instance Show (RequestOrigin p r) where
   showsPrec d (RequestOrigin o r) =

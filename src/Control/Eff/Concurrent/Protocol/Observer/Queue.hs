@@ -12,7 +12,6 @@ where
 
 import           Control.Concurrent.STM
 import           Control.Eff
-import           Control.Eff.Concurrent.Misc
 import           Control.Eff.Concurrent.Protocol
 import           Control.Eff.Concurrent.Protocol.Observer
 import           Control.Eff.Concurrent.Protocol.StatefulServer
@@ -26,6 +25,7 @@ import           Control.Monad.IO.Class
 import           Control.Monad                  ( unless, when )
 import           GHC.Stack
 import Data.Default (Default)
+import           Data.Proxy
 
 -- | Contains a 'TBQueue' capturing observations.
 -- See 'observe'.
@@ -34,8 +34,11 @@ newtype ObservationQueue a = ObservationQueue (TBQueue a)
 -- | A 'Reader' for an 'ObservationQueue'.
 type Reader a = Eff.Reader (ObservationQueue a)
 
-instance (Typeable event) => ToLogMsg (ObservationQueue event) where
-  toLogMsg _ = packLogMsg "observation queue: " <> packLogMsg (showSTypeable @event "")
+instance ToTypeLogMsg event => ToTypeLogMsg (ObservationQueue event) where
+  toTypeLogMsg _ = toTypeLogMsg (Proxy @event) <> packLogMsg "_observations"
+
+instance ToTypeLogMsg event => ToLogMsg (ObservationQueue event) where
+  toLogMsg _ = toTypeLogMsg (Proxy @(ObservationQueue event))
 
 -- | Read queued observations captured and enqueued in the shared 'ObservationQueue' by 'observe'.
 --
@@ -134,7 +137,7 @@ observe
     , IsObservable eventSource event
     , Integral len
     , Server (ObservationQueue event) (Processes q)
-    , Tangible (Pdu eventSource 'Asynchronous)
+    , TangiblePdu eventSource 'Asynchronous
     )
   => len
   -> Endpoint eventSource
@@ -148,7 +151,8 @@ withObservationQueue
   :: forall event b e len
    . ( HasCallStack
      , Typeable event
-     , Show event
+     , ToLogMsg event
+     , ToTypeLogMsg event
      , Member Logs e
      , Lifted IO e
      , Integral len
@@ -165,7 +169,7 @@ withObservationQueue queueLimit e = do
   rest <- lift (atomically (flushTBQueue q))
   unless
     (null rest)
-    (logNotice oq " unread observations: " (show rest))
+    (mapM_ (logDebug oq " unread observation: ") rest)
   either (\em ->
             do
               logError (show em)
@@ -190,6 +194,7 @@ spawnWriter
      , Typeable event
      , HasCallStack
      , Server (ObservationQueue event) (Processes q)
+     , ToTypeLogMsg event
      )
   => ObservationQueue event
   -> Eff r (Endpoint (Observer event))
@@ -213,7 +218,9 @@ withWriter
     , Member Logs q
     , IsObservable eventSource event
     , Member (Reader event) e
-    , Tangible (Pdu eventSource 'Asynchronous)
+    , TangiblePdu eventSource 'Asynchronous
+    , ToTypeLogMsg event
+    , ToLogMsg event
     )
   => Endpoint eventSource
   -> Eff e b
@@ -228,7 +235,7 @@ withWriter eventSource e = do
   pure res
 
 
-instance (Typeable event, Lifted IO q, Member Logs q) => Server (ObservationQueue event) (Processes q) where
+instance (Typeable event, Lifted IO q, Member Logs q, ToTypeLogMsg event) => Server (ObservationQueue event) (Processes q) where
   type instance Protocol (ObservationQueue event) = Observer event
 
   data instance StartArgument (ObservationQueue event) =

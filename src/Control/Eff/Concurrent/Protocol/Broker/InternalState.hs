@@ -14,6 +14,7 @@ module Control.Eff.Concurrent.Protocol.Broker.InternalState
 
 import Control.DeepSeq
 import Control.Eff as Eff
+import Control.Eff.Log.Message
 import Control.Eff.Concurrent.Process
 import Control.Eff.Concurrent.Protocol
 import Control.Eff.Concurrent.Protocol.EffectfulServer
@@ -22,12 +23,12 @@ import Control.Lens hiding ((.=), use)
 import Data.Default
 import Data.Dynamic
 import Data.Map (Map)
+import Data.Proxy
 import GHC.Generics (Generic)
 
 
-data Child p = MkChild
-  { _childEndpoint :: Endpoint (ServerPdu p)
-  , _childMonitoring :: MonitorReference
+newtype Child p = MkChild
+  { _childMonitoring :: MonitorReference
   }
   deriving (Generic, Typeable, Eq, Ord)
 
@@ -35,7 +36,20 @@ instance NFData (Child o)
 
 instance Typeable (ServerPdu p) => Show (Child p) where
   showsPrec d c = showParen (d>=10)
-    (showString "process broker entry: " . shows (_childEndpoint c)  . showChar ' ' . shows (_childMonitoring c) )
+    (showString "process broker entry: " . shows (_childMonitoring c) )
+
+instance ToTypeLogMsg d => ToTypeLogMsg (Child d) where
+  toTypeLogMsg _ = packLogMsg "child_" <> toTypeLogMsg (Proxy @d)
+
+instance ToTypeLogMsg d => ToLogMsg (Child d) where
+  toLogMsg c = toTypeLogMsg (Proxy @(Child d)) <> packLogMsg "_" <> toLogMsg (_childMonitoring c)
+
+-- | Extract the 'Endpoint' of a 'ServerPdu' of the 'Child' watched by the
+-- 'Broker'.
+--
+-- @since 1.0.0
+childEndpoint :: Child p -> Endpoint (ServerPdu p)
+childEndpoint = Endpoint . _monitoredProcess . _childMonitoring
 
 makeLenses ''Child
 
@@ -43,7 +57,7 @@ makeLenses ''Child
 data Children i p = MkChildren
   { _childrenById :: Map i (Child p)
   , _childrenByMonitor :: Map MonitorReference (i, Child p)
-  } deriving (Show, Generic, Typeable)
+  } deriving (Generic, Typeable)
 
 instance Default (Children i p) where
   def = MkChildren def def
