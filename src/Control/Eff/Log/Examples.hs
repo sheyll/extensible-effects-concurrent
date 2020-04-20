@@ -51,7 +51,7 @@ exampleLogging = runLift
 exampleWithLogging :: HasCallStack => IO ()
 exampleWithLogging = do
   lw <- consoleLogWriter
-  runLift $ withLogging lw $ logDebug ("Oh, hi there" :: String)
+  runLift $ withLogging lw $ logDebug "Oh, hi there"
 
 -- | Example code for:
 --
@@ -59,7 +59,7 @@ exampleWithLogging = do
 --  * 'logDebug'
 exampleWithSomeLogging :: HasCallStack => ()
 exampleWithSomeLogging =
-  run $ withoutLogging $ logDebug ("Oh, hi there" :: String)
+  run $ withoutLogging $ logDebug "Oh, hi there"
 
 -- | Example code for: 'setLogWriter'
 --
@@ -75,9 +75,9 @@ exampleSetLogWriter = do
   lw2 <- consoleLogWriter
   runLift
     $ withLogging lw1
-    $ do  logAlert ("test with log writer 1" :: String)
-          setLogWriter lw2 (logAlert ("test with log writer 2" :: String))
-          logAlert ("test with log writer 1 again" :: String)
+    $ do  logAlert "test with log writer 1"
+          setLogWriter lw2 (logAlert "test with log writer 2")
+          logAlert "test with log writer 1 again"
 
 
 -- | Example code for:

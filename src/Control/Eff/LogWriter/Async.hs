@@ -20,7 +20,6 @@ import           Control.Monad.Trans.Control    ( MonadBaseControl
                                                 )
 import           Data.Foldable                  ( traverse_ )
 import           Data.Kind                      ( )
-import           Data.Text                     as T
 
 
 -- | This is a wrapper around 'withAsyncLogWriter' and 'withRichLogging'.

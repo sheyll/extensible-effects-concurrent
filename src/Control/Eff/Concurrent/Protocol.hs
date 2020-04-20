@@ -100,7 +100,7 @@ instance ToTypeLogMsg protocol => ToTypeLogMsg (Endpoint protocol) where
 -- The first parameter is usually a user defined type that identifies the
 -- protocol that uses the 'Pdu's are. It maybe a /phantom/ type.
 --
--- The second parameter specifies if a specific constructor of an (GADT-like)
+-- The second parameter of the 'Pdu' family specifies if a specific constructor of an (GADT-like)
 -- @Pdu@ instance is 'Synchronous', i.e. returns a result and blocks the caller
 -- or if it is 'Asynchronous'
 --
@@ -109,7 +109,7 @@ instance ToTypeLogMsg protocol => ToTypeLogMsg (Endpoint protocol) where
 -- >
 -- > data BookShop deriving Typeable
 -- >
--- > instance Typeable r => HasPdu BookShop r where
+-- > instance HasPdu BookShop where
 -- >   data instance Pdu BookShop r where
 -- >     RentBook  :: BookId   -> Pdu BookShop ('Synchronous (Either RentalError RentalId))
 -- >     BringBack :: RentalId -> Pdu BookShop 'Asynchronous
@@ -119,6 +119,16 @@ instance ToTypeLogMsg protocol => ToTypeLogMsg (Endpoint protocol) where
 -- > type RentalId = Int
 -- > type RentalError = String
 -- >
+-- > instance ToTypeLogMsg BookShop
+-- >
+-- > instance ToLogMsg (Pdu BookShop r) where
+-- >   toLogMsg = \case
+-- >     RentBook bId -> packLogMsg "rent: " <> toLogMsg bId
+-- >     BringBack bId -> packLogMsg "return: " <> toLogMsg bId
+-- >
+--
+-- Note the 'ToTypeLogMsg' and 'ToLogMsg' instances.
+-- These are often required in many places throughout this library.
 --
 -- @since 0.25.1
 class Typeable protocol => HasPdu (protocol :: Type) where
@@ -182,7 +192,7 @@ type family IsProtocolOneOf (x :: k) (xs :: [k]) (orig :: [k]) :: IsEmbeddedProt
 -- --------------------------
 
 
-type instance ToPretty (Pdu x 'Asynchronous) =
+type instance ToPretty (Pdu x 'Asynchronous) = -- TODO use ToPretty instead of ToTypeLogMsg?
   PutStr "async_pdu" <+> ToPretty x
 
 type instance ToPretty (Pdu x ( 'Synchronous y )) =
@@ -244,12 +254,21 @@ instance (HasPdu a1, HasPdu a2) => HasPdu (a1, a2) where
           ToPduLeft :: Pdu a1 r -> Pdu (a1, a2) r
           ToPduRight :: Pdu a2 r -> Pdu (a1, a2) r
 
+instance (ToLogMsg (Pdu a1 r), ToLogMsg (Pdu a2 r)) => ToLogMsg (Pdu (a1, a2) r) where
+  toLogMsg (ToPduLeft a1) = toLogMsg a1
+  toLogMsg (ToPduRight a2) = toLogMsg a2
+
 instance (HasPdu a1, HasPdu a2, HasPdu a3) => HasPdu (a1, a2, a3) where
   type instance EmbeddedPduList (a1, a2, a3) = '[a1, a2, a3]
   data instance Pdu (a1, a2, a3) r where
     ToPdu1 :: Pdu a1 r -> Pdu (a1, a2, a3) r
     ToPdu2 :: Pdu a2 r -> Pdu (a1, a2, a3) r
     ToPdu3 :: Pdu a3 r -> Pdu (a1, a2, a3) r
+
+instance (ToLogMsg (Pdu a1 r), ToLogMsg (Pdu a2 r), ToLogMsg (Pdu a3 r)) => ToLogMsg (Pdu (a1, a2, a3) r) where
+  toLogMsg (ToPdu1 a1) = toLogMsg a1
+  toLogMsg (ToPdu2 a2) = toLogMsg a2
+  toLogMsg (ToPdu3 a3) = toLogMsg a3
 
 instance (HasPdu a1, HasPdu a2, HasPdu a3, HasPdu a4) => HasPdu (a1, a2, a3, a4) where
   type instance EmbeddedPduList (a1, a2, a3, a4) = '[a1, a2, a3, a4]
@@ -259,6 +278,13 @@ instance (HasPdu a1, HasPdu a2, HasPdu a3, HasPdu a4) => HasPdu (a1, a2, a3, a4)
     ToPdu3Of4 :: Pdu a3 r -> Pdu (a1, a2, a3, a4) r
     ToPdu4Of4 :: Pdu a4 r -> Pdu (a1, a2, a3, a4) r
 
+instance (ToLogMsg (Pdu a1 r), ToLogMsg (Pdu a2 r), ToLogMsg (Pdu a3 r), ToLogMsg (Pdu a4 r)) => ToLogMsg (Pdu (a1, a2, a3, a4) r) where
+  toLogMsg (ToPdu1Of4 a1) = toLogMsg a1
+  toLogMsg (ToPdu2Of4 a2) = toLogMsg a2
+  toLogMsg (ToPdu3Of4 a3) = toLogMsg a3
+  toLogMsg (ToPdu4Of4 a4) = toLogMsg a4
+
+
 instance (HasPdu a1, HasPdu a2, HasPdu a3, HasPdu a4, HasPdu a5) => HasPdu (a1, a2, a3, a4, a5) where
   type instance EmbeddedPduList (a1, a2, a3, a4, a5) = '[a1, a2, a3, a4, a5]
   data instance Pdu (a1, a2, a3, a4, a5) r where
@@ -267,6 +293,14 @@ instance (HasPdu a1, HasPdu a2, HasPdu a3, HasPdu a4, HasPdu a5) => HasPdu (a1, 
     ToPdu3Of5 :: Pdu a3 r -> Pdu (a1, a2, a3, a4, a5) r
     ToPdu4Of5 :: Pdu a4 r -> Pdu (a1, a2, a3, a4, a5) r
     ToPdu5Of5 :: Pdu a5 r -> Pdu (a1, a2, a3, a4, a5) r
+
+instance (ToLogMsg (Pdu a1 r), ToLogMsg (Pdu a2 r), ToLogMsg (Pdu a3 r), ToLogMsg (Pdu a4 r), ToLogMsg (Pdu a5 r)) => ToLogMsg (Pdu (a1, a2, a3, a4, a5) r) where
+  toLogMsg (ToPdu1Of5 a1) = toLogMsg a1
+  toLogMsg (ToPdu2Of5 a2) = toLogMsg a2
+  toLogMsg (ToPdu3Of5 a3) = toLogMsg a3
+  toLogMsg (ToPdu4Of5 a4) = toLogMsg a4
+  toLogMsg (ToPdu5Of5 a5) = toLogMsg a5
+
 
 -- | Tag a 'ProcessId' with an 'Pdu' type index to mark it a 'Endpoint' process
 -- handling that API

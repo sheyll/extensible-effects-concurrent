@@ -245,7 +245,6 @@ executable extensible-effects-concurrent-example-4
                       , GeneralizedNewtypeDeriving
                       , LambdaCase
                       , NumericUnderscores
-                      , OverloadedStrings
                       , RankNTypes
                       , ScopedTypeVariables
                       , StandaloneDeriving

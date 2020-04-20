@@ -83,7 +83,7 @@ data STS r m = STS
   }
 
 initStsMainProcess :: (forall a . Eff r a -> m a) -> m () -> STS r m
-initStsMainProcess = STS 1 0 (Map.singleton 0 (newProcessInfo "init" )) Set.empty Set.empty
+initStsMainProcess = STS 1 0 (Map.singleton 0 (newProcessInfo (fromString "init"))) Set.empty Set.empty
 
 makeLenses ''STS
 
@@ -163,7 +163,7 @@ addMonitoring
 addMonitoring owner target =
   State.runState $ do
     mi <- State.state incRef
-    let mref = MonitorReference mi target
+    let mref = MkMonitorReference mi target
     when (target /= owner) $ do
       pt <- use msgQs
       if Map.member target pt
@@ -181,7 +181,7 @@ triggerAndRemoveMonitor downPid reason = State.execState $ do
   traverse_ go monRefs
  where
   go (mr, owner) = when
-    (monitoredProcess mr == downPid)
+    (view monitoredProcess mr == downPid)
     (let pdown = ProcessDown mr reason downPid
      in  State.modify' (enqueueMsg owner (toStrictDynamic pdown) . removeMonitoring mr)
     )

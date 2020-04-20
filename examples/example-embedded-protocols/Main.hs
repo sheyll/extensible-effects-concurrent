@@ -44,7 +44,7 @@ embeddedExample = do
   cast app DoThis
   cast app DoThis
   spawn_ "sub-process" $ do
-    logNotice "spawned sub process"
+    logNotice (MkLogMsg "spawned sub process")
     b1_2 <- Stateful.startLink InitBackend1
     call app (SetBackend (Just (SomeBackend b1_2)))
     cast app DoThis
@@ -76,35 +76,11 @@ embeddedExample = do
 
 -- Application layer
 
-instance Stateful.Server App Effects where
-  newtype instance Model App = MkApp (Maybe SomeBackend) deriving Default
-  data instance StartArgument App = InitApp
-  update me _x e =
-    case e of
-      OnCall rt (SetBackend b) -> do
-        logInfo "setting backend"
-        MkApp oldB <- getAndPutModel @App (MkApp b)
-        traverse_ (`backendForgetObserver` me) oldB
-        traverse_ (`backendRegisterObserver` me) b
-        sendReply rt ()
-      OnCast (AppBackendEvent be) ->
-        logInfo ("got backend event: " <> T.pack (show be))
-      OnCast DoThis ->
-        do MkApp m <- getModel @App
-           case m of
-            Nothing -> logInfo "doing this without backend"
-            Just b -> handleInterrupts (logWarning . T.pack . show) $ do
-                doSomeBackendWork b
-                bi <- getSomeBackendInfo b
-                logInfo ("doing this. Backend: " <> T.pack bi)
-      _ -> logWarning ("unexpected: "<>T.pack(show e))
-
-
------------------------------- Protocol Data Types
-
 -- Application layer
 
 data App deriving Typeable
+
+instance ToTypeLogMsg App
 
 instance HasPdu App where
   type EmbeddedPduList App = '[Observer BackendEvent]
@@ -119,6 +95,8 @@ instance NFData (Pdu App r) where
   rnf DoThis = ()
   rnf (AppBackendEvent e) = rnf e
 
+instance ToLogMsg (Pdu App r)
+
 instance Show (Pdu App r) where
   show (SetBackend _x) = "setting backend"
   show DoThis = "doing this"
@@ -129,8 +107,38 @@ instance HasPduPrism App (Observer BackendEvent) where
   fromPdu (AppBackendEvent e) = Just e
   fromPdu _ = Nothing
 
+instance Stateful.Server App Effects where
+  newtype instance Model App = MkApp (Maybe SomeBackend) deriving Default
+  data instance StartArgument App = InitApp
+  update me _x e =
+    case e of
+      OnCall rt (SetBackend b) -> do
+        logInfo (packLogMsg "setting backend")
+        MkApp oldB <- getAndPutModel @App (MkApp b)
+        traverse_ (`backendForgetObserver` me) oldB
+        traverse_ (`backendRegisterObserver` me) b
+        sendReply rt ()
+      OnCast (AppBackendEvent be) ->
+        logInfo (packLogMsg "got backend event: ") be
+      OnCast DoThis ->
+        do MkApp m <- getModel @App
+           case m of
+            Nothing -> logInfo (packLogMsg "doing this without backend")
+            Just b -> handleInterrupts (logWarning . T.pack . show) $ do
+                doSomeBackendWork b
+                bi <- getSomeBackendInfo b
+                logInfo (packLogMsg "doing this. Backend: ") bi
+      _ -> logWarning (packLogMsg "unexpected: ") e
+
+instance ToLogMsg (StartArgument App) where
+  toLogMsg _ = packLogMsg "start app"
+
+------------------------------ Protocol Data Types
+
 -- Backend
 data Backend deriving Typeable
+
+instance ToTypeLogMsg Backend
 
 instance HasPdu Backend where
   data Pdu Backend r where
@@ -142,20 +150,27 @@ instance NFData (Pdu Backend r) where
   rnf BackendWork = ()
   rnf GetBackendInfo = ()
 
+instance ToLogMsg (Pdu Backend r)
+
 instance Show (Pdu Backend r) where
   show BackendWork = "BackendWork"
   show GetBackendInfo = "GetBackendInfo"
 
 newtype BackendEvent where
     BackendEvent :: String -> BackendEvent
-    deriving (NFData, Show, Typeable)
+    deriving (NFData, Show, Typeable, ToLogMsg)
+
+instance ToTypeLogMsg BackendEvent
 
 type IsBackend b =
   ( HasPdu b
   , Embeds b Backend
+  , ToTypeLogMsg b
   , IsObservable b BackendEvent
   , Tangible (Pdu b ('Synchronous String))
+  , ToLogMsg (Pdu b ('Synchronous String))
   , Tangible (Pdu b 'Asynchronous)
+  , ToLogMsg (Pdu b 'Asynchronous)
   )
 
 data SomeBackend =
@@ -171,7 +186,10 @@ backendRegisterObserver
   :: ( HasProcesses e q
      , CanObserve m BackendEvent
      , Embeds m (Observer BackendEvent)
-     , Tangible (Pdu m 'Asynchronous))
+     , Tangible (Pdu m 'Asynchronous)
+     , ToLogMsg (Pdu m 'Asynchronous)
+     , ToTypeLogMsg m
+     )
   => SomeBackend
   -> Endpoint m
   -> Eff e ()
@@ -182,6 +200,8 @@ backendForgetObserver
      , CanObserve m BackendEvent
      , Embeds m (Observer BackendEvent)
      , Tangible (Pdu m 'Asynchronous)
+     , ToLogMsg (Pdu m 'Asynchronous)
+     , ToTypeLogMsg m
      )
   => SomeBackend
   -> Endpoint m
@@ -200,6 +220,8 @@ doSomeBackendWork (SomeBackend x) = cast x BackendWork
 
 data Backend1 deriving Typeable
 
+instance ToTypeLogMsg Backend1
+
 instance Stateful.Server Backend1 Effects where
   type instance Protocol Backend1 = (Backend, ObserverRegistry BackendEvent)
   newtype instance Model Backend1 = MkBackend1 (Int, ObserverRegistry BackendEvent)
@@ -213,24 +235,30 @@ instance Stateful.Server Backend1 Effects where
           (toEmbeddedReplyTarget @(Stateful.Protocol Backend1) @Backend rt)
           ("Backend1 " <> show me <> " " <> show (model ^. modelBackend1 . _1))
       OnCast (ToPduLeft BackendWork) -> do
-        logInfo "working..."
+        logInfo (MkLogMsg "working...")
         modifyModel @Backend1 (over (modelBackend1 . _1) (+ 1))
       OnCast (ToPduRight x) -> do
-        logInfo "event registration stuff ..."
+        logInfo (MkLogMsg "event registration stuff ...")
         zoomModel @Backend1 (modelBackend1 . _2) (observerRegistryHandlePdu x)
       OnDown pd -> do
         logWarning (T.pack (show pd))
         wasObserver <- zoomModel @Backend1 (modelBackend1 . _2) (observerRegistryRemoveProcess @BackendEvent (downProcess pd))
         when wasObserver $
-          logNotice "observer removed"
-      _ -> logWarning ("unexpected: " <> T.pack (show e))
+          logNotice (MkLogMsg "observer removed")
+      _ -> logWarning (MkLogMsg "unexpected: ") e
 
 modelBackend1 :: Iso' (Model Backend1)  (Int, ObserverRegistry BackendEvent)
 modelBackend1 = iso (\(MkBackend1 x) -> x) MkBackend1
 
+instance ToLogMsg (StartArgument Backend1) where
+  toLogMsg InitBackend1 = packLogMsg "InitBackend1"
+
+
 -- Backend 2 is behind a broker
 
 data Backend2 deriving Typeable
+
+instance ToTypeLogMsg Backend2
 
 instance HasPdu Backend2 where
   type instance EmbeddedPduList Backend2 = '[Backend, ObserverRegistry BackendEvent]
@@ -242,6 +270,8 @@ instance HasPdu Backend2 where
 instance NFData (Pdu Backend2 r) where
   rnf (B2BackendWork w) = rnf w
   rnf (B2ObserverRegistry x) = rnf x
+
+instance ToLogMsg (Pdu Backend2 r)
 
 instance Show (Pdu Backend2 r) where
   show (B2BackendWork w) = show w
@@ -268,27 +298,30 @@ instance Effectful.Server Backend2 Effects where
       OnCall rt (B2BackendWork GetBackendInfo) ->
         sendReply rt ("Backend2 " <> show me <> " " <> show myIndex)
       OnCast (B2BackendWork BackendWork) -> do
-        logInfo "working..."
+        logInfo (MkLogMsg "working...")
         put @Int (myIndex + 1)
         when (myIndex `mod` 2 == 0)
           (observerRegistryNotify (BackendEvent "even!"))
       OnCast (B2ObserverRegistry x) -> do
-        logInfo "event registration stuff ..."
+        logInfo (MkLogMsg "event registration stuff ...")
         observerRegistryHandlePdu @BackendEvent x
       OnInterrupt NormalExitRequested
         | even myIndex -> do
-          logNotice "Kindly exitting -_-"
+          logNotice (MkLogMsg "Kindly exitting -_-")
           exitNormally
         | otherwise ->
-          logNotice "Ignoring exit request! :P"
+          logNotice (MkLogMsg "Ignoring exit request! :P")
       OnDown pd -> do
-        logWarning (T.pack (show pd))
+        logWarning pd
         wasObserver <- observerRegistryRemoveProcess @BackendEvent (downProcess pd)
         when wasObserver $
-          logNotice "observer removed"
-      _ -> logWarning ("unexpected: " <> T.pack (show e))
+          logNotice (packLogMsg "observer removed")
+      _ -> logWarning (packLogMsg "unexpected: ") e
 
 type instance Broker.ChildId Backend2 = Int
+
+instance ToLogMsg (Init Backend2) where
+  toLogMsg (InitBackend2 x) = packLogMsg "init backend2: " <> toLogMsg x
 
 startBackend2Broker :: Eff Effects (Endpoint (Broker.Broker Backend2))
 startBackend2Broker = Broker.startLink (Broker.MkBrokerConfig (TimeoutMicros 1_000_000) InitBackend2)
@@ -311,5 +344,3 @@ embeddedReceiver
   => EP a
   -> EP b
 embeddedReceiver (EP r) = EP (contramap embedPdu r)
-
-

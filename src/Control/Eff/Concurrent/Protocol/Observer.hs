@@ -215,6 +215,9 @@ data ObserverRegistry (event :: Type) = MkObserverRegistry
 type instance ToPretty (ObserverRegistry event) =
   PrettyParens ("observer registry" <:> ToPretty event)
 
+instance ToTypeLogMsg event => ToTypeLogMsg (ObserverRegistry event) where
+  toTypeLogMsg _ = toTypeLogMsg (Proxy @event) <> packLogMsg "_observer_registry_event"
+
 instance (Tangible event) => HasPdu (ObserverRegistry event) where
 
   -- | Protocol for managing observers. This can be added to any server for any number of different observation types.

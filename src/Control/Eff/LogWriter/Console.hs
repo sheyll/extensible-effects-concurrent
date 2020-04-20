@@ -8,7 +8,6 @@ module Control.Eff.LogWriter.Console
 import Control.Eff as Eff
 import Control.Eff.Log
 import Control.Eff.LogWriter.Rich
-import Data.Text
 
 -- | Enable logging to @standard output@ using the 'consoleLogWriter', with some 'LogEvent' fields preset
 -- as in 'withRichLogging'.

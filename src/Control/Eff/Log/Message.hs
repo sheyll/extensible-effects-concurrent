@@ -95,12 +95,11 @@ where
 import           Control.Concurrent
 import           Control.DeepSeq
 import           Control.Lens
-import           Control.Monad
-import           Control.Monad.IO.Class
+import           Control.Eff.Concurrent.Misc
 import           Data.Default
 import           Data.Hashable
 import           Data.Maybe
-import           Data.String                    (IsString(..))
+import           Data.Typeable
 import qualified Data.Text                     as T
 import           Data.Time.Clock
 import           GHC.Generics            hiding ( to )
@@ -499,18 +498,50 @@ fromLogMsg :: Iso' LogMsg T.Text
 class ToLogMsg a where
   toLogMsg :: a -> LogMsg
 
-instance ToLogMsg String where
-  toLogMsg = MkLogMsg . fromString
+  default toLogMsg :: Show a => a -> LogMsg
+  toLogMsg = packLogMsg . show
 
--- instance ToLogMsg T.Text where
---   toLogMsg = MkLogMsg
+instance ToLogMsg String where
+  toLogMsg = packLogMsg
+
+instance ToLogMsg T.Text where
+  toLogMsg = MkLogMsg
+
+instance ToLogMsg ()
+
+instance ToLogMsg Bool
+
+instance ToLogMsg Char
+
+instance ToLogMsg Int
+
+instance ToLogMsg Double
+
+instance ToLogMsg Float
+
+instance ToLogMsg Integer
 
 instance ToLogMsg LogMsg where
   toLogMsg = id
 
+instance ToLogMsg a => ToLogMsg (Maybe a) where
+  toLogMsg Nothing = packLogMsg ""
+  toLogMsg (Just b) = toLogMsg b
+
 instance (ToLogMsg a, ToLogMsg b) => ToLogMsg (Either a b) where
-  toLogMsg (Left a) = packLogMsg "left: " <> toLogMsg a
-  toLogMsg (Right b) = packLogMsg "right: " <> toLogMsg b
+  toLogMsg (Left a) = toLogMsg a
+  toLogMsg (Right b) = toLogMsg b
+
+instance (ToLogMsg a, ToLogMsg b) => ToLogMsg (a, b) where
+  toLogMsg (a, b) = packLogMsg "(" <> toLogMsg a <> packLogMsg ") (" <> toLogMsg b <> packLogMsg ")"
+
+instance (ToLogMsg a, ToLogMsg b, ToLogMsg c) => ToLogMsg (a, b, c) where
+  toLogMsg (a, b, c) =
+    packLogMsg "(" <> toLogMsg a <> packLogMsg ") (" <> toLogMsg b <> packLogMsg ") (" <> toLogMsg c <> packLogMsg ")"
+
+instance (ToLogMsg a, ToLogMsg b, ToLogMsg c, ToLogMsg d) => ToLogMsg (a, b, c, d) where
+  toLogMsg (a, b, c, d) =
+    packLogMsg "(" <> toLogMsg a <> packLogMsg ") (" <> toLogMsg b <> packLogMsg ") (" <> toLogMsg c <> packLogMsg ") (" <> toLogMsg d <> packLogMsg ")"
 
 -- | A class for 'LogMsg' values for phantom types, like
 -- those used to discern 'Pdu's.
@@ -523,6 +554,42 @@ instance (ToLogMsg a, ToLogMsg b) => ToLogMsg (Either a b) where
 class ToTypeLogMsg (a :: k) where
   -- | Generate a 'LogMsg' for the given proxy value.
   toTypeLogMsg :: proxy a -> LogMsg
+
+  default toTypeLogMsg :: Typeable a => proxy a -> LogMsg
+  toTypeLogMsg _ = packLogMsg (showSTypeable @a "")
+
+instance ToTypeLogMsg ()
+
+instance ToTypeLogMsg Bool
+
+instance ToTypeLogMsg Int
+
+instance ToTypeLogMsg Double
+
+instance ToTypeLogMsg Float
+
+instance ToTypeLogMsg Integer
+
+instance ToTypeLogMsg LogMsg where
+  toTypeLogMsg _ = packLogMsg "LogMsg"
+
+instance ToTypeLogMsg a => ToTypeLogMsg (Maybe a) where
+  toTypeLogMsg _ = packLogMsg "Maybe(" <> toTypeLogMsg (Proxy @a) <> packLogMsg ")"
+
+instance (ToTypeLogMsg a, ToTypeLogMsg b) => ToTypeLogMsg (Either a b) where
+  toTypeLogMsg _ =
+       packLogMsg "Either("
+    <> toTypeLogMsg (Proxy @a)
+    <> packLogMsg ")Or("
+    <> toTypeLogMsg (Proxy @b)
+    <> packLogMsg ")"
+
+instance (ToTypeLogMsg a, ToTypeLogMsg b) => ToTypeLogMsg (a, b) where
+  toTypeLogMsg _ = packLogMsg "Tuple2(" <> toTypeLogMsg (Proxy @a) <> packLogMsg ")(" <> toTypeLogMsg (Proxy @b) <> packLogMsg ")"
+
+instance (ToTypeLogMsg a, ToTypeLogMsg b, ToTypeLogMsg c) => ToTypeLogMsg (a, b, c) where
+  toTypeLogMsg _ =
+    packLogMsg "Tuple3(" <> toTypeLogMsg (Proxy @a) <> packLogMsg ")(" <> toTypeLogMsg (Proxy @b) <> packLogMsg ")(" <> toTypeLogMsg (Proxy @c) <> packLogMsg ")"
 
 -- | Prefix the 'logEventMessage'.
 prefixLogEventsWith :: ToLogMsg a => a -> LogEvent -> LogEvent

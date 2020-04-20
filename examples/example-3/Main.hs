@@ -1,3 +1,4 @@
+{-# LANGUAGE NoOverloadedStrings #-}
 module Main where
 
 import           Control.Eff
@@ -11,9 +12,9 @@ main :: IO ()
 main =
   runLift
   $  withFileLogging  "extensible-effects-concurrent-example-3.log" "test-app" local0 allLogEvents renderConsoleMinimalisticWide
-  $  addLogWriter (filteringLogWriter severeMessages (mappingLogWriter (logEventMessage %~ ("traced: " <>)) (debugTraceLogWriter renderRFC5424)))
+  $  addLogWriter (filteringLogWriter severeMessages (mappingLogWriter (logEventMessage %~ (packLogMsg "traced: " <>)) (debugTraceLogWriter renderRFC5424)))
   $  modifyLogWriter (richLogWriter "example-3" local0)
-  $  addLogWriter (filteringLogWriter severeMessages (mappingLogWriter (logEventMessage %~ ("traced without timestamp: " <>)) (debugTraceLogWriter renderRFC5424)))
+  $  addLogWriter (filteringLogWriter severeMessages (mappingLogWriter (logEventMessage %~ (packLogMsg "traced without timestamp: " <>)) (debugTraceLogWriter renderRFC5424)))
   $  do
         logEmergency "test emergencySeverity 1"
         logCritical "test criticalSeverity 2"

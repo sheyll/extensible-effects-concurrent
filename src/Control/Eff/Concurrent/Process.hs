@@ -536,6 +536,7 @@ instance Default ProcessState where
 
 instance ToLogMsg ProcessState where
   toLogMsg = \case
+    ProcessBooting              -> packLogMsg "the process has just been started but not scheduled yet"
     ProcessIdle                 -> packLogMsg "the process yielded it's time slice"
     ProcessBusy                 -> packLogMsg "the process is busy with a non-blocking operation"
     ProcessBusySleeping         -> packLogMsg "the process is sleeping until the 'Timeout' given to 'Delay'"

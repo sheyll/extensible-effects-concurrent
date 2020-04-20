@@ -30,6 +30,12 @@ instance HasPdu Counter where
     Cnt :: Pdu Counter ('Synchronous Integer)
     deriving Typeable
 
+instance ToTypeLogMsg Counter
+
+instance ToLogMsg (Pdu Counter x) where
+  toLogMsg Inc = packLogMsg "increment"
+  toLogMsg Cnt = packLogMsg "get-count"
+
 instance NFData (Pdu Counter x) where
   rnf Inc = ()
   rnf Cnt = ()
@@ -73,6 +79,12 @@ instance HasPdu SupiDupi where
     Whoopediedoo :: Bool -> Pdu SupiDupi ('Synchronous (Maybe ()))
     deriving Typeable
 
+instance ToTypeLogMsg SupiDupi
+
+instance ToLogMsg (Pdu SupiDupi r) where
+  toLogMsg (Whoopediedoo f) =
+    packLogMsg "whoopediedoo: " <> toLogMsg f
+
 instance Show (Pdu SupiDupi r) where
   show (Whoopediedoo True) = "woopediedooo"
   show (Whoopediedoo False) = "no woopy doopy"
@@ -81,11 +93,14 @@ instance NFData (Pdu SupiDupi r) where
   rnf (Whoopediedoo b) = rnf b
 
 newtype CounterChanged = CounterChanged Integer
-  deriving (Show, Typeable, NFData)
+  deriving (Show, Typeable, NFData, ToLogMsg)
 
 type instance ToPretty CounterChanged = PutStr "counter changed"
 
+instance ToTypeLogMsg CounterChanged
+
 type SupiCounter = (Counter, ObserverRegistry CounterChanged, SupiDupi)
+
 
 type instance ToPretty (Counter, ObserverRegistry CounterChanged, SupiDupi) = PutStr "supi-counter"
 
@@ -130,6 +145,9 @@ instance (IoLogging q) => Server SupiCounter (Processes q) where
 
     other -> logWarning (T.pack (show other))
 
+instance ToLogMsg (StartArgument SupiCounter) where
+  toLogMsg _ = packLogMsg "start arg: supi counter"
+
 supiCounter :: Lens' (Model SupiCounter) Integer
 supiCounter =
   lens
@@ -164,6 +182,8 @@ instance Member Logs q => Server (Observer CounterChanged) (Processes q) where
   newtype instance Model (Observer CounterChanged) = CounterChangedModel () deriving Default
   update _ _ e =
     case e of
-      OnCast (Observed msg) -> logInfo' ("observerRegistryNotify: " ++ show msg)
-      _ -> logNotice (T.pack (show e))
+      OnCast (Observed msg) -> logInfo (MkLogMsg "observerRegistryNotify: ") msg
+      _ -> logNotice e
 
+instance ToLogMsg (StartArgument (Observer CounterChanged)) where
+  toLogMsg _ = packLogMsg "start-arg for the CounterChanged observer"

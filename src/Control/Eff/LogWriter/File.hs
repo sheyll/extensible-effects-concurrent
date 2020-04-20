@@ -9,7 +9,6 @@ import           Control.Eff                   as Eff
 import           Control.Eff.Log
 import           Control.Eff.LogWriter.Rich
 import           GHC.Stack
-import           Data.Text                     as T
 import qualified System.IO                     as IO
 import           System.Directory               ( canonicalizePath
                                                 , createDirectoryIfMissing

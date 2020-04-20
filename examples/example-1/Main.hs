@@ -16,6 +16,8 @@ import           Data.Type.Pretty
 data TestProtocol
   deriving Typeable
 
+instance ToTypeLogMsg TestProtocol
+
 type instance ToPretty TestProtocol = PutStr "test"
 
 instance HasPdu TestProtocol where
@@ -25,6 +27,13 @@ instance HasPdu TestProtocol where
     Terminate :: Pdu TestProtocol ('Synchronous ())
     TerminateError :: String -> Pdu TestProtocol ('Synchronous ())
     deriving (Typeable)
+
+instance ToLogMsg (Pdu TestProtocol r) where
+  toLogMsg = \case
+    SayHello x -> packLogMsg "Hello " <> packLogMsg x
+    Shout x -> packLogMsg "HEEELLLOOOO " <> packLogMsg x
+    Terminate -> packLogMsg "terminate normally"
+    TerminateError x -> packLogMsg "terminate with error: " <> packLogMsg x
 
 instance NFData (Pdu TestProtocol x) where
   rnf (SayHello s) = rnf s
@@ -68,7 +77,7 @@ example = do
           ('R' : rest) -> do
             replicateM_ (read rest) (cast server (Shout x))
             go
-          ('q' : _) -> logInfo "Done."
+          ('q' : _) -> logInfo (MkLogMsg "Done.")
           _         -> do
             res <- call server (SayHello x)
             logInfo (T.pack ("Result: " ++ show res))
@@ -125,4 +134,3 @@ testServerLoop = Callback.startLink (Callback.callbacks handleReq "test-server-1
 
   handleReq me wtf =
     logCritical (T.pack (show me ++ " WTF: " ++ show wtf))
-

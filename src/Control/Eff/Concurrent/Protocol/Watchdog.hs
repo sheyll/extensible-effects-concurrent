@@ -206,10 +206,10 @@ instance (ToTypeLogMsg child) => ToTypeLogMsg (Pdu (Watchdog child) r) where
   toTypeLogMsg _ = toTypeLogMsg (Proxy @(Watchdog child)) <> packLogMsg "_pdu"
 
 instance (ToLogMsg (Broker.ChildId child), ToTypeLogMsg child, ToTypeLogMsg (Effectful.ServerPdu child)) => ToLogMsg (Pdu (Watchdog child) r) where
-  toLogMsg (Attach e isPermanent) =
+  toLogMsg (Attach e isPermanentFlag) =
        toTypeLogMsg (Proxy @(Watchdog child))
     <> packLogMsg " attach-"
-    <> packLogMsg (if isPermanent then  "permanent" else "temporary")
+    <> packLogMsg (if isPermanentFlag then  "permanent" else "temporary")
     <> packLogMsg ": "
     <> toLogMsg e
   toLogMsg GetCrashReports =
@@ -231,8 +231,8 @@ instance Show BrokerWatch where
   showsPrec d (MkBrokerWatch mon True) = showParen (d>=10) (showString "permanent-broker: " . showsPrec 10 mon)
 
 instance ToLogMsg BrokerWatch where
-  toLogMsg (MkBrokerWatch mon isPermanent) =
-       packLogMsg (if isPermanent then "permanent" else "temporary")
+  toLogMsg (MkBrokerWatch mon isPermanentFlag) =
+       packLogMsg (if isPermanentFlag then "permanent" else "temporary")
     <> packLogMsg "-child: "
     <> toLogMsg mon
 
