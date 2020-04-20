@@ -23,6 +23,8 @@ module Control.Eff.Concurrent.Process
       -- ** Process Info
   , ProcessTitle(..)
   , fromProcessTitle
+  , toProcessTitle
+
   , ProcessDetails(..)
   , fromProcessDetails
 
@@ -320,6 +322,12 @@ newtype ProcessTitle =
   MkProcessTitle { _fromProcessTitle :: Text }
   deriving (Eq, Ord, NFData, Generic, IsString, Typeable, Semigroup, Monoid)
 
+-- | Construct a 'ProcessTitle' from a 'String'.
+--
+-- @since 1.0.0
+toProcessTitle :: String -> ProcessTitle
+toProcessTitle = fromString
+
 -- | An isomorphism lens for the 'ProcessTitle'
 --
 -- @since 0.24.1
@@ -352,6 +360,9 @@ instance Show ProcessDetails where
 newtype Timeout = TimeoutMicros {fromTimeoutMicros :: Int}
   deriving (NFData, Ord,Eq, Num, Integral, Real, Enum, Typeable)
 
+instance ToLogMsg Timeout where
+  toLogMsg (TimeoutMicros u) = packLogMsg (show u ++ "µs")
+
 instance Show Timeout where
   showsPrec d (TimeoutMicros t) =
     showParen (d >= 10) (showString "timeout: " . shows t . showString " µs")
@@ -374,6 +385,8 @@ instance NFData StrictDynamic where
 instance Show StrictDynamic where
   show (MkDynamicMessage d) = show d
 
+instance ToLogMsg StrictDynamic where
+  toLogMsg = packLogMsg . show
 
 -- | Serialize a @message@ into a 'StrictDynamic' value to be sent via 'sendAnyMessage'.
 --
@@ -520,6 +533,23 @@ instance NFData ProcessState
 
 instance Default ProcessState where
   def = ProcessBooting
+
+instance ToLogMsg ProcessState where
+  toLogMsg = \case
+    ProcessIdle                 -> packLogMsg "the process yielded it's time slice"
+    ProcessBusy                 -> packLogMsg "the process is busy with a non-blocking operation"
+    ProcessBusySleeping         -> packLogMsg "the process is sleeping until the 'Timeout' given to 'Delay'"
+    ProcessBusyUpdatingDetails  -> packLogMsg "the process is busy with 'UpdateProcessDetails'"
+    ProcessBusySending          -> packLogMsg "the process is busy with sending a message"
+    ProcessBusySendingShutdown  -> packLogMsg "the process is busy with killing"
+    ProcessBusySendingInterrupt -> packLogMsg "the process is busy with killing"
+    ProcessBusyReceiving        -> packLogMsg "the process blocked by a 'receiveAnyMessage'"
+    ProcessBusyLinking          -> packLogMsg "the process blocked by a 'linkProcess'"
+    ProcessBusyUnlinking        -> packLogMsg "the process blocked by a 'unlinkProcess'"
+    ProcessBusyMonitoring       -> packLogMsg "the process blocked by a 'monitor'"
+    ProcessBusyDemonitoring     -> packLogMsg "the process blocked by a 'demonitor'"
+    ProcessInterrupted          -> packLogMsg "the process was interrupted"
+    ProcessShuttingDown         -> packLogMsg "the process was shutdown or crashed"
 
 -- | This kind is used to indicate if a 'Interrupt' can be treated like
 -- a short interrupt which can be handled or ignored.

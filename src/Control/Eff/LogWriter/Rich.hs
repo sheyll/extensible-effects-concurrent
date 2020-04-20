@@ -28,7 +28,7 @@ import           Data.Text
 withRichLogging
   :: Lifted IO e
   => LogWriter -- ^ The 'LogWriter' that will be used to write log messages.
-  -> Text -- ^ The default application name to put into the 'logEventAppName' field.
+  -> String -- ^ The default application name to put into the 'logEventAppName' field.
   -> Facility -- ^ The default RFC-5424 facility to put into the 'logEventFacility' field.
   -> LogPredicate -- ^ The inital predicate for log messages, there are some pre-defined in "Control.Eff.Log.Message#PredefinedPredicates"
   -> Eff (Logs : LogWriterReader : e) a
@@ -46,7 +46,7 @@ withRichLogging lw appName facility defaultPredicate =
 --
 -- It works by using 'mappingLogWriterIO'.
 richLogWriter
-  :: Text -- ^ The default application name to put into the 'logEventAppName' field.
+  :: String -- ^ The default application name to put into the 'logEventAppName' field.
   -> Facility -- ^ The default RFC-5424 facility to put into the 'logEventFacility' field.
   -> LogWriter -- ^ The IO based writer to decorate
   -> LogWriter
@@ -54,8 +54,9 @@ richLogWriter appName facility =
   mappingLogWriterIO
     (   setLogEventsTimestamp
     >=> setLogEventsHostname
+    >=> setLogEventsThreadId
     )
   . mappingLogWriter
     ( set logEventFacility facility
-    . set logEventAppName  (Just appName)
+    . set logEventAppName  (Just (pack appName))
     )

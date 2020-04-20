@@ -119,11 +119,11 @@ renderSchedulerState s = do
   return
     $ MkProcessDetails
     $ T.unlines
-        [ "ForkIO Scheduler nextPid: " <> np
-        , "ForkIO Scheduler process table entries: " <> pt
-        , "ForkIO Scheduler process cancellation table entries: " <> pct
-        , "ForkIO Scheduler process monitors entries: " <> pm
-        , "ForkIO Scheduler nextMonitorIndex: " <> nm
+        [ T.pack "ForkIO Scheduler nextPid: " <> np
+        , T.pack "ForkIO Scheduler process table entries: " <> pt
+        , T.pack "ForkIO Scheduler process cancellation table entries: " <> pct
+        , T.pack "ForkIO Scheduler process monitors entries: " <> pm
+        , T.pack "ForkIO Scheduler nextMonitorIndex: " <> nm
         ]
 
 -- | Allocate a new 'MonitorReference'
@@ -131,13 +131,13 @@ nextMonitorReference :: ProcessId -> SchedulerState -> STM MonitorReference
 nextMonitorReference target schedulerState = do
   aNewMonitorIndex <- readTVar (schedulerState ^. nextMonitorIndex)
   modifyTVar' (schedulerState ^. nextMonitorIndex) (+ 1)
-  return (MonitorReference aNewMonitorIndex target)
+  return (MkMonitorReference aNewMonitorIndex target)
 
 -- | Add monitor: If the process is dead, enqueue a 'ProcessDown' message into the
 -- owners message queue
 addMonitoring
   :: HasCallStack => MonitorReference -> ProcessId -> SchedulerState -> STM Int
-addMonitoring monitorRef@(MonitorReference _ target) owner schedulerState =
+addMonitoring monitorRef@(MkMonitorReference _ target) owner schedulerState =
   if target == owner then pure 0
     else
       do
@@ -180,7 +180,7 @@ triggerAndRemoveMonitor downPid reason schedulerState = do
   catMaybes <$> traverse go (toList monRefs)
  where
   go (mr, owner) =
-    if monitoredProcess mr == downPid
+    if view monitoredProcess mr == downPid
      then do
         let processDownMessage = ProcessDown mr reason downPid
         wasEnqueued <-
@@ -228,8 +228,8 @@ withNewSchedulerState mainProcessAction = Safe.bracketWithError
   (\exceptions schedulerState -> do
     traverse_
       ( logError
-      . ("scheduler setup crashed with: " <>)
-      . T.pack
+       ("scheduler setup crashed with: ")
+      . packLogMsg
       . Safe.displayException
       )
       exceptions
@@ -251,9 +251,9 @@ withNewSchedulerState mainProcessAction = Safe.bracketWithError
     allProcesses <- lift
       (atomically (readTVar cancelTableVar <* writeTVar cancelTableVar def))
     logNotice
-      (  "cancelling processes: "
-      <> T.pack (show (toListOf (ifolded . asIndex) allProcesses))
-      )
+       "cancelling processes: "
+      (packLogMsg (show (toListOf (ifolded . asIndex) allProcesses)))
+
     void
       (liftBaseWith
         (\runS -> timeout
@@ -263,7 +263,7 @@ withNewSchedulerState mainProcessAction = Safe.bracketWithError
                 Async.cancel a
                 runS
                   (logNotice
-                    ("process cancelled: " <> T.pack (show (asyncThreadId a)))
+                    "process cancelled: " (packLogMsg (show (asyncThreadId a)))
                   )
               )
               allProcesses
@@ -641,7 +641,7 @@ schedule procEff =
   liftBaseWith
       (\runS -> Async.withAsync
         (runS $ withNewSchedulerState $ do
-          (_, mainProcAsync) <- spawnNewProcess Nothing "init" $ do
+          (_, mainProcAsync) <- spawnNewProcess Nothing (toProcessTitle "init") $ do
             logNotice "++++++++ main process started ++++++++"
             provideInterruptsShutdown procEff
             logNotice "++++++++ main process returned ++++++++"
@@ -682,7 +682,7 @@ spawnNewProcess mLinkedParent title mfa = do
   linkToParent toProcInfo parent = do
     let toPid     = toProcInfo ^. processId
         parentPid = parent ^. processId
-    logDebug' ("linked to new child: " <> show toPid)
+    logDebug "linked to new child: " toPid
     lift $ atomically $ do
       modifyTVar' (toProcInfo ^. processLinks) (Set.insert parentPid)
       modifyTVar' (parent ^. processLinks)     (Set.insert toPid)
@@ -731,18 +731,17 @@ spawnNewProcess mLinkedParent title mfa = do
     res <- traverse sendIt (toList linkedPids)
     traverse_
       (either
-        (logNotice . ("linked process not found: " <>) . T.pack . show)
+        (logNotice "linked process not found: ")
         (either
-              (logWarning . ("process crashed, interrupting linked process: " <>) . T.pack . show)
-              (logDebug . ("linked process exited peacefully, not sending shutdown to linked process: " <>) . T.pack . show)
+              (logWarning "process crashed, interrupting linked process: ")
+              (logDebug "linked process exited peacefully, not sending shutdown to linked process: ")
         )
       )
       res
     unless (null downMessageSendResults) $
-      logWarning
-        (  "failed to enqueue monitor down messages for: "
-        <> T.pack(show downMessageSendResults)
-        )
+      traverse_
+        (logWarning "failed to enqueue monitor down messages for: ")
+        downMessageSendResults
   doForkProc
     :: ProcessInfo
     -> SchedulerState
@@ -788,9 +787,9 @@ spawnNewProcess mLinkedParent title mfa = do
    where
     exitReasonFromException exc = case Safe.fromException exc of
       Just Async.AsyncCancelled -> ExitProcessCancelled Nothing
-      Nothing -> ExitUnhandledError (  "runtime exception:\n"
+      Nothing -> ExitUnhandledError ( T.pack "runtime exception:\n"
                                     <> T.pack (prettyCallStack callStack)
-                                    <> "\n"
+                                    <> T.pack "\n"
                                     <> T.pack (Safe.displayException exc)
                                     )
     logExitAndTriggerLinksAndMonitors reason pid = do
@@ -799,11 +798,7 @@ spawnNewProcess mLinkedParent title mfa = do
           (readTVar (procInfo ^. processState)
             <* modifyTVar' (procInfo ^. processState) (_2 .~ ProcessShuttingDown)))
       when (currentState /= ProcessShuttingDown)
-        (logNotice ("aborted in state: "
-          <> T.pack (show currentState)
-          <> " by: "
-          <> T.pack (show reason)
-          ))
+        (logNotice "aborted in state: " currentState " because: " reason)
       triggerProcessLinksAndMonitors pid reason (procInfo ^. processLinks)
       logProcessExit reason
       return reason

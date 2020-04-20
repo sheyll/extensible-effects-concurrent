@@ -254,3 +254,6 @@ instance (Typeable event, Lifted IO q, Member Logs q, ToTypeLogMsg event) => Ser
           logWarning "queue full"
       otherMsg ->
         logError "unexpected: " (show otherMsg)
+
+instance ToTypeLogMsg event => ToLogMsg (StartArgument (ObservationQueue event)) where
+  toLogMsg (MkObservationQueue q) = toLogMsg q

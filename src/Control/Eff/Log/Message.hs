@@ -35,11 +35,6 @@ module Control.Eff.Log.Message
   , packLogMsg
   , ToTypeLogMsg(..)
 
-  -- *** IO Based Constructor
-  , errorMessageIO
-  , infoMessageIO
-  , debugMessageIO
-
   -- * 'LogEvent' Predicates #PredefinedPredicates#
   -- $PredefinedPredicates
   , LogPredicate
@@ -466,10 +461,6 @@ setCallStack cs m = case getCallStack cs of
   []              -> m
   (_, srcLoc) : _ -> m & logEventSrcLoc ?~ srcLoc
 
--- | Prefix the 'logEventMessage'.
-prefixLogEventsWith :: LogMsg -> LogEvent -> LogEvent
-prefixLogEventsWith = over logEventMessage . (<>)
-
 -- | An IO action that sets the current UTC time in 'logEventTimestamp'.
 setLogEventsTimestamp :: LogEvent -> IO LogEvent
 setLogEventsTimestamp m = if isNothing (m ^. logEventTimestamp)
@@ -495,48 +486,6 @@ setLogEventsHostname m = if isNothing (m ^. logEventHostname)
     return (m & logEventHostname ?~ T.pack fqdn)
   else return m
 
--- | Construct a 'LogEvent' with 'errorSeverity'
-errorMessage :: HasCallStack => LogMsg -> LogEvent
-errorMessage m = withFrozenCallStack
-  (def & logEventSeverity .~ errorSeverity & logEventMessage .~ m & setCallStack callStack)
-
--- | Construct a 'LogEvent' with 'informationalSeverity'
-infoMessage :: HasCallStack => LogMsg -> LogEvent
-infoMessage m = withFrozenCallStack
-  (  def
-  &  logEventSeverity
-  .~ informationalSeverity
-  &  logEventMessage
-  .~ m
-  &  setCallStack callStack
-  )
-
--- | Construct a 'LogEvent' with 'debugSeverity'
-debugMessage :: HasCallStack => LogMsg -> LogEvent
-debugMessage m = withFrozenCallStack
-  (def & logEventSeverity .~ debugSeverity & logEventMessage .~ m & setCallStack callStack)
-
--- | Construct a 'LogEvent' with 'errorSeverity'
-errorMessageIO :: (HasCallStack, MonadIO m) => LogMsg -> m LogEvent
-errorMessageIO =
-  withFrozenCallStack
-    $ (liftIO . setLogEventsThreadId >=> liftIO . setLogEventsTimestamp)
-    . errorMessage
-
--- | Construct a 'LogEvent' with 'informationalSeverity'
-infoMessageIO :: (HasCallStack, MonadIO m) => LogMsg -> m LogEvent
-infoMessageIO =
-  withFrozenCallStack
-    $ (liftIO . setLogEventsThreadId >=> liftIO . setLogEventsTimestamp)
-    . infoMessage
-
--- | Construct a 'LogEvent' with 'debugSeverity'
-debugMessageIO :: (HasCallStack, MonadIO m) => LogMsg -> m LogEvent
-debugMessageIO =
-  withFrozenCallStack
-    $ (liftIO . setLogEventsThreadId >=> liftIO . setLogEventsTimestamp)
-    . debugMessage
-
 makeLensesWith (lensRules & generateSignatures .~ False) ''LogMsg
 
 -- | A lens (iso) to access the 'T.Text' of a 'LogMsg'.
@@ -559,6 +508,9 @@ instance ToLogMsg String where
 instance ToLogMsg LogMsg where
   toLogMsg = id
 
+instance (ToLogMsg a, ToLogMsg b) => ToLogMsg (Either a b) where
+  toLogMsg (Left a) = packLogMsg "left: " <> toLogMsg a
+  toLogMsg (Right b) = packLogMsg "right: " <> toLogMsg b
 
 -- | A class for 'LogMsg' values for phantom types, like
 -- those used to discern 'Pdu's.
@@ -571,6 +523,31 @@ instance ToLogMsg LogMsg where
 class ToTypeLogMsg (a :: k) where
   -- | Generate a 'LogMsg' for the given proxy value.
   toTypeLogMsg :: proxy a -> LogMsg
+
+-- | Prefix the 'logEventMessage'.
+prefixLogEventsWith :: ToLogMsg a => a -> LogEvent -> LogEvent
+prefixLogEventsWith = over logEventMessage . (<>) . toLogMsg
+
+-- | Construct a 'LogEvent' with 'errorSeverity'
+errorMessage :: (HasCallStack, ToLogMsg a) => a -> LogEvent
+errorMessage m = withFrozenCallStack
+  (def & logEventSeverity .~ errorSeverity & logEventMessage .~ toLogMsg m & setCallStack callStack)
+
+-- | Construct a 'LogEvent' with 'informationalSeverity'
+infoMessage :: (HasCallStack, ToLogMsg a) => a -> LogEvent
+infoMessage m = withFrozenCallStack
+  (  def
+  &  logEventSeverity
+  .~ informationalSeverity
+  &  logEventMessage
+  .~ toLogMsg m
+  &  setCallStack callStack
+  )
+
+-- | Construct a 'LogEvent' with 'debugSeverity'
+debugMessage :: (HasCallStack, ToLogMsg a) => a -> LogEvent
+debugMessage m = withFrozenCallStack
+  (def & logEventSeverity .~ debugSeverity & logEventMessage .~ toLogMsg m & setCallStack callStack)
 
 -- | The filter predicate for message that shall be logged.
 --
@@ -606,10 +583,12 @@ logEventSeverityIsAtLeast s = view (logEventSeverity . to (<= s))
 -- | Match 'LogEvent's whose 'logEventMessage' starts with the given string.
 --
 -- See "Control.Eff.Log.Message#PredefinedPredicates" for more predicates.
-logEventMessageStartsWith :: LogMsg -> LogPredicate
-logEventMessageStartsWith (MkLogMsg prefix) lm = case T.length prefix of
+logEventMessageStartsWith :: ToLogMsg a => a -> LogPredicate
+logEventMessageStartsWith aPrefix lm = case T.length prefix of
   0         -> True
   prefixLen -> T.take prefixLen (lm ^. logEventMessage . fromLogMsg) == prefix
+  where
+    (MkLogMsg !prefix) = toLogMsg aPrefix
 
 -- | Apply a 'LogPredicate' based on the 'logEventAppName' and delegate
 -- to one of two 'LogPredicate's.

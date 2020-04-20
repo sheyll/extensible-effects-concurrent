@@ -44,6 +44,7 @@ import           Data.Monoid
 import qualified Control.Monad.State.Strict    as State
 import           Data.Function                  ( fix)
 import           Data.Dynamic                   ( dynTypeRep )
+import           Data.String                    ( IsString (fromString) )
 
 -- -----------------------------------------------------------------------------
 --  STS and ProcessInfo
@@ -69,7 +70,7 @@ instance Show ProcessInfo where
 makeLenses ''ProcessInfo
 
 newProcessInfo :: ProcessTitle -> ProcessInfo
-newProcessInfo t = MkProcessInfo t "" Seq.empty
+newProcessInfo t = MkProcessInfo t (fromString "") Seq.empty
 
 data STS r m = STS
   { _nextPid :: !ProcessId

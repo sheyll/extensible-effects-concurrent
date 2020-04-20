@@ -65,7 +65,7 @@ import Data.Monoid (First)
 -- 'State' and 'Reader' effect.
 --
 -- @since 0.24.0
-class (Typeable (Protocol a), ToTypeLogMsg (Protocol a)) => Server (a :: Type) q where
+class (ToLogMsg (StartArgument a), Typeable (Protocol a), ToTypeLogMsg (Protocol a)) => Server (a :: Type) q where
   -- | The value that defines what is required to initiate a 'Server'
   -- loop.
   data StartArgument a
@@ -124,7 +124,7 @@ data Stateful a deriving Typeable
 instance ToTypeLogMsg a => ToTypeLogMsg (Stateful a) where
   toTypeLogMsg _ = toTypeLogMsg (Proxy @a)
 
-instance (ToTypeLogMsg a, Server a q) => Effectful.Server (Stateful a) q where
+instance (ToLogMsg (StartArgument a), ToTypeLogMsg a, Server a q) => Effectful.Server (Stateful a) q where
   data Init (Stateful a) = Init (StartArgument a)
   type ServerPdu (Stateful a) = Protocol a
   type ServerEffects (Stateful a) q = ModelState a ': SettingsReader a ': q
@@ -136,6 +136,9 @@ instance (ToTypeLogMsg a, Server a q) => Effectful.Server (Stateful a) q where
   onEvent selfEndpoint (Init sa) = update selfEndpoint sa
 
   serverTitle (Init startArg) = title @_ @q startArg
+
+instance (ToLogMsg (StartArgument a)) => ToLogMsg (Effectful.Init (Stateful a)) where
+  toLogMsg (Init sa) = toLogMsg sa
 
 -- | Execute the server loop.
 --

@@ -39,7 +39,7 @@ import GHC.Stack (HasCallStack)
 -- instances exist, like 2-,3-,4-, or 5-tuple.
 --
 -- @since 0.24.1
-class ToTypeLogMsg a => Server (a :: Type) (e :: [Type -> Type])
+class (ToLogMsg (Init a), ToTypeLogMsg a) => Server (a :: Type) (e :: [Type -> Type])
   where
   -- | The value that defines what is required to initiate a 'Server'
   -- loop.
@@ -48,7 +48,7 @@ class ToTypeLogMsg a => Server (a :: Type) (e :: [Type -> Type])
   -- | The index type of the 'Event's that this server processes.
   -- This is the first parameter to the 'Request' and therefore of
   -- the 'Pdu' family.
-  type ServerPdu a :: Type
+  type ServerPdu a :: Type -- TODO get rid of ...
   type ServerPdu a = a
 
   -- | Effects of the implementation
@@ -74,9 +74,20 @@ class ToTypeLogMsg a => Server (a :: Type) (e :: [Type -> Type])
   -- | Update the 'Model' based on the 'Event'.
   onEvent :: Endpoint (ServerPdu a) -> Init a -> Event (ServerPdu a) -> Eff (ServerEffects a e) ()
 
-  default onEvent :: (Show (Init a),  Member Logs (ServerEffects a e)) => Endpoint (ServerPdu a) -> Init a -> Event (ServerPdu a) -> Eff (ServerEffects a e) ()
-  onEvent _ i e = logInfo ("unhandled: " :: String)  (show i) (show e)
+  default onEvent :: (ToLogMsg (ServerPdu a), Member Logs (ServerEffects a e)) => Endpoint (ServerPdu a) -> Init a -> Event (ServerPdu a) -> Eff (ServerEffects a e) ()
+  onEvent _ i e = logInfo (MkUnhandledEvent i e)
 
+data UnhandledEvent a where
+  MkUnhandledEvent
+    ::  ( ToLogMsg (Init a)
+        , ToLogMsg (Event (ServerPdu a))
+        )
+    => Init a
+    -> Event (ServerPdu a)
+    -> UnhandledEvent a
+
+instance ToLogMsg (UnhandledEvent a) where
+  toLogMsg (MkUnhandledEvent i e) = packLogMsg "unhandled event: " <> toLogMsg e <> packLogMsg " init: " <> toLogMsg i
 
 -- | Execute the server loop.
 --
@@ -176,7 +187,7 @@ data Event a where
   OnMessage :: StrictDynamic -> Event a
   deriving Typeable
 
-instance ToLogMsg a => ToLogMsg (Event a) where
+instance  ToLogMsg (Event a) where
   toLogMsg x =
     packLogMsg "event: " <>
     case x of

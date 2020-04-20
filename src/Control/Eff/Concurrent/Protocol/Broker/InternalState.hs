@@ -4,6 +4,7 @@ module Control.Eff.Concurrent.Protocol.Broker.InternalState
  , childEndpoint
  , putChild
  , Children()
+ , childrenById
  , removeAllChildren
  , getChildren
  , lookupChildById

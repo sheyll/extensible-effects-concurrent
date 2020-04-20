@@ -76,6 +76,7 @@ import           Control.Eff.Concurrent.Process
                                                 , HasSafeProcesses
                                                 , ProcessTitle(..)
                                                 , fromProcessTitle
+                                                , toProcessTitle
                                                 , ProcessDetails(..)
                                                 , fromProcessDetails
                                                 , Timeout(TimeoutMicros, fromTimeoutMicros)

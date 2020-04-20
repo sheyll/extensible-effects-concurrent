@@ -103,7 +103,7 @@ instance (Typeable tag) => Show (ServerId tag) where
       . showSTypeRep (typeOf px)
       )
 
-instance (ToTypeLogMsg tag, TangibleCallbacks tag eLoop e) => E.Server (Server (tag :: Type) eLoop e) (Processes e) where
+instance (ToLogMsg (E.Init (Server tag eLoop e)), ToTypeLogMsg tag, TangibleCallbacks tag eLoop e) => E.Server (Server (tag :: Type) eLoop e) (Processes e) where
   type ServerPdu (Server tag eLoop e) = tag
   type ServerEffects (Server tag eLoop e) (Processes e) = eLoop
   data instance Init (Server tag eLoop e) =

@@ -26,7 +26,7 @@ import Data.Text
 -- To vary the 'LogWriter' use 'withRichLogging'.
 withConsoleLogging
   :: Lifted IO e
-  => Text -- ^ The default application name to put into the 'logEventAppName' field.
+  => String -- ^ The default application name to put into the 'logEventAppName' field.
   -> Facility -- ^ The default RFC-5424 facility to put into the 'logEventFacility' field.
   -> LogPredicate -- ^ The inital predicate for log messages, there are some pre-defined in "Control.Eff.Log.Message#PredefinedPredicates"
   -> Eff (Logs : LogWriterReader : e) a

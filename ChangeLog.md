@@ -1,5 +1,32 @@
 # Changelog for extensible-effects-concurrent
 
+## 1.0.0
+
+- **Logging**
+    - Rename `LogMessage(...)` to `LogEvent(...)`
+    - Introduce a newtype and a type class for log messages: `LogMsg` and `ToLogMsg`
+        - An effort to move towards a specialized `ToLogMsg` class instead of
+          relying on `Show`
+        - The new type class `ToLogEventSender` is
+          now used by the logging emitting functions
+          like e.g.: `logDebug`, `logInfo`, etc.
+          This allows to rewrite:
+
+                logNotice ("dettaching: " <> pack (show deadBroker) <> " from: " <> pack (show broker))
+
+          as:
+
+                logNotice "dettaching: " deadBroker " from: " broker
+
+
+    - Remove `errorMessageIO`, `infoMessageIO` and `debugMessageIO`
+    - Change the `appName` parameter type in some `LogWriter`s from `Text` to `String`
+
+- **Protocol-Server**
+    - All protocol server type class instances now expect `ToLogMsg` or `ToTypeLogMsg`
+      instances where `Show` and `Typeable` was used before.
+    - Remote the phantom type parameter of `Watchdog.CrashReport`
+
 ## 0.32.0
 
 - **Protocol-Server**
@@ -11,7 +38,7 @@
       and return it from `getProcessState`
 
 - **Async Logging**
-    - Fix the Asynchronous LogWriter so it does not stop logging after a flood of log messages
+    - Fix the asynchronous LogWriter so it does not stop logging after a flood of log messages
 
 
 ## 0.31.0

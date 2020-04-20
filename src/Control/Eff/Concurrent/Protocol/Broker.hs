@@ -93,6 +93,7 @@ import Data.Kind
 import qualified Data.Map as Map
 import Data.Proxy
 import Data.Text (Text, pack)
+import qualified Data.Text as T
 import Data.Type.Pretty
 import GHC.Generics (Generic)
 import GHC.Stack
@@ -355,13 +356,13 @@ data Broker (p :: Type) deriving Typeable
 instance ToTypeLogMsg p => ToTypeLogMsg (Broker p) where
   toTypeLogMsg _ = toTypeLogMsg (Proxy @p) <> packLogMsg "_broker"
 
-instance Typeable p => HasPdu (Broker p) where
+instance (ToTypeLogMsg p, Typeable p) => HasPdu (Broker p) where
   type instance EmbeddedPduList (Broker p) = '[ObserverRegistry (ChildEvent p)]
   -- | The 'Pdu' instance contains methods to start, stop and lookup a child
   -- process, as well as a diagnostic callback.
   --
   -- @since 0.23.0
-  data instance  Pdu (Broker p) r where
+  data instance Pdu (Broker p) r where
           StartC :: ChildId p -> Pdu (Broker p) ('Synchronous (Either (SpawnErr p) (Endpoint (Effectful.ServerPdu p))))
           StopC :: ChildId p -> Timeout -> Pdu (Broker p) ('Synchronous Bool)
           LookupC :: ChildId p -> Pdu (Broker p) ('Synchronous (Maybe (Endpoint (Effectful.ServerPdu p))))
@@ -369,8 +370,14 @@ instance Typeable p => HasPdu (Broker p) where
           ChildEventObserverRegistry :: Pdu (ObserverRegistry (ChildEvent p)) r -> Pdu (Broker p) r
       deriving Typeable
 
-instance ToTypeLogMsg p => ToLogMsg (Pdu (Broker p) r) where
-
+instance (ToLogMsg (ChildId p), ToTypeLogMsg p) => ToLogMsg (Pdu (Broker p) r) where
+  toLogMsg = \case
+    StartC cId -> toTypeLogMsg (Proxy @(Broker p)) <> packLogMsg " start-child: " <> toLogMsg cId
+    StopC cId t -> toTypeLogMsg (Proxy @(Broker p)) <> packLogMsg " stop-child: " <> toLogMsg cId <> packLogMsg " timeout: " <> toLogMsg t
+    LookupC cId -> toTypeLogMsg (Proxy @(Broker p)) <> packLogMsg " lookup-child: " <> toLogMsg cId
+    GetDiagnosticInfo -> toTypeLogMsg (Proxy @(Broker p)) <> packLogMsg " get diagnostic info"
+    ChildEventObserverRegistry evt ->
+      toTypeLogMsg (Proxy @(Broker p)) <> packLogMsg " child event observer registry message: " <> toLogMsg evt
 
 instance (Typeable p, Show (ChildId p)) => Show (Pdu (Broker p) r) where
   showsPrec d (StartC c) = showParen (d >= 10) (showString "StartC " . showsPrec 10 c)
@@ -464,8 +471,10 @@ instance
   ( IoLogging q
   , TangibleBroker p
   , Tangible (ChildId p)
+  , ToLogMsg (ChildId p)
   , Typeable (Effectful.ServerPdu p)
   , Effectful.Server p (Processes q)
+  , ToTypeLogMsg (Effectful.ServerPdu p)
   , HasProcesses (Effectful.ServerEffects p (Processes q)) q
   ) => Stateful.Server (Broker p) (Processes q) where
 
@@ -501,7 +510,7 @@ instance
         logEmergency "unreachable: " x
 
       GetDiagnosticInfo -> zoomToChildren @p $ do
-        p <- (pack . show <$> getChildren @(ChildId p) @p)
+        p <- (T.unlines . fmap (_fromLogMsg  . \(cId, cMon) -> toLogMsg cId <> packLogMsg " => " <> toLogMsg cMon) . Map.assocs . view childrenById <$> getChildren @(ChildId p) @p)
         sendReply rt p
 
       LookupC i -> zoomToChildren @p $ do
@@ -559,7 +568,7 @@ instance
         stopAllChildren @p me (brokerConfigChildStopTimeout brokerConfig)
         exitNormally
       LinkedProcessCrashed linked ->
-        logNotice (pack (show linked))
+        logNotice linked
       _ -> do
         logWarning "broker interrupted: " e
         Stateful.zoomModel @(Broker p)
@@ -569,6 +578,11 @@ instance
         exitBecause (interruptToExit e)
 
   update _ _brokerConfig o = logWarning "unexpected: " o
+
+
+instance ToTypeLogMsg p => ToLogMsg (Stateful.StartArgument (Broker p)) where
+  toLogMsg (MkBrokerConfig x _initFun) =
+    toTypeLogMsg (Proxy @p) <> packLogMsg " broker configuration: child start timeout: " <> toLogMsg x
 
 
 zoomToChildren :: forall p c e
@@ -594,6 +608,10 @@ deriving instance Ord (ChildId p) => Ord (SpawnErr p)
 deriving instance (Typeable (Effectful.ServerPdu p), Show (ChildId p)) => Show (SpawnErr p)
 
 instance NFData (ChildId p) => NFData (SpawnErr p)
+
+instance (ToTypeLogMsg (Effectful.ServerPdu p), ToLogMsg (ChildId p)) => ToLogMsg (SpawnErr p) where
+  toLogMsg (AlreadyStarted cId cEp) =
+    packLogMsg "child: " <> toLogMsg cId <> packLogMsg " already started as: " <> toLogMsg cEp
 
 -- Internal Functions
 
@@ -647,6 +665,7 @@ stopAllChildren
      , Member (Stateful.ModelState (Broker p)) e
      , TangibleBroker p
      , Typeable (Effectful.ServerPdu p)
+     , ToTypeLogMsg (Effectful.ServerPdu p)
      , ToTypeLogMsg p
      )
   => Endpoint (Broker p) -> Timeout -> Eff e ()
