@@ -1368,6 +1368,8 @@ data ProcessDown =
     }
   deriving (Typeable, Generic, Eq, Ord)
 
+instance ToTypeLogMsg ProcessDown
+
 instance ToLogMsg ProcessDown where
   toLogMsg (ProcessDown ref reason pid) =
     toLogMsg ref <> packLogMsg " " <> toLogMsg reason <> packLogMsg " " <> toLogMsg pid
