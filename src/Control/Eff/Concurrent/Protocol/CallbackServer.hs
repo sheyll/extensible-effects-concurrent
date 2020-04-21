@@ -99,8 +99,8 @@ newtype ServerId (tag :: Type) =
 instance ToTypeLogMsg tag => ToTypeLogMsg (ServerId tag) where
   toTypeLogMsg _ = toTypeLogMsg (Proxy @tag) <> packLogMsg "_server_id"
 
-instance ToTypeLogMsg tag => ToLogMsg (ServerId tag) where
-  toLogMsg x = toTypeLogMsg (Proxy @(ServerId tag)) <> packLogMsg ": " <> coerce x
+instance ToLogMsg (ServerId tag) where
+  toLogMsg x = coerce x
 
 instance (Typeable tag) => Show (ServerId tag) where
   showsPrec d px@(MkServerId x) =
@@ -124,8 +124,7 @@ instance (ToLogMsg (E.Init (Server tag eLoop e)), ToTypeLogMsg tag, TangibleCall
   onEvent myEp svr = genServerOnEvent svr myEp
 
 instance forall (tag :: Type) (e1 :: [Type -> Type]) (e2 :: [Type -> Type]) . ToTypeLogMsg tag => ToLogMsg (E.Init (Server tag e1 e2)) where
-  toLogMsg x =
-    packLogMsg "callback_server_init: " <> toLogMsg (genServerId x)
+  toLogMsg x = toLogMsg (genServerId x)
 
 instance (TangibleCallbacks tag eLoop e) => NFData (E.Init (Server (tag :: Type) eLoop e)) where
   rnf (MkServer x y z) = rnf x `seq` y `seq` z `seq` ()

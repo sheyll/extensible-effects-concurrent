@@ -41,7 +41,6 @@ module Control.Eff.Concurrent.Protocol.Watchdog
 
 import Control.DeepSeq
 import Control.Eff (Eff, Member, lift, Lifted)
-import Control.Eff.Concurrent.Misc
 import Control.Eff.Concurrent.Process
 import Control.Eff.Concurrent.Process.Timer
 import Control.Eff.Concurrent.Protocol
@@ -492,10 +491,10 @@ exonerationTimerReference :: Lens' CrashReport TimerReference
 exonerationTimerReference = lens _exonerationTimerReference (\c t -> c { _exonerationTimerReference = t})
 
 startExonerationTimer :: forall child a q e .
-     (HasProcesses e q, Lifted IO q, Lifted IO e, Show a, NFData a, Typeable a, Typeable child)
+     (HasProcesses e q, Lifted IO q, Lifted IO e, Show a, NFData a, Typeable a, ToLogMsg a, Typeable child, ToTypeLogMsg child)
      => a -> Interrupt 'NoRecovery -> CrashTimeSpan -> Eff e CrashReport
 startExonerationTimer cId r t = do
-  let title = MkProcessTitle (pack "ExonerationTimer<" <> pack (showSTypeable @child ">") <> pack (show cId))
+  let title = MkProcessTitle (packLogMsg "exoneration-timer-" <> toTypeLogMsg (Proxy @child) <> toLogMsg "-" <> toLogMsg cId)
   me <- self
   ref <- sendAfterWithTitle title me (TimeoutMicros (t * 1_000_000)) (MkExonerationTimer cId)
   now <- lift getCurrentTime

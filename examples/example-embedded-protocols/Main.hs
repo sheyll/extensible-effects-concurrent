@@ -19,7 +19,6 @@ import           Control.Monad
 import           Data.Dynamic
 import           Data.Foldable
 import           Data.Functor.Contravariant (contramap)
-import           Data.String
 import qualified Data.Text as T
 import GHC.Stack (HasCallStack)
 import Data.Default
@@ -290,7 +289,6 @@ instance HasPduPrism Backend2 (ObserverRegistry BackendEvent) where
 instance Effectful.Server Backend2 Effects where
   type instance ServerEffects Backend2 Effects = State Int ': ObserverRegistryState BackendEvent ': Effects
   data instance Init Backend2 = InitBackend2 Int
-  serverTitle (InitBackend2 x) = fromString ("backend-2: " ++ show x)
   runEffects _me _ e =  evalObserverRegistryState (evalState 0 e)
   onEvent me _ e = do
     myIndex <- get @Int
@@ -321,7 +319,7 @@ instance Effectful.Server Backend2 Effects where
 type instance Broker.ChildId Backend2 = Int
 
 instance ToLogMsg (Init Backend2) where
-  toLogMsg (InitBackend2 x) = packLogMsg "init backend2: " <> toLogMsg x
+  toLogMsg (InitBackend2 x) = packLogMsg "backend2_" <> toLogMsg x
 
 startBackend2Broker :: Eff Effects (Endpoint (Broker.Broker Backend2))
 startBackend2Broker = Broker.startLink (Broker.MkBrokerConfig (TimeoutMicros 1_000_000) InitBackend2)

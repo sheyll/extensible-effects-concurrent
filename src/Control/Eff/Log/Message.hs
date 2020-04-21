@@ -100,6 +100,7 @@ import           Data.Default
 import           Data.Hashable
 import           Data.Maybe
 import           Data.Typeable
+import           Data.String
 import qualified Data.Text                     as T
 import           Data.Time.Clock
 import           GHC.Generics            hiding ( to )
@@ -134,19 +135,21 @@ instance Show LogEvent where
 
 instance NFData LogEvent
 
--- | Convert a 'String' to a 'LogMsg'.
---
--- @since 1.0.0
-packLogMsg :: String -> LogMsg
-packLogMsg = MkLogMsg . T.pack
-
 -- | The main, human readable, log message text.
 --
 -- A newtype wrapper around 'T.Text'.
 --
 -- @since 1.0.0
 newtype LogMsg = MkLogMsg { _fromLogMsg :: T.Text }
-  deriving (Eq, Ord, NFData, Generic, Semigroup, Monoid, Hashable)
+  deriving (Eq, Ord, NFData, Generic, Semigroup, Monoid, Hashable, IsString)
+
+-- | Convert a 'String' to a 'LogMsg'.
+--
+-- This function delegates the work to 'fromString'
+--
+-- @since 1.0.0
+packLogMsg :: String -> LogMsg
+packLogMsg = fromString
 
 -- | RFC-5424 defines how structured data can be included in a log message.
 data StructuredDataElement =

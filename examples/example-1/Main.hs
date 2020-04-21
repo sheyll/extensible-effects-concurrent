@@ -9,7 +9,6 @@ import           Control.Eff.Concurrent
 import qualified Control.Eff.Concurrent.Protocol.CallbackServer as Callback
 import           Control.Eff.Concurrent.Protocol.EffectfulServer as Server
 import qualified Control.Exception             as Exc
-import qualified Data.Text as T
 import           Control.DeepSeq
 import           Data.Type.Pretty
 
@@ -58,9 +57,9 @@ mainProcessSpawnsAChildAndReturns = void (spawn "some child" (void receiveAnyMes
 example:: HasCallStack => Eff Effects ()
 example = do
   me <- self
-  logInfo (T.pack ("I am " ++ show me))
+  logInfo (MkLogMsg "I am ") me
   server <- testServerLoop
-  logInfo (T.pack ("Started server " ++ show server))
+  logInfo (MkLogMsg "Started server ") server
   let go = do
         lift (putStr "Enter something: ")
         x <- lift getLine
@@ -80,7 +79,7 @@ example = do
           ('q' : _) -> logInfo (MkLogMsg "Done.")
           _         -> do
             res <- call server (SayHello x)
-            logInfo (T.pack ("Result: " ++ show res))
+            logInfo (MkLogMsg "Result: ") res
             go
   go
 
@@ -91,46 +90,46 @@ testServerLoop = Callback.startLink (Callback.callbacks handleReq "test-server-1
   handleReq me (OnCall rt cm) =
     case cm of
       Terminate -> do
-        logInfo (T.pack (show me ++ " exiting"))
+        logInfo me (MkLogMsg " exiting")
         sendReply rt ()
         interrupt NormalExitRequested
 
       TerminateError e -> do
-        logInfo (T.pack (show me ++ " exiting with error: " ++ e))
+        logInfo me (MkLogMsg " exiting with error: ") e
         sendReply rt ()
         interrupt (ErrorInterrupt e)
 
       SayHello mx ->
         case mx of
           "e1" -> do
-            logInfo (T.pack (show me ++ " raising an error"))
+            logInfo me (MkLogMsg " raising an error")
             interrupt (ErrorInterrupt "No body loves me... :,(")
 
           "e2" -> do
-            logInfo (T.pack (show me ++ " throwing a MyException "))
+            logInfo me (MkLogMsg " throwing a MyException ")
             void (lift (Exc.throw MyException))
 
           "self" -> do
-            logInfo (T.pack (show me ++ " casting to self"))
+            logInfo me (MkLogMsg " casting to self")
             cast me (Shout "from me")
             sendReply rt False
 
           "stop" -> do
-            logInfo (T.pack (show me ++ " stopping me"))
+            logInfo me (MkLogMsg " stopping me")
             sendReply rt False
             interrupt (ErrorInterrupt "test error")
 
           x -> do
-            logInfo (T.pack (show me ++ " Got Hello: " ++ x))
+            logInfo me (MkLogMsg " Got Hello: ") x
             sendReply rt (length x > 3)
 
   handleReq me (OnCast (Shout x)) = do
-    logInfo (T.pack (show me ++ " Shouting: " ++ x))
+    logInfo me (MkLogMsg " Shouting: ") x
 
   handleReq me (OnInterrupt msg) = do
-    logInfo (T.pack (show me ++ " is exiting: " ++ show msg))
+    logInfo me (MkLogMsg " is exiting: ") msg
     logProcessExit msg
     interrupt msg
 
   handleReq me wtf =
-    logCritical (T.pack (show me ++ " WTF: " ++ show wtf))
+    logCritical me (MkLogMsg " WTF: ") wtf

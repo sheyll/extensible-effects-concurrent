@@ -319,7 +319,7 @@ instance Show (Process r b) where
 --
 -- @since 0.24.1
 newtype ProcessTitle =
-  MkProcessTitle { _fromProcessTitle :: Text }
+  MkProcessTitle { _fromProcessTitle :: LogMsg }
   deriving (Eq, Ord, NFData, Generic, IsString, Typeable, Semigroup, Monoid)
 
 -- | Construct a 'ProcessTitle' from a 'String'.
@@ -331,11 +331,15 @@ toProcessTitle = fromString
 -- | An isomorphism lens for the 'ProcessTitle'
 --
 -- @since 0.24.1
-fromProcessTitle :: Lens' ProcessTitle Text
+fromProcessTitle :: Lens' ProcessTitle LogMsg
 fromProcessTitle = iso _fromProcessTitle MkProcessTitle
 
+instance ToLogMsg ProcessTitle where
+  toLogMsg = _fromProcessTitle
+
+
 instance Show ProcessTitle where
-  showsPrec _ (MkProcessTitle t) = showString (T.unpack t)
+  showsPrec _ (MkProcessTitle (MkLogMsg t)) = showString (T.unpack t)
 
 -- | A multi-line text describing the __current__
 -- state of a process for debugging purposes.
@@ -536,21 +540,21 @@ instance Default ProcessState where
 
 instance ToLogMsg ProcessState where
   toLogMsg = \case
-    ProcessBooting              -> packLogMsg "the process has just been started but not scheduled yet"
-    ProcessIdle                 -> packLogMsg "the process yielded it's time slice"
-    ProcessBusy                 -> packLogMsg "the process is busy with a non-blocking operation"
-    ProcessBusySleeping         -> packLogMsg "the process is sleeping until the 'Timeout' given to 'Delay'"
-    ProcessBusyUpdatingDetails  -> packLogMsg "the process is busy with 'UpdateProcessDetails'"
-    ProcessBusySending          -> packLogMsg "the process is busy with sending a message"
-    ProcessBusySendingShutdown  -> packLogMsg "the process is busy with killing"
-    ProcessBusySendingInterrupt -> packLogMsg "the process is busy with killing"
-    ProcessBusyReceiving        -> packLogMsg "the process blocked by a 'receiveAnyMessage'"
-    ProcessBusyLinking          -> packLogMsg "the process blocked by a 'linkProcess'"
-    ProcessBusyUnlinking        -> packLogMsg "the process blocked by a 'unlinkProcess'"
-    ProcessBusyMonitoring       -> packLogMsg "the process blocked by a 'monitor'"
-    ProcessBusyDemonitoring     -> packLogMsg "the process blocked by a 'demonitor'"
-    ProcessInterrupted          -> packLogMsg "the process was interrupted"
-    ProcessShuttingDown         -> packLogMsg "the process was shutdown or crashed"
+    ProcessBooting              -> packLogMsg "Booting (the process has just been started but not scheduled yet)"
+    ProcessIdle                 -> packLogMsg "Idle (the process yielded it's time slice)"
+    ProcessBusy                 -> packLogMsg "Busy (the process is busy with a non-blocking operation)"
+    ProcessBusySleeping         -> packLogMsg "BusySleeping (the process is sleeping until the 'Timeout' given to 'Delay')"
+    ProcessBusyUpdatingDetails  -> packLogMsg "BusyUpdatingDetails (the process is busy with 'UpdateProcessDetails')"
+    ProcessBusySending          -> packLogMsg "BusySending (the process is busy with sending a message)"
+    ProcessBusySendingShutdown  -> packLogMsg "BusySendingShutdown (the process is busy with killing)"
+    ProcessBusySendingInterrupt -> packLogMsg "BusySendingInterrupt (the process is busy with killing)"
+    ProcessBusyReceiving        -> packLogMsg "BusyReceiving (the process blocked by a 'receiveAnyMessage')"
+    ProcessBusyLinking          -> packLogMsg "BusyLinking (the process blocked by a 'linkProcess')"
+    ProcessBusyUnlinking        -> packLogMsg "BusyUnlinking (the process blocked by a 'unlinkProcess')"
+    ProcessBusyMonitoring       -> packLogMsg "BusyMonitoring (the process blocked by a 'monitor')"
+    ProcessBusyDemonitoring     -> packLogMsg "BusyDemonitoring (the process blocked by a 'demonitor')"
+    ProcessInterrupted          -> packLogMsg "Interrupted (the process was interrupted)"
+    ProcessShuttingDown         -> packLogMsg "ShuttingDown (the process was shutdown or crashed)"
 
 -- | This kind is used to indicate if a 'Interrupt' can be treated like
 -- a short interrupt which can be handled or ignored.
@@ -625,7 +629,7 @@ data Interrupt (t :: ExitRecovery) where
     --
     -- @since 0.30.0
     NormalExitRequestedWith
-      :: forall a . (Typeable a, Show a, NFData a) => a -> Interrupt 'Recoverable
+      :: forall a . (Show a, NFData a) => a -> Interrupt 'Recoverable
     -- | A process that should be running was not running.
     OtherProcessNotRunning
       :: ProcessId -> Interrupt 'Recoverable
@@ -642,7 +646,7 @@ data Interrupt (t :: ExitRecovery) where
     --
     -- @since 0.30.0
     InterruptedBy
-      :: forall a . (Typeable a, Show a, NFData a) => a -> Interrupt 'Recoverable
+      :: forall a . (Show a, NFData a) => a -> Interrupt 'Recoverable
     -- | A process function returned or exited without any error.
     ExitNormally
       :: Interrupt 'NoRecovery
@@ -650,7 +654,7 @@ data Interrupt (t :: ExitRecovery) where
     --
     -- @since 0.30.0
     ExitNormallyWith
-      :: forall a . (Typeable a, Show a, NFData a) => a -> Interrupt 'NoRecovery
+      :: forall a . (Show a, NFData a) => a -> Interrupt 'NoRecovery
     -- | An error causes the process to exit immediately.
     -- For example an unexpected runtime exception was thrown, i.e. an exception
     -- derived from 'Control.Exception.Safe.SomeException'
@@ -1459,7 +1463,7 @@ newtype ProcessId = ProcessId { _fromProcessId :: Int }
   deriving (Eq,Ord,Typeable,Bounded,Num, Enum, Integral, Real, NFData)
 
 instance ToLogMsg ProcessId where
-  toLogMsg (ProcessId !p) = toLogMsg (show p)
+  toLogMsg (ProcessId !p) = packLogMsg ('!' : show p)
 
 instance Read ProcessId where
   readsPrec _ ('!' : rest1) = case reads rest1 of

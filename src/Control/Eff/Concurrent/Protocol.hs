@@ -86,10 +86,10 @@ instance Typeable protocol => Show (Endpoint protocol) where
     (showSTypeRep (SomeTypeRep (typeRep @protocol)) . showsPrec 10 c)
 
 instance ToTypeLogMsg protocol => ToLogMsg (Endpoint protocol) where
-  toLogMsg ep = toTypeLogMsg ep <> toLogMsg (_fromEndpoint ep)
+  toLogMsg ep = toTypeLogMsg (Proxy @protocol) <> toLogMsg (_fromEndpoint ep)
 
 instance ToTypeLogMsg protocol => ToTypeLogMsg (Endpoint protocol) where
-  toTypeLogMsg _ = toTypeLogMsg (Proxy @protocol) <> packLogMsg "_endpoint"
+  toTypeLogMsg _ = toTypeLogMsg (Proxy @protocol) <> packLogMsg "_ep"
 
 -- | This type class and the associated data family defines the
 -- __protocol data units__ (PDU) of a /protocol/.

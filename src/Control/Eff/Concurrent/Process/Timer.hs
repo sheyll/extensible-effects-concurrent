@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 -- | Functions for receive timeouts and delayed messages sending.
 --
 -- Based on the 'delay' function.
@@ -23,12 +24,11 @@ module Control.Eff.Concurrent.Process.Timer
 where
 
 import           Control.Eff.Concurrent.Process
-import           Control.Eff.Concurrent.Misc
 import           Control.Eff.Log.Message
 import           Control.Eff
 import           Control.DeepSeq
+import           Data.Proxy
 import           Data.Typeable
-import           Data.Text as T
 import           Control.Applicative
 import           GHC.Stack
 
@@ -41,6 +41,7 @@ receiveAfter
   :: forall a r q
    . ( HasCallStack
      , HasProcesses r q
+     , ToTypeLogMsg a
      , Typeable a
      , NFData a
      , Show a
@@ -61,6 +62,7 @@ receiveSelectedAfter
      , HasProcesses r q
      , Show a
      , Typeable a
+     , ToTypeLogMsg a
      )
   => MessageSelector a
   -> Timeout
@@ -68,10 +70,9 @@ receiveSelectedAfter
 receiveSelectedAfter sel t = do
   let timerTitle =
         MkProcessTitle
-          (  pack "receive-timer-"
-          <> pack (showSTypeable @a "")
-          <> pack "-"
-          <> pack (show t)
+          (  toTypeLogMsg (Proxy @a)
+          <> "-receive-timer-"
+          <> toLogMsg t
           )
   timerRef <- startTimerWithTitle timerTitle t
   res      <- receiveSelectedMessage
@@ -88,6 +89,7 @@ receiveSelectedWithMonitorAfter
      , HasProcesses r q
      , Show a
      , Typeable a
+     , ToTypeLogMsg a
      )
   => ProcessId
   -> MessageSelector a
@@ -96,12 +98,11 @@ receiveSelectedWithMonitorAfter
 receiveSelectedWithMonitorAfter pid sel t =
   let timerTitle =
         MkProcessTitle
-          (  pack "receive-timer-"
-          <> pack (showSTypeable @a "")
-          <> pack "-monitoring-"
-          <> pack (show pid)
-          <> pack "-"
-          <> pack (show t)
+          (  toTypeLogMsg (Proxy @a)
+          <> "-monitoring-receive-timer-"
+          <> toLogMsg pid
+          <> "-"
+          <> toLogMsg t
           )
   in receiveSelectedWithMonitorAfterWithTitle pid sel t timerTitle
 
@@ -190,8 +191,7 @@ newtype TimerReference = TimerReference ProcessId
   deriving (NFData, Ord,Eq, Num, Integral, Real, Enum, Typeable)
 
 instance ToLogMsg TimerReference where
-  toLogMsg (TimerReference p) =
-    packLogMsg "timer_" <> packLogMsg (show (_fromProcessId p))
+  toLogMsg (TimerReference p) = "timer" <> toLogMsg p
 
 instance Show TimerReference where
   showsPrec d (TimerReference t) =
@@ -202,6 +202,9 @@ instance Show TimerReference where
 -- @since 0.12.0
 newtype TimerElapsed = TimerElapsed {fromTimerElapsed :: TimerReference}
   deriving (NFData, Ord,Eq, Typeable)
+
+instance ToTypeLogMsg TimerElapsed
+
 
 instance Show TimerElapsed where
   showsPrec d (TimerElapsed t) =
@@ -221,6 +224,7 @@ sendAfter
      , HasProcesses r q
      , Typeable message
      , NFData message
+     , ToTypeLogMsg message
      )
   => ProcessId
   -> Timeout
@@ -228,7 +232,7 @@ sendAfter
   -> Eff r TimerReference
 sendAfter pid t mkMsg =
   sendAfterWithTitle
-    (MkProcessTitle ( T.pack "send-after-timer-" <> T.pack (show t) <>  T.pack "-" <> T.pack (showSTypeable @message "") <>  T.pack "-" <> T.pack (show pid)))
+    (MkProcessTitle ("send-after-" <> toLogMsg t <> "-" <> toTypeLogMsg (Proxy @message) <> "-" <> toLogMsg pid))
     pid
     t
     mkMsg

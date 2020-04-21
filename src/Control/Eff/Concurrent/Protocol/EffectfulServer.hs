@@ -13,7 +13,6 @@ module Control.Eff.Concurrent.Protocol.EffectfulServer
 import Control.Applicative
 import Control.DeepSeq
 import Control.Eff
-import Control.Eff.Concurrent.Misc
 import Control.Eff.Extend ()
 import Control.Eff.Concurrent.Process
 import Control.Eff.Concurrent.Process.Timer
@@ -21,8 +20,8 @@ import Control.Eff.Concurrent.Protocol
 import Control.Eff.Concurrent.Protocol.Wrapper
 import Control.Eff.Log
 import Control.Lens
+import Data.Coerce
 import Data.Kind
-import Data.String
 import Data.Typeable
 import Data.Type.Pretty
 import GHC.Stack (HasCallStack)
@@ -62,8 +61,8 @@ class (ToLogMsg (Init a), ToTypeLogMsg a) => Server (a :: Type) (e :: [Type -> T
   -- Usually you should rely on the default implementation
   serverTitle :: Init a -> ProcessTitle
 
-  default serverTitle :: Typeable a => Init a -> ProcessTitle
-  serverTitle _ = fromString $ showSTypeable @a ""
+  default serverTitle :: ToLogMsg (Init a) => Init a -> ProcessTitle
+  serverTitle = coerce . toLogMsg
 
   -- | Process the effects of the implementation
   runEffects :: Endpoint (ServerPdu a) -> Init a -> Eff (ServerEffects a e) x -> Eff e x

@@ -92,7 +92,7 @@ import Data.Foldable
 import Data.Kind
 import qualified Data.Map as Map
 import Data.Proxy
-import Data.Text (Text, pack)
+import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Type.Pretty
 import GHC.Generics (Generic)
@@ -292,7 +292,7 @@ callById broker cId pdu tMax =
   lookupChild broker cId
    >>=
     maybe
-      (do logError "callById failed for: " (show pdu)
+      (do logError "callById failed for: " pdu
           interrupt (InterruptedBy (ChildNotFound cId broker))
       )
       (\cEp -> callWithTimeout cEp pdu tMax)
@@ -636,7 +636,7 @@ stopOrKillChild cId c stopTimeout =
       do
         broker <- asEndpoint @(Broker p) <$> self
         t <- startTimerWithTitle
-                (MkProcessTitle (pack "child-exit-timer-" <> pack (show broker) <> pack "-" <> pack (show cId)))
+                (MkProcessTitle (toLogMsg broker <> packLogMsg "_child-exit-timer_" <> toLogMsg cId))
                 stopTimeout
         sendInterrupt (_fromEndpoint (childEndpoint c)) NormalExitRequested
         r1 <- receiveSelectedMessage (   Right <$> selectProcessDown (c^.childMonitoring)
