@@ -172,8 +172,8 @@ withObservationQueue queueLimit e = do
     (mapM_ (logDebug oq " unread observation: ") rest)
   either (\em ->
             do
-              logError (show em)
-              lift (throwIO em))
+              logError em
+              lift (throwIO (MkUnhandledProcessInterrupt em)))
          return
          res
 
@@ -253,7 +253,7 @@ instance (Typeable event, Lifted IO q, Member Logs q, ToTypeLogMsg event) => Ser
         when isFull $
           logWarning "queue full"
       otherMsg ->
-        logError "unexpected: " (show otherMsg)
+        logError "unexpected: " otherMsg
 
 instance ToTypeLogMsg event => ToLogMsg (StartArgument (ObservationQueue event)) where
   toLogMsg (MkObservationQueue q) = toLogMsg q

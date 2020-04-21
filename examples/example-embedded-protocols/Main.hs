@@ -123,7 +123,7 @@ instance Stateful.Server App Effects where
         do MkApp m <- getModel @App
            case m of
             Nothing -> logInfo (packLogMsg "doing this without backend")
-            Just b -> handleInterrupts (logWarning . T.pack . show) $ do
+            Just b -> handleInterrupts logWarning $ do
                 doSomeBackendWork b
                 bi <- getSomeBackendInfo b
                 logInfo (packLogMsg "doing this. Backend: ") bi
@@ -240,7 +240,7 @@ instance Stateful.Server Backend1 Effects where
         logInfo (MkLogMsg "event registration stuff ...")
         zoomModel @Backend1 (modelBackend1 . _2) (observerRegistryHandlePdu x)
       OnDown pd -> do
-        logWarning (T.pack (show pd))
+        logWarning pd
         wasObserver <- zoomModel @Backend1 (modelBackend1 . _2) (observerRegistryRemoveProcess @BackendEvent (downProcess pd))
         when wasObserver $
           logNotice (MkLogMsg "observer removed")

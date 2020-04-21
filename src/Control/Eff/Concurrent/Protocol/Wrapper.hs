@@ -53,12 +53,6 @@ data Request protocol where
     -> Request protocol
   deriving Typeable
 
-instance Show (Request protocol) where
-  showsPrec d (Call o r) =
-    showParen (d >= 10) (showString "call-request: " . showsPrec 11 o . showString ": " . showsPrec 11 r)
-  showsPrec d (Cast r) =
-    showParen (d >= 10) (showString "cast-request: " . showsPrec 11 r)
-
 instance ToLogMsg (Request protocol) where
   toLogMsg = \case
     Call orig pdu -> packLogMsg "call from: " <> toLogMsg orig <> packLogMsg " pdu: " <> toLogMsg pdu
@@ -82,10 +76,6 @@ data Reply protocol reply where
 instance NFData (Reply p r) where
   rnf (Reply i r) = rnf i `seq` rnf r
 
-instance Show r => Show (Reply p r) where
-  showsPrec d (Reply o r) =
-    showParen (d >= 10) (showString "request-reply: " . showsPrec 11 o . showString ": " . showsPrec 11 r)
-
 instance (ToLogMsg r, ToTypeLogMsg p) => ToLogMsg (Reply p r) where
   toLogMsg rp =
        packLogMsg "reply: "
@@ -105,10 +95,6 @@ instance ToTypeLogMsg p => ToLogMsg (RequestOrigin p r) where
   toLogMsg ro =
        toLogMsg (Endpoint @p (_requestOriginPid ro))
     <> packLogMsg ('?' : show (_requestOriginCallRef ro))
-
-instance Show (RequestOrigin p r) where
-  showsPrec d (RequestOrigin o r) =
-    showParen (d >= 10) (showString "origin: " . showsPrec 10 o . showChar ' ' . showsPrec 10 r)
 
 -- | Create a new, unique 'RequestOrigin' value for the current process.
 --
@@ -194,9 +180,6 @@ sendReply (MkReplyTarget (Arg o ser)) r =
 newtype ReplyTarget p r =
   MkReplyTarget (Arg (RequestOrigin p r) (Serializer (Reply p r)))
     deriving (Eq, Ord, Typeable)
-
-instance Show (ReplyTarget p r) where
-  showsPrec d (MkReplyTarget (Arg o _s)) = showParen (d>=10) (showString "reply-target: " . shows o)
 
 instance NFData (ReplyTarget p r) where
   rnf (MkReplyTarget (Arg x y)) = rnf x `seq` y `seq` ()

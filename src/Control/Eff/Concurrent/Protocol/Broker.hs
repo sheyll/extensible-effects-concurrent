@@ -154,7 +154,7 @@ stopBroker ep = do
   mr <- monitor (_fromEndpoint ep)
   sendInterrupt (_fromEndpoint ep) NormalExitRequested
   r <- receiveSelectedMessage (selectProcessDown mr)
-  logInfo "broker stopped: " ep " " (show r)
+  logInfo "broker stopped: " ep " " r
 
 -- | Check if a broker process is still alive.
 --
@@ -277,11 +277,11 @@ callById ::
      , ToLogMsg (ChildId destination)
      , Typeable (Effectful.ServerPdu destination)
      , Tangible result
+     , ToLogMsg result
      , NFData (Pdu protocol ( 'Synchronous result))
      , NFData (Pdu (Effectful.ServerPdu destination) ( 'Synchronous result))
      , ToLogMsg (Pdu (Effectful.ServerPdu destination) ( 'Synchronous result))
      , ToTypeLogMsg (Effectful.ServerPdu destination)
-     , Show (Pdu (Effectful.ServerPdu destination) ('Synchronous result))
      )
   => Endpoint (Broker destination)
   -> ChildId destination
@@ -301,13 +301,9 @@ data ChildNotFound child where
   ChildNotFound :: ChildId child -> Endpoint (Broker child) -> ChildNotFound child
   deriving (Typeable)
 
-instance (Show (ChildId child), Typeable child) => Show (ChildNotFound child) where
-  showsPrec d (ChildNotFound cId broker)
-    = showParen (d >= 10) ( showString "child not found: "
-                           . showsPrec 10 cId
-                           . showString " at: "
-                           . showsPrec 10 broker
-                           )
+instance (ToLogMsg (ChildId child), ToTypeLogMsg child) => ToLogMsg (ChildNotFound child) where
+  toLogMsg (ChildNotFound cId brokerEp) =
+    packLogMsg "child " <> toLogMsg cId <> packLogMsg " not found in: " <> toLogMsg brokerEp
 
 instance NFData (ChildId c) => NFData (ChildNotFound c) where
   rnf (ChildNotFound cId broker) = rnf cId `seq` rnf broker `seq` ()
@@ -434,17 +430,17 @@ instance (ToTypeLogMsg p, ToTypeLogMsg (Effectful.ServerPdu p), ToLogMsg (ChildI
      OnBrokerShuttingDown s ->
         toLogMsg s <> packLogMsg ": shutting down"
 
-instance (Typeable p, Typeable (Effectful.ServerPdu p), Show (ChildId p)) => Show (ChildEvent p) where
-  showsPrec d x =
-    case x of
-     OnChildSpawned s i e ->
-        showParen (d >= 10)
-          (shows s . showString ": child-spawned: " . shows i . showChar ' ' . shows e)
-     OnChildDown s i e r ->
-        showParen (d >= 10)
-          (shows s . showString ": child-down: " . shows i . showChar ' ' . shows e . showChar ' ' . showsPrec 10 r)
-     OnBrokerShuttingDown s ->
-        shows s . showString ": shutting down"
+-- instance (Typeable p, Typeable (Effectful.ServerPdu p), Show (ChildId p)) => Show (ChildEvent p) where
+--   showsPrec d x =
+--     case x of
+--      OnChildSpawned s i e ->
+--         showParen (d >= 10)
+--           (shows s . showString ": child-spawned: " . shows i . showChar ' ' . shows e)
+--      OnChildDown s i e r ->
+--         showParen (d >= 10)
+--           (shows s . showString ": child-down: " . shows i . showChar ' ' . shows e . showChar ' ' . showsPrec 10 r)
+--      OnBrokerShuttingDown s ->
+--         shows s . showString ": shutting down"
 
 -- | The type of value used to index running 'Server' processes managed by a 'Broker'.
 --
@@ -645,10 +641,10 @@ stopOrKillChild cId c stopTimeout =
         unlinkProcess (_fromEndpoint (childEndpoint c))
         case r1 of
           Left timerElapsed -> do
-            logWarning (show timerElapsed) ": child " cId " => " (childEndpoint c) " did not shutdown in time"
+            logWarning timerElapsed ": child " cId " => " (childEndpoint c) " did not shutdown in time"
             let reason = interruptToExit (TimeoutInterrupt
-                                           ("child did not shut down in time and was terminated by the "
-                                             ++ show broker))
+                                           (packLogMsg "child did not shut down in time and was terminated by the "
+                                             <> toLogMsg broker))
             sendShutdown (_fromEndpoint (childEndpoint c)) reason
             return reason
           Right downMsg -> do

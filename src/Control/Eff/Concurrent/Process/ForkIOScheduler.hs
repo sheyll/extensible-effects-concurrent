@@ -787,10 +787,10 @@ spawnNewProcess mLinkedParent title mfa = do
    where
     exitReasonFromException exc = case Safe.fromException exc of
       Just Async.AsyncCancelled -> ExitProcessCancelled Nothing
-      Nothing -> ExitUnhandledError ( T.pack "runtime exception:\n"
-                                    <> T.pack (prettyCallStack callStack)
-                                    <> T.pack "\n"
-                                    <> T.pack (Safe.displayException exc)
+      Nothing -> ExitUnhandledError ( packLogMsg "runtime exception: "
+                                    <> packLogMsg (prettyCallStack callStack)
+                                    <> packLogMsg " "
+                                    <> packLogMsg (Safe.displayException exc)
                                     )
     logExitAndTriggerLinksAndMonitors reason pid = do
       (_, currentState) <-

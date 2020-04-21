@@ -11,7 +11,6 @@ import           Data.Foldable
 import           Control.Lens
 import           Control.Concurrent
 import           Control.DeepSeq
-import qualified Data.Text as T
 import           Data.Type.Pretty
 import           Data.Default
 
@@ -140,10 +139,10 @@ instance (IoLogging q) => Server SupiCounter (Processes q) where
     OnDown pd -> do
       wasRemoved <- zoomModel supiRegistry (observerRegistryRemoveProcess @CounterChanged (downProcess pd))
       if wasRemoved
-        then logDebug ("removed: "    <> T.pack (show pd))
-        else logError ("unexpected: " <> T.pack (show pd))
+        then logDebug (MkLogMsg "removed: ") pd
+        else logError (MkLogMsg "unexpected: ") pd
 
-    other -> logWarning (T.pack (show other))
+    other -> logWarning other
 
 instance ToLogMsg (StartArgument SupiCounter) where
   toLogMsg _ = packLogMsg "start arg: supi counter"

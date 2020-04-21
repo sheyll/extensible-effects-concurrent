@@ -24,7 +24,7 @@ instance HasPdu TestProtocol where
     SayHello :: String -> Pdu TestProtocol ('Synchronous Bool)
     Shout :: String -> Pdu TestProtocol 'Asynchronous
     Terminate :: Pdu TestProtocol ('Synchronous ())
-    TerminateError :: String -> Pdu TestProtocol ('Synchronous ())
+    TerminateError :: LogMsg -> Pdu TestProtocol ('Synchronous ())
     deriving (Typeable)
 
 instance ToLogMsg (Pdu TestProtocol r) where
@@ -32,7 +32,7 @@ instance ToLogMsg (Pdu TestProtocol r) where
     SayHello x -> packLogMsg "Hello " <> packLogMsg x
     Shout x -> packLogMsg "HEEELLLOOOO " <> packLogMsg x
     Terminate -> packLogMsg "terminate normally"
-    TerminateError x -> packLogMsg "terminate with error: " <> packLogMsg x
+    TerminateError x -> packLogMsg "terminate with error: " <> x
 
 instance NFData (Pdu TestProtocol x) where
   rnf (SayHello s) = rnf s
@@ -45,8 +45,6 @@ data MyException = MyException
     deriving Show
 
 instance Exc.Exception MyException
-
-deriving instance Show (Pdu TestProtocol x)
 
 main :: IO ()
 main = defaultMain example
@@ -65,7 +63,7 @@ example = do
         x <- lift getLine
         case x of
           ('K' : rest) -> do
-            call server (TerminateError rest)
+            call server (TerminateError (packLogMsg rest))
             go
           ('S' : _) -> do
             call server Terminate

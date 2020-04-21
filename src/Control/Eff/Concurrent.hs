@@ -142,6 +142,8 @@ import           Control.Eff.Concurrent.Process
                                                 , RecoverableInterrupt
                                                 , ExitSeverity(..)
                                                 , SomeExitReason(SomeExitReason)
+                                                , UnhandledProcessInterrupt(..)
+                                                , UnhandledProcessExit(..)
                                                 , toExitRecovery
                                                 , isRecoverable
                                                 , toExitSeverity

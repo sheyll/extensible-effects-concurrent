@@ -197,18 +197,6 @@ instance  ToLogMsg (Event a) where
       OnTimeOut r -> toLogMsg r
       OnMessage r -> packLogMsg "message: " <> packLogMsg (show r)
 
-instance Show (Event a) where
-  showsPrec d e =
-    showParen (d>=10) $
-      showString "event: "
-      . case e of
-          OnCall o p -> shows (Call (view replyTargetOrigin o) p)
-          OnCast p -> shows (Cast p)
-          OnInterrupt r -> shows r
-          OnDown r -> shows r
-          OnTimeOut r -> shows r
-          OnMessage r -> shows r
-
 instance NFData a => NFData (Event a) where
    rnf = \case
        OnCall o p -> rnf o `seq` rnf p

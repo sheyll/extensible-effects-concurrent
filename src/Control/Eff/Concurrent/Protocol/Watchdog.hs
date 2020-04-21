@@ -63,7 +63,6 @@ import qualified Data.Map as Map
 import Data.Time.Clock
 import Data.Kind (Type)
 import Data.Default
-import Data.Text (pack)
 import GHC.Stack (HasCallStack)
 import Data.Maybe (isJust)
 import Data.Foldable (traverse_, forM_)
@@ -189,17 +188,6 @@ instance (NFData (Broker.ChildId child)) => NFData (Pdu (Watchdog child) r) wher
   rnf (Attach e b) = rnf e `seq` rnf b `seq` ()
   rnf GetCrashReports = ()
   rnf (OnChildEvent o) = rnf o
-
-instance
-  ( Show (Broker.ChildId child)
-  , Typeable child
-  , Typeable (Effectful.ServerPdu child)
-  )
-  => Show (Pdu (Watchdog child) r) where
-  showsPrec d (Attach e False) = showParen (d>=10) (showString "attach-temporary: " . shows e)
-  showsPrec d (Attach e True) = showParen (d>=10) (showString "attach-permanent: " . shows e)
-  showsPrec _ GetCrashReports = showString "get-crash-reports"
-  showsPrec d (OnChildEvent o) = showParen (d>=10) (showString "on-child-event: " . showsPrec 10 o)
 
 instance (ToTypeLogMsg child) => ToTypeLogMsg (Pdu (Watchdog child) r) where
   toTypeLogMsg _ = toTypeLogMsg (Proxy @(Watchdog child)) <> packLogMsg "_pdu"
@@ -342,7 +330,7 @@ instance
                 forM_ (currentModel ^? brokers . at broker . _Just) $ \bw ->
                   if  bw ^. isPermanent then do
                     logError "a child of a permanent broker crashed too often, interrupting: " broker
-                    let r =  ExitUnhandledError (pack "restart frequency exceeded")
+                    let r =  ExitUnhandledError (packLogMsg "restart frequency exceeded")
                     demonitor (bw ^. brokerMonitor)
                     sendShutdown (broker ^. fromEndpoint) r
                     exitBecause r
@@ -393,17 +381,14 @@ data CrashRate =
   deriving (Typeable, Eq, Ord)
 
 instance ToLogMsg CrashRate where
-  toLogMsg = packLogMsg . show
+  toLogMsg (CrashesPerSeconds count time)  =
+    toLogMsg count <> packLogMsg " crashes in " <> toLogMsg time <> packLogMsg " seconds"
 
 -- | The default is three crashes in 30 seconds.
 --
 -- @since 0.30.0
 instance Default CrashRate where
   def = 3 `crashesPerSeconds` 30
-
-instance Show CrashRate where
-  showsPrec d (CrashesPerSeconds count time) =
-    showParen (d>=7) (shows count . showString " crashes/" . shows time . showString " seconds")
 
 instance NFData CrashRate where
   rnf (CrashesPerSeconds c t) = c `seq` t `seq` ()
@@ -458,16 +443,13 @@ data CrashReport =
   deriving (Eq, Ord, Typeable)
 
 instance ToLogMsg CrashReport where
-  toLogMsg = packLogMsg . show
-
-instance Show CrashReport where
-  showsPrec d c =
-    showParen (d>=10)
-      ( showString "crash report: "
-      . showString " time: " . showsPrec 10 (c^.crashTime)
-      . showString " reason: " . showsPrec 10 (c^.crashReason)
-      . showString " " . showsPrec 10 (c^.exonerationTimerReference)
-      )
+  toLogMsg c =
+       packLogMsg "crash-report: "
+    <> packLogMsg (show (c^.crashTime))
+    <> packLogMsg " "
+    <> toLogMsg (c^.crashReason)
+    <> packLogMsg " "
+    <> toLogMsg (c^.exonerationTimerReference)
 
 instance NFData CrashReport where
   rnf (MkCrashReport !a !b !c) = rnf a `seq` rnf b `seq` rnf c `seq` ()
@@ -491,7 +473,7 @@ exonerationTimerReference :: Lens' CrashReport TimerReference
 exonerationTimerReference = lens _exonerationTimerReference (\c t -> c { _exonerationTimerReference = t})
 
 startExonerationTimer :: forall child a q e .
-     (HasProcesses e q, Lifted IO q, Lifted IO e, Show a, NFData a, Typeable a, ToLogMsg a, Typeable child, ToTypeLogMsg child)
+     (HasProcesses e q, Lifted IO q, Lifted IO e, NFData a, Typeable a, ToLogMsg a, Typeable child, ToTypeLogMsg child)
      => a -> Interrupt 'NoRecovery -> CrashTimeSpan -> Eff e CrashReport
 startExonerationTimer cId r t = do
   let title = MkProcessTitle (packLogMsg "exoneration-timer-" <> toTypeLogMsg (Proxy @child) <> toLogMsg "-" <> toLogMsg cId)
@@ -512,12 +494,12 @@ data ExonerationTimer a =  MkExonerationTimer !a !TimerReference
 instance NFData a => NFData (ExonerationTimer a) where
   rnf (MkExonerationTimer !x !r) = rnf r `seq` rnf x `seq` ()
 
-instance Show a => Show (ExonerationTimer a) where
-  showsPrec d (MkExonerationTimer x r) =
-    showParen (d >= 10)
-      ( showString "exonerate: " . showsPrec 10 x
-      . showString " after: " .  showsPrec 10 r
-      )
+instance ToLogMsg a => ToLogMsg (ExonerationTimer a) where
+  toLogMsg (MkExonerationTimer x r) =
+       packLogMsg "exonerate: "
+    <> toLogMsg x
+    <> packLogMsg " after: "
+    <> toLogMsg r
 
 -- --------------------------- Child Watches
 
@@ -540,14 +522,6 @@ data ChildWatch child =
 instance NFData (ChildWatch child) where
   rnf (MkChildWatch p c) =
     rnf p `seq` rnf c `seq` ()
-
-instance (Typeable child, Typeable (Broker.ChildId child), Show (Broker.ChildId child)) => Show (ChildWatch child) where
-  showsPrec d (MkChildWatch p c) =
-    showParen (d>=10) ( showString "child-watch: parent: "
-                      . showsPrec 10 p
-                      . showString " crashes: "
-                      . foldr (.) id (showsPrec 10 <$> Set.toList c)
-                      )
 
 instance (ToTypeLogMsg child, ToLogMsg (Broker.ChildId child)) => ToLogMsg (ChildWatch child) where
   toLogMsg (MkChildWatch p c) =
@@ -572,20 +546,6 @@ crashes = lens _crashes (\m x -> m {_crashes = x})
 
 instance Default (Stateful.Model (Watchdog child)) where
   def = WatchdogModel def Map.empty
-
-instance ( Show (Broker.ChildId child)
-         , Typeable (Broker.ChildId child)
-         , Typeable child
-         )
-          => Show (Stateful.Model (Watchdog child))
-  where
-  showsPrec d  (WatchdogModel bs cs) =
-    showParen (d>=10)
-      (showString "watchdog model broker watches: "
-      . showsPrec 10 bs
-      . showString " watchdog model child watches: "
-      . showsPrec 10 cs
-      )
 
 -- -------------------------- Model -> Child Watches
 
@@ -632,7 +592,6 @@ removeAndCleanChild ::
   , ToTypeLogMsg child
   , Typeable (Broker.ChildId child)
   , Ord (Broker.ChildId child)
-  , Show (Broker.ChildId child)
   , ToLogMsg (Broker.ChildId child)
   , Member (Stateful.ModelState (Watchdog child)) e
   , Member Logs e
@@ -653,7 +612,6 @@ removeBroker ::
   , Tangible (Broker.ChildId child)
   , Typeable (Effectful.ServerPdu child)
   , Ord (Broker.ChildId child)
-  , Show (Broker.ChildId child)
   , ToLogMsg (Broker.ChildId child)
   , ToTypeLogMsg child
   , ToTypeLogMsg (Effectful.ServerPdu child)

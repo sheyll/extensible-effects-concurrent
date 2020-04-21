@@ -115,6 +115,8 @@ module Control.Eff.Concurrent.Process
   , RecoverableInterrupt
   , ExitSeverity(..)
   , SomeExitReason(SomeExitReason)
+  , UnhandledProcessInterrupt(..)
+  , UnhandledProcessExit(..)
   , toExitRecovery
   , isRecoverable
   , toExitSeverity
@@ -275,45 +277,45 @@ data Process (r :: [Type -> Type]) b where
   GetProcessState :: ProcessId -> Process r (ResumeProcess (Maybe (ProcessTitle, ProcessDetails, ProcessState)))
 
 
-instance Show (Process r b) where
-  showsPrec d = \case
-    FlushMessages -> showString "flush messages"
-    YieldProcess  -> showString "yield process"
-    Delay t       -> showString "delay process until: " . shows t
-    SelfPid       -> showString "lookup the current process id"
-    Spawn   t _   -> showString "spawn a new process: " . shows t
-    SpawnLink t _ -> showString "spawn a new process and link to it" . shows t
-    Shutdown sr ->
-      showParen (d >= 10) (showString "shutdown " . showsPrec 10 sr)
-    SendShutdown toPid sr -> showParen
-      (d >= 10)
-      ( showString "shutting down "
-      . showsPrec 10 toPid
-      . showChar ' '
-      . showsPrec 10 sr
-      )
-    SendInterrupt toPid sr -> showParen
-      (d >= 10)
-      ( showString "interrupting "
-      . showsPrec 10 toPid
-      . showChar ' '
-      . showsPrec 10 sr
-      )
-    SendMessage toPid sr -> showParen
-      (d >= 10)
-      ( showString "sending to "
-      . showsPrec 10 toPid
-      . showChar ' '
-      . showsPrec 10 sr
-      )
-    ReceiveSelectedMessage _   -> showString "receive a message"
-    MakeReference              -> showString "generate a unique reference"
-    Monitor   pid              -> showString "monitor " . shows pid
-    Demonitor i                -> showString "demonitor " . shows i
-    Link      l                -> showString "link " . shows l
-    Unlink    l                -> showString "unlink " . shows l
-    GetProcessState pid        -> showString "get the process state of " . shows pid
-    UpdateProcessDetails l     -> showString "update the process details to: " . shows l
+-- instance Show (Process r b) where
+--   showsPrec d = \case
+--     FlushMessages -> showString "flush messages"
+--     YieldProcess  -> showString "yield process"
+--     Delay t       -> showString "delay process until: " . shows t
+--     SelfPid       -> showString "lookup the current process id"
+--     Spawn   t _   -> showString "spawn a new process: " . shows t
+--     SpawnLink t _ -> showString "spawn a new process and link to it" . shows t
+--     Shutdown sr ->
+--       showParen (d >= 10) (showString "shutdown " . showsPrec 10 sr)
+--     SendShutdown toPid sr -> showParen
+--       (d >= 10)
+--       ( showString "shutting down "
+--       . showsPrec 10 toPid
+--       . showChar ' '
+--       . showsPrec 10 sr
+--       )
+--     SendInterrupt toPid sr -> showParen
+--       (d >= 10)
+--       ( showString "interrupting "
+--       . showsPrec 10 toPid
+--       . showChar ' '
+--       . showsPrec 10 sr
+--       )
+--     SendMessage toPid sr -> showParen
+--       (d >= 10)
+--       ( showString "sending to "
+--       . showsPrec 10 toPid
+--       . showChar ' '
+--       . showsPrec 10 sr
+--       )
+--     ReceiveSelectedMessage _   -> showString "receive a message"
+--     MakeReference              -> showString "generate a unique reference"
+--     Monitor   pid              -> showString "monitor " . shows pid
+--     Demonitor i                -> showString "demonitor " . shows i
+--     Link      l                -> showString "link " . shows l
+--     Unlink    l                -> showString "unlink " . shows l
+--     GetProcessState pid        -> showString "get the process state of " . shows pid
+--     UpdateProcessDetails l     -> showString "update the process details to: " . shows l
 
 -- | A short title for a 'Process' for logging purposes.
 --
@@ -441,7 +443,7 @@ data ResumeProcess v where
   Interrupted :: Interrupt 'Recoverable -> ResumeProcess v
   -- | The process may resume to do work, using the given result.
   ResumeWith ::a -> ResumeProcess a
-  deriving ( Typeable, Generic, Generic1, Show )
+  deriving ( Typeable, Generic, Generic1 )
 
 instance NFData a => NFData (ResumeProcess a)
 
@@ -616,7 +618,7 @@ toExitSeverity = \case
 -- This includes errors, that can occur when scheduling messages.
 --
 -- @since 0.23.0
-data Interrupt (t :: ExitRecovery) where
+data Interrupt (t :: ExitRecovery) where -- TODO split
     -- | A process has finished a unit of work and might exit or work on
     --   something else. This is primarily used for interrupting infinite
     --   server loops, allowing for additional cleanup work before
@@ -629,24 +631,25 @@ data Interrupt (t :: ExitRecovery) where
     --
     -- @since 0.30.0
     NormalExitRequestedWith
-      :: forall a . (Show a, NFData a) => a -> Interrupt 'Recoverable
+      :: forall a . (Typeable a, ToLogMsg a, NFData a) => a -> Interrupt 'Recoverable
     -- | A process that should be running was not running.
     OtherProcessNotRunning
       :: ProcessId -> Interrupt 'Recoverable
     -- | A 'Recoverable' timeout has occurred.
     TimeoutInterrupt
-      :: String -> Interrupt 'Recoverable
+      :: LogMsg -> Interrupt 'Recoverable
     -- | A linked process is down, see 'Link' for a discussion on linking.
     LinkedProcessCrashed
       :: ProcessId -> Interrupt 'Recoverable
     -- | An exit reason that has an error message and is 'Recoverable'.
     ErrorInterrupt
-      :: String -> Interrupt 'Recoverable
+      :: LogMsg -> Interrupt 'Recoverable
     -- | An interrupt with a custom message.
     --
     -- @since 0.30.0
     InterruptedBy
-      :: forall a . (Show a, NFData a) => a -> Interrupt 'Recoverable
+      :: forall a . (Typeable a, ToLogMsg a, NFData a) => a -> Interrupt 'Recoverable
+
     -- | A process function returned or exited without any error.
     ExitNormally
       :: Interrupt 'NoRecovery
@@ -654,13 +657,13 @@ data Interrupt (t :: ExitRecovery) where
     --
     -- @since 0.30.0
     ExitNormallyWith
-      :: forall a . (Show a, NFData a) => a -> Interrupt 'NoRecovery
+      :: forall a . (Typeable a, ToLogMsg a, NFData a) => a -> Interrupt 'NoRecovery
     -- | An error causes the process to exit immediately.
     -- For example an unexpected runtime exception was thrown, i.e. an exception
     -- derived from 'Control.Exception.Safe.SomeException'
     -- Or a 'Recoverable' Interrupt was not recovered.
     ExitUnhandledError
-      :: Text -> Interrupt 'NoRecovery
+      :: LogMsg -> Interrupt 'NoRecovery
     -- | A process shall exit immediately, without any cleanup was cancelled (e.g. killed, in 'Async.cancel')
     ExitProcessCancelled
       :: Maybe ProcessId -> Interrupt 'NoRecovery
@@ -675,42 +678,37 @@ data Interrupt (t :: ExitRecovery) where
 interruptToExit :: Interrupt 'Recoverable -> Interrupt 'NoRecovery
 interruptToExit NormalExitRequested = ExitNormally
 interruptToExit (NormalExitRequestedWith x) = (ExitNormallyWith x)
-interruptToExit x = ExitUnhandledError (pack (show x))
+interruptToExit x = ExitUnhandledError (toLogMsg x)
 
-instance Show (Interrupt x) where
-  showsPrec d =
-    showParen (d >= 10) .
-    (\case
-       NormalExitRequested -> showString "interrupt: A normal exit was requested"
-       NormalExitRequestedWith p -> showString "interrupt: A normal exit was requested: " . showsPrec 10 p
-       OtherProcessNotRunning p -> showString "interrupt: Another process is not running: " . showsPrec 10 p
-       TimeoutInterrupt reason -> showString "interrupt: A timeout occured: " . showString reason
-       LinkedProcessCrashed m -> showString "interrupt: A linked process " . showsPrec 10 m . showString " crashed"
-       InterruptedBy reason -> showString "interrupt: " . showsPrec 10 reason
-       ErrorInterrupt reason -> showString "interrupt: An error occured: " . showString reason
-       ExitNormally -> showString "exit: Process finished successfully"
-       ExitNormallyWith reason -> showString "exit: Process finished successfully: " . showsPrec 10 reason
-       ExitUnhandledError w -> showString "exit: Unhandled " . showString (unpack w)
-       ExitProcessCancelled Nothing -> showString "exit: The process was cancelled by a runtime exception"
-       ExitProcessCancelled (Just origin) -> showString "exit: The process was cancelled by: " . shows origin
-       ExitOtherProcessNotRunning p -> showString "exit: Another process is not running: " . showsPrec 10 p)
+-- | A newtype wrapper for 'Interrupt Recoverable' to by used for 'Exc.Exception'.
+--
+-- @since 1.0.0
+newtype UnhandledProcessInterrupt = MkUnhandledProcessInterrupt (Interrupt 'Recoverable)
+instance Show UnhandledProcessInterrupt where
+  show (MkUnhandledProcessInterrupt x) = "unhandled process interrupt: " ++ T.unpack (_fromLogMsg (toLogMsg x))
+instance Exc.Exception UnhandledProcessInterrupt
 
-instance Exc.Exception (Interrupt 'Recoverable)
-instance Exc.Exception (Interrupt 'NoRecovery )
+-- | A newtype wrapper for 'Interrupt NoRecovery' to by used for 'Exc.Exception'.
+--
+-- @since 1.0.0
+newtype UnhandledProcessExit = MkUnhandledProcessExit (Interrupt 'NoRecovery )
+instance Show UnhandledProcessExit where
+  show (MkUnhandledProcessExit x) = "unhandled process exit: " ++ T.unpack (_fromLogMsg (toLogMsg x))
+instance Exc.Exception UnhandledProcessExit
 
 instance ToLogMsg (Interrupt x) where
   toLogMsg =
     \case
        NormalExitRequested -> packLogMsg "interrupt: A normal exit was requested"
-       NormalExitRequestedWith p -> packLogMsg "interrupt: A normal exit was requested: " <> packLogMsg (show p)
+       NormalExitRequestedWith p -> packLogMsg "interrupt: A normal exit was requested: " <> toLogMsg p
        OtherProcessNotRunning p -> packLogMsg "interrupt: Another process is not running: " <> toLogMsg p
-       TimeoutInterrupt reason -> packLogMsg "interrupt: A timeout occured: " <> toLogMsg reason
+       TimeoutInterrupt reason -> packLogMsg "interrupt: A timeout occured: " <> reason
        LinkedProcessCrashed m -> packLogMsg "interrupt: A linked process " <> toLogMsg m <> packLogMsg " crashed"
-       InterruptedBy reason -> packLogMsg "interrupt: " <> packLogMsg (show reason)
-       ErrorInterrupt reason -> packLogMsg "interrupt: An error occured: " <> toLogMsg reason
+       InterruptedBy reason -> packLogMsg "interrupt: " <> toLogMsg reason
+       ErrorInterrupt reason -> packLogMsg "interrupt: An error occured: " <> reason
        ExitNormally -> packLogMsg "exit: Process finished successfully"
-       ExitNormallyWith reason -> packLogMsg "exit: Process finished successfully: " <> packLogMsg (show reason)
-       ExitUnhandledError w -> packLogMsg "exit: Unhandled " <> MkLogMsg w
+       ExitNormallyWith reason -> packLogMsg "exit: Process finished successfully: " <> toLogMsg reason
+       ExitUnhandledError w -> packLogMsg "exit: Unhandled " <> toLogMsg w
        ExitProcessCancelled Nothing -> packLogMsg "exit: The process was cancelled by a runtime exception"
        ExitProcessCancelled (Just origin) -> packLogMsg "exit: The process was cancelled by: " <> toLogMsg origin
        ExitOtherProcessNotRunning p -> packLogMsg "exit: Another process is not running: " <> toLogMsg p
@@ -911,7 +909,7 @@ isRecoverable _                               = False
 
 -- | An existential wrapper around 'Interrupt'
 data SomeExitReason where
-  SomeExitReason ::Interrupt x -> SomeExitReason
+  SomeExitReason :: Interrupt x -> SomeExitReason
 
 instance Ord SomeExitReason where
   compare = compare `on` fromSomeExitReason
@@ -919,8 +917,8 @@ instance Ord SomeExitReason where
 instance Eq SomeExitReason where
   (==) = (==) `on` fromSomeExitReason
 
-instance Show SomeExitReason where
-  show = show . fromSomeExitReason
+instance ToLogMsg SomeExitReason where
+  toLogMsg = toLogMsg . fromSomeExitReason
 
 instance NFData SomeExitReason where
   rnf = rnf . fromSomeExitReason
@@ -955,14 +953,14 @@ fromSomeExitReason (SomeExitReason e) =
 --
 -- > logCrash = traverse_ logError . toCrashReason
 --
-toCrashReason :: Interrupt x -> Maybe T.Text
-toCrashReason e | isCrash e = Just (T.pack (show e))
+toCrashReason :: Interrupt x -> Maybe LogMsg
+toCrashReason e | isCrash e = Just (toLogMsg e)
                 | otherwise = Nothing
 
 -- | Log the 'Interrupt's
 logProcessExit
   :: forall e x . (Member Logs e, HasCallStack) => Interrupt x -> Eff e ()
-logProcessExit (toCrashReason -> Just ex) = withFrozenCallStack (logWarning (MkLogMsg ex))
+logProcessExit (toCrashReason -> Just ex) = withFrozenCallStack (logWarning ex)
 logProcessExit ex = withFrozenCallStack (logDebug ex)
 
 
@@ -1190,7 +1188,7 @@ receiveAnyMessage =
 receiveSelectedMessage
   :: forall r q a
    . ( HasCallStack
-     , Show a
+    -- , Show a
      , HasProcesses r q
      )
   => MessageSelector a
@@ -1205,7 +1203,7 @@ receiveMessage
    . ( HasCallStack
      , Typeable a
      , NFData a
-     , Show a
+    -- , Show a
      , HasProcesses r q
      )
   => Eff r a
@@ -1338,7 +1336,7 @@ receiveWithMonitor
   :: ( HasCallStack
      , HasProcesses r q
      , Typeable a
-     , Show a
+     --, Show a
      )
   => ProcessId
   -> MessageSelector a
@@ -1375,19 +1373,6 @@ becauseProcessIsDown :: ProcessDown -> Interrupt 'Recoverable
 becauseProcessIsDown = OtherProcessNotRunning . _monitoredProcess . downReference
 
 instance NFData ProcessDown
-
-instance Show ProcessDown where
-  showsPrec d =
-    showParen (d >= 10)
-      . (\case
-          ProcessDown ref reason pid ->
-            showString "down: "
-              . shows pid
-              . showChar ' '
-              . shows ref
-              . showChar ' '
-              . showsPrec 11 reason
-        )
 
 -- | A 'MessageSelector' for the 'ProcessDown' message of a specific
 -- process.
@@ -1454,7 +1439,7 @@ exitWithError
    . (HasCallStack,HasSafeProcesses r q)
   => String
   -> Eff r a
-exitWithError = exitBecause . interruptToExit . ErrorInterrupt
+exitWithError = exitBecause . interruptToExit . ErrorInterrupt . fromString
 
 -- | Each process is identified by a single process id, that stays constant
 -- throughout the life cycle of a process. Also, message sending relies on these

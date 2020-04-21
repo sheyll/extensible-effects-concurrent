@@ -125,12 +125,15 @@ callWithTimeout serverP@(Endpoint pidInternal) req timeOut = do
   let timerTitle = MkProcessTitle (packLogMsg "call-timer-" <> toLogMsg serverP <> packLogMsg "-" <> toLogMsg origin)
   resultOrError <- receiveSelectedWithMonitorAfterWithTitle pidInternal selectResult timeOut timerTitle
   let onTimeout timerRef = do
-        let msg = "call timed out after "
-                  ++ show timeOut ++ " to server: "
-                  ++ show serverP ++ " from "
-                  ++ show fromPid ++ " "
-                  ++ show timerRef
-        logWarning "call timer " timerRef " for call from " fromPid " to " serverP " timed out after " timeOut
+        let msg =    packLogMsg "call timer "
+                  <> toLogMsg timerRef
+                  <> packLogMsg " for call from "
+                  <> toLogMsg fromPid
+                  <> packLogMsg " to "
+                  <> toLogMsg serverP
+                  <> packLogMsg " timed out after "
+                  <> toLogMsg timeOut
+        logWarning msg
         interrupt (TimeoutInterrupt msg)
       onProcDown p = do
         logWarning "call to dead server: " serverP " from " fromPid

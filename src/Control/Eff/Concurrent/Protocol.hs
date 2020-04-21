@@ -207,8 +207,6 @@ type instance ToPretty (Pdu x ( 'Synchronous y )) =
 type Tangible i =
   ( NFData i
   , Typeable i
-  , Show i
-  -- , ToLogMsg i
   )
 
 -- | A 'Constraint' that bundles the requirements for the

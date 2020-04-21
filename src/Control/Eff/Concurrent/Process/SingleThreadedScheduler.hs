@@ -40,6 +40,7 @@ import qualified Data.Set                      as Set
 import           GHC.Stack
 import           Data.Kind                      ( )
 import           Data.Foldable
+import           Data.Coerce
 import           Data.Monoid
 import qualified Control.Monad.State.Strict    as State
 import           Data.Function                  ( fix)
@@ -347,28 +348,28 @@ data OnYield r a where
     -> (ResumeProcess () -> Eff r (OnYield r a))
     -> OnYield r a
 
-instance Show (OnYield r a) where
-  show = \case
-    OnFlushMessages _          -> "OnFlushMessages"
-    OnYield         _          -> "OnYield"
-    OnDelay t _                -> "OnDelay " ++ show t
-    OnSelf          _          -> "OnSelf"
-    OnSpawn False t _ _        -> "OnSpawn " ++ show t
-    OnSpawn True  t _ _        -> "OnSpawn (link) " ++ show t
-    OnDone     _               -> "OnDone"
-    OnShutdown e               -> "OnShutdown " ++ show e
-    OnInterrupt e _            -> "OnInterrupt " ++ show e
-    OnSend toP _ _             -> "OnSend " ++ show toP
-    OnRecv            _ _      -> "OnRecv"
-    OnGetProcessState p _      -> "OnGetProcessState " ++ show p
-    OnUpdateProcessDetails p _ -> "OnUpdateProcessDetails " ++ show p
-    OnSendShutdown  p e _      -> "OnSendShutdow " ++ show p ++ " " ++ show e
-    OnSendInterrupt p e _      -> "OnSendInterrupt " ++ show p ++ " " ++ show e
-    OnMakeReference _          -> "OnMakeReference"
-    OnMonitor   p _            -> "OnMonitor " ++ show p
-    OnDemonitor p _            -> "OnDemonitor " ++ show p
-    OnLink      p _            -> "OnLink " ++ show p
-    OnUnlink    p _            -> "OnUnlink " ++ show p
+instance ToLogMsg (OnYield r a) where
+  toLogMsg = \case
+    OnFlushMessages _          -> packLogMsg "OnFlushMessages"
+    OnYield         _          -> packLogMsg "OnYield"
+    OnDelay t _                -> packLogMsg "OnDelay " <> toLogMsg t
+    OnSelf          _          -> packLogMsg "OnSelf"
+    OnSpawn False t _ _        -> packLogMsg "OnSpawn " <> toLogMsg t
+    OnSpawn True  t _ _        -> packLogMsg "OnSpawn (link) " <> toLogMsg t
+    OnDone     _               -> packLogMsg "OnDone"
+    OnShutdown e               -> packLogMsg "OnShutdown " <> toLogMsg e
+    OnInterrupt e _            -> packLogMsg "OnInterrupt " <> toLogMsg e
+    OnSend toP _ _             -> packLogMsg "OnSend " <> toLogMsg toP
+    OnRecv            _ _      -> packLogMsg "OnRecv"
+    OnGetProcessState p _      -> packLogMsg "OnGetProcessState " <> toLogMsg p
+    OnUpdateProcessDetails p _ -> packLogMsg "OnUpdateProcessDetails " <> coerce p
+    OnSendShutdown  p e _      -> packLogMsg "OnSendShutdow " <> toLogMsg p <> packLogMsg " " <> toLogMsg e
+    OnSendInterrupt p e _      -> packLogMsg "OnSendInterrupt " <> toLogMsg p <> packLogMsg " " <> toLogMsg e
+    OnMakeReference _          -> packLogMsg "OnMakeReference"
+    OnMonitor   p _            -> packLogMsg "OnMonitor " <> toLogMsg p
+    OnDemonitor p _            -> packLogMsg "OnDemonitor " <> toLogMsg p
+    OnLink      p _            -> packLogMsg "OnLink " <> toLogMsg p
+    OnUnlink    p _            -> packLogMsg "OnUnlink " <> toLogMsg p
 
 runAsCoroutinePure
   :: forall v r m
@@ -408,7 +409,7 @@ handleProcess
   -> Seq (OnYield r finalResult, ProcessId)
   -> m (Either (Interrupt 'NoRecovery) finalResult)
 handleProcess _sts Empty =
-  return $ Left (interruptToExit (ErrorInterrupt "no main process"))
+  return $ Left (interruptToExit (ErrorInterrupt (fromString "no main process")))
 
 handleProcess sts allProcs@((!processState, !pid) :<| rest) =
   let handleExit res =
@@ -525,12 +526,12 @@ handleProcess sts allProcs@((!processState, !pid) :<| rest) =
         recv@(OnRecv messageSelector k) ->
           case receiveMsg pid messageSelector sts of
             Nothing -> do
-              nextK <- diskontinue sts k (ErrorInterrupt (show pid ++ " has no message queue"))
+              nextK <- diskontinue sts k (ErrorInterrupt (toLogMsg pid <> packLogMsg " has no message queue"))
               handleProcess sts (rest :|> (nextK, pid))
             Just Nothing ->
               if Seq.length rest == 0
                 then do
-                  nextK <- diskontinue sts k (ErrorInterrupt (show pid ++ " deadlocked"))
+                  nextK <- diskontinue sts k (ErrorInterrupt (toLogMsg pid <> packLogMsg " deadlocked"))
                   handleProcess sts (rest :|> (nextK, pid))
                 else handleProcess sts (rest :|> (recv, pid))
             Just (Just (result, newSts)) -> do

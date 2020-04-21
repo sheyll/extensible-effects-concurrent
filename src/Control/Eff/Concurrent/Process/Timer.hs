@@ -87,7 +87,7 @@ receiveSelectedWithMonitorAfter
   :: forall a r q
    . ( HasCallStack
      , HasProcesses r q
-     , Show a
+     , ToLogMsg a
      , Typeable a
      , ToTypeLogMsg a
      )
@@ -156,7 +156,6 @@ receiveSelectedWithMonitorAfterWithTitle
   :: forall a r q
    . ( HasCallStack
      , HasProcesses r q
-     , Show a
      , Typeable a
      )
   => ProcessId
@@ -192,11 +191,6 @@ newtype TimerReference = TimerReference ProcessId
 
 instance ToLogMsg TimerReference where
   toLogMsg (TimerReference p) = "timer" <> toLogMsg p
-
-instance Show TimerReference where
-  showsPrec d (TimerReference t) =
-    showParen (d >= 10) (showString "timer: " . shows t)
-
 -- | A value to be sent when timer started with 'startTimer' has elapsed.
 --
 -- @since 0.12.0
@@ -204,11 +198,6 @@ newtype TimerElapsed = TimerElapsed {fromTimerElapsed :: TimerReference}
   deriving (NFData, Ord,Eq, Typeable)
 
 instance ToTypeLogMsg TimerElapsed
-
-
-instance Show TimerElapsed where
-  showsPrec d (TimerElapsed t) =
-    showParen (d >= 10) (shows t . showString " elapsed")--
 
 instance ToLogMsg TimerElapsed where
   toLogMsg x = toLogMsg (fromTimerElapsed x) <> packLogMsg " elapsed"
