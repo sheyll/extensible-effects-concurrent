@@ -143,6 +143,9 @@ instance NFData LogEvent
 newtype LogMsg = MkLogMsg { _fromLogMsg :: T.Text }
   deriving (Eq, Ord, NFData, Generic, Semigroup, Monoid, Hashable, IsString)
 
+instance Show LogMsg where
+  show (MkLogMsg x) = T.unpack x
+
 -- | Convert a 'String' to a 'LogMsg'.
 --
 -- This function delegates the work to 'fromString'

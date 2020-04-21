@@ -161,7 +161,7 @@ import           Data.Kind
 import           Data.Function
 import           Data.Maybe
 import           Data.String
-import           Data.Text                      ( Text, pack, unpack)
+import           Data.Text                      ( Text )
 import qualified Data.Text                     as T
 import           Type.Reflection                ( SomeTypeRep(..), typeRep )
 import           GHC.Stack
@@ -684,16 +684,24 @@ interruptToExit x = ExitUnhandledError (toLogMsg x)
 --
 -- @since 1.0.0
 newtype UnhandledProcessInterrupt = MkUnhandledProcessInterrupt (Interrupt 'Recoverable)
+  deriving Eq
+
 instance Show UnhandledProcessInterrupt where
-  show (MkUnhandledProcessInterrupt x) = "unhandled process interrupt: " ++ T.unpack (_fromLogMsg (toLogMsg x))
+  show (MkUnhandledProcessInterrupt x) =
+    "unhandled process interrupt: " ++ T.unpack (_fromLogMsg (toLogMsg x))
+
 instance Exc.Exception UnhandledProcessInterrupt
 
 -- | A newtype wrapper for 'Interrupt NoRecovery' to by used for 'Exc.Exception'.
 --
 -- @since 1.0.0
 newtype UnhandledProcessExit = MkUnhandledProcessExit (Interrupt 'NoRecovery )
+  deriving Eq
+
 instance Show UnhandledProcessExit where
-  show (MkUnhandledProcessExit x) = "unhandled process exit: " ++ T.unpack (_fromLogMsg (toLogMsg x))
+  show (MkUnhandledProcessExit x) =
+    "unhandled process exit: " ++ T.unpack (_fromLogMsg (toLogMsg x))
+
 instance Exc.Exception UnhandledProcessExit
 
 instance ToLogMsg (Interrupt x) where

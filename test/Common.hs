@@ -71,7 +71,7 @@ runTestCase msg et =
       $ Scheduler.schedule
       $ handleInterrupts onInt
         et
-  where onInt = lift . assertFailure . show
+  where onInt = lift . assertFailure . show . MkUnhandledProcessInterrupt
 
 withTestLogC :: (e -> IO ()) -> (IO (e -> IO ()) -> TestTree) -> TestTree
 withTestLogC doSchedule k = k (return doSchedule)
@@ -129,7 +129,7 @@ assertShutdown p r = do
     )
   logCallStack debugSeverity
   receiveSelectedMessage (selectProcessDown m)
-    >>= lift . assertEqual "bad exit reason" r . downReason
+    >>= lift . assertEqual "bad exit reason" (MkUnhandledProcessExit r) . MkUnhandledProcessExit . downReason
 
 awaitProcessDown
   :: (Member Logs r, HasCallStack, HasProcesses r q)
@@ -137,12 +137,7 @@ awaitProcessDown
   -> Eff r ProcessDown
 awaitProcessDown p = do
   m <- monitor p
-  logInfo
-    (  "awaitProcessDown: "
-    <> pack (show p)
-    <> " "
-    <> pack (show m)
-    )
+  logInfo (MkLogMsg "awaitProcessDown: ") p (MkLogMsg " ") m
   logCallStack debugSeverity
   receiveSelectedMessage (selectProcessDown m)
 
@@ -150,6 +145,6 @@ awaitProcessDownAny
   :: (Member Logs r, HasCallStack, HasProcesses r q)
   => Eff r ProcessDown
 awaitProcessDownAny = do
-  logInfo "awaitProcessDownAny"
+  logInfo (MkLogMsg "awaitProcessDownAny")
   logCallStack debugSeverity
   receiveMessage

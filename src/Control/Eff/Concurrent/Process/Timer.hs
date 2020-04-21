@@ -44,7 +44,6 @@ receiveAfter
      , ToTypeLogMsg a
      , Typeable a
      , NFData a
-     , Show a
      )
   => Timeout
   -> Eff r (Maybe a)
@@ -60,7 +59,6 @@ receiveSelectedAfter
   :: forall a r q
    . ( HasCallStack
      , HasProcesses r q
-     , Show a
      , Typeable a
      , ToTypeLogMsg a
      )
@@ -118,7 +116,6 @@ receiveAfterWithTitle
      , HasProcesses r q
      , Typeable a
      , NFData a
-     , Show a
      )
   => Timeout
   -> ProcessTitle
@@ -135,7 +132,6 @@ receiveSelectedAfterWithTitle
   :: forall a r q
    . ( HasCallStack
      , HasProcesses r q
-     , Show a
      , Typeable a
      )
   => MessageSelector a
