@@ -10,14 +10,11 @@ import qualified Control.Eff.Concurrent.Protocol.CallbackServer as Callback
 import           Control.Eff.Concurrent.Protocol.EffectfulServer as Server
 import qualified Control.Exception             as Exc
 import           Control.DeepSeq
-import           Data.Type.Pretty
 
 data TestProtocol
   deriving Typeable
 
 instance ToTypeLogMsg TestProtocol
-
-type instance ToPretty TestProtocol = PutStr "test"
 
 instance HasPdu TestProtocol where
   data instance Pdu TestProtocol x where

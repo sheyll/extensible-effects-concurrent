@@ -94,7 +94,6 @@ import qualified Data.Map as Map
 import Data.Proxy
 import Data.Text (Text)
 import qualified Data.Text as T
-import Data.Type.Pretty
 import GHC.Generics (Generic)
 import GHC.Stack
 
@@ -393,8 +392,6 @@ instance Typeable p => HasPduPrism (Broker p) (ObserverRegistry (ChildEvent p)) 
  embedPdu = ChildEventObserverRegistry
  fromPdu (ChildEventObserverRegistry x) = Just x
  fromPdu _ = Nothing
-
-type instance ToPretty (Broker p) = "broker" <:> ToPretty p
 
 -- | The event type to indicate that a child was started or stopped.
 --

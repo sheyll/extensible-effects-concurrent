@@ -324,8 +324,6 @@ test_Broker =
 
 data TestProtocol deriving Typeable
 
-type instance ToPretty TestProtocol = PutStr "test"
-
 instance ToTypeLogMsg TestProtocol
 
 instance HasPdu TestProtocol where

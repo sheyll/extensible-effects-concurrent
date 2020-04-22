@@ -79,8 +79,6 @@ data ReturnToSender
 
 instance ToTypeLogMsg ReturnToSender
 
-type instance ToPretty ReturnToSender = PutStr "ReturnToSender"
-
 instance HasPdu ReturnToSender where
  data instance Pdu ReturnToSender r where
    ReturnToSender :: ProcessId -> String -> Pdu ReturnToSender ('Synchronous Bool)

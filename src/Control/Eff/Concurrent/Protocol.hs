@@ -62,7 +62,6 @@ import           Data.Dynamic
 import           Data.Kind
 import           Data.Proxy
 import           Data.Typeable ()
-import           Data.Type.Pretty
 import           Type.Reflection
 
 
@@ -189,16 +188,6 @@ type family IsProtocolOneOf (x :: k) (xs :: [k]) (orig :: [k]) :: IsEmbeddedProt
   IsProtocolOneOf x (x ': xs) orig = 'IsEmbeddedProtocol
   IsProtocolOneOf x (y ': xs) orig = IsProtocolOneOf x xs orig
 
--- --------------------------
-
-
-type instance ToPretty (Pdu x 'Asynchronous) = -- TODO use ToPretty instead of ToTypeLogMsg?
-  PutStr "async_pdu" <+> ToPretty x
-
-type instance ToPretty (Pdu x ( 'Synchronous y )) =
-  PutStr "sync_pdu" <+> ToPretty x <+> ToPretty y
-
-
 -- | A set of constraints for types that can evaluated via 'NFData', compared via 'Ord' and presented
 -- dynamically via 'Typeable', and represented both as values
 -- via 'Show'.
@@ -242,9 +231,6 @@ data Synchronicity =
 type family ProtocolReply (s :: Synchronicity) where
   ProtocolReply ('Synchronous t) = t
   ProtocolReply 'Asynchronous = ()
-
-type instance ToPretty (Endpoint a) = ToPretty a <+> PutStr "endpoint"
-
 
 instance (HasPdu a1, HasPdu a2) => HasPdu (a1, a2) where
   type instance EmbeddedPduList (a1, a2) = '[a1, a2]

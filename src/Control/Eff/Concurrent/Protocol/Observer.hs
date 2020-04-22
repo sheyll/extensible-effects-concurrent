@@ -44,7 +44,6 @@ import           Data.Semigroup
 import           Data.Map                       ( Map )
 import qualified Data.Map                      as Map
 import           Data.Proxy
-import           Data.Type.Pretty
 import           GHC.Generics
 import           GHC.Stack
 
@@ -77,9 +76,6 @@ instance ToTypeLogMsg event => ToTypeLogMsg (Observer event) where
 
 instance NFData (Observer event) where
   rnf (MkObserver (Arg x y)) = rnf x `seq` rnf y
-
-type instance ToPretty (Observer event) = -- TODO use ToPretty instead of ToTypeLogMsg
-  PrettyParens (ToPretty event <++> PutStr "_observer")
 
 instance (Tangible event) => HasPdu (Observer event) where
   data Pdu (Observer event) r where
@@ -202,9 +198,6 @@ forgetObserverUnsafe eventSource eventSink =
 data ObserverRegistry (event :: Type) = MkObserverRegistry
   { _observerRegistry :: Map ProcessId (ObservationSink event) }
   deriving Typeable
-
-type instance ToPretty (ObserverRegistry event) =
-  PrettyParens ("observer registry" <:> ToPretty event)
 
 instance ToTypeLogMsg event => ToTypeLogMsg (ObserverRegistry event) where
   toTypeLogMsg _ = toTypeLogMsg (Proxy @event) <> packLogMsg "_observer_registry_event"

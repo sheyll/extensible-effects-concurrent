@@ -11,7 +11,6 @@ import           Data.Foldable
 import           Control.Lens
 import           Control.Concurrent
 import           Control.DeepSeq
-import           Data.Type.Pretty
 import           Data.Default
 
 main :: IO ()
@@ -20,8 +19,6 @@ main = defaultMain (void counterExample)
 -- * First API
 
 data Counter deriving Typeable
-
-type instance ToPretty Counter = PutStr "counter"
 
 instance HasPdu Counter where
   data instance Pdu Counter x where
@@ -71,8 +68,6 @@ counterExample = do
 
 data SupiDupi deriving Typeable
 
-type instance ToPretty SupiDupi = PutStr "supi dupi"
-
 instance HasPdu SupiDupi where
   data instance Pdu SupiDupi r where
     Whoopediedoo :: Bool -> Pdu SupiDupi ('Synchronous (Maybe ()))
@@ -94,14 +89,9 @@ instance NFData (Pdu SupiDupi r) where
 newtype CounterChanged = CounterChanged Integer
   deriving (Show, Typeable, NFData, ToLogMsg)
 
-type instance ToPretty CounterChanged = PutStr "counter changed"
-
 instance ToTypeLogMsg CounterChanged
 
 type SupiCounter = (Counter, ObserverRegistry CounterChanged, SupiDupi)
-
-
-type instance ToPretty (Counter, ObserverRegistry CounterChanged, SupiDupi) = PutStr "supi-counter"
 
 instance (IoLogging q) => Server SupiCounter (Processes q) where
 

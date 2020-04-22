@@ -13,8 +13,6 @@ import Data.Typeable (Typeable)
 
 data Small deriving Typeable
 
-type instance ToPretty Small = PutStr "small"
-
 instance HasPdu Small where
   data instance  Pdu Small r where
           SmallCall :: Bool -> Pdu Small ('Synchronous Bool)
@@ -53,8 +51,6 @@ instance ToLogMsg (S.StartArgument Small)
 data Big deriving (Typeable)
 
 instance ToTypeLogMsg Big
-
-type instance ToPretty Big = PutStr "big"
 
 instance HasPdu Big where
   type instance EmbeddedPduList Big = '[Small]

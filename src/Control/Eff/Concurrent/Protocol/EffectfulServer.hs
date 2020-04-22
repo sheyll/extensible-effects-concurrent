@@ -23,7 +23,6 @@ import Control.Lens
 import Data.Coerce
 import Data.Kind
 import Data.Typeable
-import Data.Type.Pretty
 import GHC.Stack (HasCallStack)
 
 -- | A type class for effectful server loops.
@@ -205,5 +204,3 @@ instance NFData a => NFData (Event a) where
        OnDown r  -> rnf r
        OnTimeOut r -> rnf r
        OnMessage r -> r `seq` ()
-
-type instance ToPretty (Event a) = ToPretty a <+> PutStr "event"

@@ -18,7 +18,6 @@ module Common
   , module Data.Text
   , module Data.Either
   , module Data.Maybe
-  , module Data.Type.Pretty
   )
 where
 
@@ -51,7 +50,6 @@ import           Data.Either                    ( fromRight
                                                 , isRight
                                                 )
 import           Data.Maybe                     ( fromMaybe )
-import           Data.Type.Pretty
 import qualified System.IO                     as IO
 
 setTravisTestOptions :: TestTree -> TestTree
