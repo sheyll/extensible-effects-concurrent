@@ -1,5 +1,6 @@
-let extensible-effects-concurrent = import ./extensible-effects-concurrent.nix;
-    pkgs         = import <nixpkgs> {};
+let
+  extensible-effects-concurrent = import ./extensible-effects-concurrent.nix;
+  pkgs = import ./pkgs.nix;
 in
 pkgs.haskellPackages.shellFor {
       packages = p: [extensible-effects-concurrent];
