@@ -55,9 +55,9 @@ mainProcessSpawnsAChildAndReturns = void (spawn "some child" (void receiveAnyMes
 example:: HasCallStack => Eff Effects ()
 example = do
   me <- self
-  logInfo (MkLogMsg "I am ") me
+  logInfo (MSG "I am ") me
   server <- testServerLoop
-  logInfo (MkLogMsg "Started server ") server
+  logInfo (MSG "Started server ") server
   let go = do
         lift (putStr "Enter something: ")
         x <- lift getLine
@@ -74,10 +74,10 @@ example = do
           ('R' : rest) -> do
             replicateM_ (read rest) (cast server (Shout x))
             go
-          ('q' : _) -> logInfo (MkLogMsg "Done.")
+          ('q' : _) -> logInfo (MSG "Done.")
           _         -> do
             res <- call server (SayHello x)
-            logInfo (MkLogMsg "Result: ") res
+            logInfo (MSG "Result: ") res
             go
   go
 
@@ -88,46 +88,46 @@ testServerLoop = Callback.startLink (Callback.callbacks handleReq "test-server-1
   handleReq me (OnCall rt cm) =
     case cm of
       Terminate -> do
-        logInfo me (MkLogMsg " exiting")
+        logInfo me (MSG " exiting")
         sendReply rt ()
         interrupt NormalExitRequested
 
       TerminateError e -> do
-        logInfo me (MkLogMsg " exiting with error: ") e
+        logInfo me (MSG " exiting with error: ") e
         sendReply rt ()
         interrupt (ErrorInterrupt e)
 
       SayHello mx ->
         case mx of
           "e1" -> do
-            logInfo me (MkLogMsg " raising an error")
+            logInfo me (MSG " raising an error")
             interrupt (ErrorInterrupt "No body loves me... :,(")
 
           "e2" -> do
-            logInfo me (MkLogMsg " throwing a MyException ")
+            logInfo me (MSG " throwing a MyException ")
             void (lift (Exc.throw MyException))
 
           "self" -> do
-            logInfo me (MkLogMsg " casting to self")
+            logInfo me (MSG " casting to self")
             cast me (Shout "from me")
             sendReply rt False
 
           "stop" -> do
-            logInfo me (MkLogMsg " stopping me")
+            logInfo me (MSG " stopping me")
             sendReply rt False
             interrupt (ErrorInterrupt "test error")
 
           x -> do
-            logInfo me (MkLogMsg " Got Hello: ") x
+            logInfo me (MSG " Got Hello: ") x
             sendReply rt (length x > 3)
 
   handleReq me (OnCast (Shout x)) = do
-    logInfo me (MkLogMsg " Shouting: ") x
+    logInfo me (MSG " Shouting: ") x
 
   handleReq me (OnInterrupt msg) = do
-    logInfo me (MkLogMsg " is exiting: ") msg
+    logInfo me (MSG " is exiting: ") msg
     logProcessExit msg
     interrupt msg
 
   handleReq me wtf =
-    logCritical me (MkLogMsg " WTF: ") wtf
+    logCritical me (MSG " WTF: ") wtf

@@ -6,11 +6,10 @@ import qualified Control.Eff.LogWriter.Async as Async
 import           Control.Eff.Concurrent
 import           Test.Tasty
 import           Test.Tasty.HUnit
+import qualified Data.Text as T
 import           Common
 import           Control.Lens
 import           Control.Monad.Trans.Control (liftBaseOp)
-
-
 
 
 test_Logging :: TestTree
@@ -30,25 +29,27 @@ cencoredLogging :: HasCallStack => TestTree
 cencoredLogging =
   testCase "log cencorship works" $ do
       res <- fmap (view logEventMessage) <$> censoredLoggingTestImpl demo
-      res @?=
-        view logEventMessage <$>
-        [ infoMessage "1"
-        , debugMessage "2"
-        , infoMessage "x 1"
-        , debugMessage "x 2"
-        , infoMessage "x y 1"
-        , debugMessage "x y 2"
-        , infoMessage "x 1"
-        , debugMessage "x 2"
-        , infoMessage "1"
-        , debugMessage "2"
+      (renderLogMsgToString <$> res) @?=
+        renderLogMsgToString . view logEventMessage <$>
+        [ infoMessage  $ MSG "1"
+        , debugMessage $ MSG "2"
+        , infoMessage  $ MSG "x 1"
+        , debugMessage $ MSG "x 2"
+        , infoMessage  $ MSG "x y 1"
+        , debugMessage $ MSG "x y 2"
+        , infoMessage  $ MSG "x 1"
+        , debugMessage $ MSG "x 2"
+        , infoMessage  $ MSG "1"
+        , debugMessage $ MSG "2"
         ]
  where
+    renderLogMsgToString :: LogMsg -> String
+    renderLogMsgToString (MkLogMsg txt) = T.unpack txt
 
     demo :: ('[Logs] <:: e) => Eff e ()
     demo = do
-      logDebug "2"
-      logInfo "1"
+      logDebug (MSG "2")
+      logInfo (MSG "1")
 
     censoredLoggingTestImpl :: Eff '[Logs, LogWriterReader, Lift IO] () -> IO [LogEvent]
     censoredLoggingTestImpl e = do
@@ -70,9 +71,8 @@ strictness =
     $ runLift
     $ withConsoleLogging "test-app" local0 allLogEvents
     $ blacklistLogEvents (logEventSeverityIs errorSeverity)
-    $ do logDebug "test"
-         logError' ("test" <> error "TEST FAILED: this log statement should not have been evaluated deeply")
-
+    $ do logDebug (MSG "test")
+         logError (error "TEST FAILED: this log statement should not have been evaluated deeply" :: String)
 
 liftedIoLogging :: HasCallStack => TestTree
 liftedIoLogging =
@@ -84,55 +84,37 @@ liftedIoLogging =
                       (testWriter outVar)
                       (\doWrite ->
                             addLogWriter (MkLogWriter doWrite) e))
-          $ logDebug "test"
+          $ logDebug (MSG "test")
          actual <- takeMVar outVar
          assertEqual "wrong log message" "test" actual
    where
-     testWriter :: MVar String -> ((LogMessage -> IO ()) -> IO ()) -> IO ()
+     testWriter :: MVar String -> ((LogEvent -> IO ()) -> IO ()) -> IO ()
      testWriter outVar withWriter =
        withWriter (putMVar outVar . show)
 
 test1234 :: Member Logs e => Eff e ()
 test1234 = do
-  logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test 1~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-  logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test 2~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-  logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test 3~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-  logNotice "~~~~~~~~~~~~~~~~~~~~~~~~~~test 4~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
+  logNotice $ MSG "~~~~~~~~~~~~~~~~~~~~~~~~~~test 1~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
+  logNotice $ MSG "~~~~~~~~~~~~~~~~~~~~~~~~~~test 2~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
+  logNotice $ MSG "~~~~~~~~~~~~~~~~~~~~~~~~~~test 3~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
+  logNotice $ MSG "~~~~~~~~~~~~~~~~~~~~~~~~~~test 4~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
   let yumi = Yumi 123
       bubu = Bubu
       this = True
-      that = 0.4
+      that = 0.4 :: Double
       t :: Text
       t = "test"
-  logNoticeX t
-
-
-data Yumi = Yumi Int
+  logNotice t
+  logNotice yumi
+  logNotice bubu
+  logNotice this
+  logNotice that
 
 data Bubu = Bubu
 
-newtype LogMsgTxt = LogMsgTxt Text
+instance ToLogMsg Bubu where toLogMsg _ = "bubu"
 
-class LogBuilder a where
-  buildMsg :: Severity -> LogMsgTxt -> a
-
-instance (Member Logs e) => LogBuilder (Eff e ()) where
-  buildMsg s (LogMsgTxt m) = log  m
-
-instance (LogBuilder b, ToLogMsg a) => LogBuilder (a -> b) where
-  buildMsg m a =
-    buildMsg (m <> toLogMsg a)
-
-
-class ToLogMsg a where
-  toLogMsg :: a -> LogMsgTxt
-
-instance ToLogMsg Text where
-  toLogMsg = LogMsgTxt
-
-logNoticeX :: LogBuilder a => a
-logNoticeX = undefined
-
+newtype Yumi = Yumi Double deriving ToLogMsg
 
 udpLogging :: HasCallStack => TestTree
 udpLogging =

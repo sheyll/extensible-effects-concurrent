@@ -19,7 +19,6 @@ import           Control.Monad
 import           Data.Dynamic
 import           Data.Foldable
 import           Data.Functor.Contravariant (contramap)
-import qualified Data.Text as T
 import GHC.Stack (HasCallStack)
 import Data.Default
 
@@ -43,7 +42,7 @@ embeddedExample = do
   cast app DoThis
   cast app DoThis
   spawn_ "sub-process" $ do
-    logNotice (MkLogMsg "spawned sub process")
+    logNotice (MSG "spawned sub process")
     b1_2 <- Stateful.startLink InitBackend1
     call app (SetBackend (Just (SomeBackend b1_2)))
     cast app DoThis
@@ -234,17 +233,17 @@ instance Stateful.Server Backend1 Effects where
           (toEmbeddedReplyTarget @(Stateful.Protocol Backend1) @Backend rt)
           ("Backend1 " <> show me <> " " <> show (model ^. modelBackend1 . _1))
       OnCast (ToPduLeft BackendWork) -> do
-        logInfo (MkLogMsg "working...")
+        logInfo (MSG "working...")
         modifyModel @Backend1 (over (modelBackend1 . _1) (+ 1))
       OnCast (ToPduRight x) -> do
-        logInfo (MkLogMsg "event registration stuff ...")
+        logInfo (MSG "event registration stuff ...")
         zoomModel @Backend1 (modelBackend1 . _2) (observerRegistryHandlePdu x)
       OnDown pd -> do
         logWarning pd
         wasObserver <- zoomModel @Backend1 (modelBackend1 . _2) (observerRegistryRemoveProcess @BackendEvent (downProcess pd))
         when wasObserver $
-          logNotice (MkLogMsg "observer removed")
-      _ -> logWarning (MkLogMsg "unexpected: ") e
+          logNotice (MSG "observer removed")
+      _ -> logWarning (MSG "unexpected: ") e
 
 modelBackend1 :: Iso' (Model Backend1)  (Int, ObserverRegistry BackendEvent)
 modelBackend1 = iso (\(MkBackend1 x) -> x) MkBackend1
@@ -296,19 +295,19 @@ instance Effectful.Server Backend2 Effects where
       OnCall rt (B2BackendWork GetBackendInfo) ->
         sendReply rt ("Backend2 " <> show me <> " " <> show myIndex)
       OnCast (B2BackendWork BackendWork) -> do
-        logInfo (MkLogMsg "working...")
+        logInfo (MSG "working...")
         put @Int (myIndex + 1)
         when (myIndex `mod` 2 == 0)
           (observerRegistryNotify (BackendEvent "even!"))
       OnCast (B2ObserverRegistry x) -> do
-        logInfo (MkLogMsg "event registration stuff ...")
+        logInfo (MSG "event registration stuff ...")
         observerRegistryHandlePdu @BackendEvent x
       OnInterrupt NormalExitRequested
         | even myIndex -> do
-          logNotice (MkLogMsg "Kindly exitting -_-")
+          logNotice (MSG "Kindly exitting -_-")
           exitNormally
         | otherwise ->
-          logNotice (MkLogMsg "Ignoring exit request! :P")
+          logNotice (MSG "Ignoring exit request! :P")
       OnDown pd -> do
         logWarning pd
         wasObserver <- observerRegistryRemoveProcess @BackendEvent (downProcess pd)

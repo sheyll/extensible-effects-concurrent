@@ -176,7 +176,7 @@ addMonitoring owner target =
 removeMonitoring :: MonitorReference -> STS m r -> STS m r
 removeMonitoring mref = monitors %~ Set.filter (\(ref, _) -> ref /= mref)
 
-triggerAndRemoveMonitor :: ProcessId -> Interrupt 'NoRecovery -> STS m r -> STS m r
+triggerAndRemoveMonitor :: ProcessId -> ShutdownReason -> STS m r -> STS m r
 triggerAndRemoveMonitor downPid reason = State.execState $ do
   monRefs <- use monitors
   traverse_ go monRefs
@@ -187,7 +187,7 @@ triggerAndRemoveMonitor downPid reason = State.execState $ do
      in  State.modify' (enqueueMsg owner (toStrictDynamic pdown) . removeMonitoring mr)
     )
 
-addLink :: ProcessId -> ProcessId -> STS m r -> (Maybe (Interrupt 'Recoverable), STS m r)
+addLink :: ProcessId -> ProcessId -> STS m r -> (Maybe InterruptReason, STS m r)
 addLink fromPid toPid = State.runState $ do
   hasToPid <- use (msgQs . to (Map.member toPid))
   if hasToPid
@@ -209,7 +209,7 @@ removeLinksTo pid sts = flip State.runState sts $ do
 kontinue :: STS r m -> (ResumeProcess a -> Eff r a1) -> a -> m a1
 kontinue sts k x = (sts ^. runEff) (k (ResumeWith x))
 
-diskontinue :: STS r m -> (ResumeProcess v -> Eff r a) -> Interrupt 'Recoverable -> m a
+diskontinue :: STS r m -> (ResumeProcess v -> Eff r a) -> InterruptReason -> m a
 diskontinue sts k e = (sts ^. runEff) (k (Interrupted e))
 
 -- -----------------------------------------------------------------------------
@@ -222,7 +222,7 @@ diskontinue sts k e = (sts ^. runEff) (k (Interrupted e))
 -- @since 0.3.0.2
 schedulePure
   :: Eff (Processes PureBaseEffects) a
-  -> Either (Interrupt 'NoRecovery) a
+  -> Either ShutdownReason a
 schedulePure e = run (scheduleM withoutLogging (return ()) e)
 
 -- | Invoke 'scheduleM' with @lift 'Control.Concurrent.yield'@ as yield effect.
@@ -233,7 +233,7 @@ scheduleIO
   :: MonadIO m
   => (forall b . Eff r b -> Eff '[Lift m] b)
   -> Eff (Processes r) a
-  -> m (Either (Interrupt 'NoRecovery) a)
+  -> m (Either ShutdownReason a)
 scheduleIO r = scheduleM (runLift . r) (liftIO yield)
 
 -- | Invoke 'scheduleM' with @lift 'Control.Concurrent.yield'@ as yield effect.
@@ -243,7 +243,7 @@ scheduleIO r = scheduleM (runLift . r) (liftIO yield)
 scheduleMonadIOEff
   :: MonadIO (Eff r)
   => Eff (Processes r) a
-  -> Eff r (Either (Interrupt 'NoRecovery) a)
+  -> Eff r (Either ShutdownReason a)
 scheduleMonadIOEff = -- schedule (lift yield)
   scheduleM id (liftIO yield)
 
@@ -259,7 +259,7 @@ scheduleIOWithLogging
   :: HasCallStack
   => LogWriter
   -> Eff EffectsIo a
-  -> IO (Either (Interrupt 'NoRecovery) a)
+  -> IO (Either ShutdownReason a)
 scheduleIOWithLogging h = scheduleIO (withLogging h)
 
 -- | Handle the 'Process' effect, as well as all lower effects using an effect handler function.
@@ -286,7 +286,7 @@ scheduleM
   --  @r@. E.g. if @Lift IO@ is present, this might be:
   --  @lift 'Control.Concurrent.yield'.
   -> Eff (Processes r) a
-  -> m (Either (Interrupt 'NoRecovery) a)
+  -> m (Either ShutdownReason a)
 scheduleM r y e = do
   c <- runAsCoroutinePure r (provideInterruptsShutdown e)
   handleProcess (initStsMainProcess r y) (Seq.singleton (c, 0))
@@ -309,8 +309,8 @@ data OnYield r a where
           -> (ResumeProcess ProcessId -> Eff r (OnYield r a))
           -> OnYield r a
   OnDone :: !a -> OnYield r a
-  OnShutdown :: Interrupt 'NoRecovery -> OnYield r a
-  OnInterrupt :: Interrupt 'Recoverable
+  OnShutdown :: ShutdownReason -> OnYield r a
+  OnInterrupt :: InterruptReason
                 -> (ResumeProcess b -> Eff r (OnYield r a))
                 -> OnYield r a
   OnSend :: !ProcessId -> !StrictDynamic
@@ -326,9 +326,9 @@ data OnYield r a where
          :: ProcessDetails
          -> (ResumeProcess () -> Eff r (OnYield r a))
          -> OnYield r a
-  OnSendShutdown :: !ProcessId -> Interrupt 'NoRecovery
+  OnSendShutdown :: !ProcessId -> ShutdownReason
                  -> (ResumeProcess () -> Eff r (OnYield r a)) -> OnYield r a
-  OnSendInterrupt :: !ProcessId -> Interrupt 'Recoverable
+  OnSendInterrupt :: !ProcessId -> InterruptReason
                   -> (ResumeProcess () -> Eff r (OnYield r a)) -> OnYield r a
   OnMakeReference :: (ResumeProcess Int -> Eff r (OnYield r a)) -> OnYield r a
   OnMonitor
@@ -407,7 +407,7 @@ handleProcess
   :: Monad m
   => STS r m
   -> Seq (OnYield r finalResult, ProcessId)
-  -> m (Either (Interrupt 'NoRecovery) finalResult)
+  -> m (Either ShutdownReason finalResult)
 handleProcess _sts Empty =
   return $ Left (interruptToExit (ErrorInterrupt (fromString "no main process")))
 
@@ -426,7 +426,7 @@ handleProcess sts allProcs@((!processState, !pid) :<| rest) =
                         Right _ -> return ps'
                         Left er ->
                           case toExitSeverity er of
-                            NormalExit -> return ps'
+                            ExitSuccess -> return ps'
                             Crash      -> sendInterruptToOtherPid dPid reason ps'
 
             let allButMe = Seq.filter (\(_, p) -> p /= pid) rest

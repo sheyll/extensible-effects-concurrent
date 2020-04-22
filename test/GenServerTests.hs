@@ -25,15 +25,16 @@ instance NFData (Pdu Small r) where
   rnf (SmallCall x) = rnf x
   rnf (SmallCast x) = rnf x
 
-instance Show (Pdu Small r) where
-  showsPrec d (SmallCall x) = showParen (d > 10) (showString "SmallCall " . shows x)
-  showsPrec d (SmallCast x) = showParen (d > 10) (showString "SmallCast " . showString x)
+instance ToLogMsg (Pdu Small r) where
+  toLogMsg (SmallCall x) = "SmallCall " <> toLogMsg x
+  toLogMsg (SmallCast x) = "SmallCast " <> toLogMsg x
 
 
 -- ----------------------------------------------------------------------------
+instance ToTypeLogMsg Small
 
 instance IoLogging e => S.Server Small (Processes e) where
-  data StartArgument Small = MkSmall
+  data StartArgument Small = MkSmall deriving Show
   newtype instance Model Small = SmallModel String deriving Default
   update _me MkSmall x =
     case x of
@@ -41,13 +42,17 @@ instance IoLogging e => S.Server Small (Processes e) where
        do S.modifyModel (\(SmallModel y) -> SmallModel (y ++ ", " ++ show f))
           sendReply rt f
       E.OnCast msg ->
-       logInfo' (show msg)
+       logInfo msg
       other ->
-        interrupt (ErrorInterrupt (show other))
+        interrupt (ErrorInterrupt (toLogMsg other))
+
+instance ToLogMsg (S.StartArgument Small)
 
 -- ----------------------------------------------------------------------------
 
 data Big deriving (Typeable)
+
+instance ToTypeLogMsg Big
 
 type instance ToPretty Big = PutStr "big"
 
@@ -64,10 +69,10 @@ instance NFData (Pdu Big r) where
   rnf (BigCast x) = rnf x
   rnf (BigSmall x) = rnf x
 
-instance Show (Pdu Big r) where
-  showsPrec d (BigCall x) = showParen (d > 10) (showString "SmallCall " . shows x)
-  showsPrec d (BigCast x) = showParen (d > 10) (showString "SmallCast " . showString x)
-  showsPrec d (BigSmall x) = showParen (d > 10) (showString "BigSmall " . showsPrec 11 x)
+instance ToLogMsg (Pdu Big r) where
+  toLogMsg (BigCall x)  = "SmallCall " <> toLogMsg  x
+  toLogMsg (BigCast x)  = "SmallCast " <> toLogMsg  x
+  toLogMsg (BigSmall x) = "BigSmall  " <> toLogMsg  x
 
 instance HasPduPrism Big Small where
   embedPdu = BigSmall
@@ -77,7 +82,7 @@ instance HasPduPrism Big Small where
 -- ----------------------------------------------------------------------------
 
 instance IoLogging e => S.Server Big (Processes e) where
-  data instance StartArgument Big = MkBig
+  data instance StartArgument Big = MkBig deriving Show
   newtype Model Big = BigModel String deriving Default
   update me MkBig = \case
     E.OnCall rt req ->
@@ -96,7 +101,9 @@ instance IoLogging e => S.Server Big (Processes e) where
           BigCast o -> S.putModel (BigModel o)
           BigSmall x -> S.coerceEffects (S.update (toEmbeddedEndpoint me) MkSmall (S.OnCast x))
     other ->
-      interrupt (ErrorInterrupt (show other))
+      interrupt (ErrorInterrupt (toLogMsg other))
+
+instance ToLogMsg (StartArgument Big)
 
 -- ----------------------------------------------------------------------------
 

@@ -109,10 +109,10 @@ exampleLogTrace = do
   where
     severeMessages = view (logEventSeverity . to (<= errorSeverity))
 
-newtype TestLogMsg = MSG String
+newtype TestLogMsg = TestMSG String
 
 instance ToLogMsg TestLogMsg where
-  toLogMsg (MSG x) = packLogMsg x
+  toLogMsg (TestMSG x) = packLogMsg x
 
 
 -- | Example code for:
@@ -123,7 +123,7 @@ exampleAsyncLogging = do
   lw <- stdoutLogWriter renderConsoleMinimalisticWide
   runLift $ withLogging lw $ withAsyncLogWriter (1000 :: Int) $ do
     logInfo $ MSG "test 1"
-    logInfo $ MSG "test 2"
+    logInfo $ TestMSG "test 2"
     logInfo $ MSG "test 3"
 
 

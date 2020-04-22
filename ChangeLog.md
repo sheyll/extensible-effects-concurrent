@@ -2,6 +2,9 @@
 
 ## 1.0.0
 
+- **Process**
+    - Split `Interrupt` into `ShutdownReason` and `InterruptReason`
+
 - **Logging**
     - Rename `LogMessage(...)` to `LogEvent(...)`
     - Introduce a newtype and a type class for log messages: `LogMsg` and `ToLogMsg`
@@ -17,7 +20,6 @@
           as:
 
                 logNotice "dettaching: " deadBroker " from: " broker
-
 
     - Remove `errorMessageIO`, `infoMessageIO` and `debugMessageIO`
     - Change the `appName` parameter type in some `LogWriter`s from `Text` to `String`
@@ -64,7 +66,7 @@
     - Add `callById` and `castById`
 - [Process](./src/Control/Eff/Concurrent/Process.hs)
     - Introduce a new `Interrupt NoRecovery` clause: `ExitOtherProcessNotRunning`
-    - Change the second parameter of `ProcessDown` from `SomeExitReason` to `Interrupt NoRecovery`
+    - Change the second parameter of `ProcessDown` from `InterruptOrShutdown` to `Interrupt NoRecovery`
     - Introduce new `Interrupt` reasons
       for all categories with an existential
       parameter, that must have `NFData`, `Show`

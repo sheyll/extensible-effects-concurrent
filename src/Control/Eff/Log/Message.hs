@@ -34,6 +34,7 @@ module Control.Eff.Log.Message
   , ToLogMsg(..)
   , packLogMsg
   , ToTypeLogMsg(..)
+  , StringLogMsg(..)
 
   -- * 'LogEvent' Predicates #PredefinedPredicates#
   -- $PredefinedPredicates
@@ -103,6 +104,7 @@ import           Data.Typeable
 import           Data.String
 import qualified Data.Text                     as T
 import           Data.Time.Clock
+import           Data.Void
 import           GHC.Generics            hiding ( to )
 import           GHC.Stack
 import           Network.HostName              as Network
@@ -576,6 +578,12 @@ instance ToTypeLogMsg Float
 
 instance ToTypeLogMsg Integer
 
+instance ToTypeLogMsg Void where
+  toTypeLogMsg _ = packLogMsg "Void"
+
+instance ToTypeLogMsg String where
+  toTypeLogMsg _ = packLogMsg "String"
+
 instance ToTypeLogMsg LogMsg where
   toTypeLogMsg _ = packLogMsg "LogMsg"
 
@@ -596,6 +604,14 @@ instance (ToTypeLogMsg a, ToTypeLogMsg b) => ToTypeLogMsg (a, b) where
 instance (ToTypeLogMsg a, ToTypeLogMsg b, ToTypeLogMsg c) => ToTypeLogMsg (a, b, c) where
   toTypeLogMsg _ =
     packLogMsg "Tuple3(" <> toTypeLogMsg (Proxy @a) <> packLogMsg ")(" <> toTypeLogMsg (Proxy @b) <> packLogMsg ")(" <> toTypeLogMsg (Proxy @c) <> packLogMsg ")"
+
+-- | A 'String' wrapper needed in situations where @OverloadedStrings@ causes
+-- ambigous types, namely in conjunction with 'ToLogMsg'.
+--
+-- @since 1.0.0
+newtype StringLogMsg = MSG { fromStringLogMsg :: String } deriving (NFData, Eq, Ord, Show, ToLogMsg, Typeable)
+
+instance ToTypeLogMsg StringLogMsg
 
 -- | Prefix the 'logEventMessage'.
 prefixLogEventsWith :: ToLogMsg a => a -> LogEvent -> LogEvent

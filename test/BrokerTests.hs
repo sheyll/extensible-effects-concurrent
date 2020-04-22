@@ -331,7 +331,7 @@ instance ToTypeLogMsg TestProtocol
 instance HasPdu TestProtocol where
   data instance Pdu TestProtocol x where
     TestGetStringLength :: String -> Pdu TestProtocol ('Synchronous Int)
-    TestInterruptWith :: Interrupt 'Recoverable -> Pdu TestProtocol 'Asynchronous
+    TestInterruptWith :: InterruptReason -> Pdu TestProtocol 'Asynchronous
       deriving Typeable
 
 instance NFData (Pdu TestProtocol x) where

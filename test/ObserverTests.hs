@@ -296,13 +296,13 @@ instance Typeable r => NFData (Pdu TestObservable r) where
   rnf StopTestObservable = ()
   rnf (TestObsReg x) = rnf x
 
-instance Typeable r => Show (Pdu TestObservable r) where
-  show (SendTestEvent x) = "SendTestEvent " ++ show x
-  show StopTestObservable = "StopTestObservable"
-  show (TestObsReg x) = "TestObsReg " ++ show x
+instance ToLogMsg (Pdu TestObservable r) where
+  toLogMsg (SendTestEvent x) = "SendTestEvent " <> toLogMsg x
+  toLogMsg StopTestObservable = "StopTestObservable"
+  toLogMsg (TestObsReg x) = "TestObsReg " <> toLogMsg x
 
 instance (IoLogging r, HasProcesses r q) => S.Server TestObservable r where
-  data Init TestObservable = TestObservableServerInit
+  data Init TestObservable = TestObservableServerInit deriving Show
   type ServerEffects TestObservable r = ObserverRegistryState String ': r
   runEffects _ _ = evalObserverRegistryState
   onEvent _ _ =
@@ -310,17 +310,20 @@ instance (IoLogging r, HasProcesses r q) => S.Server TestObservable r where
       S.OnCall rt e ->
         case e of
           SendTestEvent x -> observerRegistryNotify x >> sendReply rt ()
-          TestObsReg x -> logError ("unexpected: " <> pack (show x))
+          TestObsReg x -> logError (MSG "unexpected: ") x
       S.OnCast (TestObsReg x) -> observerRegistryHandlePdu x
       S.OnCast StopTestObservable -> exitNormally
       S.OnDown pd -> do
-        logDebug ("inspecting: " <> pack (show pd))
+        logDebug (MSG "inspecting: ") pd
         wasHandled <- observerRegistryRemoveProcess @String (downProcess pd)
         unless wasHandled $
-          logError ("the process down message was not handled: " <> pack (show pd))
+          logError (MSG "the process down message was not handled: ") pd
       other ->
-        logError ("unexpected: " <> pack (show other))
+        logError (MSG "unexpected: ") other
 
+instance ToLogMsg (S.Init TestObservable)
+
+instance ToTypeLogMsg TestObservable
 
 data TestObserver deriving Typeable
 
@@ -335,18 +338,17 @@ instance NFData (Pdu TestObserver r) where
   rnf GetCapturedEvents = ()
   rnf (OnTestEvent e) =  rnf e
 
-instance Show (Pdu TestObserver r) where
-  showsPrec _ GetCapturedEvents = showString "GetCapturedEvents"
-  showsPrec d (OnTestEvent e) = showParen (d>=10) (showString "OnTestEvent " . shows e)
+instance ToLogMsg (Pdu TestObserver r) where
+  toLogMsg GetCapturedEvents = "GetCapturedEvents"
+  toLogMsg (OnTestEvent e)   = "OnTestEvent " <> toLogMsg e
 
 instance HasPduPrism TestObserver (Observer String) where
   embedPdu = OnTestEvent
   fromPdu (OnTestEvent e) = Just e
   fromPdu _ = Nothing
 
-
 instance (IoLogging r, HasProcesses r q) => M.Server TestObserver r where
-  data StartArgument TestObserver = MkTestObserver
+  data StartArgument TestObserver = MkTestObserver deriving Show
   newtype Model TestObserver = TestObserverModel {fromTestObserverModel :: [String]} deriving Default
   update _ MkTestObserver e =
     case e of
@@ -355,4 +357,8 @@ instance (IoLogging r, HasProcesses r q) => M.Server TestObserver r where
       M.OnCast (OnTestEvent (Observed x)) ->
         M.modifyModel (\ (TestObserverModel o) -> TestObserverModel (o ++ [x]))
       _ ->
-        logError ("unexpected: " <> pack (show e))
+        logError (MSG "unexpected: ") e
+
+instance ToLogMsg (M.StartArgument TestObserver)
+
+instance ToTypeLogMsg TestObserver

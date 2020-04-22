@@ -115,18 +115,13 @@ applySchedulerFactory factory procAction = do
 assertShutdown
   :: (Member Logs r, HasCallStack, HasProcesses r q, Lifted IO r)
   => ProcessId
-  -> Interrupt 'NoRecovery
+  -> ShutdownReason
   -> Eff r ()
 assertShutdown p r = do
   unlinkProcess p
   m <- monitor p
   sendShutdown p r
-  logInfo
-    (  "awaitProcessDown: "
-    <> pack (show p)
-    <> " "
-    <> pack (show m)
-    )
+  logInfo (MSG "awaitProcessDown: ") p (MSG " ") m
   logCallStack debugSeverity
   receiveSelectedMessage (selectProcessDown m)
     >>= lift . assertEqual "bad exit reason" (MkUnhandledProcessExit r) . MkUnhandledProcessExit . downReason
@@ -137,7 +132,7 @@ awaitProcessDown
   -> Eff r ProcessDown
 awaitProcessDown p = do
   m <- monitor p
-  logInfo (MkLogMsg "awaitProcessDown: ") p (MkLogMsg " ") m
+  logInfo (MSG "awaitProcessDown: ") p (MSG " ") m
   logCallStack debugSeverity
   receiveSelectedMessage (selectProcessDown m)
 
@@ -145,6 +140,6 @@ awaitProcessDownAny
   :: (Member Logs r, HasCallStack, HasProcesses r q)
   => Eff r ProcessDown
 awaitProcessDownAny = do
-  logInfo (MkLogMsg "awaitProcessDownAny")
+  logInfo (MSG "awaitProcessDownAny")
   logCallStack debugSeverity
   receiveMessage

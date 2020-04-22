@@ -131,26 +131,22 @@ import           Control.Eff.Concurrent.Process
                                                 , ProcessDown(..)
                                                 , selectProcessDown
                                                 , selectProcessDownByProcessId
-                                                , becauseProcessIsDown
+                                                , becauseOtherProcessNotRunning
                                                 , MonitorReference(..)
                                                 , withMonitor
                                                 , receiveWithMonitor
-                                                , Interrupt(..)
+                                                , InterruptReason(..)
+                                                , ShutdownReason(..)
                                                 , Interrupts
                                                 , interruptToExit
-                                                , ExitRecovery(..)
-                                                , RecoverableInterrupt
                                                 , ExitSeverity(..)
-                                                , SomeExitReason(SomeExitReason)
+                                                , InterruptOrShutdown(..)
                                                 , UnhandledProcessInterrupt(..)
                                                 , UnhandledProcessExit(..)
-                                                , toExitRecovery
-                                                , isRecoverable
                                                 , toExitSeverity
                                                 , isProcessDownInterrupt
                                                 , isCrash
                                                 , toCrashReason
-                                                , fromSomeExitReason
                                                 , logProcessExit
                                                 , provideInterruptsShutdown
                                                 , handleInterrupts

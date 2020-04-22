@@ -30,7 +30,6 @@ where
 
 import           Control.DeepSeq               ( NFData(rnf) )
 import           Control.Eff
-import           Control.Eff.Concurrent.Misc
 import           Control.Eff.Concurrent.Process
 import           Control.Eff.Concurrent.Protocol
 import           Control.Eff.Concurrent.Protocol.Client
@@ -79,10 +78,6 @@ instance ToTypeLogMsg event => ToTypeLogMsg (Observer event) where
 instance NFData (Observer event) where
   rnf (MkObserver (Arg x y)) = rnf x `seq` rnf y
 
-instance Typeable event => Show (Observer event) where
-  showsPrec d (MkObserver (Arg x (MkObservationSink _ m))) =
-    showParen (d>=10) (showString "observer: " . showSTypeable @event . showString " ". showsPrec 10 x . showChar ' ' . showsPrec 10 m )
-
 type instance ToPretty (Observer event) = -- TODO use ToPretty instead of ToTypeLogMsg
   PrettyParens (ToPretty event <++> PutStr "_observer")
 
@@ -93,10 +88,6 @@ instance (Tangible event) => HasPdu (Observer event) where
 
 instance NFData event => NFData (Pdu (Observer event) r) where
   rnf (Observed event) = rnf event
-
-instance Show event => Show (Pdu (Observer event) r) where
-  showsPrec d (Observed event) =
-    showParen (d >= 10) (showString "observed: " . showsPrec 10 event)
 
 instance ToLogMsg event => ToLogMsg (Pdu (Observer event) r) where
   toLogMsg (Observed event) =
@@ -262,6 +253,7 @@ observerRegistryHandlePdu
   :: forall event q r
    . ( HasCallStack
      , Typeable event
+     , ToTypeLogMsg event
      , HasProcesses r q
      , Member (ObserverRegistryState event) r
      , Member Logs r
@@ -274,10 +266,10 @@ observerRegistryHandlePdu = \case
           observer = MkObserver (Arg pid sink)
       modify @(ObserverRegistry event) (over observerRegistry (Map.insert pid sink))
       os <- get @(ObserverRegistry event)
-      logDebug ("registered " :: String)
-               (show observer)
+      logDebug "registered "
+               observer
                " current number of observers: "  -- TODO put this info into the process details
-               (show (Map.size (view observerRegistry os)))
+               (Map.size (view observerRegistry os))
 
     ForgetObserver ob -> do
       wasRemoved <- observerRegistryRemoveProcess @event ob
@@ -293,6 +285,7 @@ observerRegistryRemoveProcess
   :: forall event q r
    . ( HasCallStack
      , Typeable event
+     , ToTypeLogMsg event
      , HasProcesses r q
      , Member (ObserverRegistryState event) r
      , Member Logs r
@@ -310,9 +303,9 @@ observerRegistryRemoveProcess ob = do
   foundIt os sink@(MkObservationSink _ monRef) = do
     demonitor monRef
     logDebug "removed: "
-             (show $ MkObserver $ Arg ob sink)
+             (MkObserver $ Arg ob sink)
              " current number of observers: "
-             (show (Map.size (view observerRegistry os)))
+             (Map.size (view observerRegistry os))
     pure True
 
 -- | Keep track of registered 'Observer's.

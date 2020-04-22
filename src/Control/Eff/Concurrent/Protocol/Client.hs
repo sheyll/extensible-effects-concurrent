@@ -81,7 +81,7 @@ call (Endpoint pidInternal) req = do
               if origin == origin' then Just result else Nothing
         in  selectMessageWith extractResult
   resultOrError <- receiveWithMonitor pidInternal selectResult
-  either (interrupt . becauseProcessIsDown) return resultOrError
+  either (interrupt . becauseOtherProcessNotRunning) return resultOrError
 
 -- | Send an request 'Pdu' and wait for the server to return a result value.
 --
@@ -137,7 +137,7 @@ callWithTimeout serverP@(Endpoint pidInternal) req timeOut = do
         interrupt (TimeoutInterrupt msg)
       onProcDown p = do
         logWarning "call to dead server: " serverP " from " fromPid
-        interrupt (becauseProcessIsDown p)
+        interrupt (becauseOtherProcessNotRunning p)
   either (either onProcDown onTimeout) return resultOrError
 
 -- | Instead of passing around a 'Endpoint' value and passing to functions like

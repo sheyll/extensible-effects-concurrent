@@ -50,7 +50,7 @@ schedule
   :: HasCallStack
   => LogWriter
   -> Eff Effects a
-  -> IO (Either (Interrupt 'NoRecovery) a)
+  -> IO (Either ShutdownReason a)
 schedule = scheduleIOWithLogging
 
 -- | The effect list for 'Process' effects in the single threaded scheduler.
@@ -81,4 +81,3 @@ type BaseEffects = BaseEffectsIo
 --
 -- @since 0.25.0
 type HasBaseEffects e = HasBaseEffectsIo e
-

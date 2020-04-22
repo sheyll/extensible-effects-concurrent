@@ -150,7 +150,7 @@ protocolServerLoop a = do
     handleInt myEp i = onEvent @_ @(Processes q) myEp a (OnInterrupt i) *> pure Nothing
     mainLoop :: (Typeable a)
       => Endpoint (ServerPdu a)
-      -> Either (Interrupt 'Recoverable) (Event (ServerPdu a))
+      -> Either InterruptReason (Event (ServerPdu a))
       -> Eff (ServerEffects a (Processes q)) (Maybe ())
     mainLoop myEp (Left i) = handleInt myEp i
     mainLoop myEp (Right i) = onEvent @_ @(Processes q) myEp a i *> pure Nothing
@@ -180,7 +180,7 @@ data Event a where
        )
     => Pdu a 'Asynchronous
     -> Event a
-  OnInterrupt :: Interrupt 'Recoverable -> Event a
+  OnInterrupt :: InterruptReason -> Event a
   OnDown :: ProcessDown -> Event a
   OnTimeOut :: TimerElapsed -> Event a
   OnMessage :: StrictDynamic -> Event a

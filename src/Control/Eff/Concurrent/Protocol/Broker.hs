@@ -293,7 +293,7 @@ callById broker cId pdu tMax =
    >>=
     maybe
       (do logError "callById failed for: " pdu
-          interrupt (InterruptedBy (ChildNotFound cId broker))
+          interrupt (InterruptedBy (toStrictDynamic (ChildNotFound cId broker)))
       )
       (\cEp -> callWithTimeout cEp pdu tMax)
 
@@ -411,7 +411,7 @@ type instance ToPretty (Broker p) = "broker" <:> ToPretty p
 -- @since 0.30.0
 data ChildEvent p where
   OnChildSpawned :: Endpoint (Broker p) -> ChildId p -> Endpoint (Effectful.ServerPdu p) -> ChildEvent p
-  OnChildDown :: Endpoint (Broker p) -> ChildId p -> Endpoint (Effectful.ServerPdu p) -> Interrupt 'NoRecovery -> ChildEvent p
+  OnChildDown :: Endpoint (Broker p) -> ChildId p -> Endpoint (Effectful.ServerPdu p) -> ShutdownReason -> ChildEvent p
   OnBrokerShuttingDown :: Endpoint (Broker p) -> ChildEvent p -- ^ The broker is shutting down and will soon begin stopping/killing its children
   deriving (Typeable, Generic)
 
@@ -429,18 +429,6 @@ instance (ToTypeLogMsg p, ToTypeLogMsg (Effectful.ServerPdu p), ToLogMsg (ChildI
         toLogMsg s <> packLogMsg ": child-down: " <> toLogMsg i <> packLogMsg " " <> toLogMsg e <> packLogMsg " " <> toLogMsg r
      OnBrokerShuttingDown s ->
         toLogMsg s <> packLogMsg ": shutting down"
-
--- instance (Typeable p, Typeable (Effectful.ServerPdu p), Show (ChildId p)) => Show (ChildEvent p) where
---   showsPrec d x =
---     case x of
---      OnChildSpawned s i e ->
---         showParen (d >= 10)
---           (shows s . showString ": child-spawned: " . shows i . showChar ' ' . shows e)
---      OnChildDown s i e r ->
---         showParen (d >= 10)
---           (shows s . showString ": child-down: " . shows i . showChar ' ' . shows e . showChar ' ' . showsPrec 10 r)
---      OnBrokerShuttingDown s ->
---         shows s . showString ": shutting down"
 
 -- | The type of value used to index running 'Server' processes managed by a 'Broker'.
 --
@@ -627,7 +615,7 @@ stopOrKillChild
   => ChildId p
   -> Child p
   -> Timeout
-  -> Eff e (Interrupt 'NoRecovery)
+  -> Eff e ShutdownReason
 stopOrKillChild cId c stopTimeout =
       do
         broker <- asEndpoint @(Broker p) <$> self

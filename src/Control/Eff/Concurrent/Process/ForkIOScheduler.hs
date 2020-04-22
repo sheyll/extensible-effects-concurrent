@@ -63,7 +63,7 @@ import           System.Timeout
 -- exit reason. The message queue is backed by a 'Seq' sequence with 'StrictDynamic' values.
 data MessageQ = MessageQ
   { _incomingMessages :: Seq StrictDynamic
-  , _shutdownRequests :: Maybe SomeExitReason
+  , _shutdownRequests :: Maybe InterruptOrShutdown
   }
 
 instance Default MessageQ where
@@ -73,7 +73,7 @@ makeLenses ''MessageQ
 
 -- | Return any '_shutdownRequests' from a 'MessageQ' in a 'TVar' and
 -- reset the '_shutdownRequests' field to 'Nothing' in the 'TVar'.
-tryTakeNextShutdownRequestSTM :: TVar MessageQ -> STM (Maybe SomeExitReason)
+tryTakeNextShutdownRequestSTM :: TVar MessageQ -> STM (Maybe InterruptOrShutdown)
 tryTakeNextShutdownRequestSTM mqVar = do
   mq <- readTVar mqVar
   when (isJust (mq ^. shutdownRequests))
@@ -100,7 +100,7 @@ makeLenses ''ProcessInfo
 data SchedulerState = SchedulerState
   { _nextPid :: TVar ProcessId
   , _processTable :: TVar (Map ProcessId ProcessInfo)
-  , _processCancellationTable :: TVar (Map ProcessId (Async (Interrupt 'NoRecovery)))
+  , _processCancellationTable :: TVar (Map ProcessId (Async ShutdownReason))
   , _processMonitors :: TVar (Set (MonitorReference, ProcessId))  -- ^ Set of monitors and monitor owners
   , _nextMonitorIndex :: TVar Int
   }
@@ -169,7 +169,7 @@ addMonitoring monitorRef@(MkMonitorReference _ target) owner schedulerState =
       check wasEnqueued
 
 triggerAndRemoveMonitor
-  :: ProcessId -> Interrupt 'NoRecovery -> SchedulerState -> STM [ProcessId]
+  :: ProcessId -> ShutdownReason -> SchedulerState -> STM [ProcessId]
 triggerAndRemoveMonitor downPid reason schedulerState = do
   -- remove the monitor entries that the downPid process owned:
   modifyTVar' (schedulerState ^. processMonitors)
@@ -313,18 +313,18 @@ defaultMainWithLogWriter lw =
 handleProcess
   :: (HasCallStack)
   => ProcessInfo
-  -> Eff SafeEffects (Interrupt 'NoRecovery)
-  -> Eff BaseEffects (Interrupt 'NoRecovery)
+  -> Eff SafeEffects ShutdownReason
+  -> Eff BaseEffects ShutdownReason
 handleProcess myProcessInfo actionToRun = fix
   (handle_relay' singleStep (\er _nextRef -> setMyProcessState ProcessShuttingDown >> return er))
   actionToRun
   0
  where
   singleStep
-    :: (Eff SafeEffects xx -> (Int -> Eff BaseEffects (Interrupt 'NoRecovery)))
+    :: (Eff SafeEffects xx -> (Int -> Eff BaseEffects ShutdownReason))
     -> Arrs SafeEffects x xx
     -> Process BaseEffects x
-    -> (Int -> Eff BaseEffects (Interrupt 'NoRecovery))
+    -> (Int -> Eff BaseEffects ShutdownReason)
   singleStep k q p !nextRef = stepProcessInterpreter
     nextRef
     p
@@ -352,8 +352,8 @@ handleProcess myProcessInfo actionToRun = fix
   diskontinueWith
     :: forall a
      . HasCallStack
-    => Arr BaseEffects (Interrupt 'NoRecovery) a
-    -> Arr BaseEffects (Interrupt 'NoRecovery) a
+    => Arr BaseEffects ShutdownReason a
+    -> Arr BaseEffects ShutdownReason a
   diskontinueWith diskontinue !reason = do
     setMyProcessState ProcessShuttingDown
     diskontinue reason
@@ -363,12 +363,12 @@ handleProcess myProcessInfo actionToRun = fix
     => Int
     -> Process BaseEffects v
     -> (Int -> Arr BaseEffects v a)
-    -> Arr BaseEffects (Interrupt 'NoRecovery) a
+    -> Arr BaseEffects ShutdownReason a
     -> Eff BaseEffects a
   stepProcessInterpreter !nextRef !request kontinue diskontinue =
     tryTakeNextShutdownRequest >>= maybe
       noShutdownRequested
-      (either onShutdownRequested onInterruptRequested . fromSomeExitReason)
+      (either onShutdownRequested onInterruptRequested . fromInterruptOrShutdown)
     -- handle process shutdown requests:
     --   1. take process exit reason
     --   2. set process state to ProcessShuttingDown
@@ -401,8 +401,8 @@ handleProcess myProcessInfo actionToRun = fix
   interpretRequestAfterShutdownRequest
     :: forall v a
      . HasCallStack
-    => Arr BaseEffects (Interrupt 'NoRecovery) a
-    -> Interrupt 'NoRecovery
+    => Arr BaseEffects ShutdownReason a
+    -> ShutdownReason
     -> Process BaseEffects v
     -> Eff BaseEffects a
   interpretRequestAfterShutdownRequest diskontinue shutdownRequest = \case
@@ -429,8 +429,8 @@ handleProcess myProcessInfo actionToRun = fix
     :: forall v a
      . HasCallStack
     => Arr BaseEffects v a
-    -> Arr BaseEffects (Interrupt 'NoRecovery) a
-    -> Interrupt 'Recoverable
+    -> Arr BaseEffects ShutdownReason a
+    -> InterruptReason
     -> Process BaseEffects v
     -> Eff BaseEffects a
   interpretRequestAfterInterruptRequest kontinue diskontinue interruptRequest =
@@ -459,7 +459,7 @@ handleProcess myProcessInfo actionToRun = fix
     :: forall v a
      . HasCallStack
     => (Int -> Arr BaseEffects v a)
-    -> Arr BaseEffects (Interrupt 'NoRecovery) a
+    -> Arr BaseEffects ShutdownReason a
     -> Int
     -> Process BaseEffects v
     -> Eff BaseEffects a
@@ -469,13 +469,13 @@ handleProcess myProcessInfo actionToRun = fix
     SendInterrupt toPid msg -> if toPid == myPid
       then kontinue nextRef (Interrupted msg)
       else
-        interpretSendShutdownOrInterrupt toPid (SomeExitReason msg)
+        interpretSendShutdownOrInterrupt toPid (InterruptOrShutdown (Right msg))
         >>= kontinue nextRef
         .   ResumeWith
     SendShutdown toPid msg -> if toPid == myPid
       then diskontinue msg
       else
-        interpretSendShutdownOrInterrupt toPid (SomeExitReason msg)
+        interpretSendShutdownOrInterrupt toPid (InterruptOrShutdown (Left msg))
         >>= kontinue nextRef
         .   ResumeWith
     Spawn title child ->
@@ -567,7 +567,7 @@ handleProcess myProcessInfo actionToRun = fix
       setMyProcessState
           (either (const ProcessBusySendingShutdown)
                   (const ProcessBusySendingInterrupt)
-                  (fromSomeExitReason msg)
+                  (fromInterruptOrShutdown msg)
           )
         *>  getSchedulerState
         >>= lift
@@ -582,7 +582,7 @@ handleProcess myProcessInfo actionToRun = fix
         return (ResumeWith (toList (myMessageQ ^. incomingMessages)))
     interpretDelay
       :: Timeout
-      -> Eff BaseEffects (Either (Interrupt 'NoRecovery) (ResumeProcess ()))
+      -> Eff BaseEffects (Either ShutdownReason (ResumeProcess ()))
     interpretDelay (TimeoutMicros t) = do
       setMyProcessState ProcessBusySleeping
       lift $ do
@@ -600,14 +600,14 @@ handleProcess myProcessInfo actionToRun = fix
               return (True, Right (ResumeWith ()))
             Just shutdownRequest -> do
               modifyTVar' myMessageQVar (shutdownRequests .~ Nothing)
-              case fromSomeExitReason shutdownRequest of
+              case fromInterruptOrShutdown shutdownRequest of
                 Left  sr -> return (False, Left sr)
                 Right ir -> return (False, Right (Interrupted ir))
         unless elapsed (killThread newDelayThreadId)
         return res
     interpretReceive
       :: MessageSelector b
-      -> Eff BaseEffects (Either (Interrupt 'NoRecovery) (ResumeProcess b))
+      -> Eff BaseEffects (Either ShutdownReason (ResumeProcess b))
     interpretReceive f = do
       setMyProcessState ProcessBusyReceiving
       lift $ atomically $ do
@@ -623,7 +623,7 @@ handleProcess myProcessInfo actionToRun = fix
                   return (Right (ResumeWith selectedMessage))
           Just shutdownRequest -> do
             modifyTVar' myMessageQVar (shutdownRequests .~ Nothing)
-            case fromSomeExitReason shutdownRequest of
+            case fromInterruptOrShutdown shutdownRequest of
               Left  sr -> return (Left sr)
               Right ir -> return (Right (Interrupted ir))
      where
@@ -659,7 +659,7 @@ spawnNewProcess
   => Maybe ProcessInfo
   -> ProcessTitle
   -> Eff SafeEffects ()
-  -> Eff BaseEffects (ProcessId, Async (Interrupt 'NoRecovery))
+  -> Eff BaseEffects (ProcessId, Async ShutdownReason)
 spawnNewProcess mLinkedParent title mfa = do
   schedulerState <- getSchedulerState
   procInfo       <- allocateProcInfo schedulerState
@@ -692,12 +692,12 @@ spawnNewProcess mLinkedParent title mfa = do
           (maybe (Just (T.pack (show title ++ show pid))) Just)
     in  censorLogs addProcessId
   triggerProcessLinksAndMonitors
-    :: ProcessId -> Interrupt 'NoRecovery -> TVar (Set ProcessId) -> Eff BaseEffects ()
+    :: ProcessId -> ShutdownReason -> TVar (Set ProcessId) -> Eff BaseEffects ()
   triggerProcessLinksAndMonitors !pid !reason !linkSetVar = do
     schedulerState <- getSchedulerState
     let exitSeverity = toExitSeverity reason
         sendIt !linkedPid = do
-          let msg = SomeExitReason (LinkedProcessCrashed pid)
+          let msg = InterruptOrShutdown (Right (LinkedProcessCrashed pid))
           lift $ atomically $ do
             procInfoTable <- readTVar (schedulerState ^. processTable)
             let mLinkedProcInfo = procInfoTable ^? ix linkedPid
@@ -745,7 +745,7 @@ spawnNewProcess mLinkedParent title mfa = do
   doForkProc
     :: ProcessInfo
     -> SchedulerState
-    -> Eff BaseEffects (Async (Interrupt 'NoRecovery))
+    -> Eff BaseEffects (Async ShutdownReason)
   doForkProc procInfo schedulerState = control
     (\inScheduler -> do
       let cancellationsVar = schedulerState ^. processCancellationTable
@@ -818,7 +818,7 @@ enqueueMessageOtherProcess toPid msg schedulerState =
     )
 
 enqueueShutdownRequest
-  :: HasCallStack => ProcessId -> SomeExitReason -> SchedulerState -> STM ()
+  :: HasCallStack => ProcessId -> InterruptOrShutdown -> SchedulerState -> STM ()
 enqueueShutdownRequest toPid msg schedulerState =
   view (at toPid) <$> readTVar (schedulerState ^. processTable) >>= maybe
     (return ())

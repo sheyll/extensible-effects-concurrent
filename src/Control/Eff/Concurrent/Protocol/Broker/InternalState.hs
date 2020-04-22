@@ -31,13 +31,7 @@ import GHC.Generics (Generic)
 newtype Child p = MkChild
   { _childMonitoring :: MonitorReference
   }
-  deriving (Generic, Typeable, Eq, Ord)
-
-instance NFData (Child o)
-
-instance Typeable (ServerPdu p) => Show (Child p) where
-  showsPrec d c = showParen (d>=10)
-    (showString "process broker entry: " . shows (_childMonitoring c) )
+  deriving (Generic, Typeable, Eq, Ord, NFData)
 
 instance ToTypeLogMsg d => ToTypeLogMsg (Child d) where
   toTypeLogMsg _ = packLogMsg "child_" <> toTypeLogMsg (Proxy @d)

@@ -213,10 +213,6 @@ data BrokerWatch =
   MkBrokerWatch { _brokerMonitor ::  MonitorReference, _isPermanent :: Bool }
   deriving (Typeable)
 
-instance Show BrokerWatch where
-  showsPrec d (MkBrokerWatch mon False) = showParen (d>=10) (showString "temporary-broker: " . showsPrec 10 mon)
-  showsPrec d (MkBrokerWatch mon True) = showParen (d>=10) (showString "permanent-broker: " . showsPrec 10 mon)
-
 instance ToLogMsg BrokerWatch where
   toLogMsg (MkBrokerWatch mon isPermanentFlag) =
        packLogMsg (if isPermanentFlag then "permanent" else "temporary")
@@ -437,7 +433,7 @@ data CrashReport =
                   -- is started, this is the reference
                 , _crashTime :: UTCTime
                   -- ^ Recorded time of the crash
-                , _crashReason :: Interrupt 'NoRecovery
+                , _crashReason :: ShutdownReason
                   -- ^ Recorded crash reason
                 }
   deriving (Eq, Ord, Typeable)
@@ -463,7 +459,7 @@ crashTime = lens _crashTime (\c t -> c { _crashTime = t})
 -- | Lens for '_crashReason'
 --
 -- @since 0.30.0
-crashReason :: Lens' CrashReport (Interrupt 'NoRecovery)
+crashReason :: Lens' CrashReport ShutdownReason
 crashReason = lens _crashReason (\c t -> c { _crashReason = t})
 
 -- | Lens for '_exonerationTimerReference'
@@ -474,7 +470,7 @@ exonerationTimerReference = lens _exonerationTimerReference (\c t -> c { _exoner
 
 startExonerationTimer :: forall child a q e .
      (HasProcesses e q, Lifted IO q, Lifted IO e, NFData a, Typeable a, ToLogMsg a, Typeable child, ToTypeLogMsg child)
-     => a -> Interrupt 'NoRecovery -> CrashTimeSpan -> Eff e CrashReport
+     => a -> ShutdownReason -> CrashTimeSpan -> Eff e CrashReport
 startExonerationTimer cId r t = do
   let title = MkProcessTitle (packLogMsg "exoneration-timer-" <> toTypeLogMsg (Proxy @child) <> toLogMsg "-" <> toLogMsg cId)
   me <- self

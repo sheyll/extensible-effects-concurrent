@@ -42,7 +42,7 @@ import Control.Eff.Concurrent.Process.SingleThreadedScheduler
 -- from "Control.Eff.Concurrent.Process.SingleThreadedScheduler".
 --
 -- @since 0.25.0
-schedule :: Eff Effects a -> Either (Interrupt 'NoRecovery) a
+schedule :: Eff Effects a -> Either ShutdownReason a
 schedule = schedulePure
 
 -- | The effect list for 'Process' effects in the single threaded pure scheduler.
@@ -69,4 +69,3 @@ type BaseEffects = PureBaseEffects
 --
 -- @since 0.25.0
 type HasBaseEffects e = HasPureBaseEffects e
-
