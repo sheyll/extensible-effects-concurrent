@@ -117,7 +117,7 @@ module Control.Eff.Concurrent.Process
   , UnhandledProcessInterrupt(..)
   , UnhandledProcessExit(..)
   , toExitSeverity
-  , isProcessDownInterrupt
+  , isLinkedProcessCrashed
   , isCrash
   , toCrashReason
   , logProcessExit
@@ -579,7 +579,7 @@ data InterruptReason where
     -- @since 0.30.0
     InterruptedBy
       :: StrictDynamic -> InterruptReason
-  deriving (Show, Eq, Typeable)
+  deriving (Show, Typeable)
 
 -- | A sum-type with reasons for why a process should shutdown.
 --
@@ -716,8 +716,8 @@ newtype InterruptOrShutdown =
   deriving (Show, ToLogMsg, NFData)
 
 -- | A predicate for linked process __crashes__.
-isProcessDownInterrupt :: Maybe ProcessId -> InterruptReason -> Bool
-isProcessDownInterrupt mOtherProcess =
+isLinkedProcessCrashed :: Maybe ProcessId -> InterruptReason -> Bool
+isLinkedProcessCrashed mOtherProcess =
   \case
     NormalExitRequested -> False
     OtherProcessNotRunning _ -> False

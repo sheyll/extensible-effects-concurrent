@@ -128,7 +128,7 @@ returnToSenderServer = Callback.startLink @ReturnToSender $ Callback.onEvent
         yieldProcess
         sendReply rt True
     OnInterrupt i -> interrupt i
-    other         -> interrupt (ErrorInterrupt other)
+    other         -> interrupt (ErrorInterrupt (toLogMsg other))
   )
   "return-to-sender"
 
@@ -237,7 +237,8 @@ delayTests schedulerFactory =
                 delay (TimeoutMicros 1_000)
                 let expected = TimeoutInterrupt "test timeout interrupt"
                 sendInterrupt sleeper expected
-                receiveMessage @(Either InterruptReason ()) >>= lift . assertEqual "wrong message" (Left expected)
+                actual <- receiveMessage @(Either InterruptReason ())
+                lift (toLogMsg actual @?= toLogMsg expected)
               )
             )
           , testCase
@@ -800,7 +801,9 @@ sendShutdownTests schedulerFactory = testGroup
     , testCase "handleInterrupt handles my own interrupts"
     $ scheduleAndAssert schedulerFactory
     $ \assertEff ->
-        handleInterrupts (\e -> return (ErrorInterrupt "test" == e))
+        handleInterrupts (\e -> case e of
+                                  ErrorInterrupt "test" -> return True
+                                  _ -> return False)
                          (interrupt (ErrorInterrupt "test") >> return False)
           >>= assertEff "exception handler not invoked"
     ]
@@ -826,7 +829,7 @@ linkingTests schedulerFactory = setTravisTestOptions
     $ do
         let testPid = 234234234
         handleInterrupts
-          (lift . (@?= LinkedProcessCrashed testPid))
+          (lift . (@?= toLogMsg (LinkedProcessCrashed testPid)) . toLogMsg)
           (do
             linkProcess testPid
             void (receiveMessage @Void)
@@ -836,7 +839,7 @@ linkingTests schedulerFactory = setTravisTestOptions
     $ do
         foo <- spawn "reciever" (void (receiveMessage @Void))
         handleInterrupts
-          (lift . (\e -> e /= LinkedProcessCrashed foo @? show e))
+          (lift . (\e -> toLogMsg e /= toLogMsg (LinkedProcessCrashed foo) @? show (toLogMsg e)))
           (do
             linkProcess foo
             sendShutdown foo ExitNormally
@@ -847,7 +850,7 @@ linkingTests schedulerFactory = setTravisTestOptions
     $ do
         foo <- spawn "reciever" (void (receiveMessage @Void))
         handleInterrupts
-          (lift . (@?= LinkedProcessCrashed foo))
+          (lift . (@?= toLogMsg (LinkedProcessCrashed foo)) . toLogMsg)
           (do
             linkProcess foo
             self >>= sendShutdown foo . ExitProcessCancelled . Just
@@ -858,7 +861,7 @@ linkingTests schedulerFactory = setTravisTestOptions
     $ do
         foo <- spawn "reciever" (void (receiveMessage @Void))
         handleInterrupts
-          (lift . (@?= LinkedProcessCrashed foo))
+          (lift . (@?= toLogMsg (LinkedProcessCrashed foo)) . toLogMsg)
           (do
             linkProcess foo
             linkProcess foo
@@ -892,7 +895,7 @@ linkingTests schedulerFactory = setTravisTestOptions
     , testCase "spawnLink" $ applySchedulerFactory schedulerFactory $ do
       let foo = void (receiveMessage @Void)
       handleInterrupts
-          (\er -> lift (isProcessDownInterrupt Nothing er @? show er))
+          (\er -> lift (isLinkedProcessCrashed Nothing er @? show er))
         $ do
             x <- spawnLink "foo" foo
             self >>= sendShutdown x . ExitProcessCancelled . Just
@@ -902,11 +905,11 @@ linkingTests schedulerFactory = setTravisTestOptions
     $ do
         me <- self
         u  <- spawn "unlinker" $ do
-          logCritical "unlinked child started"
+          logCritical (MSG "unlinked child started")
           l <- spawnLink "linked" $ do
-            logCritical "linked child started"
+            logCritical (MSG "linked child started")
             () <- receiveMessage
-            logCritical "linked child done"
+            logCritical (MSG "linked child done")
           sendMessage me l
           x <- receiveAnyMessage
           logCritical (MSG "got: ") x
@@ -920,17 +923,17 @@ linkingTests schedulerFactory = setTravisTestOptions
         case mpU of
           Just (pU@(ProcessDown _ _ _)) ->
             error ("unlinked process down: " <> show pU)
-          Nothing -> logInfo "passed"
+          Nothing -> logInfo (MSG "passed")
     , testCase "spawnLink and child exits via exitWithError"
     $ applySchedulerFactory schedulerFactory
     $ do
         me <- self
         u  <- spawn "unlinker" $ do
-          logCritical "unlinked child started"
+          logCritical (MSG "unlinked child started")
           l <- spawnLink "linker" $ do
-            logCritical "linked child started"
+            logCritical (MSG "linked child started")
             () <- receiveMessage
-            logCritical "linked child done"
+            logCritical (MSG "linked child done")
             exitWithError "linked process test error"
           sendMessage me l
           x <- receiveAnyMessage
@@ -951,7 +954,7 @@ linkingTests schedulerFactory = setTravisTestOptions
     $ do
         mainProc <- self
         let linkingServer = void $ exitOnInterrupt $ do
-              logNotice "linker"
+              logNotice (MSG "linker")
               foreverCheap $ do
                 x <- receiveMessage
                 case x of
@@ -961,7 +964,7 @@ linkingTests schedulerFactory = setTravisTestOptions
                   Left e ->
                     exitBecause e
         linker <- spawnLink "link-server" linkingServer
-        logNotice "mainProc"
+        logNotice (MSG "mainProc")
         do
           x <- spawnLink "x1" (logNotice (MSG "x 1") >> void (receiveMessage @Void))
           withMonitor x $ \xRef -> do
@@ -976,7 +979,7 @@ linkingTests schedulerFactory = setTravisTestOptions
             void $ receiveSelectedMessage (filterMessage id)
             sendShutdown x ExitNormally
             void (receiveSelectedMessage (selectProcessDown xRef))
-        handleInterrupts (lift . (LinkedProcessCrashed linker @=?)) $ do
+        handleInterrupts (lift . (@?= toLogMsg (LinkedProcessCrashed linker)) . toLogMsg) $ do
           me <- self
           sendMessage linker (Left (ExitProcessCancelled (Just me)) :: Either ShutdownReason ProcessId)
           void (receiveMessage @Void)
@@ -986,7 +989,7 @@ linkingTests schedulerFactory = setTravisTestOptions
         foo2 foo1Pid = do
           linkProcess foo1Pid
           (r1, barPid) <- receiveMessage
-          lift (("unlink foo1" :: String) @=? r1)
+          lift (r1 @=? ("unlink foo1" :: String))
           unlinkProcess foo1Pid
           sendMessage barPid ("unlinked foo1" :: String, foo1Pid)
           receiveMessage >>= lift . (@?= ("the end" :: String))
@@ -996,7 +999,7 @@ linkingTests schedulerFactory = setTravisTestOptions
           me <- self
           sendMessage foo2Pid ("unlink foo1" :: String, me)
           (r1, foo1Pid) <- receiveMessage
-          lift (("unlinked foo1" :: String) @=? r1)
+          lift (r1 @=? ("unlinked foo1" :: String))
           handleInterrupts
             (const (return ()))
             (do
@@ -1006,7 +1009,11 @@ linkingTests schedulerFactory = setTravisTestOptions
             )
           handleInterrupts
             (\er -> void
-              (sendMessage parentPid (LinkedProcessCrashed foo2Pid == er))
+              (sendMessage parentPid $
+                case er of
+                  LinkedProcessCrashed foo2Pid' -> foo2Pid' == foo2Pid
+                  _ -> False
+              )
             )
             (do
               sendMessage foo2Pid ("the end" :: String)
@@ -1017,7 +1024,7 @@ linkingTests schedulerFactory = setTravisTestOptions
       me      <- self
       barPid  <- spawn "bar" (bar foo2Pid me)
       handleInterrupts
-        (\er -> lift (LinkedProcessCrashed barPid @?= er))
+        (\er -> lift (toLogMsg er @?= toLogMsg (LinkedProcessCrashed barPid)))
         (do
           res <- receiveMessage @Bool
           lift (threadDelay 100000)
@@ -1037,7 +1044,7 @@ monitoringTests schedulerFactory = setTravisTestOptions
         let badPid = 132123
         ref <- monitor badPid
         pd  <- receiveSelectedMessage (selectProcessDown ref)
-        lift (downReason pd @?= ExitOtherProcessNotRunning badPid)
+        lift (toLogMsg (downReason pd) @?= toLogMsg (ExitOtherProcessNotRunning badPid))
         lift (threadDelay 10000)
     , testCase
       "monitor twice, once when it is running and one, when the monitored process is not running (variant 1)"
@@ -1053,10 +1060,10 @@ monitoringTests schedulerFactory = setTravisTestOptions
         lift (threadDelay 10000)
         sendMessage target ExitNormally
         pd1 <- receiveMessage
-        lift (downReason <$> pd1 @?= Just ExitNormally)
+        lift (toLogMsg . downReason <$> pd1 @?= Just (toLogMsg ExitNormally))
         ref <- monitor target
         pd2 <- receiveSelectedMessage (selectProcessDown ref)
-        lift (downReason pd2 @?= ExitOtherProcessNotRunning target)
+        lift (toLogMsg (downReason pd2) @?= toLogMsg (ExitOtherProcessNotRunning target))
         lift (threadDelay 10000)
     , testCase
       "spawn, shutdown and monitor many times in a tight loop"
@@ -1066,11 +1073,11 @@ monitoringTests schedulerFactory = setTravisTestOptions
           target <- spawn "target" (receiveMessage >>= exitBecause)
           replicateM_ 102 $ spawn_ "monitor" $ do
             ref <- monitor target
-            logInfo ("monitoring now" <> pack (show ref))
+            logInfo (MSG "monitoring now") ref
             void $ receiveSelectedMessage (selectProcessDown ref)
           sendMessage target ExitNormally
           ref <- monitor target
-          logInfo ("monitoring now" <> pack (show ref))
+          logInfo (MSG "monitoring now") ref
           void (receiveSelectedMessage (selectProcessDown ref))
         traverse_ awaitProcessDown tests
     , testCase "monitored process exit normally"
@@ -1095,11 +1102,11 @@ monitoringTests schedulerFactory = setTravisTestOptions
         demonitor ref5
         sendMessage target ExitNormally
         pd1 <- receiveSelectedMessage (selectProcessDown ref1)
-        lift (downReason pd1 @?= ExitNormally)
+        lift (toLogMsg (downReason pd1) @?= toLogMsg ExitNormally)
         pd2 <- receiveSelectedMessage (selectProcessDown ref2)
-        lift (downReason pd2 @?= ExitNormally)
+        lift (toLogMsg (downReason pd2) @?= toLogMsg ExitNormally)
         pd4 <- receiveSelectedMessage (selectProcessDown ref4)
-        lift (downReason pd4 @?= ExitNormally)
+        lift (toLogMsg (downReason pd4) @?= toLogMsg ExitNormally)
         lift (threadDelay 10000)
     , testCase "monitored process killed"
     $ applySchedulerFactory schedulerFactory
@@ -1109,7 +1116,7 @@ monitoringTests schedulerFactory = setTravisTestOptions
         self >>= sendMessage target . ExitProcessCancelled . Just
         pd <- receiveSelectedMessage (selectProcessDown ref)
         me <- self
-        lift (downReason pd @?= ExitProcessCancelled (Just me))
+        lift (toLogMsg (downReason pd) @?= toLogMsg (ExitProcessCancelled (Just me)))
         lift (threadDelay 10000)
     , testCase "demonitored process killed"
     $ applySchedulerFactory schedulerFactory

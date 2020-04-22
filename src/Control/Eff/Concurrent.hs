@@ -144,7 +144,7 @@ import           Control.Eff.Concurrent.Process
                                                 , UnhandledProcessInterrupt(..)
                                                 , UnhandledProcessExit(..)
                                                 , toExitSeverity
-                                                , isProcessDownInterrupt
+                                                , isLinkedProcessCrashed
                                                 , isCrash
                                                 , toCrashReason
                                                 , logProcessExit

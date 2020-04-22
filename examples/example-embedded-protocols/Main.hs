@@ -93,12 +93,10 @@ instance NFData (Pdu App r) where
   rnf DoThis = ()
   rnf (AppBackendEvent e) = rnf e
 
-instance ToLogMsg (Pdu App r)
-
-instance Show (Pdu App r) where
-  show (SetBackend _x) = "setting backend"
-  show DoThis = "doing this"
-  show (AppBackendEvent e) = "got backend event: " ++ show e
+instance ToLogMsg (Pdu App r) where
+  toLogMsg (SetBackend _x) = "setting backend"
+  toLogMsg DoThis = "doing this"
+  toLogMsg (AppBackendEvent e) = "got backend event: " <> toLogMsg e
 
 instance HasPduPrism App (Observer BackendEvent) where
   embedPdu = AppBackendEvent

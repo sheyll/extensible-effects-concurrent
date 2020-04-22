@@ -4,6 +4,7 @@
 
 - **Process**
     - Split `Interrupt` into `ShutdownReason` and `InterruptReason`
+    - Rename `isProcessDownInterrupt` to `isLinkedProcessCrashed`
 
 - **Logging**
     - Rename `LogMessage(...)` to `LogEvent(...)`

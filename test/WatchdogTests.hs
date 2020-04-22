@@ -1,4 +1,5 @@
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE NoOverloadedStrings #-}
 module WatchdogTests(test_watchdogTests) where
 
 import Common  hiding (runTestCase)
@@ -11,6 +12,7 @@ import qualified Control.Eff.Concurrent.Protocol.Observer.Queue as OQ
 import qualified Control.Eff.Concurrent.Protocol.Watchdog as Watchdog
 import Control.Lens
 import Data.Set (Set)
+import Data.String
 import qualified Data.Set as Set
 import qualified Data.Map as Map
 import Data.Maybe (isNothing, fromJust)
@@ -46,7 +48,7 @@ test_watchdogTests =
             logNotice "started new broker"
             Watchdog.attachTemporary wd broker
             logNotice "attached broker"
-            let expected = ExitUnhandledError "test-broker-kill"
+            let expected = ExitUnhandledError (fromString "test-broker-kill")
             logNotice "crashing broker"
             assertShutdown (broker ^. fromEndpoint) expected
             logNotice "crashed broker"
@@ -67,7 +69,7 @@ test_watchdogTests =
             Watchdog.attachPermanent wd broker
             logNotice "attached and linked broker"
             logNotice "crashing broker"
-            let expected = ExitUnhandledError "test-broker-kill"
+            let expected = ExitUnhandledError (fromString "test-broker-kill")
             sendShutdown (broker ^. fromEndpoint) expected
             logNotice "crashed broker"
             logNotice "waiting for watchdog to crash"
@@ -110,7 +112,7 @@ test_watchdogTests =
             restartChildTest broker
             logNotice "restart child test finished"
             logNotice "crashing broker"
-            let expected = ExitUnhandledError "test-broker-kill"
+            let expected = ExitUnhandledError (fromString "test-broker-kill")
             assertShutdown (broker ^. fromEndpoint) expected
             logNotice "crashed broker"
           do
@@ -143,7 +145,7 @@ test_watchdogTests =
             restartChildTest broker
             logNotice "restart child test finished"
             logNotice "crashing broker"
-            let expected = ExitUnhandledError "test-broker-kill"
+            let expected = ExitUnhandledError (fromString "test-broker-kill")
             assertShutdown (broker ^. fromEndpoint) expected
             logNotice "crashed broker"
             logNotice "waiting for watchdog to crash"
@@ -178,7 +180,7 @@ test_watchdogTests =
             logNotice "attached broker 3"
             unlinkProcess (broker3 ^. fromEndpoint)
 
-            let expected = ExitUnhandledError "test-broker-kill 1"
+            let expected = ExitUnhandledError (fromString "test-broker-kill 1")
             logNotice "crashing broker 1"
             assertShutdown (broker1 ^. fromEndpoint) expected
             logNotice "crashed broker 1"
@@ -305,7 +307,7 @@ test_watchdogTests =
                             logNotice "waiting for restart"
                             awaitChildStartedEvent shelfId
                             cr <- Watchdog.getCrashReports @(Stateful BookShelf) wd
-                            logNotice (pack (show cr))
+                            traverse_ (logNotice "crash-reports: ") cr
                             lift (threadDelay 100_000)
 
                     crash3Times
@@ -352,7 +354,7 @@ test_watchdogTests =
                     >>= lift
                         . assertEqual
                               "wrong exit reason"
-                              (ExitUnhandledError "restart frequency exceeded")
+                              (ExitUnhandledError (fromString "restart frequency exceeded"))
                         . downReason
                   logNotice "broker down"
 
@@ -361,7 +363,7 @@ test_watchdogTests =
                     >>= lift
                         . assertEqual
                               "wrong exit reason"
-                              (ExitUnhandledError "restart frequency exceeded")
+                              (ExitUnhandledError (fromString "restart frequency exceeded"))
                         . downReason
                   logNotice "watchdog down"
 
@@ -394,16 +396,16 @@ test_watchdogTests =
                     (,) <$> spawnBookShelf brokerT b0 <*> spawnBookShelf brokerT b1
                   m0 <- monitor (e0^.fromEndpoint)
                   m1 <- monitor (e1^.fromEndpoint)
-                  logNotice ("started bookshelfs of temporary broker: " <> pack (show (m0, m1)))
+                  logNotice "started bookshelfs of temporary broker: " (m0, m1)
 
                   (e2, e3) <- OQ.observe @(Broker.ChildEvent (Stateful BookShelf)) (100 :: Int) brokerP $
                     (,) <$> spawnBookShelf brokerP b2 <*> spawnBookShelf brokerP b3
                   m2 <- monitor (e2^.fromEndpoint)
                   m3 <- monitor (e3^.fromEndpoint)
-                  logNotice ("started bookshelfs of permanent broker: " <> pack (show (m2, m3)))
+                  logNotice "started bookshelfs of permanent broker: " (m2, m3)
 
                   logNotice "crashing the watchdog"
-                  assertShutdown (wd ^. fromEndpoint) (ExitUnhandledError "watchdog test crash")
+                  assertShutdown (wd ^. fromEndpoint) (ExitUnhandledError (fromString "watchdog test crash"))
                   logNotice "watchdog stopped"
 
                   call e0 (AddBook "Solaris")
@@ -433,11 +435,11 @@ test_watchdogTests =
                   OQ.observe @(Broker.ChildEvent (Stateful BookShelf)) (100 :: Int) brokerT $ do
                     let b0 = BookShelfId 0
                     e0 <- spawnBookShelf brokerT b0
-                    logNotice ("started bookshelf of temporary broker: " <> pack (show e0))
+                    logNotice "started bookshelf of temporary broker: " e0
                     Watchdog.attachTemporary wd brokerT
                     logNotice "attached temporary broker"
                     logNotice "crash the bookshelf"
-                    assertShutdown (e0 ^. fromEndpoint) (ExitUnhandledError "bookshelf test crash")
+                    assertShutdown (e0 ^. fromEndpoint) (ExitUnhandledError (fromString "bookshelf test crash"))
                     awaitChildDownEvent b0
                     logNotice "bookshelf down"
                     awaitChildStartedEvent b0
@@ -459,12 +461,12 @@ test_watchdogTests =
                     let b0 = BookShelfId 0
 
                     e0 <- spawnBookShelf brokerT b0
-                    logNotice ("started bookshelf of temporary broker: " <> pack (show e0))
+                    logNotice "started bookshelf of temporary broker: " e0
 
                     Watchdog.attachTemporary wd brokerT
                     logNotice "attached temporary broker"
                     logNotice "crash the bookshelf"
-                    assertShutdown (e0 ^. fromEndpoint) (ExitUnhandledError "bookshelf test crash")
+                    assertShutdown (e0 ^. fromEndpoint) (ExitUnhandledError (fromString "bookshelf test crash"))
                     awaitChildDownEvent b0
                     logNotice "bookshelf down"
                     awaitChildStartedEvent b0
@@ -478,7 +480,7 @@ test_watchdogTests =
                     e2 <- spawnBookShelf brokerT b0
                     logNotice "bookshelf restarted"
 
-                    assertShutdown (e2 ^. fromEndpoint) (ExitUnhandledError "bookshelf test crash")
+                    assertShutdown (e2 ^. fromEndpoint) (ExitUnhandledError (fromString "bookshelf test crash"))
                     awaitChildDownEvent b0
                     logNotice "bookshelf down"
                     awaitChildStartedEvent b0
@@ -502,15 +504,15 @@ test_watchdogTests =
                     logNotice "attached permanent broker"
                     do
                       p <- self
-                      t <- spawn "test-proc" $ do
+                      t <- spawn (fromString "test-proc") $ do
                               void $ k wd brokerT brokerP
                               sendMessage p ()
                       res <- receiveSelectedWithMonitorAfter t selectMessage (TimeoutMicros 10_000_000)
-                      logNotice ("test-proc finish message: " <> pack (show res))
+                      logNotice "test-proc finish message: " res
                       case res of
                         Left x ->
-                          do logError  ("test-proc crashed: " <> pack (show x))
-                             lift (assertFailure ("test-proc crashed: " <> show x))
+                          do logError "test-proc crashed: " x
+                             lift (assertFailure ("test-proc crashed: " <> showAsLogMsg x))
                         Right () ->
                           logNotice "test-proc succeeded"
 
@@ -524,13 +526,13 @@ test_watchdogTests =
                  [
                   runTestCase "test 17: child events of unknown broker don't add state" $
                     setupThenShutdown $ \wd _brokerT _brokerP -> do
-                      someBroker <- asEndpoint @(Broker (Stateful BookShelf)) <$> spawn "someBroker" (pure ())
-                      someChild <- asEndpoint @BookShelf <$> spawn "someChild" (pure ())
+                      someBroker <- asEndpoint @(Broker (Stateful BookShelf)) <$> spawn (fromString "someBroker") (pure ())
+                      someChild <- asEndpoint @BookShelf <$> spawn (fromString "someChild") (pure ())
                       let someChildId = BookShelfId 2321
-                      cast wd (Observed (Broker.OnChildDown someBroker someChildId someChild (ExitUnhandledError "test error")))
+                      cast wd (Observed (Broker.OnChildDown someBroker someChildId someChild (ExitUnhandledError (packLogMsg "test error"))))
                       lift (threadDelay 1_000)
                       cr <- Watchdog.getCrashReports @(Stateful BookShelf) wd
-                      logNotice (pack (show cr))
+                      traverse_ (logNotice "crash-reports: ") cr
                       lift (assertBool "no crash reports expected" (Map.null cr))
 
                   , runTestCase "test 18: when a broker exits, the children of that broker are forgotten and ignored" $ do
@@ -551,7 +553,7 @@ test_watchdogTests =
                               (100 :: Int) brokerP (spawnBookShelf brokerP someChildId3)
                         do
                           cr <- Watchdog.getCrashReports @(Stateful BookShelf) wd
-                          logNotice ("crash-reports: " <> pack (show cr))
+                          traverse_ (logNotice "crash-reports: ") cr
                           lift (assertBool "no crash reports expected" (Map.null cr))
 
                         OQ.observe @(Broker.ChildEvent (Stateful BookShelf)) (100 :: Int) brokerT $ do
@@ -566,13 +568,13 @@ test_watchdogTests =
 
                         do
                           cr <- Watchdog.getCrashReports @(Stateful BookShelf) wd
-                          logNotice ("crash-reports: " <> pack (show cr))
+                          traverse_ (logNotice "crash-reports: ") cr
                           lift (assertEqual "wrong number of crash reports" 3 (Map.size cr))
 
                         assertShutdown (brokerT ^. fromEndpoint) ExitNormally
                         do
                           cr <- Watchdog.getCrashReports @(Stateful BookShelf) wd
-                          logNotice ("crash-reports: " <> pack (show cr))
+                          traverse_ (logNotice "crash-reports: ") cr
                           lift (assertEqual "wrong number of crash reports" 1 (Map.size cr))
 
                         assertShutdown (wd ^. fromEndpoint) ExitNormally
@@ -618,7 +620,7 @@ spawnBookShelf broker c0 = do
    c00 <- case res of
      Left (Broker.AlreadyStarted _ ep) -> pure ep
      Right ep -> awaitChildStartedEvent c0 >> pure ep
-   logNotice ("got book shelf: " <> pack (show c00))
+   logNotice "got book shelf: " c00
    pure c00
 
 spawnAndCrashBookShelf
@@ -647,32 +649,41 @@ crashBookShelf c00 c0 = do
    awaitChildDownEvent c0
 
 awaitBrokershuttingDownEvent broker = do
-   logNotice ("waiting for broker shutting down event of " <> pack (show broker))
+   logNotice "waiting for broker shutting down event of " broker
    evt <- OQ.await @(Broker.ChildEvent (Stateful BookShelf))
    case evt of
-    (Broker.OnBrokerShuttingDown broker') | broker == broker' ->
-      logNotice ("broker shutting down: " <> pack (show broker))
+    x@(Broker.OnBrokerShuttingDown broker') | broker == broker' ->
+      logNotice x
     otherEvent ->
-      lift (assertFailure ("wrong event received: " <> show otherEvent))
+      lift (assertFailure ("wrong event received: " <> showAsLogMsg otherEvent))
 
 awaitChildDownEvent c0 = do
-   logNotice ("waiting for down event of " <> pack (show c0))
+   logNotice "waiting for down event of " c0
    evt <- OQ.await @(Broker.ChildEvent (Stateful BookShelf))
    case evt of
-    (Broker.OnChildDown _ c' _ _) | c0 == c' ->
-      logNotice ("child down: " <> pack (show c0))
+    x@(Broker.OnChildDown _ c' _ _) | c0 == c' ->
+      logNotice x
     otherEvent ->
-      lift (assertFailure ("wrong broker down event received: " <> show otherEvent))
+      lift (assertFailure ("wrong broker down event received: " <> showAsLogMsg otherEvent))
 
 awaitChildStartedEvent c0 = do
-   logNotice ("waiting for start event of " <> pack (show c0))
+   logNotice "waiting for start event of " c0
    evt <- OQ.await @(Broker.ChildEvent (Stateful BookShelf))
    case evt of
-    (Broker.OnChildSpawned _ c' _) | c0 == c' ->
-      logNotice ("child started: " <> pack (show c0))
+    x@(Broker.OnChildSpawned _ c' _) | c0 == c' ->
+      logNotice x
     otherEvent ->
-      lift (assertFailure ("wrong broker start event received: " <> show otherEvent))
+      lift (assertFailure ("wrong broker start event received: " <> showAsLogMsg otherEvent))
 
+
+showAsLogMsg :: ToLogMsg a => a -> String
+showAsLogMsg = show . AsLogMsg
+
+newtype AsLogMsg a = AsLogMsg { notAsLogMsg :: a }
+  deriving (Typeable, ToLogMsg, Eq, Ord)
+
+instance ToLogMsg a => Show (AsLogMsg a) where
+  show = show . toLogMsg . notAsLogMsg
 
 data BookShelf deriving Typeable
 
@@ -693,11 +704,11 @@ instance Stateful.Server BookShelf Effects where
   newtype instance Model BookShelf = BookShelfModel (Set String) deriving (Eq, Show, Default)
 
   update _ shelfId event = do
-    logDebug (pack (show shelfId ++ " " ++ show event))
+    logDebug shelfId event
     case event of
 
       Stateful.OnCast StopShelf -> do
-        logNotice "stop shelf"
+        logNotice (MSG "stop shelf")
         exitNormally
 
       Stateful.OnCast (TakeBook book) -> do
@@ -717,10 +728,13 @@ instance Stateful.Server BookShelf Effects where
             when (booksBefore == booksAfter) (exitWithError "book not added")
             sendReply rt ()
 
-      other -> logWarning (pack (show other))
+      other -> logWarning other
 
 bookShelfModel :: Iso' (Stateful.Model BookShelf) (Set String)
 bookShelfModel = iso (\(BookShelfModel s) -> s) BookShelfModel
+
+instance ToLogMsg (Stateful.StartArgument BookShelf) where
+  toLogMsg (BookShelfId bId) = packLogMsg "BookShelf" <> toLogMsg bId
 
 type instance Broker.ChildId BookShelf = Stateful.StartArgument BookShelf
 
@@ -730,8 +744,10 @@ instance NFData (Pdu BookShelf r) where
   rnf (AddBook b) = rnf b
   rnf (TakeBook b) = rnf b
 
-instance Show (Pdu BookShelf r) where
-  show GetBookList = "get-book-list"
-  show StopShelf = "stop-shelf"
-  show (AddBook b) = "add-book: " ++ b
-  show (TakeBook b) = "take-book: " ++ b
+instance ToLogMsg (Pdu BookShelf r) where
+  toLogMsg GetBookList = packLogMsg "get-book-list"
+  toLogMsg StopShelf = packLogMsg "stop-shelf"
+  toLogMsg (AddBook b) = packLogMsg "add-book: " <> toLogMsg b
+  toLogMsg (TakeBook b) = packLogMsg "take-book: " <> toLogMsg b
+
+instance ToTypeLogMsg BookShelf
