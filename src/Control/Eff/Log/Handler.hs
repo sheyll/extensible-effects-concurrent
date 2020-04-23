@@ -1,4 +1,5 @@
 {-# LANGUAGE UndecidableInstances #-}
+
 -- | A memory efficient, streaming, logging effect with support for
 -- efficiently not logging when no logs are required.
 --
@@ -6,82 +7,85 @@
 -- as well as asynchronous logging in another thread.
 module Control.Eff.Log.Handler
   ( -- * FilteredLogging API
+
     -- ** Sending Log Messages
-    Logs(..)
-  , LogEventSender(..)
-  , logEmergency
-  , logAlert
-  , logCritical
-  , logError
-  , logWarning
-  , logNotice
-  , logInfo
-  , logDebug
-  , logCallStack
-  , logMultiLine
+    Logs (..),
+    LogEventSender (..),
+    logEmergency,
+    logAlert,
+    logCritical,
+    logError,
+    logWarning,
+    logNotice,
+    logInfo,
+    logDebug,
+    logCallStack,
+    logMultiLine,
 
-  -- ** Log Message Pre-Filtering #LogPredicate#
-  , whitelistLogEvents
-  , blacklistLogEvents
-  , setLogPredicate
-  , modifyLogPredicate
-  , askLogPredicate
+    -- ** Log Message Pre-Filtering #LogPredicate#
+    whitelistLogEvents,
+    blacklistLogEvents,
+    setLogPredicate,
+    modifyLogPredicate,
+    askLogPredicate,
 
-  -- * Log Handling API
+    -- * Log Handling API
 
-  -- ** Writing Logs
-  , setLogWriter
-  , addLogWriter
-  , modifyLogWriter
+    -- ** Writing Logs
+    setLogWriter,
+    addLogWriter,
+    modifyLogWriter,
 
-  -- *** Log Message Modification
-  , censorLogs
-  , censorLogsIo
+    -- *** Log Message Modification
+    censorLogs,
+    censorLogsIo,
 
-  -- ** 'Logs' Effect Handling
-  , FilteredLogging
-  , IoLogging
-  , LoggingAndIo
-  , withLogging
-  , withoutLogging
+    -- ** 'Logs' Effect Handling
+    FilteredLogging,
+    IoLogging,
+    LoggingAndIo,
+    withLogging,
+    withoutLogging,
 
-  -- ** Low-Level API for Custom Extensions
-  -- *** Log Message Interception
-  , runLogs
-  , runLogsWithoutLogging
-  , respondToLogEvent
-  , interceptLogMessages
+    -- ** Low-Level API for Custom Extensions
 
+    -- *** Log Message Interception
+    runLogs,
+    runLogsWithoutLogging,
+    respondToLogEvent,
+    interceptLogMessages,
   )
 where
 
-import           Control.DeepSeq
-import           Control.Eff                   as Eff
-import           Control.Eff.Extend
-import           Control.Eff.Log.Message
-import           Control.Eff.Log.Writer
-import qualified Control.Exception.Safe        as Safe
-import           Control.Lens
-import           Control.Monad                   ( when, (>=>) )
-import           Control.Monad.Base              ( MonadBase() )
-import qualified Control.Monad.Catch           as Catch
-import           Control.Monad.Trans.Control     ( MonadBaseControl
-                                                   ( restoreM
-                                                   , liftBaseWith
-                                                   , StM
-                                                   )
-                                                 )
-import           Data.Default
-import           Data.Function                  ( fix )
-import           Data.Hashable
-import           Data.Text                     as T
-import           GHC.Stack                      ( HasCallStack
-                                                , callStack
-                                                , withFrozenCallStack
-                                                , prettyCallStack
-                                                )
-import Data.Foldable                           ( traverse_ )
-import Text.Printf                             ( printf )
+import Control.DeepSeq
+import Control.Eff as Eff
+import Control.Eff.Extend
+import Control.Eff.Log.Message
+import Control.Eff.Log.Writer
+import qualified Control.Exception.Safe as Safe
+import Control.Lens
+import Control.Monad ((>=>), when)
+import Control.Monad.Base (MonadBase ())
+import qualified Control.Monad.Catch as Catch
+import Control.Monad.Trans.Control
+  ( MonadBaseControl
+      ( StM,
+        liftBaseWith,
+        restoreM
+      ),
+  )
+import Data.Default
+import Data.Foldable (traverse_)
+import Data.Function (fix)
+import Data.Hashable
+import Data.Text as T
+import GHC.Stack
+  ( HasCallStack,
+    callStack,
+    prettyCallStack,
+    withFrozenCallStack,
+  )
+import Text.Printf (printf)
 
 -- | Something that consumes a 'LogEvent'.
 --
@@ -96,7 +100,7 @@ import Text.Printf                             ( printf )
 -- >>> logDebug "started: " myPid " after receiving: " lastMsg " threshold is: " currentThresh
 --
 -- @since 1.0.0
-class LogEventSender a  where
+class LogEventSender a where
   -- | Log a 'LogEvent'.
   --
   -- Dispatch 'LogEvent's that match the 'LogPredicate'.
@@ -127,20 +131,22 @@ instance (ToLogMsg x, LogEventSender a) => LogEventSender (x -> a) where
 --
 -- This effect is handled via 'withLogging'.
 data Logs v where
-  AskLogFilter
-    :: Logs LogPredicate
-  WriteLogMessage
-    :: !LogEvent -> Logs ()
+  AskLogFilter ::
+    Logs
+      LogPredicate
+  WriteLogMessage ::
+    !LogEvent ->
+    Logs ()
 
 instance forall e a k. Handle Logs e a (LogPredicate -> k) where
-  handle h q AskLogFilter p         = h (q ^$ p ) p
-  handle h q (WriteLogMessage _) p  = h (q ^$ ()) p
+  handle h q AskLogFilter p = h (q ^$ p) p
+  handle h q (WriteLogMessage _) p = h (q ^$ ()) p
 
 -- | Compose and dispatch a 'LogEvent' with 'emergencySeverity'.
 --
 -- @since 1.0.0
 logEmergency :: (HasCallStack, LogEventSender a) => a
-logEmergency =  withFrozenCallStack $ sendLogEvent emptyLogMsg
+logEmergency = withFrozenCallStack $ sendLogEvent emptyLogMsg
   where
     emptyLogMsg = def & logEventSeverity .~ emergencySeverity
 
@@ -148,7 +154,7 @@ logEmergency =  withFrozenCallStack $ sendLogEvent emptyLogMsg
 --
 -- @since 1.0.0
 logAlert :: (HasCallStack, LogEventSender a) => a
-logAlert =  withFrozenCallStack $ sendLogEvent emptyLogMsg
+logAlert = withFrozenCallStack $ sendLogEvent emptyLogMsg
   where
     emptyLogMsg = def & logEventSeverity .~ alertSeverity
 
@@ -156,7 +162,7 @@ logAlert =  withFrozenCallStack $ sendLogEvent emptyLogMsg
 --
 -- @since 1.0.0
 logCritical :: (HasCallStack, LogEventSender a) => a
-logCritical =  withFrozenCallStack $ sendLogEvent emptyLogMsg
+logCritical = withFrozenCallStack $ sendLogEvent emptyLogMsg
   where
     emptyLogMsg = def & logEventSeverity .~ criticalSeverity
 
@@ -164,7 +170,7 @@ logCritical =  withFrozenCallStack $ sendLogEvent emptyLogMsg
 --
 -- @since 1.0.0
 logError :: (HasCallStack, LogEventSender a) => a
-logError =  withFrozenCallStack $ sendLogEvent emptyLogMsg
+logError = withFrozenCallStack $ sendLogEvent emptyLogMsg
   where
     emptyLogMsg = def & logEventSeverity .~ errorSeverity
 
@@ -172,7 +178,7 @@ logError =  withFrozenCallStack $ sendLogEvent emptyLogMsg
 --
 -- @since 1.0.0
 logWarning :: (HasCallStack, LogEventSender a) => a
-logWarning =  withFrozenCallStack $ sendLogEvent emptyLogMsg
+logWarning = withFrozenCallStack $ sendLogEvent emptyLogMsg
   where
     emptyLogMsg = def & logEventSeverity .~ warningSeverity
 
@@ -180,7 +186,7 @@ logWarning =  withFrozenCallStack $ sendLogEvent emptyLogMsg
 --
 -- @since 1.0.0
 logNotice :: (HasCallStack, LogEventSender a) => a
-logNotice =  withFrozenCallStack $ sendLogEvent emptyLogMsg
+logNotice = withFrozenCallStack $ sendLogEvent emptyLogMsg
   where
     emptyLogMsg = def & logEventSeverity .~ noticeSeverity
 
@@ -188,7 +194,7 @@ logNotice =  withFrozenCallStack $ sendLogEvent emptyLogMsg
 --
 -- @since 1.0.0
 logInfo :: (HasCallStack, LogEventSender a) => a
-logInfo =  withFrozenCallStack $ sendLogEvent emptyLogMsg
+logInfo = withFrozenCallStack $ sendLogEvent emptyLogMsg
   where
     emptyLogMsg = def & logEventSeverity .~ informationalSeverity
 
@@ -196,7 +202,7 @@ logInfo =  withFrozenCallStack $ sendLogEvent emptyLogMsg
 --
 -- @since 1.0.0
 logDebug :: (HasCallStack, LogEventSender a) => a
-logDebug =  withFrozenCallStack $ sendLogEvent emptyLogMsg
+logDebug = withFrozenCallStack $ sendLogEvent emptyLogMsg
   where
     emptyLogMsg = def & logEventSeverity .~ debugSeverity
 
@@ -218,64 +224,72 @@ logDebug =  withFrozenCallStack $ sendLogEvent emptyLogMsg
 -- | This instance allows lifting the 'Logs' effect into a base monad, e.g. 'IO'.
 -- This instance needs a 'LogWriterReader' in the base monad,
 -- that is capable to handle 'sendLogEvent' invocations.
-instance forall m e. (MonadBase m IO, MonadBaseControl IO (Eff e), LiftedBase m e, Lifted IO e, IoLogging (Logs ': e))
-  => MonadBaseControl m (Eff (Logs ': e)) where
-    type StM (Eff (Logs ': e)) a =  StM (Eff e) a
-    liftBaseWith f = do
-      lf <- askLogPredicate
-      raise (liftBaseWith (\runInBase -> f (runInBase . runLogs lf)))
-    restoreM = raise . restoreM
+instance
+  forall m e.
+  (MonadBase m IO, MonadBaseControl IO (Eff e), LiftedBase m e, Lifted IO e, IoLogging (Logs ': e)) =>
+  MonadBaseControl m (Eff (Logs ': e))
+  where
+  type StM (Eff (Logs ': e)) a = StM (Eff e) a
+  liftBaseWith f = do
+    lf <- askLogPredicate
+    raise (liftBaseWith (\runInBase -> f (runInBase . runLogs lf)))
+  restoreM = raise . restoreM
 
-instance (LiftedBase m e, Catch.MonadThrow (Eff e))
-  => Catch.MonadThrow (Eff (Logs ': e)) where
+instance
+  (LiftedBase m e, Catch.MonadThrow (Eff e)) =>
+  Catch.MonadThrow (Eff (Logs ': e))
+  where
   throwM exception = raise (Catch.throwM exception)
 
-instance (Applicative m, MonadBaseControl IO (Eff e), LiftedBase m e, Catch.MonadCatch (Eff e), IoLogging (Logs ': e), Lifted IO e)
-  => Catch.MonadCatch (Eff (Logs ': e)) where
+instance
+  (Applicative m, MonadBaseControl IO (Eff e), LiftedBase m e, Catch.MonadCatch (Eff e), IoLogging (Logs ': e), Lifted IO e) =>
+  Catch.MonadCatch (Eff (Logs ': e))
+  where
   catch effect handler = do
     lf <- askLogPredicate
-    let lower                   = runLogs lf
-        nestedEffects           = lower effect
+    let lower = runLogs lf
+        nestedEffects = lower effect
         nestedHandler exception = lower (handler exception)
     raise (Catch.catch nestedEffects nestedHandler)
 
-instance (Applicative m, MonadBaseControl IO (Eff e), LiftedBase m e, Catch.MonadMask (Eff e), IoLogging (Logs ': e), Lifted IO e)
-  => Catch.MonadMask (Eff (Logs ': e)) where
+instance
+  (Applicative m, MonadBaseControl IO (Eff e), LiftedBase m e, Catch.MonadMask (Eff e), IoLogging (Logs ': e), Lifted IO e) =>
+  Catch.MonadMask (Eff (Logs ': e))
+  where
   mask maskedEffect = do
     lf <- askLogPredicate
-    let
-      lower :: Eff (Logs ': e) a -> Eff e a
-      lower = runLogs lf
+    let lower :: Eff (Logs ': e) a -> Eff e a
+        lower = runLogs lf
     raise
-        (Catch.mask
-          (\nestedUnmask -> lower
-            (maskedEffect
-              ( raise . nestedUnmask . lower )
-            )
+      ( Catch.mask
+          ( \nestedUnmask ->
+              lower
+                ( maskedEffect
+                    (raise . nestedUnmask . lower)
+                )
           )
-        )
+      )
   uninterruptibleMask maskedEffect = do
     lf <- askLogPredicate
-    let
-      lower :: Eff (Logs ': e) a -> Eff e a
-      lower = runLogs lf
+    let lower :: Eff (Logs ': e) a -> Eff e a
+        lower = runLogs lf
     raise
-        (Catch.uninterruptibleMask
-          (\nestedUnmask -> lower
-            (maskedEffect
-              ( raise . nestedUnmask . lower )
-            )
+      ( Catch.uninterruptibleMask
+          ( \nestedUnmask ->
+              lower
+                ( maskedEffect
+                    (raise . nestedUnmask . lower)
+                )
           )
-        )
+      )
   generalBracket acquire release useIt = do
     lf <- askLogPredicate
-    let
-      lower :: Eff (Logs ': e) a -> Eff e a
-      lower = runLogs lf
+    let lower :: Eff (Logs ': e) a -> Eff e a
+        lower = runLogs lf
     raise
-        (Catch.generalBracket
+      ( Catch.generalBracket
           (lower acquire)
-          (((.).(.)) lower release)
+          (((.) . (.)) lower release)
           (lower . useIt)
       )
 
@@ -314,7 +328,6 @@ type FilteredLogging e = (Member Logs e, Member LogWriterReader e)
 -- This also provides both 'IoLogging' and 'FilteredLogging'.
 type LoggingAndIo = '[Logs, LogWriterReader, Lift IO]
 
-
 -- | Handle the 'Logs' and 'LogWriterReader' effects.
 --
 -- It installs the given 'LogWriter', which determines the underlying
@@ -331,7 +344,6 @@ type LoggingAndIo = '[Logs, LogWriterReader, Lift IO]
 -- This provides the 'IoLogging' and 'FilteredLogging' effects.
 --
 -- See also 'runLogs'.
---
 withLogging :: Lifted IO e => LogWriter -> Eff (Logs ': LogWriterReader ': e) a -> Eff e a
 withLogging lw = runLogWriterReader lw . runLogs allLogEvents
 
@@ -350,44 +362,42 @@ withLogging lw = runLogWriterReader lw . runLogs allLogEvents
 -- This provides the 'FilteredLogging' effect.
 --
 -- See also 'runLogsWithoutLogging'.
---
 withoutLogging :: Eff (Logs ': LogWriterReader ': e) a -> Eff e a
 withoutLogging = runLogWriterReader mempty . runLogsWithoutLogging noLogEvents
 
 -- | Raw handling of the 'Logs' effect.
 -- Exposed for custom extensions, if in doubt use 'withLogging'.
-runLogs
-  :: forall e b .
-     ( Member LogWriterReader (Logs ': e)
-     , Lifted IO e
-     )
-  => LogPredicate
-  -> Eff (Logs ': e) b
-  -> Eff e b
+runLogs ::
+  forall e b.
+  ( Member LogWriterReader (Logs ': e),
+    Lifted IO e
+  ) =>
+  LogPredicate ->
+  Eff (Logs ': e) b ->
+  Eff e b
 runLogs p m =
-  fix (handle_relay (\a _ -> return a)) (sendLogMessageToLogWriter  m) p
+  fix (handle_relay (\a _ -> return a)) (sendLogMessageToLogWriter m) p
 
 -- | Raw handling of the 'Logs' effect.
 -- Exposed for custom extensions, if in doubt use 'withoutLogging'.
-runLogsWithoutLogging
-  :: forall e b .
-     ( Member LogWriterReader (Logs ': e)
-     )
-  => LogPredicate
-  -> Eff (Logs ': e) b
-  -> Eff e b
+runLogsWithoutLogging ::
+  forall e b.
+  ( Member LogWriterReader (Logs ': e)
+  ) =>
+  LogPredicate ->
+  Eff (Logs ': e) b ->
+  Eff e b
 runLogsWithoutLogging p m =
   fix (handle_relay (\a _ -> return a)) m p
 
 -- | Log the current 'callStack' using the given 'Severity'.
 --
 -- @since 0.30.0
-logCallStack :: forall e . (HasCallStack, Member Logs e) => Severity -> Eff e ()
+logCallStack :: forall e. (HasCallStack, Member Logs e) => Severity -> Eff e ()
 logCallStack =
   withFrozenCallStack $ \s ->
     let stackTraceLines = MkLogMsg <$> T.lines (pack (prettyCallStack callStack))
-    in logMultiLine s stackTraceLines
-
+     in logMultiLine s stackTraceLines
 
 -- | Issue a log statement for each item in the list prefixed with a line number and a message hash.
 --
@@ -399,14 +409,14 @@ logCallStack =
 -- multi-line log message.
 --
 -- @since 0.30.0
-logMultiLine
-  :: forall e
-    . ( HasCallStack
-    , Member Logs e
-    )
-    => Severity
-    -> [LogMsg]
-    -> Eff e ()
+logMultiLine ::
+  forall e.
+  ( HasCallStack,
+    Member Logs e
+  ) =>
+  Severity ->
+  [LogMsg] ->
+  Eff e ()
 logMultiLine =
   withFrozenCallStack $ \s messageLines -> do
     let msgHash = T.pack $ printf "%06X" $ hash messageLines `mod` 0x1000000
@@ -415,15 +425,14 @@ logMultiLine =
               messageLineCountString = packLogMsg (show messageLineCount)
               printLineNum i =
                 let !i' = packLogMsg (show i)
-                in MkLogMsg msgHash <> packLogMsg ": " <> i' <> packLogMsg "/" <> messageLineCountString <> packLogMsg ":  "
-          in Prelude.zipWith (<>) (printLineNum <$> [1 :: Int ..])  messageLines
+                 in MkLogMsg msgHash <> packLogMsg ": " <> i' <> packLogMsg "/" <> messageLineCountString <> packLogMsg ":  "
+           in Prelude.zipWith (<>) (printLineNum <$> [1 :: Int ..]) messageLines
     traverse_ (sendLogEvent . set logEventSeverity s . infoMessage) messageLinesWithLineNum
-
 
 -- | Get the current 'Logs' filter/transformer function.
 --
 -- See "Control.Eff.Log#LogPredicate"
-askLogPredicate :: forall e . (Member Logs e) => Eff e LogPredicate
+askLogPredicate :: forall e. (Member Logs e) => Eff e LogPredicate
 askLogPredicate = send @Logs AskLogFilter
 
 -- | Keep only those messages, for which a predicate holds.
@@ -445,12 +454,12 @@ askLogPredicate = send @Logs AskLogFilter
 -- In order to also delegate to the previous predicate, use 'modifyLogPredicate'
 --
 -- See "Control.Eff.Log#LogPredicate"
-setLogPredicate
-  :: forall r b
-   . (Member Logs r, HasCallStack)
-  => LogPredicate
-  -> Eff r b
-  -> Eff r b
+setLogPredicate ::
+  forall r b.
+  (Member Logs r, HasCallStack) =>
+  LogPredicate ->
+  Eff r b ->
+  Eff r b
 setLogPredicate = modifyLogPredicate . const
 
 -- | Change the 'LogPredicate'.
@@ -467,16 +476,16 @@ setLogPredicate = modifyLogPredicate . const
 -- @
 --
 -- See "Control.Eff.Log#LogPredicate"
-modifyLogPredicate
-  :: forall e b
-   . (Member Logs e, HasCallStack)
-  => (LogPredicate -> LogPredicate)
-  -> Eff e b
-  -> Eff e b
+modifyLogPredicate ::
+  forall e b.
+  (Member Logs e, HasCallStack) =>
+  (LogPredicate -> LogPredicate) ->
+  Eff e b ->
+  Eff e b
 modifyLogPredicate lpIn e = askLogPredicate >>= fix step e . lpIn
   where
     ret x _ = return x
-    step :: (Eff e b -> LogPredicate -> Eff e b) ->  Eff e b -> LogPredicate -> Eff e b
+    step :: (Eff e b -> LogPredicate -> Eff e b) -> Eff e b -> LogPredicate -> Eff e b
     step k (E q (prj -> Just (WriteLogMessage !l))) lp = do
       sendLogEvent l
       respond_relay @Logs ret k (q ^$ ()) lp
@@ -490,9 +499,12 @@ modifyLogPredicate lpIn e = askLogPredicate >>= fix step e . lpIn
 -- See 'blacklistLogEvents' and 'modifyLogPredicate'.
 --
 -- See "Control.Eff.Log#LogPredicate"
-whitelistLogEvents
-  :: forall e a . (Member Logs e)
-  => LogPredicate -> Eff e a -> Eff e a
+whitelistLogEvents ::
+  forall e a.
+  (Member Logs e) =>
+  LogPredicate ->
+  Eff e a ->
+  Eff e a
 whitelistLogEvents p = modifyLogPredicate (\p' m -> p' m || p m)
 
 -- | Exclude 'LogEvent's that match a 'LogPredicate'.
@@ -504,9 +516,12 @@ whitelistLogEvents p = modifyLogPredicate (\p' m -> p' m || p m)
 -- See 'blacklistLogEvents' and 'modifyLogPredicate'.
 --
 -- See "Control.Eff.Log#LogPredicate"
-blacklistLogEvents
-  :: forall e a . (Member Logs e)
-  => LogPredicate -> Eff e a -> Eff e a
+blacklistLogEvents ::
+  forall e a.
+  (Member Logs e) =>
+  LogPredicate ->
+  Eff e a ->
+  Eff e a
 blacklistLogEvents p = modifyLogPredicate (\p' m -> not (p m) && p' m)
 
 -- | Consume log messages.
@@ -532,15 +547,15 @@ blacklistLogEvents p = modifyLogPredicate (\p' m -> not (p m) && p' m)
 -- In contrast the functions based on modifying the 'LogWriter',
 -- such as 'addLogWriter' or 'censorLogs', are save to use in combination
 -- with the aforementioned liftings.
-respondToLogEvent
-  :: forall r b
-   . (Member Logs r)
-  => (LogEvent -> Eff r ())
-  -> Eff r b
-  -> Eff r b
+respondToLogEvent ::
+  forall r b.
+  (Member Logs r) =>
+  (LogEvent -> Eff r ()) ->
+  Eff r b ->
+  Eff r b
 respondToLogEvent f e = askLogPredicate >>= fix step e
   where
-    step :: (Eff r b -> LogPredicate -> Eff r b) ->  Eff r b -> LogPredicate -> Eff r b
+    step :: (Eff r b -> LogPredicate -> Eff r b) -> Eff r b -> LogPredicate -> Eff r b
     step k (E q (prj -> Just (WriteLogMessage !l))) lp = do
       f l
       respond_relay @Logs ret k (q ^$ ()) lp
@@ -560,12 +575,12 @@ respondToLogEvent f e = askLogPredicate >>= fix step e
 -- In contrast the functions based on modifying the 'LogWriter',
 -- such as 'addLogWriter' or 'censorLogs', are save to use in combination
 -- with the aforementioned liftings.
-interceptLogMessages
-  :: forall r b
-   . (Member Logs r)
-  => (LogEvent -> Eff r LogEvent)
-  -> Eff r b
-  -> Eff r b
+interceptLogMessages ::
+  forall r b.
+  (Member Logs r) =>
+  (LogEvent -> Eff r LogEvent) ->
+  Eff r b ->
+  Eff r b
 interceptLogMessages f = respondToLogEvent (f >=> sendLogEvent)
 
 -- | Internal function.
@@ -579,7 +594,7 @@ modifyLogWriter f = localLogWriterReader f . sendLogMessageToLogWriter
 -- | Replace the current 'LogWriter'.
 -- To add an additional log message consumer use 'addLogWriter'
 setLogWriter :: IoLogging e => LogWriter -> Eff e a -> Eff e a
-setLogWriter = modifyLogWriter  . const
+setLogWriter = modifyLogWriter . const
 
 -- | Modify the the 'LogEvent's written in the given sub-expression.
 --
@@ -617,6 +632,5 @@ censorLogsIo = modifyLogWriter . mappingLogWriterIO
 -- >                     logDebug "test debugSeverity 7"
 -- >        severeMessages = view (logEventSeverity . to (<= errorSeverity))
 -- >
---
 addLogWriter :: IoLogging e => LogWriter -> Eff e a -> Eff e a
 addLogWriter lw2 = modifyLogWriter (\lw1 -> MkLogWriter (\m -> runLogWriter lw1 m >> runLogWriter lw2 m))

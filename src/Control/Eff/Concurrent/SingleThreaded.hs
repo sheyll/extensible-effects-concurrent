@@ -16,29 +16,31 @@
 -- @since 0.25.0
 module Control.Eff.Concurrent.SingleThreaded
   ( -- * Generic functions and type for Processes and Messages
-    module Control.Eff.Concurrent
+    module Control.Eff.Concurrent,
+
     -- * Scheduler
-  , schedule
-  , defaultMain
-  , defaultMainWithLogWriter
-  , Effects
-  , SafeEffects
-  , BaseEffects
-  , HasBaseEffects
-  -- * External Libraries
-  ) where
+    schedule,
+    defaultMain,
+    defaultMainWithLogWriter,
+    Effects,
+    SafeEffects,
+    BaseEffects,
+    HasBaseEffects,
+
+    -- * External Libraries
+  )
+where
 
 import Control.Eff
-import Control.Eff.Concurrent                  hiding
-                                                ( schedule
-                                                , defaultMain
-                                                , defaultMainWithLogWriter
-                                                , Effects
-                                                , SafeEffects
-                                                , BaseEffects
-                                                , HasBaseEffects
-                                                )
-
+import Control.Eff.Concurrent hiding
+  ( BaseEffects,
+    Effects,
+    HasBaseEffects,
+    SafeEffects,
+    defaultMain,
+    defaultMainWithLogWriter,
+    schedule,
+  )
 import Control.Eff.Concurrent.Process.SingleThreadedScheduler
 import GHC.Stack (HasCallStack)
 
@@ -46,11 +48,11 @@ import GHC.Stack (HasCallStack)
 -- from "Control.Eff.Concurrent.Process.SingleThreadedScheduler".
 --
 -- @since 0.25.0
-schedule
-  :: HasCallStack
-  => LogWriter
-  -> Eff Effects a
-  -> IO (Either ShutdownReason a)
+schedule ::
+  HasCallStack =>
+  LogWriter ->
+  Eff Effects a ->
+  IO (Either ShutdownReason a)
 schedule = scheduleIOWithLogging
 
 -- | The effect list for 'Process' effects in the single threaded scheduler.

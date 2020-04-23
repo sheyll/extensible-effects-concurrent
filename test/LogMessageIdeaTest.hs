@@ -1,34 +1,35 @@
 module LogMessageIdeaTest where
 
-import           Control.Concurrent
-import           Control.DeepSeq
-import           Control.Lens
-import           Data.Default
-import           Data.Maybe
-import qualified Data.Text                     as T
-import           Data.Time.Clock
-import           Data.Time.Format
-import           GHC.Generics            hiding ( to )
-import           GHC.Stack
-import           System.FilePath.Posix
-import           Text.Printf
-import           Control.Eff
-import           Control.Eff.Reader.Lazy
-
+import Control.Concurrent
+import Control.DeepSeq
+import Control.Eff
+import Control.Eff.Reader.Lazy
+import Control.Lens
+import Data.Default
+import Data.Maybe
+import qualified Data.Text as T
+import Data.Time.Clock
+import Data.Time.Format
+import GHC.Generics hiding (to)
+import GHC.Stack
+import System.FilePath.Posix
+import Text.Printf
 
 -- | A message data type inspired by the RFC-5424 Syslog Protocol
-data LogEvent =
-  MkLogEvent { _logEventFacility :: !Facility
-               , _logEventSeverity :: !Severity
-               , _logEventTimestamp :: (Maybe UTCTime)
-               , _logEventHostname :: (Maybe T.Text)
-               , _logEventAppName :: (Maybe T.Text)
-               , _logEventProcessId :: (Maybe T.Text)
-               , _logEventMessageId :: (Maybe T.Text)
-               , _logEventStructuredData :: [StructuredDataElement]
-               , _logEventThreadId :: (Maybe ThreadId)
-               , _logEventSrcLoc :: (Maybe SrcLoc)
-               , _logEventMessage :: T.Text}
+data LogEvent
+  = MkLogEvent
+      { _logEventFacility :: !Facility,
+        _logEventSeverity :: !Severity,
+        _logEventTimestamp :: (Maybe UTCTime),
+        _logEventHostname :: (Maybe T.Text),
+        _logEventAppName :: (Maybe T.Text),
+        _logEventProcessId :: (Maybe T.Text),
+        _logEventMessageId :: (Maybe T.Text),
+        _logEventStructuredData :: [StructuredDataElement],
+        _logEventThreadId :: (Maybe ThreadId),
+        _logEventSrcLoc :: (Maybe SrcLoc),
+        _logEventMessage :: T.Text
+      }
   deriving (Eq, Generic)
 
 instance Default LogEvent where
@@ -37,22 +38,25 @@ instance Default LogEvent where
 instance NFData LogEvent
 
 -- | RFC-5424 defines how structured data can be included in a log message.
-data StructuredDataElement =
-  SdElement { _sdElementId :: !T.Text
-            , _sdElementParameters :: ![SdParameter]}
+data StructuredDataElement
+  = SdElement
+      { _sdElementId :: !T.Text,
+        _sdElementParameters :: ![SdParameter]
+      }
   deriving (Eq, Ord, Generic, Show)
 
-
 renderSdElement :: StructuredDataElement -> T.Text
-renderSdElement (SdElement sdId params) = "[" <> sdName sdId <> if null params
-  then ""
-  else " " <> T.unwords (renderSdParameter <$> params) <> "]"
+renderSdElement (SdElement sdId params) =
+  "[" <> sdName sdId
+    <> if null params
+      then ""
+      else " " <> T.unwords (renderSdParameter <$> params) <> "]"
 
 instance NFData StructuredDataElement
 
 -- | Component of an RFC-5424 'StructuredDataElement'
-data SdParameter =
-  MkSdParameter !T.Text !T.Text
+data SdParameter
+  = MkSdParameter !T.Text !T.Text
   deriving (Eq, Ord, Generic, Show)
 
 renderSdParameter :: SdParameter -> T.Text
@@ -67,16 +71,16 @@ sdName =
 -- | Extract the value of an 'SdParameter'.
 sdParamValue :: T.Text -> T.Text
 sdParamValue = T.concatMap $ \case
-  '"'  -> "\\\""
+  '"' -> "\\\""
   '\\' -> "\\\\"
-  ']'  -> "\\]"
-  x    -> T.singleton x
+  ']' -> "\\]"
+  x -> T.singleton x
 
 instance NFData SdParameter
 
 -- | An rfc 5424 severity
-newtype Severity =
-  Severity {fromSeverity :: Int}
+newtype Severity
+  = Severity {fromSeverity :: Int}
   deriving (Eq, Ord, Generic, NFData)
 
 instance Show Severity where
@@ -86,8 +90,10 @@ instance Show Severity where
   show (Severity 4) = "WARNING  "
   show (Severity 5) = "NOTICE   "
   show (Severity 6) = "INFO     "
-  show (Severity x) | x <= 0    = "EMERGENCY"
-                    | otherwise = "DEBUG    "
+  show (Severity x)
+    | x <= 0 = "EMERGENCY"
+    | otherwise = "DEBUG    "
+
 --  *** Severities
 
 -- | Smart constructor for the RFC-5424 __emergency__ 'LogEvent' 'Severity'.
@@ -140,7 +146,6 @@ debugSeverity = Severity 7
 
 instance Default Severity where
   def = debugSeverity
-
 
 -- | An rfc 5424 facility
 newtype Facility = Facility {fromFacility :: Int}
@@ -267,83 +272,83 @@ instance Default Facility where
 makeLensesWith (lensRules & generateSignatures .~ False) ''StructuredDataElement
 
 -- | A lens for 'SdParameter's
-sdElementParameters
-  :: Functor f
-  => ([SdParameter] -> f [SdParameter])
-  -> StructuredDataElement
-  -> f StructuredDataElement
+sdElementParameters ::
+  Functor f =>
+  ([SdParameter] -> f [SdParameter]) ->
+  StructuredDataElement ->
+  f StructuredDataElement
 
 -- | A lens for the key or ID of a group of RFC 5424 key-value pairs.
-sdElementId
-  :: Functor f
-  => (T.Text -> f T.Text)
-  -> StructuredDataElement
-  -> f StructuredDataElement
+sdElementId ::
+  Functor f =>
+  (T.Text -> f T.Text) ->
+  StructuredDataElement ->
+  f StructuredDataElement
 
 makeLensesWith (lensRules & generateSignatures .~ False) ''LogEvent
 
 -- | A lens for the UTC time of a 'LogEvent'
 -- The function 'setLogEventsTimestamp' can be used to set the field.
-logEventTimestamp
-  :: Functor f
-  => (Maybe UTCTime -> f (Maybe UTCTime))
-  -> LogEvent
-  -> f LogEvent
+logEventTimestamp ::
+  Functor f =>
+  (Maybe UTCTime -> f (Maybe UTCTime)) ->
+  LogEvent ->
+  f LogEvent
 
 -- | A lens for the 'ThreadId' of a 'LogEvent'
 -- The function 'setLogEventsThreadId' can be used to set the field.
-logEventThreadId
-  :: Functor f
-  => (Maybe ThreadId -> f (Maybe ThreadId))
-  -> LogEvent
-  -> f LogEvent
+logEventThreadId ::
+  Functor f =>
+  (Maybe ThreadId -> f (Maybe ThreadId)) ->
+  LogEvent ->
+  f LogEvent
 
 -- | A lens for the 'StructuredDataElement' of a 'LogEvent'
-logEventStructuredData
-  :: Functor f
-  => ([StructuredDataElement] -> f [StructuredDataElement])
-  -> LogEvent
-  -> f LogEvent
+logEventStructuredData ::
+  Functor f =>
+  ([StructuredDataElement] -> f [StructuredDataElement]) ->
+  LogEvent ->
+  f LogEvent
 
 -- | A lens for the 'SrcLoc' of a 'LogEvent'
-logEventSrcLoc
-  :: Functor f
-  => (Maybe SrcLoc -> f (Maybe SrcLoc))
-  -> LogEvent
-  -> f LogEvent
+logEventSrcLoc ::
+  Functor f =>
+  (Maybe SrcLoc -> f (Maybe SrcLoc)) ->
+  LogEvent ->
+  f LogEvent
 
 -- | A lens for the 'Severity' of a 'LogEvent'
-logEventSeverity
-  :: Functor f => (Severity -> f Severity) -> LogEvent -> f LogEvent
+logEventSeverity ::
+  Functor f => (Severity -> f Severity) -> LogEvent -> f LogEvent
 
 -- | A lens for a user defined of /process/ id of a 'LogEvent'
-logEventProcessId
-  :: Functor f
-  => (Maybe T.Text -> f (Maybe T.Text))
-  -> LogEvent
-  -> f LogEvent
+logEventProcessId ::
+  Functor f =>
+  (Maybe T.Text -> f (Maybe T.Text)) ->
+  LogEvent ->
+  f LogEvent
 
 -- | A lens for a user defined /message id/ of a 'LogEvent'
-logEventMessageId
-  :: Functor f
-  => (Maybe T.Text -> f (Maybe T.Text))
-  -> LogEvent
-  -> f LogEvent
+logEventMessageId ::
+  Functor f =>
+  (Maybe T.Text -> f (Maybe T.Text)) ->
+  LogEvent ->
+  f LogEvent
 
 -- | A lens for the user defined textual message of a 'LogEvent'
 logEventMessage :: Functor f => (T.Text -> f T.Text) -> LogEvent -> f LogEvent
 
 -- | A lens for the hostname of a 'LogEvent'
 -- The function 'setLogEventsHostname' can be used to set the field.
-logEventHostname
-  :: Functor f
-  => (Maybe T.Text -> f (Maybe T.Text))
-  -> LogEvent
-  -> f LogEvent
+logEventHostname ::
+  Functor f =>
+  (Maybe T.Text -> f (Maybe T.Text)) ->
+  LogEvent ->
+  f LogEvent
 
 -- | A lens for the 'Facility' of a 'LogEvent'
-logEventFacility
-  :: Functor f => (Facility -> f Facility) -> LogEvent -> f LogEvent
+logEventFacility ::
+  Functor f => (Facility -> f Facility) -> LogEvent -> f LogEvent
 
 -- | A lens for the RFC 5424 /application/ name of a 'LogEvent'
 --
@@ -355,42 +360,41 @@ logEventFacility
 -- >   view logEventAppName lm == Just myAppName || logEventSeverityIsAtLeast warningSeverity lm
 --
 -- This concept is also implemented in 'discriminateByAppName'.
-logEventAppName
-  :: Functor f
-  => (Maybe T.Text -> f (Maybe T.Text))
-  -> LogEvent
-  -> f LogEvent
+logEventAppName ::
+  Functor f =>
+  (Maybe T.Text -> f (Maybe T.Text)) ->
+  LogEvent ->
+  f LogEvent
 
 instance Show LogEvent where
   show = T.unpack . T.unlines . renderLogEventBodyFixWidth
-
 
 type LogRenderer a = LogEvent -> a
 
 withRenderer :: LogRenderer a -> Eff (Reader (LogRenderer a) ': e) b -> Eff e b
 withRenderer = runReader
 
-newtype SeverityText = MkSeverityText { fromSeverityText :: T.Text }
+newtype SeverityText = MkSeverityText {fromSeverityText :: T.Text}
   deriving (Semigroup)
 
 mkSyslogSeverityText :: LogRenderer SeverityText
-mkSyslogSeverityText (MkLogEvent !f !s _ _ _ _ _ _ _ _ _)
-   = MkSeverityText $ "<" <> T.pack (show (fromSeverity s + fromFacility f * 8)) <> ">"
+mkSyslogSeverityText (MkLogEvent !f !s _ _ _ _ _ _ _ _ _) =
+  MkSeverityText $ "<" <> T.pack (show (fromSeverity s + fromFacility f * 8)) <> ">"
 
-newtype FacilityText = MkFacilityText { fromFacilityText :: T.Text }
+newtype FacilityText = MkFacilityText {fromFacilityText :: T.Text}
   deriving (Semigroup)
 
 mkSyslogFacilityText :: LogRenderer FacilityText
 mkSyslogFacilityText _ = MkFacilityText ""
 
-newtype TimestampText = MkTimestampText { fromTimestampText :: T.Text }
+newtype TimestampText = MkTimestampText {fromTimestampText :: T.Text}
   deriving (Semigroup)
 
 mkFormattedTimestampText :: LogTimestampFormat -> LogRenderer (Maybe TimestampText)
 mkFormattedTimestampText f (MkLogEvent _ _ ts _ _ _ _ _ _ _ _) =
   MkTimestampText . formatLogTimestamp f <$> ts
 
-newtype MessageText = MkMessageText { fromMessageText :: T.Text }
+newtype MessageText = MkMessageText {fromMessageText :: T.Text}
   deriving (Semigroup)
 
 mkMessageText :: LogRenderer MessageText
@@ -406,29 +410,29 @@ renderDevLogMessage =
     $ mkDevLogMessage
 
 mkDevLogMessage ::
-  ( '[ Reader (LogRenderer SeverityText)
-     , Reader (LogRenderer FacilityText)
-     , Reader (LogRenderer TimestampText)
-     , Reader (LogRenderer MessageText)
+  ( '[ Reader (LogRenderer SeverityText),
+       Reader (LogRenderer FacilityText),
+       Reader (LogRenderer TimestampText),
+       Reader (LogRenderer MessageText)
      ]
-    <:: e
-  )
-  => Eff e (LogRenderer T.Text)
+      <:: e
+  ) =>
+  Eff e (LogRenderer T.Text)
 mkDevLogMessage =
   (\s ts m -> s <> pure " " <> ts <> pure " " <> m)
-    <$> (fmap fromSeverityText  <$> ask)
+    <$> (fmap fromSeverityText <$> ask)
     <*> (fmap fromTimestampText <$> ask)
-    <*> (fmap fromMessageText   <$> ask)
-
+    <*> (fmap fromMessageText <$> ask)
 
 -- | A time stamp formatting function
-newtype LogTimestampFormat =
-  MkLogTimestampFormat { formatLogTimestamp :: UTCTime -> T.Text }
+newtype LogTimestampFormat
+  = MkLogTimestampFormat {formatLogTimestamp :: UTCTime -> T.Text}
 
 -- | Make a  'LogTimestampFormat' using 'formatTime' in the 'defaultLocale'.
-mkLogTimestampFormat
-  :: String -- ^ The format string that is passed to 'formatTime'
-  -> LogTimestampFormat
+mkLogTimestampFormat ::
+  -- | The format string that is passed to 'formatTime'
+  String ->
+  LogTimestampFormat
 mkLogTimestampFormat s = MkLogTimestampFormat (T.pack . formatTime defaultTimeLocale s)
 
 -- | Don't render the time stamp
@@ -447,8 +451,6 @@ rfc5424Timestamp = mkLogTimestampFormat (iso8601DateFormat (Just "%H:%M:%S%6QZ")
 rfc5424NoZTimestamp :: LogTimestampFormat
 rfc5424NoZTimestamp = mkLogTimestampFormat (iso8601DateFormat (Just "%H:%M:%S%6Q"))
 
-
-
 -- | Print the /body/ of a 'LogEvent'
 renderLogEventBodyFixWidth :: LogEvent -> [T.Text]
 renderLogEventBodyFixWidth (MkLogEvent _f _s _ts _hn _an _pid _mi _sd ti loc msg) =
@@ -456,27 +458,32 @@ renderLogEventBodyFixWidth (MkLogEvent _f _s _ts _hn _an _pid _mi _sd ti loc msg
     then []
     else
       maybe "" ((<> " -") . T.pack . show) ti
-      : (msg <> T.replicate (max 0 (60 - T.length msg)) " ")
-      : maybe
+        : (msg <> T.replicate (max 0 (60 - T.length msg)) " ")
+        : maybe
           []
-          (\sl -> pure
-            (T.pack $ printf "% 30s line %i"
-                             (takeFileName (srcLocFile sl))
-                             (srcLocStartLine sl)
-            )
+          ( \sl ->
+              pure
+                ( T.pack $
+                    printf
+                      "% 30s line %i"
+                      (takeFileName (srcLocFile sl))
+                      (srcLocStartLine sl)
+                )
           )
           loc
 
 -- | Print the /body/ of a 'LogEvent' without any /tab-stops/
 renderLogEventBody :: LogEvent -> T.Text
 renderLogEventBody (MkLogEvent _f _s _ts _hn _an _pid _mi _sd ti loc msg) =
-     maybe "" (\tis -> T.pack (show tis) <> " ") ti
-  <> msg
-  <> maybe
-          ""
-          (\sl ->
-             T.pack $ printf " at %s:%i"
-                             (takeFileName (srcLocFile sl))
-                             (srcLocStartLine sl)
-          )
-          loc
+  maybe "" (\tis -> T.pack (show tis) <> " ") ti
+    <> msg
+    <> maybe
+      ""
+      ( \sl ->
+          T.pack $
+            printf
+              " at %s:%i"
+              (takeFileName (srcLocFile sl))
+              (srcLocStartLine sl)
+      )
+      loc

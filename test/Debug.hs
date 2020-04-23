@@ -1,8 +1,7 @@
-module Debug
-where
+module Debug where
 
-import           ProcessBehaviourTestCases
-import           Test.Tasty
+import ProcessBehaviourTestCases
+import Test.Tasty
 
 debugMain :: IO ()
 debugMain = defaultMain test_forkIo

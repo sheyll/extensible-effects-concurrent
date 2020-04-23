@@ -1,8 +1,8 @@
 module Main where
 
-import           Data.String
-import           Control.Eff
-import           Control.Eff.Concurrent
+import Control.Eff
+import Control.Eff.Concurrent
+import Data.String
 
 main :: IO ()
 main = defaultMain example

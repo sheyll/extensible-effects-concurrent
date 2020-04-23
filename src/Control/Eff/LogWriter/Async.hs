@@ -1,26 +1,26 @@
 -- | This module only exposes a 'LogWriter' for asynchronous logging;
 module Control.Eff.LogWriter.Async
-  ( withAsyncLogWriter
-  , withAsyncLogging
+  ( withAsyncLogWriter,
+    withAsyncLogging,
   )
 where
 
-import           Control.Concurrent (threadDelay)
-import           Control.Concurrent.Async
-import           Control.Concurrent.STM
-import           Control.DeepSeq
-import           Control.Eff                   as Eff
-import           Control.Eff.Log
-import           Control.Eff.LogWriter.Rich
-import           Control.Exception              ( evaluate )
-import           Control.Lens
-import           Control.Monad                  ( unless, when )
-import           Control.Monad.Trans.Control    ( MonadBaseControl
-                                                , liftBaseOp
-                                                )
-import           Data.Foldable                  ( traverse_ )
-import           Data.Kind                      ( )
-
+import Control.Concurrent (threadDelay)
+import Control.Concurrent.Async
+import Control.Concurrent.STM
+import Control.DeepSeq
+import Control.Eff as Eff
+import Control.Eff.Log
+import Control.Eff.LogWriter.Rich
+import Control.Exception (evaluate)
+import Control.Lens
+import Control.Monad (unless, when)
+import Control.Monad.Trans.Control
+  ( MonadBaseControl,
+    liftBaseOp,
+  )
+import Data.Foldable (traverse_)
+import Data.Kind ()
 
 -- | This is a wrapper around 'withAsyncLogWriter' and 'withRichLogging'.
 --
@@ -34,21 +34,24 @@ import           Data.Kind                      ( )
 -- >        sendLogEvent "test 2"
 -- >        sendLogEvent "test 3"
 -- >
---
-withAsyncLogging
-  :: (Lifted IO e, MonadBaseControl IO (Eff e), Integral len)
-  => LogWriter
-  -> len -- ^ Size of the log message input queue. If the queue is full, message
-         -- are dropped silently.
-  -> String -- ^ The default application name to put into the 'logEventAppName' field.
-  -> Facility -- ^ The default RFC-5424 facility to put into the 'logEventFacility' field.
-  -> LogPredicate -- ^ The inital predicate for log messages, there are some pre-defined in "Control.Eff.Log.Message#PredefinedPredicates"
-  -> Eff (Logs : LogWriterReader : e) a
-  -> Eff e a
-withAsyncLogging lw queueLength a f p e = liftBaseOp
-  (withAsyncLogChannel queueLength (runLogWriter lw . force))
-  (\lc -> withRichLogging (makeLogChannelWriter lc) a f p e)
-
+withAsyncLogging ::
+  (Lifted IO e, MonadBaseControl IO (Eff e), Integral len) =>
+  LogWriter ->
+  -- | Size of the log message input queue. If the queue is full, message
+  -- are dropped silently.
+  len ->
+  -- | The default application name to put into the 'logEventAppName' field.
+  String ->
+  -- | The default RFC-5424 facility to put into the 'logEventFacility' field.
+  Facility ->
+  -- | The inital predicate for log messages, there are some pre-defined in "Control.Eff.Log.Message#PredefinedPredicates"
+  LogPredicate ->
+  Eff (Logs : LogWriterReader : e) a ->
+  Eff e a
+withAsyncLogging lw queueLength a f p e =
+  liftBaseOp
+    (withAsyncLogChannel queueLength (runLogWriter lw . force))
+    (\lc -> withRichLogging (makeLogChannelWriter lc) a f p e)
 
 -- | /Move/ the current 'LogWriter' into its own thread.
 --
@@ -71,56 +74,60 @@ withAsyncLogging lw queueLength a f p e = liftBaseOp
 -- >        sendLogEvent "test 2"
 -- >        sendLogEvent "test 3"
 -- >
---
-withAsyncLogWriter
-  :: (IoLogging e, MonadBaseControl IO (Eff e), Integral len)
-  => len -- ^ Size of the log message input queue. If the queue is full, message
-         -- are dropped silently.
-  -> Eff e a
-  -> Eff e a
+withAsyncLogWriter ::
+  (IoLogging e, MonadBaseControl IO (Eff e), Integral len) =>
+  -- | Size of the log message input queue. If the queue is full, message
+  -- are dropped silently.
+  len ->
+  Eff e a ->
+  Eff e a
 withAsyncLogWriter queueLength e = do
   lw <- askLogWriter
-  liftBaseOp (withAsyncLogChannel queueLength (runLogWriter lw . force))
-             (\lc -> setLogWriter (makeLogChannelWriter lc) e)
+  liftBaseOp
+    (withAsyncLogChannel queueLength (runLogWriter lw . force))
+    (\lc -> setLogWriter (makeLogChannelWriter lc) e)
 
-withAsyncLogChannel
-  :: forall a len
-   . (Integral len)
-  => len
-  -> (LogEvent -> IO ())
-  -> (LogChannel -> IO a)
-  -> IO a
+withAsyncLogChannel ::
+  forall a len.
+  (Integral len) =>
+  len ->
+  (LogEvent -> IO ()) ->
+  (LogChannel -> IO a) ->
+  IO a
 withAsyncLogChannel queueLen ioWriter action = do
   msgQ <- newTBQueueIO (fromIntegral queueLen)
   withAsync (logLoop msgQ) (action . ConcurrentLogChannel msgQ)
- where
-  logLoop tq = do
-    ms <- atomically $ do
-      isEmpty <- isEmptyTBQueue tq
-      when isEmpty retry
-      flushTBQueue tq
-    traverse_ ioWriter ms
-    logLoop tq
+  where
+    logLoop tq = do
+      ms <- atomically $ do
+        isEmpty <- isEmptyTBQueue tq
+        when isEmpty retry
+        flushTBQueue tq
+      traverse_ ioWriter ms
+      logLoop tq
 
 makeLogChannelWriter :: LogChannel -> LogWriter
 makeLogChannelWriter lc = MkLogWriter logChannelPutIO
- where
-  logChannelPutIO (force -> me) = do
-    !m <- evaluate me
-    isFull <- atomically (
-      if m^.logEventSeverity <= warningSeverity then do
-        writeTBQueue logQ m
-        return False
-      else do
-        isFull <- isFullTBQueue logQ
-        unless isFull (writeTBQueue logQ m)
-        return isFull
-      )
-    when isFull $
-      threadDelay 1_000
-  logQ = fromLogChannel lc
+  where
+    logChannelPutIO (force -> me) = do
+      !m <- evaluate me
+      isFull <-
+        atomically
+          ( if m ^. logEventSeverity <= warningSeverity
+              then do
+                writeTBQueue logQ m
+                return False
+              else do
+                isFull <- isFullTBQueue logQ
+                unless isFull (writeTBQueue logQ m)
+                return isFull
+          )
+      when isFull $
+        threadDelay 1_000
+    logQ = fromLogChannel lc
 
-data LogChannel = ConcurrentLogChannel
-  { fromLogChannel :: TBQueue LogEvent
-  , _logChannelThread :: Async ()
-  }
+data LogChannel
+  = ConcurrentLogChannel
+      { fromLogChannel :: TBQueue LogEvent,
+        _logChannelThread :: Async ()
+      }

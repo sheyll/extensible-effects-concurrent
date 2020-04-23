@@ -1,4 +1,6 @@
-{-# LANGUAGE UndecidableInstances, QuantifiedConstraints #-}
+{-# LANGUAGE QuantifiedConstraints #-}
+{-# LANGUAGE UndecidableInstances #-}
+
 -- | Types and functions for type-safe(er) interaction between processes.
 --
 -- All messages sent between processes are eventually converted to 'Dynamic' values
@@ -33,37 +35,35 @@
 --
 -- To enable a process to use such a /service/, the functions provided in
 -- "Control.Eff.Concurrent.Protocol.Client" should be used.
---
 module Control.Eff.Concurrent.Protocol
-  ( HasPdu(..)
-  , deserializePdu
-  , Embeds
-  , Pdu(..)
-  , Synchronicity(..)
-  , ProtocolReply
-  , Tangible
-  , TangiblePdu
-  , Endpoint(..)
-  , fromEndpoint
-  , proxyAsEndpoint
-  , asEndpoint
-  , HasPduPrism(..)
-  , toEmbeddedEndpoint
-  , fromEmbeddedEndpoint
+  ( HasPdu (..),
+    deserializePdu,
+    Embeds,
+    Pdu (..),
+    Synchronicity (..),
+    ProtocolReply,
+    Tangible,
+    TangiblePdu,
+    Endpoint (..),
+    fromEndpoint,
+    proxyAsEndpoint,
+    asEndpoint,
+    HasPduPrism (..),
+    toEmbeddedEndpoint,
+    fromEmbeddedEndpoint,
   )
 where
 
-import           Control.Eff.Log.Message
-import           Control.Eff.Concurrent.Misc
-import           Control.DeepSeq
-import           Control.Eff.Concurrent.Process
-import           Control.Lens
-import           Data.Dynamic
-import           Data.Kind
-import           Data.Proxy
-import           Data.Typeable ()
-import           Type.Reflection
-
+import Control.DeepSeq
+import Control.Eff.Concurrent.Misc
+import Control.Eff.Concurrent.Process
+import Control.Eff.Log.Message
+import Control.Lens
+import Data.Dynamic
+import Data.Kind
+import Data.Proxy
+import Data.Typeable ()
+import Type.Reflection
 
 -- | A server process for /protocol/.
 --
@@ -76,13 +76,14 @@ import           Type.Reflection
 --
 -- As a metaphor, communication between processes can be thought of waiting for
 -- and sending __protocol data units__ belonging to some protocol.
-newtype Endpoint protocol = Endpoint { _fromEndpoint :: ProcessId }
-  deriving (Eq,Ord,Typeable, NFData)
+newtype Endpoint protocol = Endpoint {_fromEndpoint :: ProcessId}
+  deriving (Eq, Ord, Typeable, NFData)
 
 instance Typeable protocol => Show (Endpoint protocol) where
   showsPrec d (Endpoint c) =
-    showParen (d>=10)
-    (showSTypeRep (SomeTypeRep (typeRep @protocol)) . showsPrec 10 c)
+    showParen
+      (d >= 10)
+      (showSTypeRep (SomeTypeRep (typeRep @protocol)) . showsPrec 10 c)
 
 instance ToTypeLogMsg protocol => ToLogMsg (Endpoint protocol) where
   toLogMsg ep = toTypeLogMsg (Proxy @protocol) <> toLogMsg (_fromEndpoint ep)
@@ -137,11 +138,12 @@ class Typeable protocol => HasPdu (protocol :: Type) where
   -- It relies on 'Embeds' to add the constraint 'HasPduPrism'.
   --
   -- @since 0.29.0
-  type family EmbeddedPduList protocol :: [Type]
-  type instance EmbeddedPduList protocol = '[]
+  type EmbeddedPduList protocol :: [Type]
+
+  type EmbeddedPduList protocol = '[]
 
   -- | The __protocol data unit__ type for the given protocol.
-  data family Pdu protocol (reply :: Synchronicity)
+  data Pdu protocol (reply :: Synchronicity)
 
 -- | Deserialize a 'Pdu' from a 'Dynamic' i.e. from a message received by a process.
 --
@@ -166,9 +168,9 @@ deserializePdu = fromDynamic
 --
 -- @since 0.29.1
 type Embeds outer inner =
-  ( HasPduPrism outer inner
-  , CheckEmbeds outer inner
-  , HasPdu outer
+  ( HasPduPrism outer inner,
+    CheckEmbeds outer inner,
+    HasPdu outer
   )
 
 -- ---------- Type Machinery:
@@ -179,9 +181,9 @@ type family CheckEmbeds outer inner :: Constraint where
       inner
       (EmbeddedPduList outer)
       (EmbeddedPduList outer)
-    ~ 'IsEmbeddedProtocol
+      ~ 'IsEmbeddedProtocol
 
-data IsEmbeddedProtocol k  = IsEmbeddedProtocol | IsNotAnEmbeddedProtocol k [k]
+data IsEmbeddedProtocol k = IsEmbeddedProtocol | IsNotAnEmbeddedProtocol k [k]
 
 type family IsProtocolOneOf (x :: k) (xs :: [k]) (orig :: [k]) :: IsEmbeddedProtocol k where
   IsProtocolOneOf x '[] orig = 'IsNotAnEmbeddedProtocol x orig
@@ -194,8 +196,8 @@ type family IsProtocolOneOf (x :: k) (xs :: [k]) (orig :: [k]) :: IsEmbeddedProt
 --
 -- @since 0.23.0
 type Tangible i =
-  ( NFData i
-  , Typeable i
+  ( NFData i,
+    Typeable i
   )
 
 -- | A 'Constraint' that bundles the requirements for the
@@ -206,22 +208,24 @@ type Tangible i =
 --
 -- @since 0.24.0
 type TangiblePdu p r =
-  ( Typeable p
-  , Typeable r
-  , Tangible (Pdu p r)
-  , HasPdu p
-  , ToTypeLogMsg p
-  , ToLogMsg (Pdu p r)
+  ( Typeable p,
+    Typeable r,
+    Tangible (Pdu p r),
+    HasPdu p,
+    ToTypeLogMsg p,
+    ToLogMsg (Pdu p r)
   )
 
 -- | The (promoted) constructors of this type specify (at the type level) the
 -- reply behavior of a specific constructor of an @Pdu@ instance.
-data Synchronicity =
-  Synchronous Type -- ^ Specify that handling a request is a blocking operation
-                   -- with a specific return type, e.g. @('Synchronous (Either
-                   -- RentalError RentalId))@
-  | Asynchronous -- ^ Non-blocking, asynchronous, request handling
-    deriving Typeable
+data Synchronicity
+  = -- | Specify that handling a request is a blocking operation
+    -- with a specific return type, e.g. @('Synchronous (Either
+    -- RentalError RentalId))@
+    Synchronous Type
+  | -- | Non-blocking, asynchronous, request handling
+    Asynchronous
+  deriving (Typeable)
 
 -- | This type function takes an 'Pdu' and analysis the reply type, i.e. the 'Synchronicity'
 -- and evaluates to either @t@ for an
@@ -233,18 +237,18 @@ type family ProtocolReply (s :: Synchronicity) where
   ProtocolReply 'Asynchronous = ()
 
 instance (HasPdu a1, HasPdu a2) => HasPdu (a1, a2) where
-  type instance EmbeddedPduList (a1, a2) = '[a1, a2]
-  data instance Pdu (a1, a2) r where
-          ToPduLeft :: Pdu a1 r -> Pdu (a1, a2) r
-          ToPduRight :: Pdu a2 r -> Pdu (a1, a2) r
+  type EmbeddedPduList (a1, a2) = '[a1, a2]
+  data Pdu (a1, a2) r where
+    ToPduLeft :: Pdu a1 r -> Pdu (a1, a2) r
+    ToPduRight :: Pdu a2 r -> Pdu (a1, a2) r
 
 instance (ToLogMsg (Pdu a1 r), ToLogMsg (Pdu a2 r)) => ToLogMsg (Pdu (a1, a2) r) where
   toLogMsg (ToPduLeft a1) = toLogMsg a1
   toLogMsg (ToPduRight a2) = toLogMsg a2
 
 instance (HasPdu a1, HasPdu a2, HasPdu a3) => HasPdu (a1, a2, a3) where
-  type instance EmbeddedPduList (a1, a2, a3) = '[a1, a2, a3]
-  data instance Pdu (a1, a2, a3) r where
+  type EmbeddedPduList (a1, a2, a3) = '[a1, a2, a3]
+  data Pdu (a1, a2, a3) r where
     ToPdu1 :: Pdu a1 r -> Pdu (a1, a2, a3) r
     ToPdu2 :: Pdu a2 r -> Pdu (a1, a2, a3) r
     ToPdu3 :: Pdu a3 r -> Pdu (a1, a2, a3) r
@@ -255,8 +259,8 @@ instance (ToLogMsg (Pdu a1 r), ToLogMsg (Pdu a2 r), ToLogMsg (Pdu a3 r)) => ToLo
   toLogMsg (ToPdu3 a3) = toLogMsg a3
 
 instance (HasPdu a1, HasPdu a2, HasPdu a3, HasPdu a4) => HasPdu (a1, a2, a3, a4) where
-  type instance EmbeddedPduList (a1, a2, a3, a4) = '[a1, a2, a3, a4]
-  data instance Pdu (a1, a2, a3, a4) r where
+  type EmbeddedPduList (a1, a2, a3, a4) = '[a1, a2, a3, a4]
+  data Pdu (a1, a2, a3, a4) r where
     ToPdu1Of4 :: Pdu a1 r -> Pdu (a1, a2, a3, a4) r
     ToPdu2Of4 :: Pdu a2 r -> Pdu (a1, a2, a3, a4) r
     ToPdu3Of4 :: Pdu a3 r -> Pdu (a1, a2, a3, a4) r
@@ -268,10 +272,9 @@ instance (ToLogMsg (Pdu a1 r), ToLogMsg (Pdu a2 r), ToLogMsg (Pdu a3 r), ToLogMs
   toLogMsg (ToPdu3Of4 a3) = toLogMsg a3
   toLogMsg (ToPdu4Of4 a4) = toLogMsg a4
 
-
 instance (HasPdu a1, HasPdu a2, HasPdu a3, HasPdu a4, HasPdu a5) => HasPdu (a1, a2, a3, a4, a5) where
-  type instance EmbeddedPduList (a1, a2, a3, a4, a5) = '[a1, a2, a3, a4, a5]
-  data instance Pdu (a1, a2, a3, a4, a5) r where
+  type EmbeddedPduList (a1, a2, a3, a4, a5) = '[a1, a2, a3, a4, a5]
+  data Pdu (a1, a2, a3, a4, a5) r where
     ToPdu1Of5 :: Pdu a1 r -> Pdu (a1, a2, a3, a4, a5) r
     ToPdu2Of5 :: Pdu a2 r -> Pdu (a1, a2, a3, a4, a5) r
     ToPdu3Of5 :: Pdu a3 r -> Pdu (a1, a2, a3, a4, a5) r
@@ -285,7 +288,6 @@ instance (ToLogMsg (Pdu a1 r), ToLogMsg (Pdu a2 r), ToLogMsg (Pdu a3 r), ToLogMs
   toLogMsg (ToPdu4Of5 a4) = toLogMsg a4
   toLogMsg (ToPdu5Of5 a5) = toLogMsg a5
 
-
 -- | Tag a 'ProcessId' with an 'Pdu' type index to mark it a 'Endpoint' process
 -- handling that API
 proxyAsEndpoint :: proxy protocol -> ProcessId -> Endpoint protocol
@@ -293,10 +295,8 @@ proxyAsEndpoint = const Endpoint
 
 -- | Tag a 'ProcessId' with an 'Pdu' type index to mark it a 'Endpoint' process
 -- handling that API
-asEndpoint :: forall protocol . ProcessId -> Endpoint protocol
+asEndpoint :: forall protocol. ProcessId -> Endpoint protocol
 asEndpoint = Endpoint
-
-
 
 -- | A class for 'Pdu' instances that embed other 'Pdu'.
 --
@@ -312,26 +312,29 @@ asEndpoint = Endpoint
 --
 -- @since 0.29.0
 class
- (Typeable protocol, Typeable embeddedProtocol)
-  => HasPduPrism protocol embeddedProtocol where
-
+  (Typeable protocol, Typeable embeddedProtocol) =>
+  HasPduPrism protocol embeddedProtocol where
   -- | A 'Prism' for the embedded 'Pdu's.
-  embeddedPdu
-    :: forall (result :: Synchronicity)
-    . Prism' (Pdu protocol result) (Pdu embeddedProtocol result)
+  embeddedPdu ::
+    forall (result :: Synchronicity).
+    Prism' (Pdu protocol result)
+      (Pdu embeddedProtocol result)
   embeddedPdu = prism' embedPdu fromPdu
 
   -- | Embed the 'Pdu' value of an embedded protocol into the corresponding
   --  'Pdu' value.
-  embedPdu
-    :: forall (result :: Synchronicity)
-    . Pdu embeddedProtocol result -> Pdu protocol result
+  embedPdu ::
+    forall (result :: Synchronicity).
+    Pdu embeddedProtocol result ->
+    Pdu protocol result
   embedPdu = review embeddedPdu
+
   -- | Examine a 'Pdu' value from the outer protocol, and return it, if it embeds a 'Pdu' of
   -- embedded protocol, otherwise return 'Nothing'/
-  fromPdu
-    :: forall (result :: Synchronicity)
-    . Pdu protocol result -> Maybe (Pdu embeddedProtocol result)
+  fromPdu ::
+    forall (result :: Synchronicity).
+    Pdu protocol result ->
+    Maybe (Pdu embeddedProtocol result)
   fromPdu = preview embeddedPdu
 
 -- | Convert an 'Endpoint' to an endpoint for an embedded protocol.
@@ -339,7 +342,7 @@ class
 -- See 'Embeds', 'fromEmbeddedEndpoint'.
 --
 -- @since 0.25.1
-toEmbeddedEndpoint :: forall inner outer . Embeds outer inner => Endpoint outer -> Endpoint inner
+toEmbeddedEndpoint :: forall inner outer. Embeds outer inner => Endpoint outer -> Endpoint inner
 toEmbeddedEndpoint (Endpoint e) = Endpoint e
 
 -- | Convert an 'Endpoint' to an endpoint for a server, that embeds the protocol.
@@ -347,7 +350,7 @@ toEmbeddedEndpoint (Endpoint e) = Endpoint e
 -- See 'Embeds', 'toEmbeddedEndpoint'.
 --
 -- @since 0.25.1
-fromEmbeddedEndpoint ::  forall outer inner . HasPduPrism outer inner => Endpoint inner -> Endpoint outer
+fromEmbeddedEndpoint :: forall outer inner. HasPduPrism outer inner => Endpoint inner -> Endpoint outer
 fromEmbeddedEndpoint (Endpoint e) = Endpoint e
 
 instance (Typeable a) => HasPduPrism a a where
@@ -388,7 +391,6 @@ instance (NFData (Pdu a1 r), NFData (Pdu a2 r)) => NFData (Pdu (a1, a2) r) where
 instance (Show (Pdu a1 r), Show (Pdu a2 r)) => Show (Pdu (a1, a2) r) where
   showsPrec d (ToPduLeft x) = showsPrec d x
   showsPrec d (ToPduRight y) = showsPrec d y
-
 
 instance (NFData (Pdu a1 r), NFData (Pdu a2 r), NFData (Pdu a3 r)) => NFData (Pdu (a1, a2, a3) r) where
   rnf (ToPdu1 x) = rnf x

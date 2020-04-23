@@ -1,30 +1,31 @@
 {-# LANGUAGE UndecidableInstances #-}
+
 -- | Another complete example for the library
 module Main where
 
-import           Data.Dynamic
-import           Control.Eff
-import           Control.Eff.Concurrent.SingleThreaded
-import           Control.Eff.Concurrent.Protocol.StatefulServer
-import           Control.Monad
-import           Data.Foldable
-import           Control.Lens
-import           Control.Concurrent
-import           Control.DeepSeq
-import           Data.Default
+import Control.Concurrent
+import Control.DeepSeq
+import Control.Eff
+import Control.Eff.Concurrent.Protocol.StatefulServer
+import Control.Eff.Concurrent.SingleThreaded
+import Control.Lens
+import Control.Monad
+import Data.Default
+import Data.Dynamic
+import Data.Foldable
 
 main :: IO ()
 main = defaultMain (void counterExample)
 
 -- * First API
 
-data Counter deriving Typeable
+data Counter deriving (Typeable)
 
 instance HasPdu Counter where
-  data instance Pdu Counter x where
+  data Pdu Counter x where
     Inc :: Pdu Counter 'Asynchronous
     Cnt :: Pdu Counter ('Synchronous Integer)
-    deriving Typeable
+    deriving (Typeable)
 
 instance ToTypeLogMsg Counter
 
@@ -36,8 +37,8 @@ instance NFData (Pdu Counter x) where
   rnf Inc = ()
   rnf Cnt = ()
 
-counterExample
-  :: Eff Effects ()
+counterExample ::
+  Eff Effects ()
 counterExample = do
   c <- spawnCounter
   let cp = _fromEndpoint c
@@ -66,12 +67,12 @@ counterExample = do
   lift (threadDelay 500000)
   lift (threadDelay 500000)
 
-data SupiDupi deriving Typeable
+data SupiDupi deriving (Typeable)
 
 instance HasPdu SupiDupi where
-  data instance Pdu SupiDupi r where
+  data Pdu SupiDupi r where
     Whoopediedoo :: Bool -> Pdu SupiDupi ('Synchronous (Maybe ()))
-    deriving Typeable
+    deriving (Typeable)
 
 instance ToTypeLogMsg SupiDupi
 
@@ -94,14 +95,14 @@ instance ToTypeLogMsg CounterChanged
 type SupiCounter = (Counter, ObserverRegistry CounterChanged, SupiDupi)
 
 instance (IoLogging q) => Server SupiCounter (Processes q) where
+  newtype Model SupiCounter
+    = SupiCounterModel
+        ( Integer,
+          ObserverRegistry CounterChanged,
+          Maybe (ReplyTarget SupiCounter (Maybe ()))
+        )
 
-  newtype instance Model SupiCounter = SupiCounterModel
-    ( Integer
-    , ObserverRegistry CounterChanged
-    , Maybe (ReplyTarget SupiCounter (Maybe ()))
-    )
-
-  data instance StartArgument SupiCounter = MkEmptySupiCounter
+  data StartArgument SupiCounter = MkEmptySupiCounter
 
   setup _ _ = return (SupiCounterModel (0, emptyObserverRegistry, Nothing), ())
 
@@ -113,25 +114,22 @@ instance (IoLogging q) => Server SupiCounter (Processes q) where
         ToPdu2 _ -> error "unreachable"
         ToPdu3 (Whoopediedoo c) ->
           modifyModel @SupiCounter (supiTarget .~ if c then Just rt else Nothing)
-
     OnCast castReq ->
       case castReq of
         ToPdu1 Inc -> do
           val' <- view supiCounter <$> modifyAndGetModel (supiCounter %~ (+ 1))
           zoomModel supiRegistry (observerRegistryNotify (CounterChanged val'))
           when (val' > 5) $
-            getAndModifyModel  (supiTarget .~ Nothing)
-            >>= traverse_ (\rt' -> sendReply rt' (Just ())) . view supiTarget
+            getAndModifyModel (supiTarget .~ Nothing)
+              >>= traverse_ (\rt' -> sendReply rt' (Just ())) . view supiTarget
         ToPdu2 x ->
           zoomModel supiRegistry (observerRegistryHandlePdu x)
         ToPdu3 _ -> error "unreachable"
-
     OnDown pd -> do
       wasRemoved <- zoomModel supiRegistry (observerRegistryRemoveProcess @CounterChanged (downProcess pd))
       if wasRemoved
         then logDebug (MSG "removed: ") pd
         else logError (MSG "unexpected: ") pd
-
     other -> logWarning other
 
 instance ToLogMsg (StartArgument SupiCounter) where
@@ -140,35 +138,34 @@ instance ToLogMsg (StartArgument SupiCounter) where
 supiCounter :: Lens' (Model SupiCounter) Integer
 supiCounter =
   lens
-    (\(SupiCounterModel (x,_,_)) -> x)
-    (\(SupiCounterModel (_,y,z)) x -> SupiCounterModel (x,y,z))
+    (\(SupiCounterModel (x, _, _)) -> x)
+    (\(SupiCounterModel (_, y, z)) x -> SupiCounterModel (x, y, z))
 
 supiRegistry :: Lens' (Model SupiCounter) (ObserverRegistry CounterChanged)
 supiRegistry =
   lens
-    (\(SupiCounterModel (_,y,_)) -> y)
-    (\(SupiCounterModel (x,_,z)) y -> SupiCounterModel (x,y,z))
+    (\(SupiCounterModel (_, y, _)) -> y)
+    (\(SupiCounterModel (x, _, z)) y -> SupiCounterModel (x, y, z))
 
 supiTarget :: Lens' (Model SupiCounter) (Maybe (ReplyTarget SupiCounter (Maybe ())))
 supiTarget =
   lens
-    (\(SupiCounterModel (_,_,z)) -> z)
-    (\(SupiCounterModel (x,y,_)) z -> SupiCounterModel (x,y,z))
+    (\(SupiCounterModel (_, _, z)) -> z)
+    (\(SupiCounterModel (x, y, _)) z -> SupiCounterModel (x, y, z))
 
-spawnCounter :: (IoLogging q) => Eff (Processes q) ( Endpoint SupiCounter )
+spawnCounter :: (IoLogging q) => Eff (Processes q) (Endpoint SupiCounter)
 spawnCounter = startLink MkEmptySupiCounter
-
 
 deriving instance Show (Pdu Counter x)
 
-logCounterObservations
-  :: (IoLogging q, Typeable q)
-  => Eff (Processes q) (Endpoint (Observer CounterChanged))
+logCounterObservations ::
+  (IoLogging q, Typeable q) =>
+  Eff (Processes q) (Endpoint (Observer CounterChanged))
 logCounterObservations = startLink OCCStart
 
 instance Member Logs q => Server (Observer CounterChanged) (Processes q) where
-  data instance StartArgument (Observer CounterChanged) = OCCStart
-  newtype instance Model (Observer CounterChanged) = CounterChangedModel () deriving Default
+  data StartArgument (Observer CounterChanged) = OCCStart
+  newtype Model (Observer CounterChanged) = CounterChangedModel () deriving (Default)
   update _ _ e =
     case e of
       OnCast (Observed msg) -> logInfo (MSG "observerRegistryNotify: ") msg

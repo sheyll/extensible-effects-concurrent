@@ -65,75 +65,75 @@
 -- === 'LogWriter's
 --
 -- * FilteredLogging in a 'Control.Concurrent.Async.withAsync' spawned thread is done using 'withAsyncLogging'.
-
 module Control.Eff.Log
   ( -- * FilteredLogging API
-    -- ** Sending Log Messages #SendingLogs#
-    LogEventSender(..)
-  , logEmergency
-  , logAlert
-  , logCritical
-  , logError
-  , logWarning
-  , logNotice
-  , logInfo
-  , logDebug
-  , logCallStack
 
+    -- ** Sending Log Messages #SendingLogs#
+    LogEventSender (..),
+    logEmergency,
+    logAlert,
+    logCritical,
+    logError,
+    logWarning,
+    logNotice,
+    logInfo,
+    logDebug,
+    logCallStack,
 
     -- ** Log Message Pre-Filtering #LogPredicate#
     -- $LogPredicate
-  , whitelistLogEvents
-  , blacklistLogEvents
-  , setLogPredicate
-  , modifyLogPredicate
-  , askLogPredicate
+    whitelistLogEvents,
+    blacklistLogEvents,
+    setLogPredicate,
+    modifyLogPredicate,
+    askLogPredicate,
 
     -- * Log Handling API
 
     -- ** Writing Logs
-  , setLogWriter
-  , addLogWriter
-  , modifyLogWriter
+    setLogWriter,
+    addLogWriter,
+    modifyLogWriter,
 
     -- *** Log Message Modification
-  , censorLogs
-  , censorLogsIo
+    censorLogs,
+    censorLogsIo,
 
     -- ** 'Logs' Effect Handling
-  , Logs()
-  , FilteredLogging
-  , IoLogging
-  , LoggingAndIo
-  , withLogging
-  , withoutLogging
+    Logs (),
+    FilteredLogging,
+    IoLogging,
+    LoggingAndIo,
+    withLogging,
+    withoutLogging,
 
     -- ** Low-Level API for Custom Extensions
+
     -- *** Log Message Interception
-  , runLogs
-  , respondToLogEvent
-  , interceptLogMessages
+    runLogs,
+    respondToLogEvent,
+    interceptLogMessages,
 
     -- * Module Re-Exports
+
     -- | The module that contains the 'LogEvent' and 'LogPredicate' definitions.
     --
     -- The log message type corresponds roughly to RFC-5424, including structured data.
-  , module Control.Eff.Log.Message
+    module Control.Eff.Log.Message,
     -- | Rendering functions for 'LogEvent's
     --
     -- The functions have been seperated from "Control.Eff.Log.Message"
-  , module Control.Eff.Log.MessageRenderer
-
+    module Control.Eff.Log.MessageRenderer,
     -- | This module defines the 'LogWriter' type, which is used to give
     -- callback functions for log messages an explicit type.
-  , module Control.Eff.Log.Writer
+    module Control.Eff.Log.Writer,
   )
 where
 
-import           Control.Eff.Log.Handler
-import           Control.Eff.Log.Message
-import           Control.Eff.Log.MessageRenderer
-import           Control.Eff.Log.Writer
+import Control.Eff.Log.Handler
+import Control.Eff.Log.Message
+import Control.Eff.Log.MessageRenderer
+import Control.Eff.Log.Writer
 
 -- $LogPredicate
 --

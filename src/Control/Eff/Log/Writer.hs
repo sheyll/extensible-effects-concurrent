@@ -1,41 +1,45 @@
 {-# LANGUAGE UndecidableInstances #-}
+
 -- | The 'LogWriter' type encapsulates an 'IO' action to write 'LogEvent's.
 module Control.Eff.Log.Writer
-  (
-  -- * 'LogWriter' Definition
-    LogWriter(..)
-  -- * LogWriter Reader Effect
-  , LogWriterReader
-  , localLogWriterReader
-  , askLogWriter
-  , runLogWriterReader
-  -- * LogWriter utilities
-  , liftWriteLogMessage
-  , noOpLogWriter
-  , filteringLogWriter
-  , mappingLogWriter
-  , mappingLogWriterIO
-  , ioHandleLogWriter
-  , stdoutLogWriter
+  ( -- * 'LogWriter' Definition
+    LogWriter (..),
+
+    -- * LogWriter Reader Effect
+    LogWriterReader,
+    localLogWriterReader,
+    askLogWriter,
+    runLogWriterReader,
+
+    -- * LogWriter utilities
+    liftWriteLogMessage,
+    noOpLogWriter,
+    filteringLogWriter,
+    mappingLogWriter,
+    mappingLogWriterIO,
+    ioHandleLogWriter,
+    stdoutLogWriter,
   )
 where
 
-import           Control.Eff
-import           Control.Eff.Reader.Strict
-import           Control.Eff.Log.Message
-import           Control.Eff.Log.MessageRenderer
-import           Control.Monad                  ( (>=>)
-                                                , when
-                                                )
+import Control.Eff
+import Control.Eff.Log.Message
+import Control.Eff.Log.MessageRenderer
+import Control.Eff.Reader.Strict
+import Control.Monad
+  ( (>=>),
+    when,
+  )
+import Data.Text (Text)
 import qualified Data.Text.IO as Text
-import           Data.Text (Text)
 import qualified System.IO as IO
 
 -- | A function that takes a log message and returns an effect that
 -- /logs/ the message.
-newtype LogWriter = MkLogWriter
-  { runLogWriter :: LogEvent -> IO ()
-  }
+newtype LogWriter
+  = MkLogWriter
+      { runLogWriter :: LogEvent -> IO ()
+      }
 
 instance Semigroup LogWriter where
   (MkLogWriter l) <> (MkLogWriter r) = MkLogWriter (l >> r)
@@ -59,19 +63,19 @@ askLogWriter :: Member LogWriterReader e => Eff e LogWriter
 askLogWriter = ask
 
 -- | Modify the current 'LogWriter'.
-localLogWriterReader
-  :: forall e a
-   . Member LogWriterReader e
-  => (LogWriter -> LogWriter)
-  -> Eff e a
-  -> Eff e a
+localLogWriterReader ::
+  forall e a.
+  Member LogWriterReader e =>
+  (LogWriter -> LogWriter) ->
+  Eff e a ->
+  Eff e a
 localLogWriterReader = local
 
 -- | Write a message using the 'LogWriter' found in the environment.
-liftWriteLogMessage
-  :: ( Member LogWriterReader  e, Lifted IO e)
-  => LogEvent
-  -> Eff e ()
+liftWriteLogMessage ::
+  (Member LogWriterReader e, Lifted IO e) =>
+  LogEvent ->
+  Eff e ()
 liftWriteLogMessage m = do
   w <- askLogWriter
   lift (runLogWriter w m)
@@ -94,8 +98,8 @@ mappingLogWriter :: (LogEvent -> LogEvent) -> LogWriter -> LogWriter
 mappingLogWriter f lw = MkLogWriter (runLogWriter lw . f)
 
 -- | Like 'mappingLogWriter' allow the function that changes the 'LogEvent' to have effects.
-mappingLogWriterIO
-  :: (LogEvent -> IO LogEvent) -> LogWriter -> LogWriter
+mappingLogWriterIO ::
+  (LogEvent -> IO LogEvent) -> LogWriter -> LogWriter
 mappingLogWriterIO f lw = MkLogWriter (f >=> runLogWriter lw)
 
 -- | Append the 'LogEvent' to an 'IO.Handle' after rendering it.

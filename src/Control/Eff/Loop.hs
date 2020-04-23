@@ -18,12 +18,12 @@
 --
 -- @since 0.4.0.0
 module Control.Eff.Loop
-  ( foreverCheap
-  , replicateCheapM_
+  ( foreverCheap,
+    replicateCheapM_,
   )
 where
 
-import           Control.Monad                  ( void )
+import Control.Monad (void)
 
 -- | A version of 'Control.Monad.forever' that hopefully tricks
 -- GHC into __/not/__ creating a space leak.
@@ -43,11 +43,13 @@ foreverCheap x = x >> foreverCheap (x >> x)
 -- @since 0.4.0.0
 {-# NOINLINE replicateCheapM_ #-}
 replicateCheapM_ :: Monad m => Int -> m a -> m ()
-replicateCheapM_ n e = if n <= 0
-  then return ()
-  else if n == 1
-    then void e
+replicateCheapM_ n e =
+  if n <= 0
+    then return ()
     else
-      let nL = n `div` 2
-          nR = n - nL
-      in  replicateCheapM_ nL e >> replicateCheapM_ nR e
+      if n == 1
+        then void e
+        else
+          let nL = n `div` 2
+              nR = n - nL
+           in replicateCheapM_ nL e >> replicateCheapM_ nR e

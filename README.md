@@ -6,13 +6,13 @@
 
 ## From Erlang to Haskell
 
-This project is an attempt to implement core ideas learned from the **Erlang/OTP**  
+This project is an attempt to implement core ideas learned from the **Erlang/OTP**
 framework in Haskell using **[extensible-effects](http://hackage.haskell.org/package/extensible-effects)**.
 
 This library sketches my personal history of working on a large, real world Erlang
 application, trying to bring some ideas over to Haskell.
 
-I know about cloud-haskell and transient, but I wanted something based on 
+I know about cloud-haskell and transient, but I wanted something based on
 'extensible-effects', and I also wanted to deepen my understanding of it.
 
 ### Modeling an Application with Processes
@@ -38,14 +38,14 @@ example = do
   replyToMe <- self
   sendMessage person replyToMe
   personName <- receiveMessage
-  logInfo' ("I just met " ++ personName)
+  logInfo "I just met " (personName :: String)
 
 alice :: Eff Effects ()
 alice = do
   logInfo "I am waiting for someone to ask me..."
   sender <- receiveMessage
   sendMessage sender ("Alice" :: String)
-  logInfo' (show sender ++ " message received.")
+  logInfo sender " message received."
 
 ```
 This is taken from [example-4](./examples/example-4/Main.hs).
@@ -71,14 +71,14 @@ NOTICE     no proc  all processes cancelled                                     
 ```
 
 The mental model of the programming framework regards objects as **processes**
-with an isolated internal state. 
+with an isolated internal state.
 
 **[Processes](http://hackage.haskell.org/package/extensible-effects-concurrent-0.25.0/docs/Control-Eff-Concurrent-Process.html)** are at the center of that contraption. All *actions*
 happen in processes, and all *interactions* happen via messages sent
-between processes. 
+between processes.
 
 This is called **Message Passing Concurrency**;
-in this library it is provided via the **`Process`** effect. 
+in this library it is provided via the **`Process`** effect.
 
 The **`Process`** effect itself is just an *abstract interface*.
 
@@ -97,13 +97,13 @@ For convenience, it is enough to import one of three modules:
 
 ### Process Life-Cycles and Interprocess Links
 
-All processes except the first process are **`spawned`** by existing 
+All processes except the first process are **`spawned`** by existing
 processes.
 
 When a process **`spawns`** a new process they are independent apart from the fact that
 the parent knows the process-id of the spawend child process.
- 
-Processes can **monitor** each other to be notified when a communication partner exits, 
+
+Processes can **monitor** each other to be notified when a communication partner exits,
 potentially in unforseen ways.
 
 Similarily processes may choose to mutually **link** each other.
@@ -111,18 +111,18 @@ Similarily processes may choose to mutually **link** each other.
 That allows to model **trees** in which processes watch and start or
 restart each other.
 
-Because processes never share memory, the internal - possibly broken - state of 
+Because processes never share memory, the internal - possibly broken - state of
 a process is gone, when a process exits; hence restarting a process will not
-be bothered by left-over, possibly inconsistent, state. 
+be bothered by left-over, possibly inconsistent, state.
 
-### Timers 
+### Timers
 
 [The Timer module](src/Control/Eff/Concurrent/Process/Timer.hs) contains functions to send messages after a time
 has passed, and reiceive messages with timeouts.
 
 ### More Type-Safety: [The Protocol Metaphor](./src/Control/Eff/Concurrent/Protocol.hs)
 
-As the library carefully leaves the realm of untyped messages, it uses the 
+As the library carefully leaves the realm of untyped messages, it uses the
 concept of a **protocol** that governs the communication
 between concurrent processes, which are either **protocol servers** or
 **clients** as a metaphor.
@@ -131,15 +131,15 @@ The communication is initiated by the client.
 
 The idea is to indicate such a _protocol_ using a **custom data type**,
 e.g. `data TemperatureSensorReader` or `data SqlServer`.
- 
+
 The library consists some tricks to restrict the kinds of messages that
 are acceptable when communicating with processes _adhering to the protocol_.
 
 This _protocol_ is not encoded in the users code, but rather something that
-the programmer keeps in his head. 
+the programmer keeps in his head.
 
-In order to be appreciated by authors of real world applications, the 
-protocol can be defined by giving an abstract message sum-type and 
+In order to be appreciated by authors of real world applications, the
+protocol can be defined by giving an abstract message sum-type and
 code for spawning server processes.
 
 It focusses on these questions:
@@ -153,11 +153,11 @@ In this library, the key to a _protocol_ is a single type,
 that could even be a so called __phantom type__, i.e. a
 type without any runtime values:
 
-```haskell 
+```haskell
 
-data UserRegistry -- look mom, no constructors!! 
+data UserRegistry -- look mom, no constructors!!
 
-``` 
+```
 
 Such a type exists only for the type system.
 
@@ -165,14 +165,14 @@ It can only be used as a parameter to certain type constructors,
 and for defining type class and type family instances, e.g.
 
 
-```haskell 
+```haskell
 
 newtype Endpoint protocol = MkServer { _processId :: ProcessId }
 
 data UserRegistry
 
 startUserRegistry :: Eff e (Endpoint UserRegistry)
-startUserRegistry = 
+startUserRegistry =
   error "just an example"
 
 ```
@@ -190,10 +190,10 @@ Messages that belong to a protocol are called __protocol data units (PDU)__.
 The `ProcessId` of a process identifies the messages box that
 `receiveMessage` will use, when waiting for an incoming message.
 
-While it defines _where_ the messages are collected, it does 
+While it defines _where_ the messages are collected, it does
 not restrict or inform about _what_ data is handled by a process.
 
-An [Endpoint](https://hackage.haskell.org/package/extensible-effects-concurrent/docs/Control-Eff-Concurrent-Protocol.html#t:Endpoint) is a wrapper 
+An [Endpoint](https://hackage.haskell.org/package/extensible-effects-concurrent/docs/Control-Eff-Concurrent-Protocol.html#t:Endpoint) is a wrapper
 around the `ProcessId` that takes a _type parameter_.
 
 The type does not have to have any values, it can be a phantom type.
@@ -208,29 +208,29 @@ like event listener registration and event notification.
 
 It is therefore helpful to be able to compose protocols.
 
-The machinery in this library allows to list several 
+The machinery in this library allows to list several
 PDU instances understood by endpoints of a given protocol
 phantom type.
 
-#### Protocol Clients   
+#### Protocol Clients
 
-_Clients_ use a protocol by sending `Pdu`s indexed by 
+_Clients_ use a protocol by sending `Pdu`s indexed by
 some protocol phantom type to a server process.
 
 Clients use `Endpoint`s to address these servers, and the
 functions defined in [the corresponding module](https://hackage.haskell.org/package/extensible-effects-concurrent/docs/Control-Eff-Concurrent-Protocol-Client.html).
 
-Most important are these two functions:  
+Most important are these two functions:
 
 * [cast](https://hackage.haskell.org/package/extensible-effects-concurrent/docs/Control-Eff-Concurrent-Protocol-Client.html#v:cast)
   to send fire-and-forget messages
-   
+
 * [call](https://hackage.haskell.org/package/extensible-effects-concurrent/docs/Control-Eff-Concurrent-Protocol-Client.html#v:cast)
   to send RPC-style requests and wait (block) for the responses.
-  Also, when the server is not running, or crashes in 
+  Also, when the server is not running, or crashes in
   while waiting, the calling process is interrupted
 
-#### Protocol Servers   
+#### Protocol Servers
 
 This library offers an API for defining practically safe to
  use __protocol servers__:
@@ -238,42 +238,42 @@ This library offers an API for defining practically safe to
 * [EffectfulServer](./src/Control/Eff/Concurrent/Protocol/EffectfulServer.hs) This modules defines the framework
   of a process, that has a callback function that is repeatedly
   called when ever a message was received.
-  
-  The callback may rely on any extra effects (extensible effects).    
+
+  The callback may rely on any extra effects (extensible effects).
 
 * [StatefulServer](./src/Control/Eff/Concurrent/Protocol/StatefulServer.hs) A server based on the `EffectfulServer` that includes the definition of
-  in internal state called __Model__, and some nice 
+  in internal state called __Model__, and some nice
   helper functions to access the model. These functions
-  allow the use of lenses. 
-  Unlike the effect server, the effects that the 
+  allow the use of lenses.
+  Unlike the effect server, the effects that the
   callback functions can use are defined in this module.
 
 * [CallbackServer](./src/Control/Eff/Concurrent/Protocol/CallbackServer.hs) A server based on the `EffectfulServer` that does not require a type class
    instance like the stateful and effect servers do.
    It can be used to define _inline_ servers.
-  
+
 #### Events and Observers
 
-A parameterized protocol for event handling is provided in 
+A parameterized protocol for event handling is provided in
 the module:
 
-* [Observer](./src/Control/Eff/Concurrent/Protocol/Observer.hs) 
- 
+* [Observer](./src/Control/Eff/Concurrent/Protocol/Observer.hs)
+
 
 #### Brokers and Watchdogs
 
-A key part of a robust system is monitoring and possibly restarting 
+A key part of a robust system is monitoring and possibly restarting
 stuff that crashes, this is done in conjunction by two modules:
 
 * [Broker](./src/Control/Eff/Concurrent/Protocol/Broker.hs)
 * [Watchdog](./src/Control/Eff/Concurrent/Protocol/Watchdog.hs)
 
-A client of a process that might be restarted cannot use the `ProcessId` 
+A client of a process that might be restarted cannot use the `ProcessId`
 directly, but has to use an abstract ID and lookup the `ProcessId` from a process **[broker](./src/Control/Eff/Concurrent/Protocol/Broker.hs)**, that manages the current `ProcessId` of protocol server
 processes.
 
 That way, when ever the server process registered at a broker crashes,
-**a [watchdog](./src/Control/Eff/Concurrent/Protocol/Watchdog.hs) process** can (re-)start the crashed server.  
+**a [watchdog](./src/Control/Eff/Concurrent/Protocol/Watchdog.hs) process** can (re-)start the crashed server.
 
 ### Additional services
 
@@ -281,7 +281,7 @@ Currently, a **logging effect** is also part of the code base.
 
 ## Usage and Implementation
 
-Should work with `stack`, `cabal` and `nix`. 
+Should work with `stack`, `cabal` and `nix`.
 
 ### Required GHC Extensions
 

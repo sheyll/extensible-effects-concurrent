@@ -1,49 +1,48 @@
-{-# LANGUAGE QuantifiedConstraints, OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE QuantifiedConstraints #-}
+
 -- | Rendering functions for 'LogEvent's.
 module Control.Eff.Log.MessageRenderer
-  (
+  ( -- * Log Message Text Rendering
+    LogEventReader,
+    LogEventPrinter,
+    renderLogEventSyslog,
+    renderLogEventConsoleLog,
+    renderConsoleMinimalisticWide,
+    renderRFC3164,
+    renderRFC3164WithRFC5424Timestamps,
+    renderRFC3164WithTimestamp,
+    renderRFC5424,
+    renderRFC5424Header,
+    renderRFC5424NoLocation,
 
-  -- * Log Message Text Rendering
-    LogEventReader
-  , LogEventPrinter
-  , renderLogEventSyslog
-  , renderLogEventConsoleLog
-  , renderConsoleMinimalisticWide
-  , renderRFC3164
-  , renderRFC3164WithRFC5424Timestamps
-  , renderRFC3164WithTimestamp
-  , renderRFC5424
-  , renderRFC5424Header
-  , renderRFC5424NoLocation
+    -- ** Partial Log Message Text Rendering
+    renderSyslogSeverityAndFacility,
+    renderLogMessageSrcLoc,
+    renderMaybeLogMessageLens,
+    renderLogMessageBodyNoLocation,
+    renderLogEventBody,
+    renderLogEventBodyFixWidth,
 
-  -- ** Partial Log Message Text Rendering
-  , renderSyslogSeverityAndFacility
-  , renderLogMessageSrcLoc
-  , renderMaybeLogMessageLens
-  , renderLogMessageBodyNoLocation
-  , renderLogEventBody
-  , renderLogEventBodyFixWidth
-
-  -- ** Timestamp Rendering
-  , LogEventTimeRenderer()
-  , mkLogEventTimeRenderer
-  , suppressTimestamp
-  , rfc3164Timestamp
-  , rfc5424Timestamp
-  , rfc5424NoZTimestamp
+    -- ** Timestamp Rendering
+    LogEventTimeRenderer (),
+    mkLogEventTimeRenderer,
+    suppressTimestamp,
+    rfc3164Timestamp,
+    rfc5424Timestamp,
+    rfc5424NoZTimestamp,
   )
 where
 
-import           Control.Eff.Log.Message
-import           Control.Lens
-import           Data.Maybe
-import qualified Data.Text                     as T
-import           Data.Time.Clock
-import           Data.Time.Format
-import           GHC.Stack
-import           System.FilePath.Posix
-import           Text.Printf
-
+import Control.Eff.Log.Message
+import Control.Lens
+import Data.Maybe
+import qualified Data.Text as T
+import Data.Time.Clock
+import Data.Time.Format
+import GHC.Stack
+import System.FilePath.Posix
+import Text.Printf
 
 -- | 'LogEvent' rendering function
 type LogEventReader a = LogEvent -> a
@@ -54,13 +53,14 @@ type LogEventReader a = LogEvent -> a
 type LogEventPrinter = LogEventReader T.Text
 
 -- | A rendering function for the 'logEventTimestamp' field.
-newtype LogEventTimeRenderer =
-  MkLogEventTimeRenderer { renderLogEventTime :: UTCTime -> T.Text }
+newtype LogEventTimeRenderer
+  = MkLogEventTimeRenderer {renderLogEventTime :: UTCTime -> T.Text}
 
 -- | Make a  'LogEventTimeRenderer' using 'formatTime' in the 'defaultLocale'.
-mkLogEventTimeRenderer
-  :: String -- ^ The format string that is passed to 'formatTime'
-  -> LogEventTimeRenderer
+mkLogEventTimeRenderer ::
+  -- | The format string that is passed to 'formatTime'
+  String ->
+  LogEventTimeRenderer
 mkLogEventTimeRenderer s =
   MkLogEventTimeRenderer (T.pack . formatTime defaultTimeLocale s)
 
@@ -84,56 +84,64 @@ rfc5424NoZTimestamp =
 
 -- | Print the thread id, the message and the source file location, seperated by simple white space.
 renderLogEventBody :: LogEventPrinter
-renderLogEventBody = T.unwords . filter (not . T.null) <$> sequence
-  [ renderLogMessageBodyNoLocation
-  , fromMaybe "" <$> renderLogMessageSrcLoc
-  ]
+renderLogEventBody =
+  T.unwords . filter (not . T.null)
+    <$> sequence
+      [ renderLogMessageBodyNoLocation,
+        fromMaybe "" <$> renderLogMessageSrcLoc
+      ]
 
 -- | Print the thread id, the message and the source file location, seperated by simple white space.
 renderLogMessageBodyNoLocation :: LogEventPrinter
-renderLogMessageBodyNoLocation = T.unwords . filter (not . T.null) <$> sequence
-  [ renderShowMaybeLogMessageLens "" logEventThreadId
-  , view (logEventMessage . fromLogMsg)
-  ]
+renderLogMessageBodyNoLocation =
+  T.unwords . filter (not . T.null)
+    <$> sequence
+      [ renderShowMaybeLogMessageLens "" logEventThreadId,
+        view (logEventMessage . fromLogMsg)
+      ]
 
 -- | Print the /body/ of a 'LogEvent' with fix size fields (60) for the message itself
 -- and 30 characters for the location
 renderLogEventBodyFixWidth :: LogEventPrinter
-renderLogEventBodyFixWidth l@(MkLogEvent _f _s _ts _hn _an _pid _mi _sd ti _ (MkLogMsg msg))
-  = T.unwords $ filter
-    (not . T.null)
-    [ maybe "" ((<> " ") . T.pack . show) ti
-    , msg <> T.replicate (max 0 (60 - T.length msg)) " "
-    , fromMaybe "" (renderLogMessageSrcLoc l)
-    ]
+renderLogEventBodyFixWidth l@(MkLogEvent _f _s _ts _hn _an _pid _mi _sd ti _ (MkLogMsg msg)) =
+  T.unwords $
+    filter
+      (not . T.null)
+      [ maybe "" ((<> " ") . T.pack . show) ti,
+        msg <> T.replicate (max 0 (60 - T.length msg)) " ",
+        fromMaybe "" (renderLogMessageSrcLoc l)
+      ]
 
 -- | Render a field of a 'LogEvent' using the corresponsing lens.
-renderMaybeLogMessageLens
-  :: T.Text -> Getter LogEvent (Maybe T.Text) -> LogEventPrinter
+renderMaybeLogMessageLens ::
+  T.Text -> Getter LogEvent (Maybe T.Text) -> LogEventPrinter
 renderMaybeLogMessageLens x l = fromMaybe x . view l
 
 -- | Render a field of a 'LogEvent' using the corresponsing lens.
-renderShowMaybeLogMessageLens
-  :: Show a
-  => T.Text
-  -> Getter LogEvent (Maybe a)
-  -> LogEventPrinter
+renderShowMaybeLogMessageLens ::
+  Show a =>
+  T.Text ->
+  Getter LogEvent (Maybe a) ->
+  LogEventPrinter
 renderShowMaybeLogMessageLens x l =
   renderMaybeLogMessageLens x (l . to (fmap (T.pack . show)))
 
 -- | Render the source location as: @at filepath:linenumber@.
 renderLogMessageSrcLoc :: LogEventReader (Maybe T.Text)
-renderLogMessageSrcLoc = view
-  ( logEventSrcLoc
-  . to
-      (fmap
-        (\sl -> T.pack $ printf "at %s:%i"
-                                (takeFileName (srcLocFile sl))
-                                (srcLocStartLine sl)
-        )
-      )
-  )
-
+renderLogMessageSrcLoc =
+  view
+    ( logEventSrcLoc
+        . to
+          ( fmap
+              ( \sl ->
+                  T.pack $
+                    printf
+                      "at %s:%i"
+                      (takeFileName (srcLocFile sl))
+                      (srcLocStartLine sl)
+              )
+          )
+    )
 
 -- | Render the severity and facility as described in RFC-3164
 --
@@ -152,42 +160,46 @@ renderSyslogSeverityAndFacility (MkLogEvent !f !s _ _ _ _ _ _ _ _ _) =
 --
 -- Useful for logging to @/dev/log@
 renderLogEventSyslog :: LogEventPrinter
-renderLogEventSyslog l@(MkLogEvent _ _ _ _ an _ mi _ _ _ _)
-  = renderSyslogSeverityAndFacility l <> (T.unwords
-    . filter (not . T.null)
-    $ [ fromMaybe "" an
-      , fromMaybe "" mi
-      , renderLogEventBody l
-      ])
+renderLogEventSyslog l@(MkLogEvent _ _ _ _ an _ mi _ _ _ _) =
+  renderSyslogSeverityAndFacility l
+    <> ( T.unwords
+           . filter (not . T.null)
+           $ [ fromMaybe "" an,
+               fromMaybe "" mi,
+               renderLogEventBody l
+             ]
+       )
 
 -- | Render a 'LogEvent' human readable, for console logging
 renderLogEventConsoleLog :: LogEventPrinter
 renderLogEventConsoleLog l@(MkLogEvent _ _ ts _ _ _ _ sd _ _ _) =
-  T.unwords $ filter
-    (not . T.null)
-    [ severityToText (view logEventSeverity l)
-    , let p = fromMaybe "no process" (l ^. logEventProcessId)
-      in p <> T.replicate (max 0 (55 - T.length p)) " "
-    , maybe "" (renderLogEventTime rfc5424Timestamp) ts
-    , renderLogEventBodyFixWidth l
-    , if null sd then "" else T.concat (renderSdElement <$> sd)
-    ]
+  T.unwords $
+    filter
+      (not . T.null)
+      [ severityToText (view logEventSeverity l),
+        let p = fromMaybe "no process" (l ^. logEventProcessId)
+         in p <> T.replicate (max 0 (55 - T.length p)) " ",
+        maybe "" (renderLogEventTime rfc5424Timestamp) ts,
+        renderLogEventBodyFixWidth l,
+        if null sd then "" else T.concat (renderSdElement <$> sd)
+      ]
 
 -- | Render a 'LogEvent' human readable, for console logging
 --
 -- @since 0.31.0
 renderConsoleMinimalisticWide :: LogEventReader T.Text
 renderConsoleMinimalisticWide l =
-  T.unwords $ filter
-    (not . T.null)
-    [ let s = severityToText (view logEventSeverity l)
-      in s <> T.replicate (max 0 (15 - T.length s)) " "
-    , let p = fromMaybe "no process" (l ^. logEventProcessId)
-      in p <> T.replicate (max 0 (55 - T.length p)) " "
-    , let msg = l^.logEventMessage.fromLogMsg
-      in  msg <> T.replicate (max 0 (100 - T.length msg)) " "
-    -- , fromMaybe "" (renderLogMessageSrcLoc l)
-    ]
+  T.unwords $
+    filter
+      (not . T.null)
+      [ let s = severityToText (view logEventSeverity l)
+         in s <> T.replicate (max 0 (15 - T.length s)) " ",
+        let p = fromMaybe "no process" (l ^. logEventProcessId)
+         in p <> T.replicate (max 0 (55 - T.length p)) " ",
+        let msg = l ^. logEventMessage . fromLogMsg
+         in msg <> T.replicate (max 0 (100 - T.length msg)) " "
+        -- , fromMaybe "" (renderLogMessageSrcLoc l)
+      ]
 
 -- | Render a 'LogEvent' according to the rules in the RFC-3164.
 renderRFC3164 :: LogEventPrinter
@@ -205,14 +217,15 @@ renderRFC3164WithTimestamp :: LogEventTimeRenderer -> LogEventPrinter
 renderRFC3164WithTimestamp renderTime l@(MkLogEvent _ _ ts hn an pid mi _ _ _ _) =
   T.unwords
     . filter (not . T.null)
-    $ [ renderSyslogSeverityAndFacility l -- PRI
-      , maybe "1979-05-29T00:17:17.000001Z"
-              (renderLogEventTime renderTime)
-              ts
-      , fromMaybe "localhost" hn
-      , fromMaybe "haskell" an <> maybe "" (("[" <>) . (<> "]")) pid <> ":"
-      , fromMaybe "" mi
-      , renderLogEventBody l
+    $ [ renderSyslogSeverityAndFacility l, -- PRI
+        maybe
+          "1979-05-29T00:17:17.000001Z"
+          (renderLogEventTime renderTime)
+          ts,
+        fromMaybe "localhost" hn,
+        fromMaybe "haskell" an <> maybe "" (("[" <>) . (<> "]")) pid <> ":",
+        fromMaybe "" mi,
+        renderLogEventBody l
       ]
 
 -- | Render a 'LogEvent' according to the rules in the RFC-5424.
@@ -221,7 +234,7 @@ renderRFC3164WithTimestamp renderTime l@(MkLogEvent _ _ ts hn an pid mi _ _ _ _)
 --
 -- @since 0.21.0
 renderRFC5424 :: LogEventPrinter
-renderRFC5424  = renderRFC5424Header <> const " " <> renderLogEventBody
+renderRFC5424 = renderRFC5424Header <> const " " <> renderLogEventBody
 
 -- | Render a 'LogEvent' according to the rules in the RFC-5424, like 'renderRFC5424' but
 -- suppress the source location information.
@@ -230,7 +243,7 @@ renderRFC5424  = renderRFC5424Header <> const " " <> renderLogEventBody
 --
 -- @since 0.21.0
 renderRFC5424NoLocation :: LogEventPrinter
-renderRFC5424NoLocation  = renderRFC5424Header <> const " " <> renderLogMessageBodyNoLocation
+renderRFC5424NoLocation = renderRFC5424Header <> const " " <> renderLogMessageBodyNoLocation
 
 -- | Render the header and strucuted data of  a 'LogEvent' according to the rules in the RFC-5424, but do not
 -- render the 'logEventMessage'.
@@ -240,21 +253,23 @@ renderRFC5424Header :: LogEventPrinter
 renderRFC5424Header l@(MkLogEvent _ _ ts hn an pid mi sd _ _ _) =
   T.unwords
     . filter (not . T.null)
-    $ [ renderSyslogSeverityAndFacility l <> "1" -- PRI VERSION
-      , maybe "-" (renderLogEventTime rfc5424Timestamp) ts
-      , fromMaybe "-" hn
-      , fromMaybe "-" an
-      , fromMaybe "-" pid
-      , fromMaybe "-" mi
-      , structuredData
+    $ [ renderSyslogSeverityAndFacility l <> "1", -- PRI VERSION
+        maybe "-" (renderLogEventTime rfc5424Timestamp) ts,
+        fromMaybe "-" hn,
+        fromMaybe "-" an,
+        fromMaybe "-" pid,
+        fromMaybe "-" mi,
+        structuredData
       ]
- where
-  structuredData = if null sd then "-" else T.concat (renderSdElement <$> sd)
+  where
+    structuredData = if null sd then "-" else T.concat (renderSdElement <$> sd)
 
 renderSdElement :: StructuredDataElement -> T.Text
-renderSdElement (SdElement sdId params) = "[" <> sdName sdId <> if null params
-  then ""
-  else " " <> T.unwords (renderSdParameter <$> params) <> "]"
+renderSdElement (SdElement sdId params) =
+  "[" <> sdName sdId
+    <> if null params
+      then ""
+      else " " <> T.unwords (renderSdParameter <$> params) <> "]"
 
 renderSdParameter :: SdParameter -> T.Text
 renderSdParameter (MkSdParameter k v) =
@@ -268,7 +283,7 @@ sdName =
 -- | Extract the value of an 'SdParameter'.
 sdParamValue :: T.Text -> T.Text
 sdParamValue = T.concatMap $ \case
-  '"'  -> "\\\""
+  '"' -> "\\\""
   '\\' -> "\\\\"
-  ']'  -> "\\]"
-  x    -> T.singleton x
+  ']' -> "\\]"
+  x -> T.singleton x
