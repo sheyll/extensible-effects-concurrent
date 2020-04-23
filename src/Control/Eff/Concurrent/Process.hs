@@ -496,15 +496,15 @@ data ProcessState
     ProcessBusySendingShutdown
   | -- | The process is busy with killing
     ProcessBusySendingInterrupt
-  | -- | The process blocked by a 'receiveAnyMessage'
+  | -- | The process is blocked by 'receiveAnyMessage'
     ProcessBusyReceiving
-  | -- | The process blocked by a 'linkProcess'
+  | -- | The process is blocked by 'linkProcess'
     ProcessBusyLinking
-  | -- | The process blocked by a 'unlinkProcess'
+  | -- | The process is blocked by 'unlinkProcess'
     ProcessBusyUnlinking
-  | -- | The process blocked by a 'monitor'
+  | -- | The process is blocked by 'monitor'
     ProcessBusyMonitoring
-  | -- | The process blocked by a 'demonitor'
+  | -- | The process is blocked by 'demonitor'
     ProcessBusyDemonitoring
   | -- | The process was interrupted
     ProcessInterrupted
@@ -527,13 +527,13 @@ instance ToLogMsg ProcessState where
     ProcessBusySending -> packLogMsg "BusySending (the process is busy with sending a message)"
     ProcessBusySendingShutdown -> packLogMsg "BusySendingShutdown (the process is busy with killing)"
     ProcessBusySendingInterrupt -> packLogMsg "BusySendingInterrupt (the process is busy with killing)"
-    ProcessBusyReceiving -> packLogMsg "BusyReceiving (the process blocked by a 'receiveAnyMessage')"
-    ProcessBusyLinking -> packLogMsg "BusyLinking (the process blocked by a 'linkProcess')"
-    ProcessBusyUnlinking -> packLogMsg "BusyUnlinking (the process blocked by a 'unlinkProcess')"
-    ProcessBusyMonitoring -> packLogMsg "BusyMonitoring (the process blocked by a 'monitor')"
-    ProcessBusyDemonitoring -> packLogMsg "BusyDemonitoring (the process blocked by a 'demonitor')"
+    ProcessBusyReceiving -> packLogMsg "BusyReceiving (the process is waiting for a message)"
+    ProcessBusyLinking -> packLogMsg "BusyLinking (the process is blocked by 'linkProcess')"
+    ProcessBusyUnlinking -> packLogMsg "BusyUnlinking (the process is blocked by 'unlinkProcess')"
+    ProcessBusyMonitoring -> packLogMsg "BusyMonitoring (the process is blocked by 'monitor')"
+    ProcessBusyDemonitoring -> packLogMsg "BusyDemonitoring (the process is blocked by 'demonitor')"
     ProcessInterrupted -> packLogMsg "Interrupted (the process was interrupted)"
-    ProcessShuttingDown -> packLogMsg "ShuttingDown (the process was shutdown or crashed)"
+    ProcessShuttingDown -> packLogMsg "ShuttingDown (the process is shutting down)"
 
 -- | A sum-type with reasons for why a process operation, such as receiving messages,
 -- is interrupted in the scheduling loop.

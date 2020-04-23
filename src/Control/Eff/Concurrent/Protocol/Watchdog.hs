@@ -312,9 +312,9 @@ instance
                     maxCrashCount = rate ^. crashCount
                 if recentCrashes < maxCrashCount
                   then do
-                    logNotice "restarting (" (show recentCrashes) "/" (show maxCrashCount) "): " cId " of " broker
+                    logNotice "restarting (" (show recentCrashes) "/" (show maxCrashCount) ") child: " cId " of " broker
                     res <- Broker.spawnChild broker cId
-                    logNotice "restarted: " cId " of " broker ": " res
+                    logNotice "restarted child: " cId " => " res " of " broker
                     crash <- startExonerationTimer @child cId reason (rate ^. crashTimeSpan)
                     if isJust (currentModel ^? childWatchesById cId)
                       then do
@@ -335,14 +335,14 @@ instance
                     forM_ (currentModel ^? brokers . at broker . _Just) $ \bw ->
                       if bw ^. isPermanent
                         then do
-                          logError "a child of a permanent broker crashed too often, interrupting: " broker
+                          logError "a child of a permanent broker crashed too often, shutting down permanent broker: " broker
                           let r = ExitUnhandledError (packLogMsg "restart frequency exceeded")
                           demonitor (bw ^. brokerMonitor)
                           sendShutdown (broker ^. fromEndpoint) r
                           exitBecause r
                         else-- TODO shutdown all other permanent brokers!
 
-                          logError "a child of a temporary broker crashed too often: " broker
+                          logError "a child crashed too often of the temporary broker: " broker
       Effectful.OnDown pd@(ProcessDown _mref _ pid) -> do
         logDebug "on-down: " pd
         let broker = asEndpoint pid
@@ -483,7 +483,7 @@ startExonerationTimer ::
   CrashTimeSpan ->
   Eff e CrashReport
 startExonerationTimer cId r t = do
-  let title = MkProcessTitle (packLogMsg "exoneration-timer-" <> toTypeLogMsg (Proxy @child) <> toLogMsg "-" <> toLogMsg cId)
+  let title = MkProcessTitle (toLogMsg cId <> packLogMsg "_exoneration-timer")
   me <- self
   ref <- sendAfterWithTitle title me (TimeoutMicros (t * 1_000_000)) (MkExonerationTimer cId)
   now <- lift getCurrentTime

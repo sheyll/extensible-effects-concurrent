@@ -841,7 +841,7 @@ spawnNewProcess mLinkedParent title mfa = do
               )
           when
             (currentState /= ProcessShuttingDown)
-            (logNotice "aborted in state: " currentState " because: " reason)
+            (logNotice reason " - while: " currentState)
           triggerProcessLinksAndMonitors pid reason (procInfo ^. processLinks)
           logProcessExit reason
           return reason
