@@ -294,7 +294,6 @@ test-suite extensible-effects-concurrent-test
               , GenServerTests
               , Interactive
               , LoggingTests
-              , LogMessageIdeaTest
               , LoopTests
               , ObserverTests
               , ProcessBehaviourTestCases
