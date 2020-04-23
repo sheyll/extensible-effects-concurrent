@@ -56,7 +56,7 @@ test_IOExceptionsIsolated =
                 void (send (ReceiveSelectedMessage @BaseEffects selectAnyMessage))
               ),
               ( "sending",
-                void (send (SendMessage @BaseEffects 44444 (toStrictDynamic ("test message" :: String))))
+                void (send (SendMessage @BaseEffects 44444 (toMessage ("test message" :: String))))
               ),
               ( "sending shutdown",
                 void (send (SendShutdown @BaseEffects 44444 ExitNormally))

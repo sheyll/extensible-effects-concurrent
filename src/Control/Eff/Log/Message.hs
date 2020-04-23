@@ -620,6 +620,39 @@ newtype StringLogMsg = MSG {fromStringLogMsg :: String} deriving (NFData, Eq, Or
 
 instance ToTypeLogMsg StringLogMsg
 
+-- | Render a value to 'String'.
+--
+-- Render the value to a 'LogMsg' using the 'ToLogMsg' instance.
+-- See 'AsLogMsg'.
+--
+-- @since 1.0.0
+showAsLogMsg :: ToLogMsg a => a -> String
+showAsLogMsg = show . AsLogMsg
+
+-- | A wrapper for 'Show', 'Eq' and 'Ord' based on a 'LogMsg' of a value.
+--
+-- 'Eq', 'Show' and 'Ord' are implemented via the
+-- 'LogMsg' obtained from the 'ToLogMsg' for a type.
+--
+-- @since 1.0.0
+newtype AsLogMsg a = AsLogMsg {notAsLogMsg :: a}
+  deriving (Typeable, NFData)
+
+instance ToTypeLogMsg a => ToTypeLogMsg (AsLogMsg a) where
+  toTypeLogMsg _ = toTypeLogMsg (Proxy @a)
+
+instance ToLogMsg a => Eq (AsLogMsg a) where
+  (==) = (==) `on` toLogMsg
+
+instance ToLogMsg a => Ord (AsLogMsg a) where
+  compare = compare `on` toLogMsg
+
+instance ToLogMsg a => Show (AsLogMsg a) where
+  show = show . toLogMsg . notAsLogMsg
+
+instance ToLogMsg a => ToLogMsg (AsLogMsg a) where
+  toLogMsg = toLogMsg . notAsLogMsg
+
 -- | Prefix the 'logEventMessage'.
 prefixLogEventsWith :: ToLogMsg a => a -> LogEvent -> LogEvent
 prefixLogEventsWith = over logEventMessage . (<>) . toLogMsg

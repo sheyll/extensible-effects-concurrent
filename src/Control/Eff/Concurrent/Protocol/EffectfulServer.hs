@@ -144,7 +144,7 @@ protocolServerLoop a = do
        <|> OnMessage <$> selectAnyMessage
       where
         onRequest :: Request (ServerPdu a) -> Event (ServerPdu a)
-        onRequest (Call o m) = OnCall (replyTarget (MkSerializer toStrictDynamic) o) m
+        onRequest (Call o m) = OnCall (replyTarget (MkSerializer toMessage) o) m
         onRequest (Cast m) = OnCast m
     handleInt myEp i = onEvent @_ @(Processes q) myEp a (OnInterrupt i) *> pure Nothing
     mainLoop :: (Typeable a)
@@ -182,7 +182,7 @@ data Event a where
   OnInterrupt :: InterruptReason -> Event a
   OnDown :: ProcessDown -> Event a
   OnTimeOut :: TimerElapsed -> Event a
-  OnMessage :: StrictDynamic -> Event a
+  OnMessage :: Message -> Event a
   deriving Typeable
 
 instance  ToLogMsg (Event a) where

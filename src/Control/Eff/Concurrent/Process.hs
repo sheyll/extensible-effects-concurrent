@@ -35,10 +35,10 @@ module Control.Eff.Concurrent.Process
     Timeout (TimeoutMicros, fromTimeoutMicros),
 
     -- ** Message Data
-    StrictDynamic (),
-    toStrictDynamic,
-    fromStrictDynamic,
-    unwrapStrictDynamic,
+    Message (),
+    toMessage,
+    fromMessage,
+    unwrapMessage,
     Serializer (..),
 
     -- ** ProcessId Type
@@ -209,7 +209,7 @@ import Type.Reflection (SomeTypeRep (..), typeRep)
 -- * when the first process exists, all process should be killed immediately
 data Process (r :: [Type -> Type]) b where
   -- | Remove all messages from the process' message queue
-  FlushMessages :: Process r (ResumeProcess [StrictDynamic])
+  FlushMessages :: Process r (ResumeProcess [Message])
   -- | In cooperative schedulers, this will give processing time to the
   -- scheduler. Every other operation implicitly serves the same purpose.
   --
@@ -241,7 +241,7 @@ data Process (r :: [Type -> Type]) b where
   -- message should __always succeed__ and return __immediately__, even if the
   -- destination process does not exist, or does not accept messages of the
   -- given type.
-  SendMessage :: ProcessId -> StrictDynamic -> Process r (ResumeProcess ())
+  SendMessage :: ProcessId -> Message -> Process r (ResumeProcess ())
   -- | Receive a message that matches a criteria.
   -- This should block until an a message was received. The message is returned
   -- as a 'ResumeProcess' value. The function should also return if an exception
@@ -346,18 +346,18 @@ instance ToLogMsg Timeout where
 -- sending it to another process.
 --
 -- @since 0.22.0
-newtype StrictDynamic = MkStrictDynamic Dynamic
+newtype Message = MkMessage Dynamic
   deriving (Typeable, Show)
 
-instance ToTypeLogMsg StrictDynamic
+instance ToTypeLogMsg Message
 
-instance NFData StrictDynamic where
-  rnf (MkStrictDynamic d) = d `seq` ()
+instance NFData Message where
+  rnf (MkMessage d) = d `seq` ()
 
-instance ToLogMsg StrictDynamic where
-  toLogMsg (MkStrictDynamic d) = packLogMsg (show d)
+instance ToLogMsg Message where
+  toLogMsg (MkMessage d) = packLogMsg (show d)
 
--- | Serialize a @message@ into a 'StrictDynamic' value to be sent via 'sendAnyMessage'.
+-- | Serialize a @message@ into a 'Message' value to be sent via 'sendAnyMessage'.
 --
 -- This indirection allows, among other things, the composition of
 -- 'Control.Eff.Concurrent.Protocol.Effectful.Server's.
@@ -365,7 +365,7 @@ instance ToLogMsg StrictDynamic where
 -- @since 0.24.1
 newtype Serializer message
   = MkSerializer
-      { runSerializer :: message -> StrictDynamic
+      { runSerializer :: message -> Message
       }
   deriving (Typeable)
 
@@ -378,23 +378,23 @@ instance Typeable message => Show (Serializer message) where
 instance Contravariant Serializer where
   contramap f (MkSerializer b) = MkSerializer (b . f)
 
--- | Deeply evaluate the given value and wrap it into a 'StrictDynamic'.
+-- | Deeply evaluate the given value and wrap it into a 'Message'.
 --
 -- @since 0.22.0
-toStrictDynamic :: (Typeable a, NFData a) => a -> StrictDynamic
-toStrictDynamic x = force x `seq` toDyn (force x) `seq` MkStrictDynamic (toDyn (force x))
+toMessage :: (Typeable a, NFData a) => a -> Message
+toMessage x = force x `seq` toDyn (force x) `seq` MkMessage (toDyn (force x))
 
--- | Convert a 'StrictDynamic' back to a value.
+-- | Convert a 'Message' back to a value.
 --
 -- @since 0.22.0
-fromStrictDynamic :: Typeable a => StrictDynamic -> Maybe a
-fromStrictDynamic (MkStrictDynamic d) = fromDynamic d
+fromMessage :: Typeable a => Message -> Maybe a
+fromMessage (MkMessage d) = fromDynamic d
 
--- | Convert a 'StrictDynamic' back to an unwrapped 'Dynamic'.
+-- | Convert a 'Message' back to an unwrapped 'Dynamic'.
 --
 -- @since 0.22.0
-unwrapStrictDynamic :: StrictDynamic -> Dynamic
-unwrapStrictDynamic (MkStrictDynamic d) = d
+unwrapMessage :: Message -> Dynamic
+unwrapMessage (MkMessage d) = d
 
 -- | Every 'Process' action returns it's actual result wrapped in this type. It
 -- will allow to signal errors as well as pass on normal results such as
@@ -425,7 +425,7 @@ instance NFData1 ResumeProcess
 -- > selectIntOrString =
 -- >   Left <$> selectTimeout<|> Right <$> selectString
 newtype MessageSelector a
-  = MessageSelector {runMessageSelector :: StrictDynamic -> Maybe a}
+  = MessageSelector {runMessageSelector :: Message -> Maybe a}
   deriving (Semigroup, Monoid, Functor)
 
 instance Applicative MessageSelector where
@@ -438,11 +438,11 @@ instance Alternative MessageSelector where
   (MessageSelector l) <|> (MessageSelector r) =
     MessageSelector (\dyn -> l dyn <|> r dyn)
 
--- | Create a message selector for a value that can be obtained by 'fromStrictDynamic'.
+-- | Create a message selector for a value that can be obtained by 'fromMessage'.
 --
 -- @since 0.9.1
 selectMessage :: Typeable t => MessageSelector t
-selectMessage = selectDynamicMessage fromStrictDynamic
+selectMessage = selectDynamicMessage fromMessage
 
 -- | Create a message selector from a predicate.
 --
@@ -450,7 +450,7 @@ selectMessage = selectDynamicMessage fromStrictDynamic
 filterMessage :: Typeable a => (a -> Bool) -> MessageSelector a
 filterMessage predicate =
   selectDynamicMessage
-    ( \d -> case fromStrictDynamic d of
+    ( \d -> case fromMessage d of
         Just a | predicate a -> Just a
         _ -> Nothing
     )
@@ -462,19 +462,19 @@ filterMessage predicate =
 -- @since 0.9.1
 selectMessageWith ::
   Typeable a => (a -> Maybe b) -> MessageSelector b
-selectMessageWith f = selectDynamicMessage (fromStrictDynamic >=> f)
+selectMessageWith f = selectDynamicMessage (fromMessage >=> f)
 
 -- | Create a message selector.
 --
 -- @since 0.9.1
-selectDynamicMessage :: (StrictDynamic -> Maybe a) -> MessageSelector a
+selectDynamicMessage :: (Message -> Maybe a) -> MessageSelector a
 selectDynamicMessage = MessageSelector
 
 -- | Create a message selector that will match every message. This is /lazy/
 -- because the result is not 'force'ed.
 --
 -- @since 0.9.1
-selectAnyMessage :: MessageSelector StrictDynamic
+selectAnyMessage :: MessageSelector Message
 selectAnyMessage = MessageSelector Just
 
 -- | The state that a 'Process' is currently in.
@@ -570,7 +570,7 @@ data InterruptReason where
   --
   -- @since 0.30.0
   InterruptedBy ::
-    StrictDynamic ->
+    Message ->
     InterruptReason
   deriving (Show, Typeable)
 
@@ -917,8 +917,8 @@ sendMessage ::
   o ->
   Eff r ()
 sendMessage pid message =
-  rnf pid `seq` toStrictDynamic message
-    `seq` executeAndResumeOrThrow (SendMessage pid (toStrictDynamic message))
+  rnf pid `seq` toMessage message
+    `seq` executeAndResumeOrThrow (SendMessage pid (toMessage message))
 
 -- | Send a 'Dynamic' value to a process addressed by the 'ProcessId'.
 -- See 'SendMessage'.
@@ -926,7 +926,7 @@ sendAnyMessage ::
   forall r q.
   (HasCallStack, HasProcesses r q) =>
   ProcessId ->
-  StrictDynamic ->
+  Message ->
   Eff r ()
 sendAnyMessage pid message =
   executeAndResumeOrThrow (SendMessage pid message)
@@ -1049,7 +1049,7 @@ updateProcessDetails pd = executeAndResumeOrThrow (UpdateProcessDetails pd)
 receiveAnyMessage ::
   forall r q.
   (HasCallStack, HasProcesses r q) =>
-  Eff r StrictDynamic
+  Eff r Message
 receiveAnyMessage =
   executeAndResumeOrThrow (ReceiveSelectedMessage selectAnyMessage)
 
@@ -1076,7 +1076,7 @@ receiveMessage ::
     HasProcesses r q
   ) =>
   Eff r a
-receiveMessage = receiveSelectedMessage (MessageSelector fromStrictDynamic)
+receiveMessage = receiveSelectedMessage (MessageSelector fromMessage)
 
 -- | Remove and return all messages currently enqueued in the process message
 -- queue.
@@ -1085,7 +1085,7 @@ receiveMessage = receiveSelectedMessage (MessageSelector fromStrictDynamic)
 flushMessages ::
   forall r q.
   (HasCallStack, HasProcesses r q) =>
-  Eff r [StrictDynamic]
+  Eff r [Message]
 flushMessages = executeAndResumeOrThrow @q FlushMessages
 
 -- | Enter a loop to receive messages and pass them to a callback, until the
@@ -1114,7 +1114,7 @@ receiveSelectedLoop selector handlers = do
 receiveAnyLoop ::
   forall r q endOfLoopResult.
   (HasSafeProcesses r q, HasCallStack) =>
-  (Either InterruptReason StrictDynamic -> Eff r (Maybe endOfLoopResult)) ->
+  (Either InterruptReason Message -> Eff r (Maybe endOfLoopResult)) ->
   Eff r endOfLoopResult
 receiveAnyLoop = receiveSelectedLoop selectAnyMessage
 

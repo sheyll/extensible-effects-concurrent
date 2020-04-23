@@ -147,7 +147,7 @@ registerObserver eventSource eventSink =
     where
        serializer =
         MkSerializer
-          ( toStrictDynamic
+          ( toMessage
           . Cast
           . embedPdu @eventSink @(Observer event) @( 'Asynchronous )
           )

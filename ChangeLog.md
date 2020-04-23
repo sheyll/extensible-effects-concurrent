@@ -6,6 +6,7 @@
     - Split `Interrupt` into `ShutdownReason` and `InterruptReason`
     - Rename `isProcessDownInterrupt` to `isLinkedProcessCrashed`
     - Remove experimental type-safe `Receiver` type
+    - Rename `StrictDynamic` to `Message`
 
 - **Logging**
     - Rename `LogMessage(...)` to `LogEvent(...)`
@@ -23,6 +24,7 @@
 
                 logNotice "dettaching: " deadBroker " from: " broker
 
+    - Add `StringLogMsg` with the `MSG` constructor
     - Remove `errorMessageIO`, `infoMessageIO` and `debugMessageIO`
     - Change the `appName` parameter type in some `LogWriter`s from `Text` to `String`
 

@@ -292,7 +292,7 @@ callById broker cId pdu tMax =
    >>=
     maybe
       (do logError "callById failed for: " pdu
-          interrupt (InterruptedBy (toStrictDynamic (ChildNotFound cId broker)))
+          interrupt (InterruptedBy (toMessage (ChildNotFound cId broker)))
       )
       (\cEp -> callWithTimeout cEp pdu tMax)
 

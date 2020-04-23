@@ -60,9 +60,9 @@ import           System.Timeout
 -- * Process Types
 
 -- | A message queue of a process, contains the actual queue and maybe an
--- exit reason. The message queue is backed by a 'Seq' sequence with 'StrictDynamic' values.
+-- exit reason. The message queue is backed by a 'Seq' sequence with 'Message' values.
 data MessageQ = MessageQ
-  { _incomingMessages :: Seq StrictDynamic
+  { _incomingMessages :: Seq Message
   , _shutdownRequests :: Maybe InterruptOrShutdown
   }
 
@@ -164,7 +164,7 @@ addMonitoring monitorRef@(MkMonitorReference _ target) owner schedulerState =
       let processDownMessage =
             ProcessDown monitorRef (ExitOtherProcessNotRunning target) target
       wasEnqueued <- enqueueMessageOtherProcess owner
-                                     (toStrictDynamic processDownMessage)
+                                     (toMessage processDownMessage)
                                      schedulerState
       check wasEnqueued
 
@@ -186,7 +186,7 @@ triggerAndRemoveMonitor downPid reason schedulerState = do
         wasEnqueued <-
           enqueueMessageOtherProcess
             owner
-            (toStrictDynamic processDownMessage)
+            (toMessage processDownMessage)
             schedulerState
         removeMonitoring mr schedulerState
         pure $ if wasEnqueued then Nothing else Just owner
@@ -573,7 +573,7 @@ handleProcess myProcessInfo actionToRun = fix
         >>= lift
         .   atomically
         .   enqueueShutdownRequest toPid msg
-    interpretFlush :: Eff BaseEffects (ResumeProcess [StrictDynamic])
+    interpretFlush :: Eff BaseEffects (ResumeProcess [Message])
     interpretFlush = do
       setMyProcessState ProcessBusyReceiving
       lift $ atomically $ do
@@ -808,7 +808,7 @@ getSchedulerState :: HasBaseEffects r => Eff r SchedulerState
 getSchedulerState = ask
 
 enqueueMessageOtherProcess
-  :: HasCallStack => ProcessId -> StrictDynamic -> SchedulerState -> STM Bool
+  :: HasCallStack => ProcessId -> Message -> SchedulerState -> STM Bool
 enqueueMessageOtherProcess toPid msg schedulerState =
   view (at toPid) <$> readTVar (schedulerState ^. processTable) >>= maybe
     (return False)

@@ -598,7 +598,7 @@ exitTests schedulerFactory =
                     ( send
                         ( SendMessage @r
                             44444
-                            (toStrictDynamic ("test message" :: String))
+                            (toMessage ("test message" :: String))
                         )
                     )
                 ),
@@ -639,7 +639,7 @@ exitTests schedulerFactory =
                     ( send
                         ( SendMessage @r
                             44444
-                            (toStrictDynamic ("test message" :: String))
+                            (toMessage ("test message" :: String))
                         )
                     )
                 ),
@@ -695,7 +695,7 @@ exitTests schedulerFactory =
                     ( send
                         ( SendMessage @r
                             44444
-                            (toStrictDynamic ("test message" :: String))
+                            (toMessage ("test message" :: String))
                         )
                     )
                 ),
@@ -760,7 +760,7 @@ sendShutdownTests schedulerFactory =
                   "interrupted"
                   ( do
                       untilInterrupted
-                        (SendMessage @r 666666 (toStrictDynamic ("test" :: String)))
+                        (SendMessage @r 666666 (toMessage ("test" :: String)))
                       void (sendMessage me ("OK" :: String))
                   )
               void (sendInterrupt other testInterruptReason)

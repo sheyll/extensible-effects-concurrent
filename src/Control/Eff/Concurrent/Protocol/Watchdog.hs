@@ -342,7 +342,7 @@ instance
       Effectful.OnTimeOut t -> do
         logError "on-timeout: " t
 
-      Effectful.OnMessage (fromStrictDynamic -> Just (MkExonerationTimer cId ref :: ExonerationTimer (Broker.ChildId child))) -> do
+      Effectful.OnMessage (fromMessage -> Just (MkExonerationTimer cId ref :: ExonerationTimer (Broker.ChildId child))) -> do
         logInfo "on-exoneration-timeout: " cId
         Stateful.modifyModel
           (watched @child . at cId . _Just . crashes %~ Set.filter (\c -> c^.exonerationTimerReference /= ref))

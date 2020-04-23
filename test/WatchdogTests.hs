@@ -631,15 +631,6 @@ awaitChildStartedEvent c0 = do
     otherEvent ->
       lift (assertFailure ("wrong broker start event received: " <> showAsLogMsg otherEvent))
 
-showAsLogMsg :: ToLogMsg a => a -> String
-showAsLogMsg = show . AsLogMsg
-
-newtype AsLogMsg a = AsLogMsg {notAsLogMsg :: a}
-  deriving (Typeable, ToLogMsg, Eq, Ord)
-
-instance ToLogMsg a => Show (AsLogMsg a) where
-  show = show . toLogMsg . notAsLogMsg
-
 data BookShelf deriving (Typeable)
 
 type Book = String
