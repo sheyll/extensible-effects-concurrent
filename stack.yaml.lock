@@ -13,7 +13,7 @@ packages:
     hackage: extensible-effects-5.0.0.1
 snapshots:
 - completed:
-    size: 496647
-    url: https://raw.githubusercontent.com/commercialhaskell/stackage-snapshots/master/lts/13/13.yaml
-    sha256: 9b6d3d0574b5059b411f64730960ad994df84e1cfe33b1931bf5fa2eafb1ff91
-  original: lts-13.13
+    size: 492027
+    url: https://raw.githubusercontent.com/commercialhaskell/stackage-snapshots/master/lts/15/9.yaml
+    sha256: 11394dc975e96c2fea90f7f2b3229630d46351a092ebcec78f0a56403930b429
+  original: lts-15.9

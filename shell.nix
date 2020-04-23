@@ -11,12 +11,11 @@ pkgs.haskellPackages.shellFor {
                       pkgs.erlang
                       ghcid
                       hoogle
-                      pointfree
                       graphmod
                       cabal-plan
+                      ormolu
                       # brittany
                       weeder
-                      pkgs.stack
                       pkgs.nix
                       pkgs.graphviz-nox
                     ];

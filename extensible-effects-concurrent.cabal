@@ -8,7 +8,7 @@ bug-reports:    https://github.com/sheyll/extensible-effects-concurrent/issues
 author:         Sven Heyll
 maintainer:     sven.heyll@gmail.com
 category:       Concurrency, Control, Effect
-tested-with:    GHC==8.6.3, GHC==8.6.4
+tested-with:    GHC==8.6.3, GHC==8.6.4, GHC==8.6.5, GHC==8.8.3
 copyright:      Copyright Sven Heyll
 license:        BSD3
 license-file:   LICENSE
@@ -27,7 +27,6 @@ extra-source-files:
     with-hoogle.nix
     ChangeLog.md
     README.md
-    brittany.yaml
     .travis.yml
 
 source-repository head
@@ -48,10 +47,10 @@ library
       exceptions >= 0.10 && < 0.11,
       safe-exceptions >= 0.1 && < 0.2,
       filepath >= 1.4 && < 1.5,
-      time >= 1.8 && < 1.9,
+      time >= 1.8 && < 2,
       mtl >= 2.2 && < 2.3,
       containers >=0.5.8 && <0.7,
-      lens >= 4.14 && < 4.18,
+      lens >= 4.14 && < 4.19,
       monad-control >= 1.0 && < 1.1,
       extensible-effects >= 5 && < 6,
       stm >= 2.4.5 && <2.6,

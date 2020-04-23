@@ -2,11 +2,11 @@
 {
 
 # Library of functions to use, for composeExtensions.
-lib ? (import <nixpkgs> {}).pkgs.lib,
+lib ? (import ./pkgs.nix).pkgs.lib,
 
 # Input set of all haskell packages. A valid input would be:
 # (import <nixpkgs> {}).pkgs.haskellPackages
-haskellPackages ? (import <nixpkgs> {}).pkgs.haskellPackages
+haskellPackages ? (import ./pkgs.nix).pkgs.haskellPackages
 
 }:
 
