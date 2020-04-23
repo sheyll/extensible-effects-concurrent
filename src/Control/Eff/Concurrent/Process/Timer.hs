@@ -159,9 +159,12 @@ receiveSelectedWithMonitorAfterWithTitle ::
   MessageSelector a ->
   Timeout ->
   ProcessTitle ->
+  LogMsg ->
   Eff r (Either (Either ProcessDown TimerElapsed) a)
-receiveSelectedWithMonitorAfterWithTitle pid sel t timerTitle = do
+receiveSelectedWithMonitorAfterWithTitle pid sel t timerTitle initialLogMsg = do
   timerRef <- startTimerWithTitle timerTitle t
+  logDebug "started: " timerRef
+  logDebug initialLogMsg
   res <- withMonitor pid $ \pidMon -> do
     receiveSelectedMessage
       ( Left . Left <$> selectProcessDown pidMon

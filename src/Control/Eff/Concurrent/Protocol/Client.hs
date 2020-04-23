@@ -122,11 +122,16 @@ callWithTimeout serverP@(Endpoint pidInternal) req timeOut = do
             extractResult (Reply origin' result) =
               if origin == origin' then Just result else Nothing
          in selectMessageWith extractResult
-  let timerTitle = MkProcessTitle (packLogMsg "call-timer-" <> toLogMsg serverP <> packLogMsg "-" <> toLogMsg origin)
-  resultOrError <- receiveSelectedWithMonitorAfterWithTitle pidInternal selectResult timeOut timerTitle
+  let timerTitle = MkProcessTitle (packLogMsg "call-timer")
+      logTitle =
+              packLogMsg "call-timer from: "
+                <> toLogMsg fromPid
+                <> packLogMsg " to: "
+                <> toLogMsg serverP
+  resultOrError <- receiveSelectedWithMonitorAfterWithTitle pidInternal selectResult timeOut timerTitle logTitle
   let onTimeout timerRef = do
         let msg =
-              packLogMsg "call timer "
+              packLogMsg "call-timer "
                 <> toLogMsg timerRef
                 <> packLogMsg " for call from "
                 <> toLogMsg fromPid
