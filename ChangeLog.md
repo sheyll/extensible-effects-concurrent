@@ -5,6 +5,7 @@
 - **Process**
     - Split `Interrupt` into `ShutdownReason` and `InterruptReason`
     - Rename `isProcessDownInterrupt` to `isLinkedProcessCrashed`
+    - Remove experimental type-safe `Receiver` type
 
 - **Logging**
     - Rename `LogMessage(...)` to `LogEvent(...)`
