@@ -25,6 +25,7 @@
                 logNotice "dettaching: " deadBroker " from: " broker
 
     - Add `StringLogMsg` with the `MSG` constructor
+    - Add `AsLogMsg` and `showAsLogMsg`
     - Remove `errorMessageIO`, `infoMessageIO` and `debugMessageIO`
     - Change the `appName` parameter type in some `LogWriter`s from `Text` to `String`
 

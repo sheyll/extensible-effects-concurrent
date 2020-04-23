@@ -26,75 +26,76 @@
 --
 -- @since 0.3.0.1
 module Control.Eff.Concurrent.Process.Interactive
-  ( SchedulerSession()
-  , forkInteractiveScheduler
-  , killInteractiveScheduler
-  , submit
-  , submitCast
-  , submitCall
+  ( SchedulerSession (),
+    forkInteractiveScheduler,
+    killInteractiveScheduler,
+    submit,
+    submitCast,
+    submitCall,
   )
 where
 
-import           Control.Concurrent
-import           Control.Concurrent.STM
-import           Control.Eff
-import           Control.Eff.Concurrent.Protocol
-import           Control.Eff.Concurrent.Protocol.Client
-import           Control.Eff.Concurrent.Process
-import           Control.Monad
-import           Data.Foldable
-import           System.Timeout
+import Control.Concurrent
+import Control.Concurrent.STM
+import Control.Eff
+import Control.Eff.Concurrent.Process
+import Control.Eff.Concurrent.Protocol
+import Control.Eff.Concurrent.Protocol.Client
+import Control.Monad
+import Data.Foldable
+import System.Timeout
 
 -- | Contains the communication channels to interact with a scheduler running in
 -- its' own thread.
 newtype SchedulerSession r = SchedulerSession (TMVar (SchedulerQueue r))
 
-newtype SchedulerQueue r =
-  SchedulerQueue (TChan (Eff (Processes r) (Maybe String)))
+newtype SchedulerQueue r
+  = SchedulerQueue (TChan (Eff (Processes r) (Maybe String)))
 
 -- | Fork a scheduler with a process that communicates with it via 'MVar',
 -- which is also the reason for the @Lift IO@ constraint.
-forkInteractiveScheduler
-  :: forall r
-   . (SetMember Lift (Lift IO) r)
-  => (Eff (Processes r) () -> IO ())
-  -> IO (SchedulerSession r)
+forkInteractiveScheduler ::
+  forall r.
+  (SetMember Lift (Lift IO) r) =>
+  (Eff (Processes r) () -> IO ()) ->
+  IO (SchedulerSession r)
 forkInteractiveScheduler ioScheduler = do
-  inQueue  <- newTChanIO
+  inQueue <- newTChanIO
   queueVar <- newEmptyTMVarIO
-  void $ forkIO
-    (do
-      ioScheduler
-        (do
-          lift (atomically (putTMVar queueVar (SchedulerQueue inQueue)))
-          readEvalPrintLoop queueVar
-        )
-      atomically (void (takeTMVar queueVar))
-    )
+  void $
+    forkIO
+      ( do
+          ioScheduler
+            ( do
+                lift (atomically (putTMVar queueVar (SchedulerQueue inQueue)))
+                readEvalPrintLoop queueVar
+            )
+          atomically (void (takeTMVar queueVar))
+      )
   return (SchedulerSession queueVar)
- where
-  readEvalPrintLoop
-    :: TMVar (SchedulerQueue r) -> Eff (Processes r) ()
-  readEvalPrintLoop queueVar = do
-    nextActionOrExit <- readAction
-    case nextActionOrExit of
-      Left  True       -> return ()
-      Left  False      -> readEvalPrintLoop queueVar
-      Right nextAction -> do
-        res <- nextAction
-        traverse_ (lift . putStrLn . (">>> " ++)) res
-        yieldProcess
-        readEvalPrintLoop queueVar
-   where
-    readAction = lift $ atomically $ do
-      mInQueue <- tryReadTMVar queueVar
-      case mInQueue of
-        Nothing                       -> return (Left True)
-        Just (SchedulerQueue inQueue) -> do
-          mNextAction <- tryReadTChan inQueue
-          case mNextAction of
-            Nothing         -> return (Left False)
-            Just nextAction -> return (Right nextAction)
+  where
+    readEvalPrintLoop ::
+      TMVar (SchedulerQueue r) -> Eff (Processes r) ()
+    readEvalPrintLoop queueVar = do
+      nextActionOrExit <- readAction
+      case nextActionOrExit of
+        Left True -> return ()
+        Left False -> readEvalPrintLoop queueVar
+        Right nextAction -> do
+          res <- nextAction
+          traverse_ (lift . putStrLn . (">>> " ++)) res
+          yieldProcess
+          readEvalPrintLoop queueVar
+      where
+        readAction = lift $ atomically $ do
+          mInQueue <- tryReadTMVar queueVar
+          case mInQueue of
+            Nothing -> return (Left True)
+            Just (SchedulerQueue inQueue) -> do
+              mNextAction <- tryReadTChan inQueue
+              case mNextAction of
+                Nothing -> return (Left False)
+                Just nextAction -> return (Right nextAction)
 
 -- | Exit the scheduler immediately using an asynchronous exception.
 killInteractiveScheduler :: SchedulerSession r -> IO ()
@@ -103,53 +104,54 @@ killInteractiveScheduler (SchedulerSession qVar) =
 
 -- | Send a 'Process' effect to the main process of a scheduler, this blocks
 -- until the effect is executed.
-submit
-  :: forall r a
-   . (SetMember Lift (Lift IO) r)
-  => SchedulerSession r
-  -> Eff (Processes r) a
-  -> IO a
+submit ::
+  forall r a.
+  (SetMember Lift (Lift IO) r) =>
+  SchedulerSession r ->
+  Eff (Processes r) a ->
+  IO a
 submit (SchedulerSession qVar) theAction = do
-  mResVar <- timeout 5000000 $ atomically
-    (do
-      SchedulerQueue inQueue <- readTMVar qVar
-      resVar                 <- newEmptyTMVar
-      writeTChan inQueue (runAndPutResult resVar)
-      return resVar
-    )
-
+  mResVar <-
+    timeout 5000000 $
+      atomically
+        ( do
+            SchedulerQueue inQueue <- readTMVar qVar
+            resVar <- newEmptyTMVar
+            writeTChan inQueue (runAndPutResult resVar)
+            return resVar
+        )
   case mResVar of
     Just resVar -> atomically (takeTMVar resVar)
-    Nothing     -> fail "ERROR: No Scheduler"
- where
-  runAndPutResult resVar = do
-    res <- theAction
-    lift (atomically (putTMVar resVar $! res))
-    return Nothing
+    Nothing -> fail "ERROR: No Scheduler"
+  where
+    runAndPutResult resVar = do
+      res <- theAction
+      lift (atomically (putTMVar resVar $! res))
+      return Nothing
 
 -- | Combination of 'submit' and 'cast'.
-submitCast
-  :: forall o r
-   . ( SetMember Lift (Lift IO) r
-     , TangiblePdu o 'Asynchronous
-     , Member Interrupts r
-     )
-  => SchedulerSession r
-  -> Endpoint o
-  -> Pdu o 'Asynchronous
-  -> IO ()
+submitCast ::
+  forall o r.
+  ( SetMember Lift (Lift IO) r,
+    TangiblePdu o 'Asynchronous,
+    Member Interrupts r
+  ) =>
+  SchedulerSession r ->
+  Endpoint o ->
+  Pdu o 'Asynchronous ->
+  IO ()
 submitCast sc svr request = submit sc (cast svr request)
 
 -- | Combination of 'submit' and 'cast'.
-submitCall
-  :: forall o q r
-   . ( SetMember Lift (Lift IO) r
-     , Member Interrupts r
-     , TangiblePdu o ('Synchronous q)
-     , Tangible q
-     )
-  => SchedulerSession r
-  -> Endpoint o
-  -> Pdu o ( 'Synchronous q)
-  -> IO q
+submitCall ::
+  forall o q r.
+  ( SetMember Lift (Lift IO) r,
+    Member Interrupts r,
+    TangiblePdu o ('Synchronous q),
+    Tangible q
+  ) =>
+  SchedulerSession r ->
+  Endpoint o ->
+  Pdu o ('Synchronous q) ->
+  IO q
 submitCall sc svr request = submit sc (call svr request)

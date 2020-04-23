@@ -2,56 +2,56 @@
 --
 -- @since 0.15.0
 module Control.Eff.Concurrent.Protocol.Wrapper
-  ( Request(..)
-  , sendReply
-  , ReplyTarget(..)
-  , replyTarget
-  , replyTargetOrigin
-  , replyTargetSerializer
-  , embeddedReplyTarget
-  , toEmbeddedReplyTarget
-  , RequestOrigin(..)
-  , embedRequestOrigin
-  , toEmbeddedOrigin
-  , Reply(..)
-  , embedReplySerializer
-  , makeRequestOrigin
+  ( Request (..),
+    sendReply,
+    ReplyTarget (..),
+    replyTarget,
+    replyTargetOrigin,
+    replyTargetSerializer,
+    embeddedReplyTarget,
+    toEmbeddedReplyTarget,
+    RequestOrigin (..),
+    embedRequestOrigin,
+    toEmbeddedOrigin,
+    Reply (..),
+    embedReplySerializer,
+    makeRequestOrigin,
   )
-  where
+where
 
 import Control.DeepSeq
 import Control.Eff
-import Control.Eff.Log.Message
 import Control.Eff.Concurrent.Process
 import Control.Eff.Concurrent.Protocol
+import Control.Eff.Log.Message
 import Control.Lens
 import Data.Kind (Type)
-import Data.Typeable (Typeable)
 import Data.Semigroup
+import Data.Typeable (Typeable)
 import GHC.Generics
 
 -- | A wrapper sum type for calls and casts for the 'Pdu's of a protocol
 --
 -- @since 0.15.0
 data Request protocol where
-  Call
-    :: forall protocol reply.
-       ( Tangible reply
-       , TangiblePdu protocol ('Synchronous reply)
-       , ToLogMsg (Pdu protocol ('Synchronous reply))
-       )
-    => RequestOrigin protocol reply
-    -> Pdu protocol ('Synchronous reply)
-    -> Request protocol
-  Cast
-    :: forall protocol.
-       ( TangiblePdu protocol 'Asynchronous
-       , NFData (Pdu protocol 'Asynchronous)
-       , ToLogMsg (Pdu protocol 'Asynchronous)
-       )
-    => Pdu protocol 'Asynchronous
-    -> Request protocol
-  deriving Typeable
+  Call ::
+    forall protocol reply.
+    ( Tangible reply,
+      TangiblePdu protocol ('Synchronous reply),
+      ToLogMsg (Pdu protocol ('Synchronous reply))
+    ) =>
+    RequestOrigin protocol reply ->
+    Pdu protocol ('Synchronous reply) ->
+    Request protocol
+  Cast ::
+    forall protocol.
+    ( TangiblePdu protocol 'Asynchronous,
+      NFData (Pdu protocol 'Asynchronous),
+      ToLogMsg (Pdu protocol 'Asynchronous)
+    ) =>
+    Pdu protocol 'Asynchronous ->
+    Request protocol
+  deriving (Typeable)
 
 instance ToLogMsg (Request protocol) where
   toLogMsg = \case
@@ -62,15 +62,17 @@ instance NFData (Request protocol) where
   rnf (Call o req) = rnf o `seq` rnf req
   rnf (Cast req) = rnf req
 
-
 -- | The wrapper around replies to 'Call's.
 --
 -- @since 0.15.0
 data Reply protocol reply where
-  Reply :: (Tangible reply) =>
-    { _replyTo :: RequestOrigin protocol reply
-    , _replyValue :: reply
-    } -> Reply protocol reply
+  Reply ::
+    (Tangible reply) =>
+    { _replyTo :: RequestOrigin protocol reply,
+      _replyValue :: reply
+    } ->
+    Reply protocol
+      reply
   deriving (Typeable)
 
 instance NFData (Reply p r) where
@@ -78,23 +80,25 @@ instance NFData (Reply p r) where
 
 instance (ToLogMsg r, ToTypeLogMsg p) => ToLogMsg (Reply p r) where
   toLogMsg rp =
-       packLogMsg "reply: "
-    <> toLogMsg (_replyValue rp)
-    <> packLogMsg " to: "
-    <> toLogMsg (_replyTo rp)
+    packLogMsg "reply: "
+      <> toLogMsg (_replyValue rp)
+      <> packLogMsg " to: "
+      <> toLogMsg (_replyTo rp)
 
 -- | Wraps the source 'ProcessId' and a unique identifier for a 'Call'.
 --
 -- @since 0.15.0
-data RequestOrigin (proto :: Type) reply = RequestOrigin
-  { _requestOriginPid     :: !ProcessId
-  , _requestOriginCallRef :: !Int
-  } deriving (Typeable, Generic, Eq, Ord)
+data RequestOrigin (proto :: Type) reply
+  = RequestOrigin
+      { _requestOriginPid :: !ProcessId,
+        _requestOriginCallRef :: !Int
+      }
+  deriving (Typeable, Generic, Eq, Ord)
 
 instance ToTypeLogMsg p => ToLogMsg (RequestOrigin p r) where
   toLogMsg ro =
-       toLogMsg (Endpoint @p (_requestOriginPid ro))
-    <> packLogMsg ('?' : show (_requestOriginCallRef ro))
+    toLogMsg (Endpoint @p (_requestOriginPid ro))
+      <> packLogMsg ('?' : show (_requestOriginCallRef ro))
 
 -- | Create a new, unique 'RequestOrigin' value for the current process.
 --
@@ -113,10 +117,11 @@ instance NFData (RequestOrigin p r)
 -- See also 'embedReplySerializer'.
 --
 -- @since 0.24.3
-toEmbeddedOrigin
-  :: forall outer inner reply . Embeds outer inner
-  => RequestOrigin outer reply
-  -> RequestOrigin inner reply
+toEmbeddedOrigin ::
+  forall outer inner reply.
+  Embeds outer inner =>
+  RequestOrigin outer reply ->
+  RequestOrigin inner reply
 toEmbeddedOrigin (RequestOrigin !pid !ref) = RequestOrigin pid ref
 
 -- | Turn an /embedded/ 'RequestOrigin' to a 'RequestOrigin' for the /bigger/ request.
@@ -126,7 +131,7 @@ toEmbeddedOrigin (RequestOrigin !pid !ref) = RequestOrigin pid ref
 -- This function is strict in all parameters.
 --
 -- @since 0.24.2
-embedRequestOrigin :: forall outer inner reply . Embeds outer inner => RequestOrigin inner reply -> RequestOrigin outer reply
+embedRequestOrigin :: forall outer inner reply. Embeds outer inner => RequestOrigin inner reply -> RequestOrigin outer reply
 embedRequestOrigin (RequestOrigin !pid !ref) = RequestOrigin pid ref
 
 -- | Turn a 'Serializer' for a 'Pdu' instance that contains embedded 'Pdu' values
@@ -139,7 +144,7 @@ embedRequestOrigin (RequestOrigin !pid !ref) = RequestOrigin pid ref
 -- See also 'toEmbeddedOrigin'.
 --
 -- @since 0.24.2
-embedReplySerializer :: forall outer inner reply . Embeds outer inner => Serializer (Reply outer reply) -> Serializer (Reply inner reply)
+embedReplySerializer :: forall outer inner reply. Embeds outer inner => Serializer (Reply outer reply) -> Serializer (Reply inner reply)
 embedReplySerializer = contramap embedReply
 
 -- | Turn an /embedded/ 'Reply' to a 'Reply' for the /bigger/ request.
@@ -147,9 +152,8 @@ embedReplySerializer = contramap embedReply
 -- This function is strict in all parameters.
 --
 -- @since 0.24.2
-embedReply :: forall outer inner reply . Embeds outer inner => Reply inner reply -> Reply outer reply
+embedReply :: forall outer inner reply. Embeds outer inner => Reply inner reply -> Reply outer reply
 embedReply (Reply (RequestOrigin !pid !ref) !v) = Reply (RequestOrigin pid ref) v
-
 
 -- | Answer a 'Call' by sending the reply value to the client process.
 --
@@ -157,14 +161,14 @@ embedReply (Reply (RequestOrigin !pid !ref) !v) = Reply (RequestOrigin pid ref) 
 -- stored in the 'ReplyTarget'.
 --
 -- @since 0.25.1
-sendReply
-  :: ( HasProcesses eff q
-     , Tangible reply
-     , Typeable protocol
-     )
-  => ReplyTarget protocol reply
-  -> reply
-  -> Eff eff ()
+sendReply ::
+  ( HasProcesses eff q,
+    Tangible reply,
+    Typeable protocol
+  ) =>
+  ReplyTarget protocol reply ->
+  reply ->
+  Eff eff ()
 sendReply (MkReplyTarget (Arg o ser)) r =
   sendAnyMessage (_requestOriginPid o) $! runSerializer ser $! Reply o r
 
@@ -177,9 +181,9 @@ sendReply (MkReplyTarget (Arg o ser)) r =
 -- the 'RequestOrigin' instances.
 --
 -- @since 0.26.0
-newtype ReplyTarget p r =
-  MkReplyTarget (Arg (RequestOrigin p r) (Serializer (Reply p r)))
-    deriving (Eq, Ord, Typeable)
+newtype ReplyTarget p r
+  = MkReplyTarget (Arg (RequestOrigin p r) (Serializer (Reply p r)))
+  deriving (Eq, Ord, Typeable)
 
 instance NFData (ReplyTarget p r) where
   rnf (MkReplyTarget (Arg x y)) = rnf x `seq` y `seq` ()
@@ -190,7 +194,7 @@ instance NFData (ReplyTarget p r) where
 --
 -- @since 0.26.0
 replyTarget :: Serializer (Reply p reply) -> RequestOrigin p reply -> ReplyTarget p reply
-replyTarget ser orig =  MkReplyTarget (Arg orig ser)
+replyTarget ser orig = MkReplyTarget (Arg orig ser)
 
 -- | A simple 'Lens' for the 'RequestOrigin' of a 'ReplyTarget'.
 --

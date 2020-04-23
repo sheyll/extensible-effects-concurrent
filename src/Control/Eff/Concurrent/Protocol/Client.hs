@@ -3,31 +3,31 @@
 -- This modules is required to write clients that send'Pdu's.
 module Control.Eff.Concurrent.Protocol.Client
   ( -- * Calling APIs directly
-    cast
-  , call
-  , callWithTimeout
-  -- * Server Process Registration
-  , castSingleton
-  , castEndpointReader
-  , callSingleton
-  , callEndpointReader
-  , HasEndpointReader
-  , EndpointReader
-  , askEndpoint
-  , runEndpointReader
+    cast,
+    call,
+    callWithTimeout,
+
+    -- * Server Process Registration
+    castSingleton,
+    castEndpointReader,
+    callSingleton,
+    callEndpointReader,
+    HasEndpointReader,
+    EndpointReader,
+    askEndpoint,
+    runEndpointReader,
   )
 where
 
-import           Control.Eff
-import           Control.Eff.Reader.Strict
-import           Control.Eff.Concurrent.Protocol
-import           Control.Eff.Concurrent.Protocol.Wrapper
-import           Control.Eff.Concurrent.Process
-import           Control.Eff.Concurrent.Process.Timer
-import           Control.Eff.Log
-import           Data.Typeable                  ( Typeable )
-import           GHC.Stack
-
+import Control.Eff
+import Control.Eff.Concurrent.Process
+import Control.Eff.Concurrent.Process.Timer
+import Control.Eff.Concurrent.Protocol
+import Control.Eff.Concurrent.Protocol.Wrapper
+import Control.Eff.Log
+import Control.Eff.Reader.Strict
+import Data.Typeable (Typeable)
+import GHC.Stack
 
 -- | Send a request 'Pdu' that has no reply and return immediately.
 --
@@ -36,17 +36,17 @@ import           GHC.Stack
 -- message was delivered, use 'call' instead.
 --
 -- The message will be reduced to normal form ('rnf') in the caller process.
-cast
-  :: forall destination protocol r q
-   . ( HasCallStack
-     , HasProcesses r q
-     , TangiblePdu destination 'Asynchronous
-     , HasPdu protocol
-     , Embeds destination protocol
-     )
-  => Endpoint destination
-  -> Pdu protocol 'Asynchronous
-  -> Eff r ()
+cast ::
+  forall destination protocol r q.
+  ( HasCallStack,
+    HasProcesses r q,
+    TangiblePdu destination 'Asynchronous,
+    HasPdu protocol,
+    Embeds destination protocol
+  ) =>
+  Endpoint destination ->
+  Pdu protocol 'Asynchronous ->
+  Eff r ()
 cast (Endpoint pid) castMsg = sendMessage pid (Cast (embedPdu @destination castMsg))
 
 -- | Send a request 'Pdu' and wait for the server to return a result value.
@@ -55,18 +55,18 @@ cast (Endpoint pid) castMsg = sendMessage pid (Cast (embedPdu @destination castM
 -- 'Synchronous'.
 --
 -- __Always prefer 'callWithTimeout' over 'call'__
-call
-  :: forall result destination protocol r q
-   . ( HasProcesses r q
-     , TangiblePdu destination ( 'Synchronous result)
-     , TangiblePdu protocol ( 'Synchronous result)
-     , Tangible result
-     , Embeds destination protocol
-     , HasCallStack
-     )
-  => Endpoint destination
-  -> Pdu protocol ( 'Synchronous result)
-  -> Eff r result
+call ::
+  forall result destination protocol r q.
+  ( HasProcesses r q,
+    TangiblePdu destination ('Synchronous result),
+    TangiblePdu protocol ('Synchronous result),
+    Tangible result,
+    Embeds destination protocol,
+    HasCallStack
+  ) =>
+  Endpoint destination ->
+  Pdu protocol ('Synchronous result) ->
+  Eff r result
 call (Endpoint pidInternal) req = do
   callRef <- makeReference
   fromPid <- self
@@ -75,11 +75,11 @@ call (Endpoint pidInternal) req = do
   sendMessage pidInternal requestMessage
   let selectResult :: MessageSelector result
       selectResult =
-        let extractResult
-              :: Reply destination result -> Maybe result
+        let extractResult ::
+              Reply destination result -> Maybe result
             extractResult (Reply origin' result) =
               if origin == origin' then Just result else Nothing
-        in  selectMessageWith extractResult
+         in selectMessageWith extractResult
   resultOrError <- receiveWithMonitor pidInternal selectResult
   either (interrupt . becauseOtherProcessNotRunning) return resultOrError
 
@@ -96,20 +96,20 @@ call (Endpoint pidInternal) req = do
 -- __Always prefer this function over 'call'__
 --
 -- @since 0.22.0
-callWithTimeout
-  :: forall result destination protocol r q
-   . ( HasProcesses r q
-     , TangiblePdu destination ( 'Synchronous result)
-     , TangiblePdu protocol ( 'Synchronous result)
-     , Tangible result
-     , Member Logs r
-     , HasCallStack
-     , Embeds destination protocol
-     )
-  => Endpoint destination
-  -> Pdu protocol ( 'Synchronous result)
-  -> Timeout
-  -> Eff r result
+callWithTimeout ::
+  forall result destination protocol r q.
+  ( HasProcesses r q,
+    TangiblePdu destination ('Synchronous result),
+    TangiblePdu protocol ('Synchronous result),
+    Tangible result,
+    Member Logs r,
+    HasCallStack,
+    Embeds destination protocol
+  ) =>
+  Endpoint destination ->
+  Pdu protocol ('Synchronous result) ->
+  Timeout ->
+  Eff r result
 callWithTimeout serverP@(Endpoint pidInternal) req timeOut = do
   fromPid <- self
   callRef <- makeReference
@@ -117,22 +117,23 @@ callWithTimeout serverP@(Endpoint pidInternal) req timeOut = do
       origin = RequestOrigin @destination @result fromPid callRef
   sendMessage pidInternal requestMessage
   let selectResult =
-        let extractResult
-              :: Reply destination result -> Maybe result
+        let extractResult ::
+              Reply destination result -> Maybe result
             extractResult (Reply origin' result) =
               if origin == origin' then Just result else Nothing
-        in selectMessageWith extractResult
+         in selectMessageWith extractResult
   let timerTitle = MkProcessTitle (packLogMsg "call-timer-" <> toLogMsg serverP <> packLogMsg "-" <> toLogMsg origin)
   resultOrError <- receiveSelectedWithMonitorAfterWithTitle pidInternal selectResult timeOut timerTitle
   let onTimeout timerRef = do
-        let msg =    packLogMsg "call timer "
-                  <> toLogMsg timerRef
-                  <> packLogMsg " for call from "
-                  <> toLogMsg fromPid
-                  <> packLogMsg " to "
-                  <> toLogMsg serverP
-                  <> packLogMsg " timed out after "
-                  <> toLogMsg timeOut
+        let msg =
+              packLogMsg "call timer "
+                <> toLogMsg timerRef
+                <> packLogMsg " for call from "
+                <> toLogMsg fromPid
+                <> packLogMsg " to "
+                <> toLogMsg serverP
+                <> packLogMsg " timed out after "
+                <> toLogMsg timeOut
         logWarning msg
         interrupt (TimeoutInterrupt msg)
       onProcDown p = do
@@ -146,8 +147,8 @@ callWithTimeout serverP@(Endpoint pidInternal) req timeOut = do
 -- convenience to express that an effect has 'Process' and a reader for a
 -- 'Endpoint'.
 type HasEndpointReader o r =
-  ( Typeable o
-  , Member (EndpointReader o) r
+  ( Typeable o,
+    Member (EndpointReader o) r
   )
 
 -- | The reader effect for 'ProcessId's for 'Pdu's, see 'runEndpointReader'
@@ -155,8 +156,8 @@ type EndpointReader o = Reader (Endpoint o)
 
 -- | Run a reader effect that contains __the one__ server handling a specific
 -- 'Pdu' instance.
-runEndpointReader
-  :: HasCallStack => Endpoint o -> Eff (EndpointReader o ': r) a -> Eff r a
+runEndpointReader ::
+  HasCallStack => Endpoint o -> Eff (EndpointReader o ': r) a -> Eff r a
 runEndpointReader = runReader
 
 -- | Get the 'Endpoint' registered with 'runEndpointReader'.
@@ -167,17 +168,17 @@ askEndpoint = ask
 -- 'runEndpointReader'.
 --
 -- When working with an embedded 'Pdu' use 'callSingleton'.
-callEndpointReader
-  :: forall reply o r q .
-     ( HasEndpointReader o r
-     , HasCallStack
-     , Tangible reply
-     , TangiblePdu o ( 'Synchronous reply)
-     , HasProcesses r q
-     , Embeds o o
-     )
-  => Pdu o ( 'Synchronous reply)
-  -> Eff r reply
+callEndpointReader ::
+  forall reply o r q.
+  ( HasEndpointReader o r,
+    HasCallStack,
+    Tangible reply,
+    TangiblePdu o ('Synchronous reply),
+    HasProcesses r q,
+    Embeds o o
+  ) =>
+  Pdu o ('Synchronous reply) ->
+  Eff r reply
 callEndpointReader method = do
   serverPid <- askEndpoint @o
   call @reply @o @o serverPid method
@@ -186,16 +187,16 @@ callEndpointReader method = do
 -- 'runEndpointReader'.
 --
 -- When working with an embedded 'Pdu' use 'castSingleton'.
-castEndpointReader
-  :: forall o r q .
-     ( HasEndpointReader o r
-     , HasProcesses r q
-     , HasCallStack
-     , TangiblePdu o 'Asynchronous
-     , Embeds o o
-     )
-  => Pdu o 'Asynchronous
-  -> Eff r ()
+castEndpointReader ::
+  forall o r q.
+  ( HasEndpointReader o r,
+    HasProcesses r q,
+    HasCallStack,
+    TangiblePdu o 'Asynchronous,
+    Embeds o o
+  ) =>
+  Pdu o 'Asynchronous ->
+  Eff r ()
 castEndpointReader method = do
   serverPid <- askEndpoint @o
   cast @o @o serverPid method
@@ -207,19 +208,19 @@ castEndpointReader method = do
 -- When not working with an embedded 'Pdu' use 'callEndpointReader'.
 --
 -- @since 0.25.1
-callSingleton
-  :: forall outer inner reply q e
-  . ( HasCallStack
-    , Member (EndpointReader outer) e
-    , Embeds outer inner
-    , Embeds outer outer
-    , HasProcesses e q
-    , TangiblePdu outer ('Synchronous reply)
-    , TangiblePdu inner ('Synchronous reply)
-    , Tangible reply
-    )
-  => Pdu inner ('Synchronous reply)
-  -> Eff e reply
+callSingleton ::
+  forall outer inner reply q e.
+  ( HasCallStack,
+    Member (EndpointReader outer) e,
+    Embeds outer inner,
+    Embeds outer outer,
+    HasProcesses e q,
+    TangiblePdu outer ('Synchronous reply),
+    TangiblePdu inner ('Synchronous reply),
+    Tangible reply
+  ) =>
+  Pdu inner ('Synchronous reply) ->
+  Eff e reply
 callSingleton = withFrozenCallStack $ \p -> callEndpointReader (embedPdu @outer @inner p)
 
 -- | Like 'castEndpointReader', but uses 'embedPdu' to embed the value.
@@ -229,16 +230,16 @@ callSingleton = withFrozenCallStack $ \p -> callEndpointReader (embedPdu @outer 
 -- When not working with an embedded 'Pdu' use 'castEndpointReader'.
 --
 -- @since 0.25.1
-castSingleton
-  :: forall outer inner q e
-  . ( HasCallStack
-    , Member (EndpointReader outer) e
-    , HasProcesses e q
-    , TangiblePdu outer 'Asynchronous
-    , HasPdu inner
-    , Embeds outer inner
-    , Embeds outer outer
-    )
-  => Pdu inner 'Asynchronous
-  -> Eff e ()
+castSingleton ::
+  forall outer inner q e.
+  ( HasCallStack,
+    Member (EndpointReader outer) e,
+    HasProcesses e q,
+    TangiblePdu outer 'Asynchronous,
+    HasPdu inner,
+    Embeds outer inner,
+    Embeds outer outer
+  ) =>
+  Pdu inner 'Asynchronous ->
+  Eff e ()
 castSingleton = withFrozenCallStack $ \p -> castEndpointReader (embedPdu @outer @inner p)

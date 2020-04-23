@@ -1,71 +1,74 @@
 -- | A coroutine based, single threaded scheduler for 'Process'es.
 module Control.Eff.Concurrent.Process.SingleThreadedScheduler
-  ( scheduleM
-  , scheduleMonadIOEff
-  , scheduleIOWithLogging
-  , schedulePure
-  , PureEffects
-  , PureSafeEffects
-  , PureBaseEffects
-  , HasPureBaseEffects
-  , defaultMain
-  , defaultMainWithLogWriter
-  , scheduleIO
-  , EffectsIo
-  , SafeEffectsIo
-  , BaseEffectsIo
-  , HasBaseEffectsIo
+  ( scheduleM,
+    scheduleMonadIOEff,
+    scheduleIOWithLogging,
+    schedulePure,
+    PureEffects,
+    PureSafeEffects,
+    PureBaseEffects,
+    HasPureBaseEffects,
+    defaultMain,
+    defaultMainWithLogWriter,
+    scheduleIO,
+    EffectsIo,
+    SafeEffectsIo,
+    BaseEffectsIo,
+    HasBaseEffectsIo,
   )
 where
 
-import           Control.Concurrent             ( yield )
-import           Control.Eff
-import           Control.Eff.Extend
-import           Control.Eff.Concurrent.Misc
-import           Control.Eff.Concurrent.Process
-import           Control.Eff.Log
-import           Control.Eff.LogWriter.Console
-import           Control.Lens            hiding ( (|>)
-                                                , Empty
-                                                )
-import           Control.Monad                  ( void
-                                                , when
-                                                , foldM
-                                                )
-import           Control.Monad.IO.Class
-import qualified Data.Sequence                 as Seq
-import           Data.Sequence                  ( Seq(..) )
-import qualified Data.Map.Strict               as Map
-import qualified Data.Set                      as Set
-import           GHC.Stack
-import           Data.Kind                      ( )
-import           Data.Foldable
-import           Data.Coerce
-import           Data.Monoid
-import qualified Control.Monad.State.Strict    as State
-import           Data.Function                  ( fix)
-import           Data.Dynamic                   ( dynTypeRep )
-import           Data.String                    ( IsString (fromString) )
+import Control.Concurrent (yield)
+import Control.Eff
+import Control.Eff.Concurrent.Misc
+import Control.Eff.Concurrent.Process
+import Control.Eff.Extend
+import Control.Eff.Log
+import Control.Eff.LogWriter.Console
+import Control.Lens hiding
+  ( Empty,
+    (|>),
+  )
+import Control.Monad
+  ( foldM,
+    void,
+    when,
+  )
+import Control.Monad.IO.Class
+import qualified Control.Monad.State.Strict as State
+import Data.Coerce
+import Data.Dynamic (dynTypeRep)
+import Data.Foldable
+import Data.Function (fix)
+import Data.Kind ()
+import qualified Data.Map.Strict as Map
+import Data.Monoid
+import qualified Data.Sequence as Seq
+import Data.Sequence (Seq (..))
+import qualified Data.Set as Set
+import Data.String (IsString (fromString))
+import GHC.Stack
 
 -- -----------------------------------------------------------------------------
 --  STS and ProcessInfo
 -- -----------------------------------------------------------------------------
 
-data ProcessInfo =
-  MkProcessInfo
-  { _processInfoTitle :: !ProcessTitle
-  , _processInfoDetails :: !ProcessDetails
-  , _processInfoMessageQ :: !(Seq Message)
-  }
+data ProcessInfo
+  = MkProcessInfo
+      { _processInfoTitle :: !ProcessTitle,
+        _processInfoDetails :: !ProcessDetails,
+        _processInfoMessageQ :: !(Seq Message)
+      }
 
 instance Show ProcessInfo where
   showsPrec d (MkProcessInfo pTitle pDetails pQ) =
     showParen
       (d >= 10)
-      (appEndo
-         (Endo (showChar ' ' . shows pTitle . showString ": ") <>
-          foldMap (Endo . showSTypeRep . dynTypeRep . unwrapMessage) (toList pQ) <>
-          Endo (shows pDetails))
+      ( appEndo
+          ( Endo (showChar ' ' . shows pTitle . showString ": ")
+              <> foldMap (Endo . showSTypeRep . dynTypeRep . unwrapMessage) (toList pQ)
+              <> Endo (shows pDetails)
+          )
       )
 
 makeLenses ''ProcessInfo
@@ -73,36 +76,38 @@ makeLenses ''ProcessInfo
 newProcessInfo :: ProcessTitle -> ProcessInfo
 newProcessInfo t = MkProcessInfo t (fromString "") Seq.empty
 
-data STS r m = STS
-  { _nextPid :: !ProcessId
-  , _nextRef :: !Int
-  , _msgQs :: !(Map.Map ProcessId ProcessInfo)
-  , _monitors :: !(Set.Set (MonitorReference, ProcessId))
-  , _processLinks :: !(Set.Set (ProcessId, ProcessId))
-  , _runEff :: forall a . Eff r a -> m a
-  , _yieldEff :: m ()
-  }
+data STS r m
+  = STS
+      { _nextPid :: !ProcessId,
+        _nextRef :: !Int,
+        _msgQs :: !(Map.Map ProcessId ProcessInfo),
+        _monitors :: !(Set.Set (MonitorReference, ProcessId)),
+        _processLinks :: !(Set.Set (ProcessId, ProcessId)),
+        _runEff :: forall a. Eff r a -> m a,
+        _yieldEff :: m ()
+      }
 
-initStsMainProcess :: (forall a . Eff r a -> m a) -> m () -> STS r m
+initStsMainProcess :: (forall a. Eff r a -> m a) -> m () -> STS r m
 initStsMainProcess = STS 1 0 (Map.singleton 0 (newProcessInfo (fromString "init"))) Set.empty Set.empty
 
 makeLenses ''STS
 
 instance Show (STS r m) where
-  showsPrec d sts = showParen
-    (d >= 10)
-    ( showString "STS "
-    . showString "nextRef: "
-    . shows (_nextRef sts)
-    . showString " msgQs: "
-    . appEndo
-        (foldMap
-          (\(pid, p) ->
-            Endo (showChar ' ' . shows pid . showChar ' ' . shows p)
-          )
-          (sts ^.. msgQs . itraversed . withIndex)
-        )
-    )
+  showsPrec d sts =
+    showParen
+      (d >= 10)
+      ( showString "STS "
+          . showString "nextRef: "
+          . shows (_nextRef sts)
+          . showString " msgQs: "
+          . appEndo
+            ( foldMap
+                ( \(pid, p) ->
+                    Endo (showChar ' ' . shows pid . showChar ' ' . shows p)
+                )
+                (sts ^.. msgQs . itraversed . withIndex)
+            )
+      )
 
 dropMsgQ :: ProcessId -> STS r m -> STS r m
 dropMsgQ pid = msgQs . at pid .~ Nothing
@@ -111,12 +116,12 @@ getProcessStateFromScheduler :: ProcessId -> STS r m -> Maybe (ProcessTitle, Pro
 getProcessStateFromScheduler pid sts = toPS <$> sts ^. msgQs . at pid
   where
     toPS p =
-      ( p ^. processInfoTitle
-      , p ^. processInfoDetails
-      , case p ^. processInfoMessageQ -- TODO get more detailed state
-              of
+      ( p ^. processInfoTitle,
+        p ^. processInfoDetails,
+        case p ^. processInfoMessageQ of -- TODO get more detailed state
           _ :<| _ -> ProcessBusy
-          _ -> ProcessIdle)
+          _ -> ProcessIdle
+      )
 
 incRef :: STS r m -> (Int, STS r m)
 incRef sts = (sts ^. nextRef, sts & nextRef %~ (+ 1))
@@ -126,29 +131,30 @@ enqueueMsg toPid msg = msgQs . ix toPid . processInfoMessageQ %~ (:|> msg)
 
 newProcessQ :: Maybe ProcessId -> ProcessTitle -> STS r m -> (ProcessId, STS r m)
 newProcessQ parentLink title sts =
-  ( sts ^. nextPid
-  , let stsQ = sts & nextPid %~ (+ 1) & msgQs . at (sts ^. nextPid) ?~ newProcessInfo title
+  ( sts ^. nextPid,
+    let stsQ = sts & nextPid %~ (+ 1) & msgQs . at (sts ^. nextPid) ?~ newProcessInfo title
      in case parentLink of
           Nothing -> stsQ
           Just pid ->
             let (Nothing, stsQL) = addLink pid (sts ^. nextPid) stsQ
-             in stsQL)
+             in stsQL
+  )
 
 flushMsgs :: ProcessId -> STS m r -> ([Message], STS m r)
 flushMsgs pid = State.runState $ do
   msgs <- msgQs . ix pid . processInfoMessageQ <<.= Empty
   return (toList msgs)
 
-receiveMsg
-  :: ProcessId -> MessageSelector a -> STS m r -> Maybe (Maybe (a, STS m r))
+receiveMsg ::
+  ProcessId -> MessageSelector a -> STS m r -> Maybe (Maybe (a, STS m r))
 receiveMsg pid messageSelector sts =
   case sts ^? msgQs . at pid . _Just . processInfoMessageQ of
     Nothing -> Nothing
     Just msgQ ->
       Just $
-      case partitionMessages msgQ Empty of
-        Nothing -> Nothing
-        Just (result, otherMessages) -> Just (result, sts & msgQs . ix pid . processInfoMessageQ .~ otherMessages)
+        case partitionMessages msgQ Empty of
+          Nothing -> Nothing
+          Just (result, otherMessages) -> Just (result, sts & msgQs . ix pid . processInfoMessageQ .~ otherMessages)
   where
     partitionMessages Empty _acc = Nothing
     partitionMessages (m :<| msgRest) acc =
@@ -159,8 +165,8 @@ receiveMsg pid messageSelector sts =
 
 -- | Add monitor: If the process is dead, enqueue a 'ProcessDown' message into the
 -- owners message queue
-addMonitoring
-  :: ProcessId -> ProcessId -> STS m r -> (MonitorReference, STS m r)
+addMonitoring ::
+  ProcessId -> ProcessId -> STS m r -> (MonitorReference, STS m r)
 addMonitoring owner target =
   State.runState $ do
     mi <- State.state incRef
@@ -169,8 +175,9 @@ addMonitoring owner target =
       pt <- use msgQs
       if Map.member target pt
         then monitors %= Set.insert (mref, owner)
-        else let pdown = ProcessDown mref (ExitOtherProcessNotRunning target) target
-              in State.modify' (enqueueMsg owner (toMessage pdown))
+        else
+          let pdown = ProcessDown mref (ExitOtherProcessNotRunning target) target
+           in State.modify' (enqueueMsg owner (toMessage pdown))
     return mref
 
 removeMonitoring :: MonitorReference -> STS m r -> STS m r
@@ -180,12 +187,13 @@ triggerAndRemoveMonitor :: ProcessId -> ShutdownReason -> STS m r -> STS m r
 triggerAndRemoveMonitor downPid reason = State.execState $ do
   monRefs <- use monitors
   traverse_ go monRefs
- where
-  go (mr, owner) = when
-    (view monitoredProcess mr == downPid)
-    (let pdown = ProcessDown mr reason downPid
-     in  State.modify' (enqueueMsg owner (toMessage pdown) . removeMonitoring mr)
-    )
+  where
+    go (mr, owner) =
+      when
+        (view monitoredProcess mr == downPid)
+        ( let pdown = ProcessDown mr reason downPid
+           in State.modify' (enqueueMsg owner (toMessage pdown) . removeMonitoring mr)
+        )
 
 addLink :: ProcessId -> ProcessId -> STS m r -> (Maybe InterruptReason, STS m r)
 addLink fromPid toPid = State.runState $ do
@@ -220,31 +228,32 @@ diskontinue sts k e = (sts ^. runEff) (k (Interrupted e))
 -- @schedulePure == runIdentity . 'scheduleM' (Identity . run)  (return ())@
 --
 -- @since 0.3.0.2
-schedulePure
-  :: Eff (Processes PureBaseEffects) a
-  -> Either ShutdownReason a
+schedulePure ::
+  Eff (Processes PureBaseEffects) a ->
+  Either ShutdownReason a
 schedulePure e = run (scheduleM withoutLogging (return ()) e)
 
 -- | Invoke 'scheduleM' with @lift 'Control.Concurrent.yield'@ as yield effect.
 -- @scheduleIO runEff == 'scheduleM' (runLift . runEff) (liftIO 'yield')@
 --
 -- @since 0.4.0.0
-scheduleIO
-  :: MonadIO m
-  => (forall b . Eff r b -> Eff '[Lift m] b)
-  -> Eff (Processes r) a
-  -> m (Either ShutdownReason a)
+scheduleIO ::
+  MonadIO m =>
+  (forall b. Eff r b -> Eff '[Lift m] b) ->
+  Eff (Processes r) a ->
+  m (Either ShutdownReason a)
 scheduleIO r = scheduleM (runLift . r) (liftIO yield)
 
 -- | Invoke 'scheduleM' with @lift 'Control.Concurrent.yield'@ as yield effect.
 -- @scheduleMonadIOEff == 'scheduleM' id (liftIO 'yield')@
 --
 -- @since 0.3.0.2
-scheduleMonadIOEff
-  :: MonadIO (Eff r)
-  => Eff (Processes r) a
-  -> Eff r (Either ShutdownReason a)
-scheduleMonadIOEff = -- schedule (lift yield)
+scheduleMonadIOEff ::
+  MonadIO (Eff r) =>
+  Eff (Processes r) a ->
+  Eff r (Either ShutdownReason a)
+scheduleMonadIOEff =
+  -- schedule (lift yield)
   scheduleM id (liftIO yield)
 
 -- | Run processes that have the 'Logs' and the 'Lift' effects.
@@ -255,11 +264,11 @@ scheduleMonadIOEff = -- schedule (lift yield)
 -- @scheduleIOWithLogging == 'scheduleIO' . 'withLogging'@
 --
 -- @since 0.4.0.0
-scheduleIOWithLogging
-  :: HasCallStack
-  => LogWriter
-  -> Eff EffectsIo a
-  -> IO (Either ShutdownReason a)
+scheduleIOWithLogging ::
+  HasCallStack =>
+  LogWriter ->
+  Eff EffectsIo a ->
+  IO (Either ShutdownReason a)
 scheduleIOWithLogging h = scheduleIO (withLogging h)
 
 -- | Handle the 'Process' effect, as well as all lower effects using an effect handler function.
@@ -278,15 +287,16 @@ scheduleIOWithLogging h = scheduleIO (withLogging h)
 -- endlessly.
 --
 -- @since 0.4.0.0
-scheduleM
-  :: forall m r a
-   . Monad m
-  => (forall b . Eff r b -> m b)
-  -> m () -- ^ An that performs a __yield__ w.r.t. the underlying effect
+scheduleM ::
+  forall m r a.
+  Monad m =>
+  (forall b. Eff r b -> m b) ->
+  -- | An that performs a __yield__ w.r.t. the underlying effect
   --  @r@. E.g. if @Lift IO@ is present, this might be:
   --  @lift 'Control.Concurrent.yield'.
-  -> Eff (Processes r) a
-  -> m (Either ShutdownReason a)
+  m () ->
+  Eff (Processes r) a ->
+  m (Either ShutdownReason a)
 scheduleM r y e = do
   c <- runAsCoroutinePure r (provideInterruptsShutdown e)
   handleProcess (initStsMainProcess r y) (Seq.singleton (c, 0))
@@ -294,123 +304,139 @@ scheduleM r y e = do
 -- | Internal data structure that is part of the coroutine based scheduler
 -- implementation.
 data OnYield r a where
-  OnFlushMessages :: (ResumeProcess [Message] -> Eff r (OnYield r a))
-                  -> OnYield r a
-  OnYield :: (ResumeProcess () -> Eff r (OnYield r a))
-          -> OnYield r a
-  OnDelay :: Timeout
-          -> (ResumeProcess () -> Eff r (OnYield r a))
-          -> OnYield r a
-  OnSelf :: (ResumeProcess ProcessId -> Eff r (OnYield r a))
-         -> OnYield r a
-  OnSpawn :: Bool
-          -> ProcessTitle
-          -> Eff (Process r ': r) ()
-          -> (ResumeProcess ProcessId -> Eff r (OnYield r a))
-          -> OnYield r a
+  OnFlushMessages ::
+    (ResumeProcess [Message] -> Eff r (OnYield r a)) ->
+    OnYield r a
+  OnYield ::
+    (ResumeProcess () -> Eff r (OnYield r a)) ->
+    OnYield r a
+  OnDelay ::
+    Timeout ->
+    (ResumeProcess () -> Eff r (OnYield r a)) ->
+    OnYield r a
+  OnSelf ::
+    (ResumeProcess ProcessId -> Eff r (OnYield r a)) ->
+    OnYield r a
+  OnSpawn ::
+    Bool ->
+    ProcessTitle ->
+    Eff (Process r ': r) () ->
+    (ResumeProcess ProcessId -> Eff r (OnYield r a)) ->
+    OnYield r a
   OnDone :: !a -> OnYield r a
   OnShutdown :: ShutdownReason -> OnYield r a
-  OnInterrupt :: InterruptReason
-                -> (ResumeProcess b -> Eff r (OnYield r a))
-                -> OnYield r a
-  OnSend :: !ProcessId -> !Message
-         -> (ResumeProcess () -> Eff r (OnYield r a))
-         -> OnYield r a
-  OnRecv :: MessageSelector b -> (ResumeProcess b -> Eff r (OnYield r a))
-         -> OnYield r a
-  OnGetProcessState
-         :: ProcessId
-         -> (ResumeProcess (Maybe (ProcessTitle, ProcessDetails, ProcessState)) -> Eff r (OnYield r a))
-         -> OnYield r a
-  OnUpdateProcessDetails
-         :: ProcessDetails
-         -> (ResumeProcess () -> Eff r (OnYield r a))
-         -> OnYield r a
-  OnSendShutdown :: !ProcessId -> ShutdownReason
-                 -> (ResumeProcess () -> Eff r (OnYield r a)) -> OnYield r a
-  OnSendInterrupt :: !ProcessId -> InterruptReason
-                  -> (ResumeProcess () -> Eff r (OnYield r a)) -> OnYield r a
+  OnInterrupt ::
+    InterruptReason ->
+    (ResumeProcess b -> Eff r (OnYield r a)) ->
+    OnYield r a
+  OnSend ::
+    !ProcessId ->
+    !Message ->
+    (ResumeProcess () -> Eff r (OnYield r a)) ->
+    OnYield r a
+  OnRecv ::
+    MessageSelector b ->
+    (ResumeProcess b -> Eff r (OnYield r a)) ->
+    OnYield r a
+  OnGetProcessState ::
+    ProcessId ->
+    (ResumeProcess (Maybe (ProcessTitle, ProcessDetails, ProcessState)) -> Eff r (OnYield r a)) ->
+    OnYield r a
+  OnUpdateProcessDetails ::
+    ProcessDetails ->
+    (ResumeProcess () -> Eff r (OnYield r a)) ->
+    OnYield r a
+  OnSendShutdown ::
+    !ProcessId ->
+    ShutdownReason ->
+    (ResumeProcess () -> Eff r (OnYield r a)) ->
+    OnYield r a
+  OnSendInterrupt ::
+    !ProcessId ->
+    InterruptReason ->
+    (ResumeProcess () -> Eff r (OnYield r a)) ->
+    OnYield r a
   OnMakeReference :: (ResumeProcess Int -> Eff r (OnYield r a)) -> OnYield r a
-  OnMonitor
-    :: ProcessId
-    -> (ResumeProcess MonitorReference -> Eff r (OnYield r a))
-    -> OnYield r a
-  OnDemonitor
-    :: MonitorReference
-    -> (ResumeProcess () -> Eff r (OnYield r a))
-    -> OnYield r a
-  OnLink
-    :: ProcessId
-    -> (ResumeProcess () -> Eff r (OnYield r a))
-    -> OnYield r a
-  OnUnlink
-    :: ProcessId
-    -> (ResumeProcess () -> Eff r (OnYield r a))
-    -> OnYield r a
+  OnMonitor ::
+    ProcessId ->
+    (ResumeProcess MonitorReference -> Eff r (OnYield r a)) ->
+    OnYield r a
+  OnDemonitor ::
+    MonitorReference ->
+    (ResumeProcess () -> Eff r (OnYield r a)) ->
+    OnYield r a
+  OnLink ::
+    ProcessId ->
+    (ResumeProcess () -> Eff r (OnYield r a)) ->
+    OnYield r a
+  OnUnlink ::
+    ProcessId ->
+    (ResumeProcess () -> Eff r (OnYield r a)) ->
+    OnYield r a
 
 instance ToLogMsg (OnYield r a) where
   toLogMsg = \case
-    OnFlushMessages _          -> packLogMsg "OnFlushMessages"
-    OnYield         _          -> packLogMsg "OnYield"
-    OnDelay t _                -> packLogMsg "OnDelay " <> toLogMsg t
-    OnSelf          _          -> packLogMsg "OnSelf"
-    OnSpawn False t _ _        -> packLogMsg "OnSpawn " <> toLogMsg t
-    OnSpawn True  t _ _        -> packLogMsg "OnSpawn (link) " <> toLogMsg t
-    OnDone     _               -> packLogMsg "OnDone"
-    OnShutdown e               -> packLogMsg "OnShutdown " <> toLogMsg e
-    OnInterrupt e _            -> packLogMsg "OnInterrupt " <> toLogMsg e
-    OnSend toP _ _             -> packLogMsg "OnSend " <> toLogMsg toP
-    OnRecv            _ _      -> packLogMsg "OnRecv"
-    OnGetProcessState p _      -> packLogMsg "OnGetProcessState " <> toLogMsg p
+    OnFlushMessages _ -> packLogMsg "OnFlushMessages"
+    OnYield _ -> packLogMsg "OnYield"
+    OnDelay t _ -> packLogMsg "OnDelay " <> toLogMsg t
+    OnSelf _ -> packLogMsg "OnSelf"
+    OnSpawn False t _ _ -> packLogMsg "OnSpawn " <> toLogMsg t
+    OnSpawn True t _ _ -> packLogMsg "OnSpawn (link) " <> toLogMsg t
+    OnDone _ -> packLogMsg "OnDone"
+    OnShutdown e -> packLogMsg "OnShutdown " <> toLogMsg e
+    OnInterrupt e _ -> packLogMsg "OnInterrupt " <> toLogMsg e
+    OnSend toP _ _ -> packLogMsg "OnSend " <> toLogMsg toP
+    OnRecv _ _ -> packLogMsg "OnRecv"
+    OnGetProcessState p _ -> packLogMsg "OnGetProcessState " <> toLogMsg p
     OnUpdateProcessDetails p _ -> packLogMsg "OnUpdateProcessDetails " <> coerce p
-    OnSendShutdown  p e _      -> packLogMsg "OnSendShutdow " <> toLogMsg p <> packLogMsg " " <> toLogMsg e
-    OnSendInterrupt p e _      -> packLogMsg "OnSendInterrupt " <> toLogMsg p <> packLogMsg " " <> toLogMsg e
-    OnMakeReference _          -> packLogMsg "OnMakeReference"
-    OnMonitor   p _            -> packLogMsg "OnMonitor " <> toLogMsg p
-    OnDemonitor p _            -> packLogMsg "OnDemonitor " <> toLogMsg p
-    OnLink      p _            -> packLogMsg "OnLink " <> toLogMsg p
-    OnUnlink    p _            -> packLogMsg "OnUnlink " <> toLogMsg p
+    OnSendShutdown p e _ -> packLogMsg "OnSendShutdow " <> toLogMsg p <> packLogMsg " " <> toLogMsg e
+    OnSendInterrupt p e _ -> packLogMsg "OnSendInterrupt " <> toLogMsg p <> packLogMsg " " <> toLogMsg e
+    OnMakeReference _ -> packLogMsg "OnMakeReference"
+    OnMonitor p _ -> packLogMsg "OnMonitor " <> toLogMsg p
+    OnDemonitor p _ -> packLogMsg "OnDemonitor " <> toLogMsg p
+    OnLink p _ -> packLogMsg "OnLink " <> toLogMsg p
+    OnUnlink p _ -> packLogMsg "OnUnlink " <> toLogMsg p
 
-runAsCoroutinePure
-  :: forall v r m
-   . Monad m
-  => (forall a . Eff r a -> m a)
-  -> Eff (SafeProcesses r) v
-  -> m (OnYield r v)
+runAsCoroutinePure ::
+  forall v r m.
+  Monad m =>
+  (forall a. Eff r a -> m a) ->
+  Eff (SafeProcesses r) v ->
+  m (OnYield r v)
 runAsCoroutinePure r = r . fix (handle_relay' cont (return . OnDone))
- where
-  cont :: (Eff (SafeProcesses r) v -> Eff r (OnYield r v))
-       -> Arrs (SafeProcesses r) x v
-       -> Process r x
-       -> Eff r (OnYield r v)
-  cont k q FlushMessages                = return (OnFlushMessages (k . qApp q))
-  cont k q YieldProcess                 = return (OnYield (k . qApp q))
-  cont k q (Delay t)                    = return (OnDelay t (k . qApp q))
-  cont k q SelfPid                      = return (OnSelf (k . qApp q))
-  cont k q (Spawn     t e             ) = return (OnSpawn False t e (k . qApp q))
-  cont k q (SpawnLink t e             ) = return (OnSpawn True t e (k . qApp q))
-  cont _ _ (Shutdown  !sr             ) = return (OnShutdown sr)
-  cont k q (SendMessage !tp !msg      ) = return (OnSend tp msg (k . qApp q))
-  cont k q (ReceiveSelectedMessage f  ) = return (OnRecv f (k . qApp q))
-  cont k q (GetProcessState        !tp) = return (OnGetProcessState tp (k . qApp q))
-  cont k q (UpdateProcessDetails   !td) = return (OnUpdateProcessDetails td (k . qApp q))
-  cont k q (SendInterrupt !tp  !er    ) = return (OnSendInterrupt tp er (k . qApp q))
-  cont k q (SendShutdown  !pid !sr    ) = return (OnSendShutdown pid sr (k . qApp q))
-  cont k q MakeReference                = return (OnMakeReference (k . qApp q))
-  cont k q (Monitor   !pid)             = return (OnMonitor pid (k . qApp q))
-  cont k q (Demonitor !ref)             = return (OnDemonitor ref (k . qApp q))
-  cont k q (Link      !pid)             = return (OnLink pid (k . qApp q))
-  cont k q (Unlink    !pid)             = return (OnUnlink pid (k . qApp q))
+  where
+    cont ::
+      (Eff (SafeProcesses r) v -> Eff r (OnYield r v)) ->
+      Arrs (SafeProcesses r) x v ->
+      Process r x ->
+      Eff r (OnYield r v)
+    cont k q FlushMessages = return (OnFlushMessages (k . qApp q))
+    cont k q YieldProcess = return (OnYield (k . qApp q))
+    cont k q (Delay t) = return (OnDelay t (k . qApp q))
+    cont k q SelfPid = return (OnSelf (k . qApp q))
+    cont k q (Spawn t e) = return (OnSpawn False t e (k . qApp q))
+    cont k q (SpawnLink t e) = return (OnSpawn True t e (k . qApp q))
+    cont _ _ (Shutdown !sr) = return (OnShutdown sr)
+    cont k q (SendMessage !tp !msg) = return (OnSend tp msg (k . qApp q))
+    cont k q (ReceiveSelectedMessage f) = return (OnRecv f (k . qApp q))
+    cont k q (GetProcessState !tp) = return (OnGetProcessState tp (k . qApp q))
+    cont k q (UpdateProcessDetails !td) = return (OnUpdateProcessDetails td (k . qApp q))
+    cont k q (SendInterrupt !tp !er) = return (OnSendInterrupt tp er (k . qApp q))
+    cont k q (SendShutdown !pid !sr) = return (OnSendShutdown pid sr (k . qApp q))
+    cont k q MakeReference = return (OnMakeReference (k . qApp q))
+    cont k q (Monitor !pid) = return (OnMonitor pid (k . qApp q))
+    cont k q (Demonitor !ref) = return (OnDemonitor ref (k . qApp q))
+    cont k q (Link !pid) = return (OnLink pid (k . qApp q))
+    cont k q (Unlink !pid) = return (OnUnlink pid (k . qApp q))
 
 -- | Internal 'Process' handler function.
-handleProcess
-  :: Monad m
-  => STS r m
-  -> Seq (OnYield r finalResult, ProcessId)
-  -> m (Either ShutdownReason finalResult)
+handleProcess ::
+  Monad m =>
+  STS r m ->
+  Seq (OnYield r finalResult, ProcessId) ->
+  m (Either ShutdownReason finalResult)
 handleProcess _sts Empty =
   return $ Left (interruptToExit (ErrorInterrupt (fromString "no main process")))
-
 handleProcess sts allProcs@((!processState, !pid) :<| rest) =
   let handleExit res =
         if pid == 0
@@ -427,19 +453,22 @@ handleProcess sts allProcs@((!processState, !pid) :<| rest) =
                         Left er ->
                           case toExitSeverity er of
                             ExitSuccess -> return ps'
-                            Crash      -> sendInterruptToOtherPid dPid reason ps'
-
+                            Crash -> sendInterruptToOtherPid dPid reason ps'
             let allButMe = Seq.filter (\(_, p) -> p /= pid) rest
             nextTargets <- unlinkLoop linkedPids allButMe
             handleProcess
-              (dropMsgQ
-                 pid
-                 (triggerAndRemoveMonitor
+              ( dropMsgQ
                   pid
-                  (either
-                    id
-                    (const ExitNormally) res)
-                    stsNew))
+                  ( triggerAndRemoveMonitor
+                      pid
+                      ( either
+                          id
+                          (const ExitNormally)
+                          res
+                      )
+                      stsNew
+                  )
+              )
               nextTargets
    in case processState of
         OnDone r -> handleExit (Right r)
@@ -505,9 +534,10 @@ handleProcess sts allProcs@((!processState, !pid) :<| rest) =
         OnSpawn link title f k -> do
           let (newPid, newSts) =
                 newProcessQ
-                  (if link
-                     then Just pid
-                     else Nothing)
+                  ( if link
+                      then Just pid
+                      else Nothing
+                  )
                   title
                   sts
           fk <- runAsCoroutinePure (newSts ^. runEff) (f >> exitNormally)
@@ -518,11 +548,11 @@ handleProcess sts allProcs@((!processState, !pid) :<| rest) =
           nextK <- kontinue newSts k msgs
           handleProcess newSts (rest :|> (nextK, pid))
         OnDelay t k ->
-          if t <= 0 then do
-               nextK <- kontinue sts k ()
-               handleProcess sts (rest :|> (nextK, pid))
-          else
-               handleProcess sts (rest :|> (OnDelay (t - 1) k, pid))
+          if t <= 0
+            then do
+              nextK <- kontinue sts k ()
+              handleProcess sts (rest :|> (nextK, pid))
+            else handleProcess sts (rest :|> (OnDelay (t - 1) k, pid))
         recv@(OnRecv messageSelector k) ->
           case receiveMsg pid messageSelector sts of
             Nothing -> do
@@ -602,14 +632,14 @@ handleProcess sts allProcs@((!processState, !pid) :<| rest) =
 -- To use another 'LogWriter' use 'defaultMainWithLogWriter' instead.
 defaultMain :: HasCallStack => Eff EffectsIo () -> IO ()
 defaultMain e =
-  consoleLogWriter >>=
-  (\lw ->
-      void
-        . runLift
-        . withLogging lw
-        . scheduleMonadIOEff
-        $ e)
-
+  consoleLogWriter
+    >>= ( \lw ->
+            void
+              . runLift
+              . withLogging lw
+              . scheduleMonadIOEff
+              $ e
+        )
 
 -- | Execute a 'Process' using 'scheduleM' on top of 'Lift' @IO@.
 -- All logging is written using the given 'LogWriter'.
@@ -621,7 +651,6 @@ defaultMainWithLogWriter lw =
     . runLift
     . withLogging lw
     . scheduleMonadIOEff
-
 
 -- | The effect list for 'Process' effects in the single threaded pure scheduler.
 --

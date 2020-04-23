@@ -37,6 +37,8 @@ module Control.Eff.Log.Message
     packLogMsg,
     ToTypeLogMsg (..),
     StringLogMsg (..),
+    AsLogMsg(..),
+    showAsLogMsg,
 
     -- * 'LogEvent' Predicates #PredefinedPredicates#
     -- $PredefinedPredicates
@@ -101,6 +103,7 @@ import Control.DeepSeq
 import Control.Eff.Concurrent.Misc
 import Control.Lens
 import Data.Default
+import Data.Function (on)
 import Data.Hashable
 import Data.Maybe
 import Data.String

@@ -1,31 +1,32 @@
 {-# LANGUAGE UndecidableInstances #-}
+
 -- | A small process to capture and _share_ observation's by enqueueing them into an STM 'TBQueue'.
 module Control.Eff.Concurrent.Protocol.Observer.Queue
-  ( ObservationQueue(..)
-  , Reader
-  , observe
-  , await
-  , tryRead
-  , flush
+  ( ObservationQueue (..),
+    Reader,
+    observe,
+    await,
+    tryRead,
+    flush,
   )
 where
 
-import           Control.Concurrent.STM
-import           Control.Eff
-import           Control.Eff.Concurrent.Protocol
-import           Control.Eff.Concurrent.Protocol.Observer
-import           Control.Eff.Concurrent.Protocol.StatefulServer
-import           Control.Eff.Concurrent.Process
-import           Control.Eff.ExceptionExtra     ( )
-import           Control.Eff.Log
-import qualified Control.Eff.Reader.Strict     as Eff
-import           Control.Exception.Safe        as Safe
-import           Control.Lens
-import           Control.Monad.IO.Class
-import           Control.Monad                  ( unless, when )
-import           GHC.Stack
+import Control.Concurrent.STM
+import Control.Eff
+import Control.Eff.Concurrent.Process
+import Control.Eff.Concurrent.Protocol
+import Control.Eff.Concurrent.Protocol.Observer
+import Control.Eff.Concurrent.Protocol.StatefulServer
+import Control.Eff.ExceptionExtra ()
+import Control.Eff.Log
+import qualified Control.Eff.Reader.Strict as Eff
+import Control.Exception.Safe as Safe
+import Control.Lens
+import Control.Monad (unless, when)
+import Control.Monad.IO.Class
 import Data.Default (Default)
-import           Data.Proxy
+import Data.Proxy
+import GHC.Stack
 
 -- | Contains a 'TBQueue' capturing observations.
 -- See 'observe'.
@@ -46,15 +47,15 @@ instance ToTypeLogMsg event => ToLogMsg (ObservationQueue event) where
 -- variant use 'tryRead' or 'flush'.
 --
 -- @since 0.28.0
-await
-  :: forall event r
-   . ( Member (Reader event) r
-     , HasCallStack
-     , MonadIO (Eff r)
-     , Typeable event
-     , Member Logs r
-     )
-  => Eff r event
+await ::
+  forall event r.
+  ( Member (Reader event) r,
+    HasCallStack,
+    MonadIO (Eff r),
+    Typeable event,
+    Member Logs r
+  ) =>
+  Eff r event
 await = do
   ObservationQueue q <- Eff.ask @(ObservationQueue event)
   liftIO (atomically (readTBQueue q))
@@ -65,15 +66,15 @@ await = do
 -- Use 'await' to block until an observation is observerRegistryNotify.
 --
 -- @since 0.28.0
-tryRead
-  :: forall event r
-   . ( Member (Reader event) r
-     , HasCallStack
-     , MonadIO (Eff r)
-     , Typeable event
-     , Member Logs r
-     )
-  => Eff r (Maybe event)
+tryRead ::
+  forall event r.
+  ( Member (Reader event) r,
+    HasCallStack,
+    MonadIO (Eff r),
+    Typeable event,
+    Member Logs r
+  ) =>
+  Eff r (Maybe event)
 tryRead = do
   ObservationQueue q <- Eff.ask @(ObservationQueue event)
   liftIO (atomically (tryReadTBQueue q))
@@ -85,15 +86,15 @@ tryRead = do
 -- For a blocking variant use 'await'.
 --
 -- @since 0.28.0
-flush
-  :: forall event r
-   . ( Member (Reader event) r
-     , HasCallStack
-     , MonadIO (Eff r)
-     , Typeable event
-     , Member Logs r
-     )
-  => Eff r [event]
+flush ::
+  forall event r.
+  ( Member (Reader event) r,
+    HasCallStack,
+    MonadIO (Eff r),
+    Typeable event,
+    Member Logs r
+  ) =>
+  Eff r [event]
 flush = do
   ObservationQueue q <- Eff.ask @(ObservationQueue event)
   liftIO (atomically (flushTBQueue q))
@@ -125,57 +126,60 @@ flush = do
 -- @
 --
 -- @since 0.28.0
-observe
-  :: forall event eventSource e q len b
-  . ( HasCallStack
-    , HasProcesses e q
-    , FilteredLogging e
-    , FilteredLogging q
-    , FilteredLogging (Processes q)
-    , Lifted IO e
-    , Lifted IO q
-    , IsObservable eventSource event
-    , Integral len
-    , Server (ObservationQueue event) (Processes q)
-    , TangiblePdu eventSource 'Asynchronous
-    )
-  => len
-  -> Endpoint eventSource
-  -> Eff (Reader event ': e) b
-  -> Eff e b
+observe ::
+  forall event eventSource e q len b.
+  ( HasCallStack,
+    HasProcesses e q,
+    FilteredLogging e,
+    FilteredLogging q,
+    FilteredLogging (Processes q),
+    Lifted IO e,
+    Lifted IO q,
+    IsObservable eventSource event,
+    Integral len,
+    Server (ObservationQueue event) (Processes q),
+    TangiblePdu eventSource 'Asynchronous
+  ) =>
+  len ->
+  Endpoint eventSource ->
+  Eff (Reader event ': e) b ->
+  Eff e b
 observe queueLimit eventSource e =
   withObservationQueue queueLimit (withWriter @event eventSource e)
 
-
-withObservationQueue
-  :: forall event b e len
-   . ( HasCallStack
-     , Typeable event
-     , ToLogMsg event
-     , ToTypeLogMsg event
-     , Member Logs e
-     , Lifted IO e
-     , Integral len
-     , Member Interrupts e
-     )
-  => len
-  -> Eff (Reader event ': e) b
-  -> Eff e b
+withObservationQueue ::
+  forall event b e len.
+  ( HasCallStack,
+    Typeable event,
+    ToLogMsg event,
+    ToTypeLogMsg event,
+    Member Logs e,
+    Lifted IO e,
+    Integral len,
+    Member Interrupts e
+  ) =>
+  len ->
+  Eff (Reader event ': e) b ->
+  Eff e b
 withObservationQueue queueLimit e = do
-  q   <- lift (newTBQueueIO (fromIntegral queueLimit))
+  q <- lift (newTBQueueIO (fromIntegral queueLimit))
   let oq = ObservationQueue q
-  res <- handleInterrupts (return . Left)
-                          (Right <$> Eff.runReader oq e)
+  res <-
+    handleInterrupts
+      (return . Left)
+      (Right <$> Eff.runReader oq e)
   rest <- lift (atomically (flushTBQueue q))
   unless
     (null rest)
     (mapM_ (logDebug oq " unread observation: ") rest)
-  either (\em ->
-            do
-              logError em
-              lift (throwIO (MkUnhandledProcessInterrupt em)))
-         return
-         res
+  either
+    ( \em ->
+        do
+          logError em
+          lift (throwIO (MkUnhandledProcessInterrupt em))
+    )
+    return
+    res
 
 -- | Spawn a process that can be used as an 'Observer' that enqueues the observations into an
 --   'ObservationQueue'. See 'withObservationQueue' for an example.
@@ -185,19 +189,19 @@ withObservationQueue queueLimit e = do
 -- returned by 'await'.
 --
 -- @since 0.28.0
-spawnWriter
-  :: forall event r q
-   . ( Member Logs q
-     , Lifted IO q
-     , FilteredLogging (Processes q)
-     , HasProcesses r q
-     , Typeable event
-     , HasCallStack
-     , Server (ObservationQueue event) (Processes q)
-     , ToTypeLogMsg event
-     )
-  => ObservationQueue event
-  -> Eff r (Endpoint (Observer event))
+spawnWriter ::
+  forall event r q.
+  ( Member Logs q,
+    Lifted IO q,
+    FilteredLogging (Processes q),
+    HasProcesses r q,
+    Typeable event,
+    HasCallStack,
+    Server (ObservationQueue event) (Processes q),
+    ToTypeLogMsg event
+  ) =>
+  ObservationQueue event ->
+  Eff r (Endpoint (Observer event))
 spawnWriter q =
   startLink @_ @r @q (MkObservationQueue q)
 
@@ -209,39 +213,38 @@ spawnWriter q =
 -- returned by 'await'.
 --
 -- @since 0.28.0
-withWriter
-  :: forall event eventSource e q b
-  . ( HasCallStack
-    , HasProcesses e q
-    , Lifted IO q
-    , FilteredLogging (Processes q)
-    , Member Logs q
-    , IsObservable eventSource event
-    , Member (Reader event) e
-    , TangiblePdu eventSource 'Asynchronous
-    , ToTypeLogMsg event
-    , ToLogMsg event
-    )
-  => Endpoint eventSource
-  -> Eff e b
-  -> Eff e b
+withWriter ::
+  forall event eventSource e q b.
+  ( HasCallStack,
+    HasProcesses e q,
+    Lifted IO q,
+    FilteredLogging (Processes q),
+    Member Logs q,
+    IsObservable eventSource event,
+    Member (Reader event) e,
+    TangiblePdu eventSource 'Asynchronous,
+    ToTypeLogMsg event,
+    ToLogMsg event
+  ) =>
+  Endpoint eventSource ->
+  Eff e b ->
+  Eff e b
 withWriter eventSource e = do
   q <- Eff.ask @(ObservationQueue event)
   w <- spawnWriter @event q
   registerObserver @event eventSource w
   res <- e
   forgetObserver @event eventSource w
-  sendShutdown (w^.fromEndpoint) ExitNormally
+  sendShutdown (w ^. fromEndpoint) ExitNormally
   pure res
 
-
 instance (Typeable event, Lifted IO q, Member Logs q, ToTypeLogMsg event) => Server (ObservationQueue event) (Processes q) where
-  type instance Protocol (ObservationQueue event) = Observer event
+  type Protocol (ObservationQueue event) = Observer event
 
-  data instance StartArgument (ObservationQueue event) =
-     MkObservationQueue (ObservationQueue event)
+  data StartArgument (ObservationQueue event)
+    = MkObservationQueue (ObservationQueue event)
 
-  newtype instance Model (ObservationQueue event) = MkObservationQueueModel () deriving Default
+  newtype Model (ObservationQueue event) = MkObservationQueueModel () deriving (Default)
 
   update _ (MkObservationQueue (ObservationQueue q)) =
     \case

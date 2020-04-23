@@ -10,42 +10,42 @@
 --
 -- @since 0.16.0
 module Control.Eff.Concurrent.Protocol.Observer
-  ( Observer(..)
-  , ObservationSink()
-  , IsObservable
-  , CanObserve
-  , Pdu(RegisterObserver, ForgetObserver, Observed)
-  , registerObserver
-  , forgetObserver
-  , forgetObserverUnsafe
-  , ObserverRegistry(..)
-  , ObserverRegistryState
-  , observerRegistryNotify
-  , evalObserverRegistryState
-  , emptyObserverRegistry
-  , observerRegistryHandlePdu
-  , observerRegistryRemoveProcess
+  ( Observer (..),
+    ObservationSink (),
+    IsObservable,
+    CanObserve,
+    Pdu (RegisterObserver, ForgetObserver, Observed),
+    registerObserver,
+    forgetObserver,
+    forgetObserverUnsafe,
+    ObserverRegistry (..),
+    ObserverRegistryState,
+    observerRegistryNotify,
+    evalObserverRegistryState,
+    emptyObserverRegistry,
+    observerRegistryHandlePdu,
+    observerRegistryRemoveProcess,
   )
 where
 
-import           Control.DeepSeq               ( NFData(rnf) )
-import           Control.Eff
-import           Control.Eff.Concurrent.Process
-import           Control.Eff.Concurrent.Protocol
-import           Control.Eff.Concurrent.Protocol.Client
-import           Control.Eff.Concurrent.Protocol.Wrapper (Request(Cast))
-import           Control.Eff.State.Strict
-import           Control.Eff.Log
-import           Control.Lens
-import           Control.Monad
-import           Data.Dynamic
-import           Data.Kind
-import           Data.Semigroup
-import           Data.Map                       ( Map )
-import qualified Data.Map                      as Map
-import           Data.Proxy
-import           GHC.Generics
-import           GHC.Stack
+import Control.DeepSeq (NFData (rnf))
+import Control.Eff
+import Control.Eff.Concurrent.Process
+import Control.Eff.Concurrent.Protocol
+import Control.Eff.Concurrent.Protocol.Client
+import Control.Eff.Concurrent.Protocol.Wrapper (Request (Cast))
+import Control.Eff.Log
+import Control.Eff.State.Strict
+import Control.Lens
+import Control.Monad
+import Data.Dynamic
+import Data.Kind
+import Data.Map (Map)
+import qualified Data.Map as Map
+import Data.Proxy
+import Data.Semigroup
+import GHC.Generics
+import GHC.Stack
 
 -- * Observers
 
@@ -64,12 +64,12 @@ import           GHC.Stack
 -- while the 'ProcessId' serves as key for internal maps.
 --
 -- @since 0.28.0
-newtype Observer event =
-  MkObserver (Arg ProcessId (ObservationSink event))
+newtype Observer event
+  = MkObserver (Arg ProcessId (ObservationSink event))
   deriving (Eq, Ord, Typeable)
 
 instance ToTypeLogMsg event => ToLogMsg (Observer event) where
-  toLogMsg (MkObserver (Arg t _)) = toTypeLogMsg (Proxy @(Observer event)) <> toLogMsg  t
+  toLogMsg (MkObserver (Arg t _)) = toTypeLogMsg (Proxy @(Observer event)) <> toLogMsg t
 
 instance ToTypeLogMsg event => ToTypeLogMsg (Observer event) where
   toTypeLogMsg _ = toTypeLogMsg (Proxy @event) <> packLogMsg "_observer"
@@ -80,7 +80,7 @@ instance NFData (Observer event) where
 instance (Tangible event) => HasPdu (Observer event) where
   data Pdu (Observer event) r where
     Observed :: event -> Pdu (Observer event) 'Asynchronous
-    deriving Typeable
+    deriving (Typeable)
 
 instance NFData event => NFData (Pdu (Observer event) r) where
   rnf (Observed event) = rnf event
@@ -94,11 +94,11 @@ instance ToLogMsg event => ToLogMsg (Pdu (Observer event) r) where
 -- the destination process.
 --
 -- @since 0.28.0
-data ObservationSink event =
-  MkObservationSink
-    { _observerSerializer :: Serializer (Pdu (Observer event) 'Asynchronous)
-    , _observerMonitorReference  :: MonitorReference
-    }
+data ObservationSink event
+  = MkObservationSink
+      { _observerSerializer :: Serializer (Pdu (Observer event) 'Asynchronous),
+        _observerMonitorReference :: MonitorReference
+      }
   deriving (Generic, Typeable)
 
 instance NFData (ObservationSink event) where
@@ -108,20 +108,20 @@ instance NFData (ObservationSink event) where
 --
 -- @since 0.28.0
 type IsObservable eventSource event =
-  ( Tangible event
-  , Embeds eventSource (ObserverRegistry event)
-  , HasPdu eventSource
-  , ToTypeLogMsg event
-  , ToLogMsg event
+  ( Tangible event,
+    Embeds eventSource (ObserverRegistry event),
+    HasPdu eventSource,
+    ToTypeLogMsg event,
+    ToLogMsg event
   )
 
 -- | Convenience type alias.
 --
 -- @since 0.28.0
 type CanObserve eventSink event =
-  ( Tangible event
-  , Embeds eventSink (Observer event)
-  , HasPdu eventSink
+  ( Tangible event,
+    Embeds eventSink (Observer event),
+    HasPdu eventSink
   )
 
 -- | And an 'Observer' to the set of recipients for all observations reported by 'observerRegistryNotify'.
@@ -130,60 +130,59 @@ type CanObserve eventSink event =
 --   combine several filter functions.
 --
 -- @since 0.16.0
-registerObserver
-  :: forall event eventSink eventSource r q .
-     ( HasCallStack
-     , HasProcesses r q
-     , TangiblePdu eventSource 'Asynchronous
-     , IsObservable eventSource event
-     , TangiblePdu eventSink 'Asynchronous
-     , CanObserve eventSink event
-     )
-  => Endpoint eventSource
-  -> Endpoint eventSink
-  -> Eff r ()
+registerObserver ::
+  forall event eventSink eventSource r q.
+  ( HasCallStack,
+    HasProcesses r q,
+    TangiblePdu eventSource 'Asynchronous,
+    IsObservable eventSource event,
+    TangiblePdu eventSink 'Asynchronous,
+    CanObserve eventSink event
+  ) =>
+  Endpoint eventSource ->
+  Endpoint eventSink ->
+  Eff r ()
 registerObserver eventSource eventSink =
-   cast eventSource (RegisterObserver serializer (eventSink ^. fromEndpoint))
-    where
-       serializer =
-        MkSerializer
-          ( toMessage
-          . Cast
-          . embedPdu @eventSink @(Observer event) @( 'Asynchronous )
-          )
-
+  cast eventSource (RegisterObserver serializer (eventSink ^. fromEndpoint))
+  where
+    serializer =
+      MkSerializer
+        ( toMessage
+            . Cast
+            . embedPdu @eventSink @(Observer event) @('Asynchronous)
+        )
 
 -- | Send the 'ForgetObserver' message
 --
 -- @since 0.16.0
-forgetObserver
-  :: forall event eventSink eventSource r q .
-     ( HasProcesses r q
-     , HasCallStack
-     , TangiblePdu eventSource 'Asynchronous
-     , IsObservable eventSource event
-     , TangiblePdu eventSink 'Asynchronous
-     , CanObserve eventSink event
-     )
-  => Endpoint eventSource
-  -> Endpoint eventSink
-  -> Eff r ()
+forgetObserver ::
+  forall event eventSink eventSource r q.
+  ( HasProcesses r q,
+    HasCallStack,
+    TangiblePdu eventSource 'Asynchronous,
+    IsObservable eventSource event,
+    TangiblePdu eventSink 'Asynchronous,
+    CanObserve eventSink event
+  ) =>
+  Endpoint eventSource ->
+  Endpoint eventSink ->
+  Eff r ()
 forgetObserver eventSource eventSink =
   forgetObserverUnsafe @event @eventSource eventSource (eventSink ^. fromEndpoint)
 
 -- | Send the 'ForgetObserver' message, use a raw 'ProcessId' as parameter.
 --
 -- @since 0.28.0
-forgetObserverUnsafe
-  :: forall event eventSource r q .
-     ( HasProcesses r q
-     , HasCallStack
-     , TangiblePdu eventSource 'Asynchronous
-     , IsObservable eventSource event
-     )
-  => Endpoint eventSource
-  -> ProcessId
-  -> Eff r ()
+forgetObserverUnsafe ::
+  forall event eventSource r q.
+  ( HasProcesses r q,
+    HasCallStack,
+    TangiblePdu eventSource 'Asynchronous,
+    IsObservable eventSource event
+  ) =>
+  Endpoint eventSource ->
+  ProcessId ->
+  Eff r ()
 forgetObserverUnsafe eventSource eventSink =
   cast eventSource (ForgetObserver @event eventSink)
 
@@ -195,20 +194,16 @@ forgetObserverUnsafe eventSource eventSink =
 -- 'Observer's.
 --
 -- @since 0.28.0
-data ObserverRegistry (event :: Type) = MkObserverRegistry
-  { _observerRegistry :: Map ProcessId (ObservationSink event) }
-  deriving Typeable
+data ObserverRegistry (event :: Type)
+  = MkObserverRegistry
+      {_observerRegistry :: Map ProcessId (ObservationSink event)}
+  deriving (Typeable)
 
 instance ToTypeLogMsg event => ToTypeLogMsg (ObserverRegistry event) where
   toTypeLogMsg _ = toTypeLogMsg (Proxy @event) <> packLogMsg "_observer_registry_event"
 
 instance (Tangible event) => HasPdu (ObserverRegistry event) where
-
-  -- | Protocol for managing observers. This can be added to any server for any number of different observation types.
-  -- The functions 'evalObserverRegistryState' and 'observerRegistryHandlePdu' are used to include observer handling;
-  --
-  -- @since 0.16.0
-  data instance Pdu (ObserverRegistry event) r where
+  data Pdu (ObserverRegistry event) r where
     -- | This message denotes that the given 'Observer' should receive observations until 'ForgetObserver' is
     --   received.
     --
@@ -217,12 +212,12 @@ instance (Tangible event) => HasPdu (ObserverRegistry event) where
     -- | This message denotes that the given 'Observer' should not receive observations anymore.
     --
     -- @since 0.16.1
-    ForgetObserver ::  ProcessId -> Pdu (ObserverRegistry event) 'Asynchronous
---    -- | This message denotes that a monitored process died
---    --
---    -- @since 0.28.0
---    ObserverMightBeDown :: MonitorReference -> Pdu (ObserverRegistry event) ( 'Synchronous Bool)
-    deriving Typeable
+    ForgetObserver :: ProcessId -> Pdu (ObserverRegistry event) 'Asynchronous
+    --    -- | This message denotes that a monitored process died
+    --    --
+    --    -- @since 0.28.0
+    --    ObserverMightBeDown :: MonitorReference -> Pdu (ObserverRegistry event) ( 'Synchronous Bool)
+    deriving (Typeable)
 
 instance NFData (Pdu (ObserverRegistry event) r) where
   rnf (RegisterObserver ser pid) = rnf ser `seq` rnf pid
@@ -242,48 +237,49 @@ instance ToTypeLogMsg event => ToLogMsg (Pdu (ObserverRegistry event) r) where
 -- messages. It also adds the 'ObserverRegistryState' constraint to the effect list.
 --
 -- @since 0.28.0
-observerRegistryHandlePdu
-  :: forall event q r
-   . ( HasCallStack
-     , Typeable event
-     , ToTypeLogMsg event
-     , HasProcesses r q
-     , Member (ObserverRegistryState event) r
-     , Member Logs r
-     )
-  => Pdu (ObserverRegistry event) 'Asynchronous -> Eff r ()
+observerRegistryHandlePdu ::
+  forall event q r.
+  ( HasCallStack,
+    Typeable event,
+    ToTypeLogMsg event,
+    HasProcesses r q,
+    Member (ObserverRegistryState event) r,
+    Member Logs r
+  ) =>
+  Pdu (ObserverRegistry event) 'Asynchronous ->
+  Eff r ()
 observerRegistryHandlePdu = \case
-    RegisterObserver ser pid -> do
-      monRef <- monitor pid
-      let sink = MkObservationSink ser monRef
-          observer = MkObserver (Arg pid sink)
-      modify @(ObserverRegistry event) (over observerRegistry (Map.insert pid sink))
-      os <- get @(ObserverRegistry event)
-      logDebug "registered "
-               observer
-               " current number of observers: "  -- TODO put this info into the process details
-               (Map.size (view observerRegistry os))
-
-    ForgetObserver ob -> do
-      wasRemoved <- observerRegistryRemoveProcess @event ob
-      unless wasRemoved $
-        logDebug "unknown observer " (show ob)
-
+  RegisterObserver ser pid -> do
+    monRef <- monitor pid
+    let sink = MkObservationSink ser monRef
+        observer = MkObserver (Arg pid sink)
+    modify @(ObserverRegistry event) (over observerRegistry (Map.insert pid sink))
+    os <- get @(ObserverRegistry event)
+    logDebug
+      "registered "
+      observer
+      " current number of observers: " -- TODO put this info into the process details
+      (Map.size (view observerRegistry os))
+  ForgetObserver ob -> do
+    wasRemoved <- observerRegistryRemoveProcess @event ob
+    unless wasRemoved $
+      logDebug "unknown observer " (show ob)
 
 -- | Remove the entry in the 'ObserverRegistry' for the 'ProcessId'
 -- and return 'True' if there was an entry, 'False' otherwise.
 --
 -- @since 0.28.0
-observerRegistryRemoveProcess
-  :: forall event q r
-   . ( HasCallStack
-     , Typeable event
-     , ToTypeLogMsg event
-     , HasProcesses r q
-     , Member (ObserverRegistryState event) r
-     , Member Logs r
-     )
-  => ProcessId -> Eff r Bool
+observerRegistryRemoveProcess ::
+  forall event q r.
+  ( HasCallStack,
+    Typeable event,
+    ToTypeLogMsg event,
+    HasProcesses r q,
+    Member (ObserverRegistryState event) r,
+    Member Logs r
+  ) =>
+  ProcessId ->
+  Eff r Bool
 observerRegistryRemoveProcess ob = do
   mSink <- view (observerRegistry . at ob) <$> get @(ObserverRegistry event)
   modify @(ObserverRegistry event) (observerRegistry . at ob .~ Nothing)
@@ -292,14 +288,15 @@ observerRegistryRemoveProcess ob = do
     (pure False)
     (foundIt os)
     mSink
- where
-  foundIt os sink@(MkObservationSink _ monRef) = do
-    demonitor monRef
-    logDebug "removed: "
-             (MkObserver $ Arg ob sink)
-             " current number of observers: "
-             (Map.size (view observerRegistry os))
-    pure True
+  where
+    foundIt os sink@(MkObservationSink _ monRef) = do
+      demonitor monRef
+      logDebug
+        "removed: "
+        (MkObserver $ Arg ob sink)
+        " current number of observers: "
+        (Map.size (view observerRegistry os))
+      pure True
 
 -- | Keep track of registered 'Observer's.
 --
@@ -326,18 +323,18 @@ observerRegistry = iso _observerRegistry MkObserverRegistry
 -- The process needs to 'evalObserverRegistryState' and to 'observerRegistryHandlePdu'.
 --
 -- @since 0.28.0
-observerRegistryNotify
-  :: forall event r q
-   . ( HasProcesses r q
-     , Member (ObserverRegistryState event) r
-     , Tangible event
-     , HasCallStack
-     )
-  => event
-  -> Eff r ()
+observerRegistryNotify ::
+  forall event r q.
+  ( HasProcesses r q,
+    Member (ObserverRegistryState event) r,
+    Tangible event,
+    HasCallStack
+  ) =>
+  event ->
+  Eff r ()
 observerRegistryNotify observation = do
   os <- view observerRegistry <$> get
   mapM_ notifySomeObserver (Map.assocs os)
- where
-  notifySomeObserver (destination,  (MkObservationSink serializer _)) =
-    sendAnyMessage destination (runSerializer serializer (Observed observation))
+  where
+    notifySomeObserver (destination, (MkObservationSink serializer _)) =
+      sendAnyMessage destination (runSerializer serializer (Observed observation))
