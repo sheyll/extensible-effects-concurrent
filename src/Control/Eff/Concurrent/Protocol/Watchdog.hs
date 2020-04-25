@@ -483,9 +483,10 @@ startExonerationTimer ::
   CrashTimeSpan ->
   Eff e CrashReport
 startExonerationTimer cId r t = do
-  let title = MkProcessTitle (toLogMsg cId <> packLogMsg "_exoneration-timer")
+  let title = MkProcessTitle (packLogMsg "exoneration-timer")
+      initialDebugLogMsg = toLogMsg cId <> packLogMsg <> packLogMsg " " <> toLogMsg r <> packLogMsg " " <> toLogMsg t
   me <- self
-  ref <- sendAfterWithTitle title me (TimeoutMicros (t * 1_000_000)) (MkExonerationTimer cId)
+  ref <- sendAfterWithTitleAndLogMsg initialDebugLogMsg title me (TimeoutMicros (t * 1_000_000)) (MkExonerationTimer cId)
   now <- lift getCurrentTime
   return (MkCrashReport ref now r)
 

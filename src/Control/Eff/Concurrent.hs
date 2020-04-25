@@ -70,9 +70,7 @@ module Control.Eff.Concurrent
 where
 
 import Control.Eff.Concurrent.Process
-  ( -- TODO rename to 'sendExit'
-
-    ExitSeverity (..),
+  ( ExitSeverity (..),
     HasProcesses,
     HasSafeProcesses,
     InterruptOrShutdown (..),

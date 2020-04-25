@@ -102,6 +102,7 @@ callWithTimeout ::
     TangiblePdu destination ('Synchronous result),
     TangiblePdu protocol ('Synchronous result),
     Tangible result,
+    Member Logs q,
     Member Logs r,
     HasCallStack,
     Embeds destination protocol
@@ -122,16 +123,16 @@ callWithTimeout serverP@(Endpoint pidInternal) req timeOut = do
             extractResult (Reply origin' result) =
               if origin == origin' then Just result else Nothing
          in selectMessageWith extractResult
-  let timerTitle = MkProcessTitle (packLogMsg "call-timer")
-      logTitle =
-              packLogMsg "call-timer from: "
+  let timerTitle = MkProcessTitle (packLogMsg "call-timeout")
+      initialLog =
+              packLogMsg "call-timeout from: "
                 <> toLogMsg fromPid
                 <> packLogMsg " to: "
                 <> toLogMsg serverP
-  resultOrError <- receiveSelectedWithMonitorAfterWithTitle pidInternal selectResult timeOut timerTitle logTitle
+  resultOrError <- receiveSelectedWithMonitorAfterWithTitle pidInternal selectResult timeOut timerTitle initialLog
   let onTimeout timerRef = do
         let msg =
-              packLogMsg "call-timer "
+              packLogMsg "call-timeout "
                 <> toLogMsg timerRef
                 <> packLogMsg " for call from "
                 <> toLogMsg fromPid

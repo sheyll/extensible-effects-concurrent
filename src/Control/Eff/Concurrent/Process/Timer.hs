@@ -28,8 +28,12 @@ import Control.DeepSeq
 import Control.Eff
 import Control.Eff.Concurrent.Process
 import Control.Eff.Log.Message
+import Control.Eff.Log.Handler
+import Data.Foldable
 import Data.Proxy
 import Data.Typeable
+import Data.Kind
+import Data.Monoid
 import GHC.Stack
 
 -- | Wait for a message of the given type for the given time. When no message
@@ -41,6 +45,7 @@ receiveAfter ::
   forall a r q.
   ( HasCallStack,
     HasProcesses r q,
+    Member Logs q,
     ToTypeLogMsg a,
     Typeable a,
     NFData a
@@ -59,6 +64,7 @@ receiveSelectedAfter ::
   forall a r q.
   ( HasCallStack,
     HasProcesses r q,
+    Member Logs q,
     Typeable a,
     ToTypeLogMsg a
   ) =>
@@ -66,12 +72,7 @@ receiveSelectedAfter ::
   Timeout ->
   Eff r (Either TimerElapsed a)
 receiveSelectedAfter sel t = do
-  let timerTitle =
-        MkProcessTitle
-          ( toTypeLogMsg (Proxy @a)
-              <> "-receive-timer-"
-              <> toLogMsg t
-          )
+  let timerTitle = MkProcessTitle "receive-timer"
   timerRef <- startTimerWithTitle timerTitle t
   res <-
     receiveSelectedMessage
@@ -86,6 +87,8 @@ receiveSelectedWithMonitorAfter ::
   forall a r q.
   ( HasCallStack,
     HasProcesses r q,
+    Member Logs q,
+    Member Logs r,
     ToLogMsg a,
     Typeable a,
     ToTypeLogMsg a
@@ -94,16 +97,15 @@ receiveSelectedWithMonitorAfter ::
   MessageSelector a ->
   Timeout ->
   Eff r (Either (Either ProcessDown TimerElapsed) a)
-receiveSelectedWithMonitorAfter pid sel t =
-  let timerTitle =
-        MkProcessTitle
-          ( toTypeLogMsg (Proxy @a)
-              <> "-monitoring-receive-timer-"
-              <> toLogMsg pid
-              <> "-"
-              <> toLogMsg t
-          )
-   in receiveSelectedWithMonitorAfterWithTitle pid sel t timerTitle
+receiveSelectedWithMonitorAfter pid sel t = do
+  fromPid <- self
+  let timerTitle = MkProcessTitle "receive-timeout"
+      initialLog =
+        packLogMsg "receice-timeout receiver: "
+          <> toLogMsg fromPid
+          <> packLogMsg " expected message type: "
+          <> toTypeLogMsg (Proxy @a)
+  receiveSelectedWithMonitorAfterWithTitle pid sel t timerTitle initialLog
 
 -- | Wait for a message of the given type for the given time. When no message
 -- arrives in time, return 'Nothing'. This is based on
@@ -114,6 +116,7 @@ receiveAfterWithTitle ::
   forall a r q.
   ( HasCallStack,
     HasProcesses r q,
+    Member Logs q,
     Typeable a,
     NFData a
   ) =>
@@ -132,6 +135,7 @@ receiveSelectedAfterWithTitle ::
   forall a r q.
   ( HasCallStack,
     HasProcesses r q,
+    Member Logs q,
     Typeable a
   ) =>
   MessageSelector a ->
@@ -153,6 +157,8 @@ receiveSelectedWithMonitorAfterWithTitle ::
   forall a r q.
   ( HasCallStack,
     HasProcesses r q,
+    Member Logs q,
+    Member Logs r,
     Typeable a
   ) =>
   ProcessId ->
@@ -163,7 +169,7 @@ receiveSelectedWithMonitorAfterWithTitle ::
   Eff r (Either (Either ProcessDown TimerElapsed) a)
 receiveSelectedWithMonitorAfterWithTitle pid sel t timerTitle initialLogMsg = do
   timerRef <- startTimerWithTitle timerTitle t
-  logDebug "started: " timerRef
+  logDebug (MSG "started: ") timerRef
   logDebug initialLogMsg
   res <- withMonitor pid $ \pidMon -> do
     receiveSelectedMessage
@@ -190,7 +196,7 @@ newtype TimerReference = TimerReference ProcessId
   deriving (NFData, Ord, Eq, Num, Integral, Real, Enum, Typeable)
 
 instance ToLogMsg TimerReference where
-  toLogMsg (TimerReference p) = "timer" <> toLogMsg p
+  toLogMsg (TimerReference p) = "timer-ref" <> toLogMsg p
 
 -- | A value to be sent when timer started with 'startTimer' has elapsed.
 --
@@ -201,7 +207,7 @@ newtype TimerElapsed = TimerElapsed {fromTimerElapsed :: TimerReference}
 instance ToTypeLogMsg TimerElapsed
 
 instance ToLogMsg TimerElapsed where
-  toLogMsg x = toLogMsg (fromTimerElapsed x) <> packLogMsg " elapsed"
+  toLogMsg x = packLogMsg "elapsed: " <> toLogMsg (fromTimerElapsed x)
 
 -- | Send a message to a given process after waiting. The message is created by
 -- applying the function parameter to the 'TimerReference', such that the
@@ -214,6 +220,7 @@ sendAfter ::
     HasProcesses r q,
     Typeable message,
     NFData message,
+    Member Logs q,
     ToTypeLogMsg message
   ) =>
   ProcessId ->
@@ -222,7 +229,7 @@ sendAfter ::
   Eff r TimerReference
 sendAfter pid t mkMsg =
   sendAfterWithTitle
-    (MkProcessTitle ("send-after-" <> toLogMsg t <> "-" <> toTypeLogMsg (Proxy @message) <> "-" <> toLogMsg pid))
+    (MkProcessTitle "send-after-timer")
     pid
     t
     mkMsg
@@ -235,22 +242,84 @@ sendAfterWithTitle ::
   ( HasCallStack,
     HasProcesses r q,
     Typeable message,
-    NFData message
+    NFData message,
+    Member Logs q
   ) =>
   ProcessTitle ->
   ProcessId ->
   Timeout ->
   (TimerReference -> message) ->
   Eff r TimerReference
-sendAfterWithTitle title pid t mkMsg =
+sendAfterWithTitle = sendAfterWithTitleAndMaybeLogMsg Nothing
+
+-- | Like 'sendAfterWithTitle' but with a user provided initial debug `LogMsg`.
+--
+-- @since 1.0.0
+sendAfterWithTitleAndLogMsg ::
+  forall r q message.
+  ( HasCallStack,
+    HasProcesses r q,
+    Member Logs q,
+    Typeable message,
+    NFData message
+  ) =>
+  LogMsg ->
+  ProcessTitle ->
+  ProcessId ->
+  Timeout ->
+  (TimerReference -> message) ->
+  Eff r TimerReference
+sendAfterWithTitleAndLogMsg =
+  sendAfterWithTitleAndMaybeLogMsg . Just
+
+-- | Like 'sendAfterWithTitle' but with a user provided, optional initial debug `LogMsg`.
+--
+-- @since 1.0.0
+sendAfterWithTitleAndMaybeLogMsg ::
+  forall r q message.
+  ( HasCallStack,
+    HasProcesses r q,
+    Member Logs q,
+    Typeable message,
+    NFData message
+  ) =>
+  Maybe LogMsg ->
+  ProcessTitle ->
+  ProcessId ->
+  Timeout ->
+  (TimerReference -> message) ->
+  Eff r TimerReference
+sendAfterWithTitleAndMaybeLogMsg initialLogMsg title pid t mkMsg =
   TimerReference
     <$> ( spawn
             title
-            ( delay t
-                >> self
-                >>= (sendMessage pid . force . mkMsg . TimerReference)
+            ( do traverse_ logDebug initialLogMsg
+                 me <- self
+                 let meRef = TimerReference me
+                 logDebug (MSG "started:") title pid t meRef
+                 delay t
+                 logDebug (sepBy " " (MSG "timer elapsed, sending message") title pid t meRef)
+                 sendMessage pid (force (mkMsg meRef))
             )
         )
+
+class LogMsgComposer2 a where
+  composeLogMsg2 :: (LogMsg -> LogMsg -> LogMsg) -> Maybe LogMsg -> a
+
+instance LogMsgComposer2 LogMsg where
+  composeLogMsg2 _ Nothing = mempty
+  composeLogMsg2 _ (Just x) = x
+
+instance (ToLogMsg a, LogMsgComposer2 b) => LogMsgComposer2 (a -> b) where
+  composeLogMsg2 f Nothing x = composeLogMsg2 f (Just (toLogMsg x))
+  composeLogMsg2 f (Just x) y = composeLogMsg2 f (Just (f x (toLogMsg y)))
+
+type family Returns expected actual :: Constraint where
+  Returns o (a -> b) = Returns o b
+  Returns o o = ()
+
+sepBy :: (Returns LogMsg a, LogMsgComposer2 a) => String -> a
+sepBy sep = composeLogMsg2 ((<>) . (<> packLogMsg sep)) Nothing
 
 -- | Start a new timer, after the time has elapsed, 'TimerElapsed' is sent to
 -- calling process. The message also contains the 'TimerReference' returned by
@@ -265,6 +334,7 @@ sendAfterWithTitle title pid t mkMsg =
 startTimerWithTitle ::
   forall r q.
   ( HasCallStack,
+    Member Logs q,
     HasProcesses r q
   ) =>
   ProcessTitle ->
@@ -286,7 +356,8 @@ startTimerWithTitle title t = do
 startTimer ::
   forall r q.
   ( HasCallStack,
-    HasProcesses r q
+    HasProcesses r q,
+    Member Logs q
   ) =>
   Timeout ->
   Eff r TimerReference -- TODO add a parameter to the TimerReference

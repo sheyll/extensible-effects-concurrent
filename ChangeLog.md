@@ -2,13 +2,16 @@
 
 ## 1.0.0
 
-- **Process**
+-  **[Timer](./src/Control/Eff/Concurrent/Process/Timer.hs)**
+    - Allow timers to have custom initial debug log messages via
+
+- **[Process](./src/Control/Eff/Concurrent/Process.hs)**
     - Split `Interrupt` into `ShutdownReason` and `InterruptReason`
     - Rename `isProcessDownInterrupt` to `isLinkedProcessCrashed`
     - Remove experimental type-safe `Receiver` type
     - Rename `StrictDynamic` to `Message`
 
-- **Logging**
+- **[Logging](./src/Control/Eff/Log/Message.hs)**
     - Rename `LogMessage(...)` to `LogEvent(...)`
     - Introduce a newtype and a type class for log messages: `LogMsg` and `ToLogMsg`
         - An effort to move towards a specialized `ToLogMsg` class instead of
