@@ -267,6 +267,7 @@ callById ::
   forall destination protocol result e q0.
   ( HasCallStack,
     Member Logs e,
+    Member Logs q0,
     HasProcesses e q0,
     Lifted IO e,
     Lifted IO q0,
@@ -593,6 +594,7 @@ stopOrKillChild ::
     Lifted IO e,
     Lifted IO q0,
     Member Logs e,
+    Member Logs q0,
     Member (Stateful.ModelState (Broker p)) e,
     TangibleBroker p,
     ToLogMsg (ChildId p),
@@ -641,6 +643,7 @@ stopAllChildren ::
     Lifted IO e,
     Lifted IO q0,
     Member Logs e,
+    Member Logs q0,
     Member (Stateful.ModelState (Broker p)) e,
     TangibleBroker p,
     Typeable (Effectful.ServerPdu p),

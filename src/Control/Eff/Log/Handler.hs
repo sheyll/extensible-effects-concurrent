@@ -93,12 +93,14 @@ import Text.Printf (printf)
 -- in order to allow writing log statements with many items
 -- that should be part of a log message simply like this:
 --
--- >>> sendLogEvent (debugMessage "started: ") myPid " after receiving: " lastMsg " threshold is: " currentThresh
+-- >>> sendLogEvent (debugMessage "started: ") myPid (LABEL "last message" lastMsg) (LABEL "threshold" currentThresh)
 --
 -- Which of course is sugar-coated by  functions like 'logInfo', 'logDebug', 'logError', ... to be:
 --
 -- >>> logDebug "started: " myPid " after receiving: " lastMsg " threshold is: " currentThresh
 --
+-- NOTE: The function instance will always separate the parameters with a 'SeparatorMsg'. 
+-- 
 -- @since 1.0.0
 class LogEventSender a where
   -- | Log a 'LogEvent'.
@@ -106,23 +108,42 @@ class LogEventSender a where
   -- Dispatch 'LogEvent's that match the 'LogPredicate'.
   --
   -- The 'LogEvent's are evaluated using 'deepseq', __after__ they pass the 'LogPredicate'.
+  --
+  -- @since 1.0.0
   sendLogEvent :: HasCallStack => LogEvent -> a
+
+-- | Extract the 'LogMsg' of the composed 'LogEvent'.
+--
+-- @since 1.0.0
+instance LogEventSender LogMsg where
+  sendLogEvent = view logEventMessage
 
 -- | Log a 'LogEvent'.
 --
 -- Dispatch 'LogEvent's that match the 'LogPredicate'.
 --
 -- The 'LogEvent's are evaluated using 'deepseq', __after__ they pass the 'LogPredicate'.
+--
+-- @since 1.0.0
 instance (a ~ (), Member Logs e) => LogEventSender (Eff e a) where
   sendLogEvent = withFrozenCallStack $ \msgIn -> do
     lf <- send AskLogFilter
     when (lf msgIn) $
       msgIn `deepseq` send @Logs (WriteLogMessage msgIn)
 
+-- | Append a the 'toLogMsg' of a value, optionally appending a 'SeparationMsg'
+-- to the previous 'logEventMessage'.
+-- 
+-- @since 1.0.0 
 instance (ToLogMsg x, LogEventSender a) => LogEventSender (x -> a) where
   sendLogEvent =
     withFrozenCallStack $ \logEvt x ->
-      sendLogEvent (logEvt & logEventMessage %~ (<> toLogMsg x))
+      sendLogEvent 
+        (logEvt & 
+          logEventMessage %~ (\l ->
+           if l /= mempty 
+            then l <> separatorMsg <> toLogMsg x 
+            else toLogMsg x))
 
 -- | This effect sends 'LogEvent's and is a reader for a 'LogPredicate'.
 --

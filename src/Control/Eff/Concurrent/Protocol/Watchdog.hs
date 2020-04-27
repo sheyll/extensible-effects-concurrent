@@ -114,6 +114,7 @@ attachTemporary ::
   forall child q e.
   ( HasCallStack,
     FilteredLogging e,
+    Member Logs q,
     Typeable child,
     HasPdu (Effectful.ServerPdu child),
     Tangible (Broker.ChildId child),
@@ -138,6 +139,7 @@ attachPermanent ::
   forall child q e.
   ( HasCallStack,
     FilteredLogging e,
+    Member Logs q,
     Typeable child,
     HasPdu (Effectful.ServerPdu child),
     Tangible (Broker.ChildId child),
@@ -172,6 +174,7 @@ getCrashReports ::
     HasProcesses e q,
     Lifted IO q,
     Lifted IO e,
+    Member Logs q,
     Member Logs e
   ) =>
   Endpoint (Watchdog child) ->
@@ -477,14 +480,22 @@ exonerationTimerReference = lens _exonerationTimerReference (\c t -> c {_exonera
 
 startExonerationTimer ::
   forall child a q e.
-  (HasProcesses e q, Lifted IO q, Lifted IO e, NFData a, Typeable a, ToLogMsg a, Typeable child, ToTypeLogMsg child) =>
+  (HasProcesses e q,
+   Member Logs q,
+   Lifted IO q,
+   Lifted IO e,
+   NFData a,
+   Typeable a,
+   ToLogMsg a,
+   Typeable child,
+   ToTypeLogMsg child) =>
   a ->
   ShutdownReason ->
   CrashTimeSpan ->
   Eff e CrashReport
 startExonerationTimer cId r t = do
   let title = MkProcessTitle (packLogMsg "exoneration-timer")
-      initialDebugLogMsg = toLogMsg cId <> packLogMsg <> packLogMsg " " <> toLogMsg r <> packLogMsg " " <> toLogMsg t
+      initialDebugLogMsg = toLogMsg cId <> packLogMsg " " <> toLogMsg r <> packLogMsg " " <> toLogMsg t
   me <- self
   ref <- sendAfterWithTitleAndLogMsg initialDebugLogMsg title me (TimeoutMicros (t * 1_000_000)) (MkExonerationTimer cId)
   now <- lift getCurrentTime

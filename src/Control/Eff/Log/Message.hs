@@ -39,6 +39,15 @@ module Control.Eff.Log.Message
     StringLogMsg (..),
     AsLogMsg(..),
     showAsLogMsg,
+    LabelMsg(..),
+    SpaceMsg(..),
+    SeparatorMsg(..),
+    separatorMsg,
+    LogMsgBuilderResultIs,
+    LogMsgBuilder(..),
+    concatLogMsgs,
+    InBrackets(..),
+    inBrackets,
 
     -- * 'LogEvent' Predicates #PredefinedPredicates#
     -- $PredefinedPredicates
@@ -114,6 +123,7 @@ import Data.Void
 import GHC.Generics hiding (to)
 import GHC.Stack
 import Network.HostName as Network
+import Data.Kind (Constraint)
 
 -- | A data type describing a complete logging event, usually consisting of
 -- e.g. a log message, a timestamp and a severity.
@@ -544,7 +554,7 @@ instance ToLogMsg LogMsg where
   toLogMsg = id
 
 instance ToLogMsg a => ToLogMsg (Maybe a) where
-  toLogMsg Nothing = packLogMsg ""
+  toLogMsg Nothing = mempty
   toLogMsg (Just b) = toLogMsg b
 
 instance (ToLogMsg a, ToLogMsg b) => ToLogMsg (Either a b) where
@@ -552,15 +562,102 @@ instance (ToLogMsg a, ToLogMsg b) => ToLogMsg (Either a b) where
   toLogMsg (Right b) = toLogMsg b
 
 instance (ToLogMsg a, ToLogMsg b) => ToLogMsg (a, b) where
-  toLogMsg (a, b) = packLogMsg "(" <> toLogMsg a <> packLogMsg ") (" <> toLogMsg b <> packLogMsg ")"
+  toLogMsg (a, b) = concatLogMsgs (inBrackets a) SPC (inBrackets b)
 
 instance (ToLogMsg a, ToLogMsg b, ToLogMsg c) => ToLogMsg (a, b, c) where
   toLogMsg (a, b, c) =
-    packLogMsg "(" <> toLogMsg a <> packLogMsg ") (" <> toLogMsg b <> packLogMsg ") (" <> toLogMsg c <> packLogMsg ")"
+    concatLogMsgs (inBrackets a) SPC (inBrackets b) SPC (inBrackets c)
 
 instance (ToLogMsg a, ToLogMsg b, ToLogMsg c, ToLogMsg d) => ToLogMsg (a, b, c, d) where
   toLogMsg (a, b, c, d) =
-    packLogMsg "(" <> toLogMsg a <> packLogMsg ") (" <> toLogMsg b <> packLogMsg ") (" <> toLogMsg c <> packLogMsg ") (" <> toLogMsg d <> packLogMsg ")"
+    concatLogMsgs (inBrackets a) SPC (inBrackets b) SPC (inBrackets c) SPC (inBrackets d)
+
+-- | A 'LogMsg' in brackets, i.e. @"(" <> logMsg <> ")"@.
+--
+-- @since 1.0.0
+inBrackets :: (ToLogMsg a) => a -> InBrackets
+inBrackets = buildLogMsg mempty
+
+-- | A 'LogMsg' in brackets, i.e. @"(" <> logMsg <> ")"@.
+newtype InBrackets = BRACKETS LogMsg
+
+instance ToLogMsg InBrackets where
+  toLogMsg (BRACKETS x) = concatLogMsgs "(" x ")"
+
+-- | Concatenate several values to a single 'LogMsg'.
+--
+-- @since 1.0.0
+concatLogMsgs :: (LogMsgBuilderResultIs LogMsg a, LogMsgBuilder a) => a
+concatLogMsgs = buildLogMsg mempty
+
+-- | Helper type class for 'concatLogMsgs'.
+--
+-- @since 1.0.0
+class LogMsgBuilder a where
+  buildLogMsg :: LogMsg -> a
+
+instance LogMsgBuilder LogMsg where
+  buildLogMsg = id
+
+instance LogMsgBuilder InBrackets where
+  buildLogMsg = BRACKETS
+
+instance (ToLogMsg a, LogMsgBuilder b) => LogMsgBuilder (a -> b) where
+  buildLogMsg lm a =
+    buildLogMsg $ lm <> toLogMsg a
+
+-- | Internal helper for running 'LogMsgBuilder's.
+--
+-- @since 1.0.0
+type family LogMsgBuilderResultIs x a :: Constraint where
+  LogMsgBuilderResultIs x (a -> b) = LogMsgBuilderResultIs x b
+  LogMsgBuilderResultIs x x = ()
+
+-- | The 'LogMsg' that **SHOULD** be used to concatenate
+-- the distinct parts of a composed 'LogMsg'.
+--
+-- See 'SeparatorMsg'.
+--
+-- @since 1.0.0
+separatorMsg :: LogMsg
+separatorMsg = packLogMsg ";"
+
+-- | The 'LogMsg' that **SHOULD** be used to concatenate
+-- the distinct parts of a composed 'LogMsg'.
+--
+-- See 'separatorMsg'.
+--
+-- @since 1.0.0
+data SeparatorMsg = SEP
+
+-- | Render a @SeparatorMsg@ to @separatorMsg@
+--
+-- @since 1.0.0
+instance ToLogMsg SeparatorMsg where
+  toLogMsg SEP = separatorMsg
+
+-- | A 'LogMsg' that is just a single space character.
+--
+-- @since 1.0.0
+data SpaceMsg = SPC
+
+-- | Render @SpaceMsg@ to @" "@
+--
+-- @since 1.0.0
+instance ToLogMsg SpaceMsg where
+  toLogMsg SPC = packLogMsg " "
+
+-- | A 'String'-labelled 'LogMsg'.
+--
+-- @since 1.0.0
+data LabelMsg a = LABEL String !a
+
+-- | Render @LABEL "label" "value"@ to @"label: value"@
+--
+-- @since 1.0.0
+instance ToLogMsg a => ToLogMsg (LabelMsg a) where
+  toLogMsg (LABEL l v) = packLogMsg l <> packLogMsg ": " <> toLogMsg v
+
 
 -- | A class for 'LogMsg' values for phantom types, like
 -- those used to discern 'Pdu's.

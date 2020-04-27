@@ -11,6 +11,7 @@ module Control.Eff.Concurrent.Process.Timer
     sendAfter,
     startTimer,
     sendAfterWithTitle,
+    sendAfterWithTitleAndLogMsg,
     startTimerWithTitle,
     cancelTimer,
     selectTimerElapsed,
@@ -32,8 +33,6 @@ import Control.Eff.Log.Handler
 import Data.Foldable
 import Data.Proxy
 import Data.Typeable
-import Data.Kind
-import Data.Monoid
 import GHC.Stack
 
 -- | Wait for a message of the given type for the given time. When no message
@@ -296,30 +295,13 @@ sendAfterWithTitleAndMaybeLogMsg initialLogMsg title pid t mkMsg =
             ( do traverse_ logDebug initialLogMsg
                  me <- self
                  let meRef = TimerReference me
-                 logDebug (MSG "started:") title pid t meRef
+                 logDebug (LABEL "started" title) pid t meRef
                  delay t
-                 logDebug (sepBy " " (MSG "timer elapsed, sending message") title pid t meRef)
+                 logDebug (MSG "timer elapsed, sending message") title pid t meRef
                  sendMessage pid (force (mkMsg meRef))
             )
         )
 
-class LogMsgComposer2 a where
-  composeLogMsg2 :: (LogMsg -> LogMsg -> LogMsg) -> Maybe LogMsg -> a
-
-instance LogMsgComposer2 LogMsg where
-  composeLogMsg2 _ Nothing = mempty
-  composeLogMsg2 _ (Just x) = x
-
-instance (ToLogMsg a, LogMsgComposer2 b) => LogMsgComposer2 (a -> b) where
-  composeLogMsg2 f Nothing x = composeLogMsg2 f (Just (toLogMsg x))
-  composeLogMsg2 f (Just x) y = composeLogMsg2 f (Just (f x (toLogMsg y)))
-
-type family Returns expected actual :: Constraint where
-  Returns o (a -> b) = Returns o b
-  Returns o o = ()
-
-sepBy :: (Returns LogMsg a, LogMsgComposer2 a) => String -> a
-sepBy sep = composeLogMsg2 ((<>) . (<> packLogMsg sep)) Nothing
 
 -- | Start a new timer, after the time has elapsed, 'TimerElapsed' is sent to
 -- calling process. The message also contains the 'TimerReference' returned by
