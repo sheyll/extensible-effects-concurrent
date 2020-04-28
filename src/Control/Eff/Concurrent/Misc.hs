@@ -1,10 +1,8 @@
 -- | Internal module containing internal helpers that didn't
 -- make it into their own library.
 module Control.Eff.Concurrent.Misc
-  ( showSTypeRepPrec,
-    showSTypeRep,
-    showSTypeable,
-    showSPrecTypeable,
+  ( showSTypeRep,
+    showSTypeable
   )
 where
 
@@ -17,12 +15,6 @@ import Type.Reflection
 -- @since 0.28.0
 showSTypeable :: forall message. Typeable message => ShowS
 showSTypeable = showSTypeRep (SomeTypeRep (typeRep @message))
-
--- | Render a 'Typeable' to a 'ShowS' with a precedence parameter.
---
--- @since 0.28.0
-showSPrecTypeable :: forall message. Typeable message => Int -> ShowS
-showSPrecTypeable d = showSTypeRepPrec d (SomeTypeRep (typeRep @message))
 
 -- | This is equivalent to @'showSTypeRepPrec' 0@
 --

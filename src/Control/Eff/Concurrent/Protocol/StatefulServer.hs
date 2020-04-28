@@ -95,8 +95,7 @@ class (ToLogMsg (StartArgument a), Typeable (Protocol a), ToTypeLogMsg (Protocol
   --
   -- @since 0.30.0
   title :: StartArgument a -> ProcessTitle
-  default title :: Typeable a => StartArgument a -> ProcessTitle
-  title _ = fromString $ showSTypeable @a ""
+  title = coerce . toLogMsg 
 
   -- | Return an initial 'Model' and 'Settings'
   setup ::
