@@ -223,10 +223,6 @@ instance NFData (Pdu (ObserverRegistry event) r) where
   rnf (RegisterObserver ser pid) = rnf ser `seq` rnf pid
   rnf (ForgetObserver pid) = rnf pid
 
-instance Typeable event => Show (Pdu (ObserverRegistry event) r) where
-  showsPrec d (RegisterObserver ser pid) = showParen (d >= 10) (showString "register observer: " . shows ser . showChar ' ' . shows pid)
-  showsPrec d (ForgetObserver p) = showParen (d >= 10) (showString "forget observer: " . shows p)
-
 instance ToTypeLogMsg event => ToLogMsg (Pdu (ObserverRegistry event) r) where
   toLogMsg (RegisterObserver _ser pid) = packLogMsg "register " <> toTypeLogMsg (Proxy @event) <> packLogMsg " observer " <> toLogMsg pid
   toLogMsg (ForgetObserver pid) = packLogMsg "forget " <> toTypeLogMsg (Proxy @event) <> packLogMsg " observer " <> toLogMsg pid

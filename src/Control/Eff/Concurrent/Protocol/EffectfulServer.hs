@@ -60,8 +60,8 @@ class (ToLogMsg (Init a), ToTypeLogMsg a) => Server (a :: Type) (e :: [Type -> T
   --
   -- Usually you should rely on the default implementation
   serverTitle :: Init a -> ProcessTitle
-  default serverTitle :: ToLogMsg (Init a) => Init a -> ProcessTitle
-  serverTitle = coerce . toLogMsg
+  default serverTitle :: ToTypeLogMsg a => Init a -> ProcessTitle
+  serverTitle _ = coerce (toTypeLogMsg (Proxy @a))
 
   -- | Process the effects of the implementation
   runEffects :: Endpoint (ServerPdu a) -> Init a -> Eff (ServerEffects a e) x -> Eff e x

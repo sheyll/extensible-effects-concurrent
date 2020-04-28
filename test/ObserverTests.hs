@@ -10,7 +10,6 @@ import qualified Control.Eff.Concurrent.Protocol.EffectfulServer as S
 import qualified Control.Eff.Concurrent.Protocol.Observer.Queue as OQ
 import qualified Control.Eff.Concurrent.Protocol.StatefulServer as M
 import Control.Lens
-import Data.Typeable (Typeable)
 
 test_observer :: HasCallStack => TestTree
 test_observer = testGroup "observer" (basicTests ++ [observerQueueTests])

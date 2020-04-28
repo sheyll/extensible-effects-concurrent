@@ -157,7 +157,6 @@ where
 import Control.Applicative
 import Control.DeepSeq
 import Control.Eff
-import Control.Eff.Concurrent.Misc
 import Control.Eff.Exception
 import Control.Eff.Extend
 import Control.Eff.Log.Handler
@@ -170,7 +169,6 @@ import Control.Monad
   )
 import Data.Default
 import Data.Dynamic
-import Data.Function
 import Data.Functor.Contravariant ()
 import Data.Kind
 import Data.Maybe
@@ -182,7 +180,6 @@ import GHC.Generics
     Generic1,
   )
 import GHC.Stack
-import Type.Reflection (SomeTypeRep (..), typeRep)
 
 -- | The process effect is the basis for message passing concurrency. This
 -- effect describes an interface for concurrent, communicating isolated
@@ -371,9 +368,6 @@ newtype Serializer message
 
 instance NFData (Serializer message) where
   rnf (MkSerializer !s) = s `seq` ()
-
-instance Typeable message => Show (Serializer message) where
-  showsPrec d _x = showParen (d >= 10) (showSTypeable @message . showString "-serializer")
 
 instance Contravariant Serializer where
   contramap f (MkSerializer b) = MkSerializer (b . f)

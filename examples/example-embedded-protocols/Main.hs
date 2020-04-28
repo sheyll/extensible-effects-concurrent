@@ -267,11 +267,9 @@ instance NFData (Pdu Backend2 r) where
   rnf (B2BackendWork w) = rnf w
   rnf (B2ObserverRegistry x) = rnf x
 
-instance ToLogMsg (Pdu Backend2 r)
-
-instance Show (Pdu Backend2 r) where
-  show (B2BackendWork w) = show w
-  show (B2ObserverRegistry x) = show x
+instance ToLogMsg (Pdu Backend2 r) where
+  toLogMsg (B2BackendWork w) = toLogMsg w
+  toLogMsg (B2ObserverRegistry x) = toLogMsg x
 
 instance HasPduPrism Backend2 Backend where
   embedPdu = B2BackendWork

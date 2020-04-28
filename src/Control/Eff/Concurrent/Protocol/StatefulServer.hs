@@ -30,7 +30,6 @@ module Control.Eff.Concurrent.Protocol.StatefulServer
 where
 
 import Control.Eff
-import Control.Eff.Concurrent.Misc
 import Control.Eff.Concurrent.Process
 import Control.Eff.Concurrent.Protocol
 import qualified Control.Eff.Concurrent.Protocol.EffectfulServer as Effectful
@@ -45,7 +44,6 @@ import Data.Default
 import Data.Kind
 import Data.Monoid (First)
 import Data.Proxy
-import Data.String (fromString)
 import Data.Text (Text, pack)
 import Data.Typeable
 import GHC.Stack (HasCallStack)
@@ -95,7 +93,8 @@ class (ToLogMsg (StartArgument a), Typeable (Protocol a), ToTypeLogMsg (Protocol
   --
   -- @since 0.30.0
   title :: StartArgument a -> ProcessTitle
-  title = coerce . toLogMsg 
+  default title :: ToTypeLogMsg a => StartArgument a -> ProcessTitle
+  title _ = coerce (toTypeLogMsg (Proxy @a))
 
   -- | Return an initial 'Model' and 'Settings'
   setup ::

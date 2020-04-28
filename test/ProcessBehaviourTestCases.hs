@@ -7,7 +7,6 @@ import qualified Control.Eff.Concurrent.Process.SingleThreadedScheduler as Singl
 import qualified Control.Eff.Concurrent.Protocol.CallbackServer as Callback
 import Control.Eff.Concurrent.Protocol.EffectfulServer
 import Control.Exception
-import Data.Foldable (traverse_)
 import Data.List (sort)
 import Data.Maybe
 import Data.String (fromString)

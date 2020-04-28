@@ -374,13 +374,6 @@ instance (ToLogMsg (ChildId p), ToTypeLogMsg p) => ToLogMsg (Pdu (Broker p) r) w
     ChildEventObserverRegistry evt ->
       toTypeLogMsg (Proxy @(Broker p)) <> packLogMsg " child event observer registry message: " <> toLogMsg evt
 
-instance (Typeable p, Show (ChildId p)) => Show (Pdu (Broker p) r) where
-  showsPrec d (StartC c) = showParen (d >= 10) (showString "StartC " . showsPrec 10 c)
-  showsPrec d (StopC c t) = showParen (d >= 10) (showString "StopC " . showsPrec 10 c . showChar ' ' . showsPrec 10 t)
-  showsPrec d (LookupC c) = showParen (d >= 10) (showString "LookupC " . showsPrec 10 c)
-  showsPrec _ GetDiagnosticInfo = showString "GetDiagnosticInfo"
-  showsPrec d (ChildEventObserverRegistry c) = showParen (d >= 10) (showString "ChildEventObserverRegistry " . showsPrec 10 c)
-
 instance (NFData (ChildId p)) => NFData (Pdu (Broker p) r) where
   rnf (StartC ci) = rnf ci
   rnf (StopC ci t) = rnf ci `seq` rnf t

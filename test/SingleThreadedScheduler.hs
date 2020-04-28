@@ -1,12 +1,7 @@
 module SingleThreadedScheduler where
 
 import Common
-import Control.Eff.Concurrent.Process
 import Control.Eff.Concurrent.Process.SingleThreadedScheduler as Scheduler
-import Control.Eff.Loop
-import Control.Monad
-import Test.Tasty
-import Test.Tasty.HUnit
 
 test_pureScheduler :: TestTree
 test_pureScheduler =
