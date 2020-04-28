@@ -73,7 +73,7 @@ example = do
           ('q' : _) -> logInfo (MSG "Done.")
           _ -> do
             res <- call server (SayHello x)
-            logInfo (MSG "Result: ") res
+            logInfo (LABEL "Result" res)
             go
   go
 
@@ -84,37 +84,37 @@ testServerLoop = Callback.startLink (Callback.callbacks handleReq "test-server-1
     handleReq me (OnCall rt cm) =
       case cm of
         Terminate -> do
-          logInfo me (MSG " exiting")
+          logInfo me (MSG "exiting")
           sendReply rt ()
           interrupt NormalExitRequested
         TerminateError e -> do
-          logInfo me (MSG " exiting with error: ") e
+          logInfo me (LABEL "exiting with error" e)
           sendReply rt ()
           interrupt (ErrorInterrupt e)
         SayHello mx ->
           case mx of
             "e1" -> do
-              logInfo me (MSG " raising an error")
+              logInfo me (MSG "raising an error")
               interrupt (ErrorInterrupt "No body loves me... :,(")
             "e2" -> do
-              logInfo me (MSG " throwing a MyException ")
+              logInfo me (MSG "throwing a MyException")
               void (lift (Exc.throw MyException))
             "self" -> do
-              logInfo me (MSG " casting to self")
+              logInfo me (MSG "casting to self")
               cast me (Shout "from me")
               sendReply rt False
             "stop" -> do
-              logInfo me (MSG " stopping me")
+              logInfo me (MSG "stopping me")
               sendReply rt False
               interrupt (ErrorInterrupt "test error")
             x -> do
-              logInfo me (MSG " Got Hello: ") x
+              logInfo me (LABEL "Got Hello" x)
               sendReply rt (length x > 3)
     handleReq me (OnCast (Shout x)) = do
-      logInfo me (MSG " Shouting: ") x
+      logInfo me (LABEL "Shouting" x)
     handleReq me (OnInterrupt msg) = do
-      logInfo me (MSG " is exiting: ") msg
+      logInfo me (LABEL "is exiting" msg)
       logProcessExit msg
       interrupt msg
     handleReq me wtf =
-      logCritical me (MSG " WTF: ") wtf
+      logCritical me (LABEL "WTF" wtf)

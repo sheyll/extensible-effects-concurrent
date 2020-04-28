@@ -41,11 +41,15 @@ module Control.Eff.Log.Message
     showAsLogMsg,
     LabelMsg(..),
     SpaceMsg(..),
+    spaceMsg,
     SeparatorMsg(..),
     separatorMsg,
-    LogMsgBuilderResultIs,
-    LogMsgBuilder(..),
-    concatLogMsgs,
+    Returns,
+    LogMsgAppender(..),
+    concatMsgs,
+    concatMsgsWith,
+    spaced,
+    separated,
     InBrackets(..),
     inBrackets,
 
@@ -562,65 +566,85 @@ instance (ToLogMsg a, ToLogMsg b) => ToLogMsg (Either a b) where
   toLogMsg (Right b) = toLogMsg b
 
 instance (ToLogMsg a, ToLogMsg b) => ToLogMsg (a, b) where
-  toLogMsg (a, b) = concatLogMsgs (inBrackets a) SPC (inBrackets b)
+  toLogMsg (a, b) = concatMsgs (inBrackets a) SPC (inBrackets b)
 
 instance (ToLogMsg a, ToLogMsg b, ToLogMsg c) => ToLogMsg (a, b, c) where
   toLogMsg (a, b, c) =
-    concatLogMsgs (inBrackets a) SPC (inBrackets b) SPC (inBrackets c)
+    concatMsgs (inBrackets a) SPC (inBrackets b) SPC (inBrackets c)
 
 instance (ToLogMsg a, ToLogMsg b, ToLogMsg c, ToLogMsg d) => ToLogMsg (a, b, c, d) where
   toLogMsg (a, b, c, d) =
-    concatLogMsgs (inBrackets a) SPC (inBrackets b) SPC (inBrackets c) SPC (inBrackets d)
+    concatMsgs (inBrackets a) SPC (inBrackets b) SPC (inBrackets c) SPC (inBrackets d)
+
 
 -- | A 'LogMsg' in brackets, i.e. @"(" <> logMsg <> ")"@.
 --
 -- @since 1.0.0
-inBrackets :: (ToLogMsg a) => a -> InBrackets
-inBrackets = buildLogMsg mempty
+inBrackets :: ToLogMsg a => a -> InBrackets
+inBrackets = InBrackets . toLogMsg
 
 -- | A 'LogMsg' in brackets, i.e. @"(" <> logMsg <> ")"@.
-newtype InBrackets = BRACKETS LogMsg
+newtype InBrackets = InBrackets LogMsg
 
 instance ToLogMsg InBrackets where
-  toLogMsg (BRACKETS x) = concatLogMsgs "(" x ")"
+  toLogMsg (InBrackets x) = concatMsgs "(" x ")"
+
+-- | Concatenate several values to a single 'LogMsg' separated by the given 'LogMsg'.
+--
+-- @since 1.0.0
+concatMsgsWith :: (Returns LogMsg a, LogMsgAppender a) => LogMsg -> a
+concatMsgsWith sep = appendLogMsg sep mempty
 
 -- | Concatenate several values to a single 'LogMsg'.
 --
 -- @since 1.0.0
-concatLogMsgs :: (LogMsgBuilderResultIs LogMsg a, LogMsgBuilder a) => a
-concatLogMsgs = buildLogMsg mempty
+concatMsgs :: (Returns LogMsg a, LogMsgAppender a) => a
+concatMsgs = concatMsgsWith mempty
 
--- | Helper type class for 'concatLogMsgs'.
+-- | Concatenate several values to a single 'LogMsg' separated by 'separatorMsg'.
 --
 -- @since 1.0.0
-class LogMsgBuilder a where
-  buildLogMsg :: LogMsg -> a
+separated :: (Returns LogMsg a, LogMsgAppender a) => a
+separated = concatMsgsWith separatorMsg
 
-instance LogMsgBuilder LogMsg where
-  buildLogMsg = id
-
-instance LogMsgBuilder InBrackets where
-  buildLogMsg = BRACKETS
-
-instance (ToLogMsg a, LogMsgBuilder b) => LogMsgBuilder (a -> b) where
-  buildLogMsg lm a =
-    buildLogMsg $ lm <> toLogMsg a
-
--- | Internal helper for running 'LogMsgBuilder's.
+-- | Concatenate several values to a single 'LogMsg' separated by 'spaceMsg'.
 --
 -- @since 1.0.0
-type family LogMsgBuilderResultIs x a :: Constraint where
-  LogMsgBuilderResultIs x (a -> b) = LogMsgBuilderResultIs x b
-  LogMsgBuilderResultIs x x = ()
+spaced :: (Returns LogMsg a, LogMsgAppender a) => a
+spaced = concatMsgsWith spaceMsg
+
+-- | Helper type class for 'concatMsgs'.
+--
+-- @since 1.0.0
+class LogMsgAppender a where
+  -- | Append to a log message using a seperator
+  appendLogMsg :: LogMsg -> LogMsg -> a
+
+instance LogMsgAppender LogMsg where
+  appendLogMsg = const id
+
+instance (ToLogMsg a, LogMsgAppender b) => LogMsgAppender (a -> b) where
+  appendLogMsg sep lm a =
+    appendLogMsg sep $
+      let prefix = if lm == mempty then mempty else lm <> sep
+          suffix = toLogMsg a
+      in prefix <> suffix
+
+-- | Internal helper for running 'LogMsgAppender's.
+--
+-- @since 1.0.0
+type family Returns x a :: Constraint where
+  Returns x (a -> b) = Returns x b
+  Returns x x = ()
 
 -- | The 'LogMsg' that **SHOULD** be used to concatenate
--- the distinct parts of a composed 'LogMsg'.
+-- the distinct parts of a composed 'LogMsg': @"; "@
 --
 -- See 'SeparatorMsg'.
 --
 -- @since 1.0.0
 separatorMsg :: LogMsg
-separatorMsg = packLogMsg ";"
+separatorMsg = packLogMsg "; "
 
 -- | The 'LogMsg' that **SHOULD** be used to concatenate
 -- the distinct parts of a composed 'LogMsg'.
@@ -639,13 +663,19 @@ instance ToLogMsg SeparatorMsg where
 -- | A 'LogMsg' that is just a single space character.
 --
 -- @since 1.0.0
+spaceMsg :: LogMsg
+spaceMsg = packLogMsg " "
+
+-- | A 'LogMsg' that is just a single space character.
+--
+-- @since 1.0.0
 data SpaceMsg = SPC
 
 -- | Render @SpaceMsg@ to @" "@
 --
 -- @since 1.0.0
 instance ToLogMsg SpaceMsg where
-  toLogMsg SPC = packLogMsg " "
+  toLogMsg SPC = spaceMsg
 
 -- | A 'String'-labelled 'LogMsg'.
 --
@@ -713,7 +743,7 @@ instance (ToTypeLogMsg a, ToTypeLogMsg b, ToTypeLogMsg c) => ToTypeLogMsg (a, b,
     packLogMsg "Tuple3(" <> toTypeLogMsg (Proxy @a) <> packLogMsg ")(" <> toTypeLogMsg (Proxy @b) <> packLogMsg ")(" <> toTypeLogMsg (Proxy @c) <> packLogMsg ")"
 
 -- | A 'String' wrapper needed in situations where @OverloadedStrings@ causes
--- ambigous types, namely in conjunction with 'ToLogMsg'.
+-- ambiguous types, namely in conjunction with 'ToLogMsg'.
 --
 -- @since 1.0.0
 newtype StringLogMsg = MSG {fromStringLogMsg :: String} deriving (NFData, Eq, Ord, Show, ToLogMsg, Typeable)
