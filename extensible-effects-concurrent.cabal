@@ -42,7 +42,7 @@ common compiler-flags
     -Wincomplete-record-updates
     -Wredundant-constraints
     -fhide-source-paths
-    -Wmissing-export-lists
+    -- -Wmissing-export-lists
     -Wpartial-fields
     -- -Wmissing-deriving-strategies
     -fno-full-laziness
@@ -177,6 +177,8 @@ executable extensible-effects-concurrent-example-3
                 extensible-effects-concurrent
               , lens
   ghc-options: -threaded
+  default-extensions:
+    OverloadedStrings
 
 executable extensible-effects-concurrent-example-4
   import: compiler-flags
@@ -197,6 +199,8 @@ executable extensible-effects-concurrent-example-embedded-protocols
               , extensible-effects-concurrent
               , lens
   ghc-options: -threaded
+  default-extensions:
+    OverloadedStrings
 
 test-suite extensible-effects-concurrent-test
   import: compiler-flags

@@ -592,25 +592,25 @@ instance ToLogMsg InBrackets where
 -- | Concatenate several values to a single 'LogMsg' separated by the given 'LogMsg'.
 --
 -- @since 1.0.0
-concatMsgsWith :: (Returns LogMsg a, LogMsgAppender a) => LogMsg -> a
+concatMsgsWith :: (LogMsgAppender a) => LogMsg -> a
 concatMsgsWith sep = appendLogMsg sep mempty
 
 -- | Concatenate several values to a single 'LogMsg'.
 --
 -- @since 1.0.0
-concatMsgs :: (Returns LogMsg a, LogMsgAppender a) => a
+concatMsgs :: (LogMsgAppender a) => a
 concatMsgs = concatMsgsWith mempty
 
 -- | Concatenate several values to a single 'LogMsg' separated by 'separatorMsg'.
 --
 -- @since 1.0.0
-separated :: (Returns LogMsg a, LogMsgAppender a) => a
+separated :: (LogMsgAppender a) => a
 separated = concatMsgsWith separatorMsg
 
 -- | Concatenate several values to a single 'LogMsg' separated by 'spaceMsg'.
 --
 -- @since 1.0.0
-spaced :: (Returns LogMsg a, LogMsgAppender a) => a
+spaced :: (LogMsgAppender a) => a
 spaced = concatMsgsWith spaceMsg
 
 -- | Helper type class for 'concatMsgs'.

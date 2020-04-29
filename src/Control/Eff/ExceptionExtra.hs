@@ -7,8 +7,7 @@
 
 -- | Add-ons to 'Control.Eff.Exception' and 'Control.Exception'
 module Control.Eff.ExceptionExtra
-  ( liftTry,
-    maybeThrow,
+  ( maybeThrow,
     module Eff,
   )
 where
@@ -20,15 +19,6 @@ import Control.Eff.Reader.Lazy as Lazy
 import Control.Eff.Reader.Strict as Strict
 import qualified Control.Exception.Safe as Safe
 import qualified Control.Monad.Catch as Catch
-import GHC.Stack
-
--- | Catch 'Safe.Exception' thrown by an effect.
-liftTry ::
-  forall e r a.
-  (HasCallStack, Safe.Exception e, Lifted IO r) =>
-  Eff r a ->
-  Eff r (Either e a)
-liftTry m = (Right <$> m) `catchDynE` (return . Left)
 
 -- | Very similar to 'Eff.liftEither' but for 'Maybe's. Unlike 'Eff.liftMaybe' this
 -- will throw the given value (instead of using 'Eff.Fail').
