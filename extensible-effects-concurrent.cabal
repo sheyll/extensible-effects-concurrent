@@ -1,4 +1,4 @@
-cabal-version:  2.0
+cabal-version:  2.4
 name:           extensible-effects-concurrent
 version:        1.0.0
 description:    Please see the README on GitHub at <https://github.com/sheyll/extensible-effects-concurrent#readme>
@@ -8,9 +8,9 @@ bug-reports:    https://github.com/sheyll/extensible-effects-concurrent/issues
 author:         Sven Heyll
 maintainer:     sven.heyll@gmail.com
 category:       Concurrency, Control, Effect
-tested-with:    GHC==8.6.3, GHC==8.6.4, GHC==8.6.5, GHC==8.8.3
+tested-with:    GHC==8.8.3
 copyright:      Copyright Sven Heyll
-license:        BSD3
+license:        BSD-3-Clause
 license-file:   LICENSE
 build-type:     Simple
 
@@ -33,14 +33,67 @@ source-repository head
   type: git
   location: https://github.com/sheyll/extensible-effects-concurrent
 
+common compiler-flags
+  ghc-options:
+    -Wall
+    -Wcompat
+    -Widentities
+    -Wincomplete-uni-patterns
+    -Wincomplete-record-updates
+    -Wredundant-constraints
+    -fhide-source-paths
+    -Wmissing-export-lists
+    -Wpartial-fields
+    -- -Wmissing-deriving-strategies
+    -fno-full-laziness
+  default-extensions:
+     AllowAmbiguousTypes,
+     BangPatterns,
+     ConstraintKinds,
+     DefaultSignatures,
+     DeriveFoldable,
+     DeriveFunctor,
+     DeriveFunctor,
+     DeriveGeneric,
+     DeriveTraversable,
+     FlexibleContexts,
+     FlexibleInstances,
+     FunctionalDependencies,
+     GADTs,
+     GeneralizedNewtypeDeriving,
+     LambdaCase,
+     MultiParamTypeClasses,
+     NumericUnderscores,
+     RankNTypes,
+     ScopedTypeVariables,
+     StandaloneDeriving,
+     TemplateHaskell,
+     TupleSections,
+     TypeApplications,
+     TypeFamilies,
+     TypeInType,
+     TypeOperators,
+     ViewPatterns
+  other-extensions:
+    ImplicitParams,
+    OverloadedStrings,
+    UndecidableInstances
+  default-language: Haskell2010
+
+common deps
+  build-depends:
+      base >= 4.12 && <5,
+      deepseq >= 1.4 && < 1.5,
+      text >= 1.2 && < 1.3,
+      extensible-effects >= 5 && < 6
+
 library
+  import: deps, compiler-flags
   hs-source-dirs:
       src
   build-depends:
       async >= 2.2 && <3,
-      base >= 4.12 && <5,
       data-default >= 0.7 && < 0.8,
-      deepseq >= 1.4 && < 1.5,
       directory,
       hashable >= 1.2,
       hostname,
@@ -52,10 +105,8 @@ library
       containers >=0.5.8 && <0.7,
       lens >= 4.14 && < 4.19,
       monad-control >= 1.0 && < 1.1,
-      extensible-effects >= 5 && < 6,
       stm >= 2.4.5 && <2.6,
       transformers-base >= 0.4 && < 0.5,
-      text >= 1.2 && < 1.3,
       network >= 2 && < 4
   autogen-modules: Paths_extensible_effects_concurrent
   exposed-modules:
@@ -96,194 +147,59 @@ library
   other-modules:
                 Control.Eff.Concurrent.Protocol.Broker.InternalState,
                 Paths_extensible_effects_concurrent
-  default-extensions:
-                     AllowAmbiguousTypes,
-                     BangPatterns,
-                     ConstraintKinds,
-                     DefaultSignatures,
-                     DeriveFoldable,
-                     DeriveFunctor,
-                     DeriveFunctor,
-                     DeriveGeneric,
-                     DeriveTraversable,
-                     FlexibleContexts,
-                     FlexibleInstances,
-                     FunctionalDependencies,
-                     GADTs,
-                     GeneralizedNewtypeDeriving,
-                     LambdaCase,
-                     MultiParamTypeClasses,
-                     NumericUnderscores,
-                     RankNTypes,
-                     ScopedTypeVariables,
-                     StandaloneDeriving,
-                     TemplateHaskell,
-                     TupleSections,
-                     TypeApplications,
-                     TypeFamilies,
-                     TypeInType,
-                     TypeOperators,
-                     ViewPatterns
-  other-extensions:  ImplicitParams,
-                     OverloadedStrings,
-                     UndecidableInstances
-  default-language: Haskell2010
-  ghc-options: -Wall -fno-full-laziness
 
 executable extensible-effects-concurrent-example-1
+  import: deps, compiler-flags
   main-is: Main.hs
   hs-source-dirs: examples/example-1
-  build-depends:
-                base
-              , extensible-effects-concurrent
-              , extensible-effects
-              , text
-              , deepseq
-  ghc-options: -Wall -threaded -fno-full-laziness
-  default-language: Haskell2010
-  default-extensions:   AllowAmbiguousTypes
-                      , BangPatterns
-                      , DataKinds
-                      , DeriveGeneric
-                      , FlexibleContexts
-                      , FlexibleInstances
-                      , FunctionalDependencies
-                      , GADTs
-                      , GeneralizedNewtypeDeriving
-                      , LambdaCase
-                      , NumericUnderscores
-                      , OverloadedStrings
-                      , RankNTypes
-                      , ScopedTypeVariables
-                      , StandaloneDeriving
-                      , TemplateHaskell
-                      , TypeApplications
-                      , TypeFamilies
-                      , TypeOperators
+  build-depends: extensible-effects-concurrent
+  ghc-options: -threaded
+  default-extensions:
+    OverloadedStrings
 
 executable extensible-effects-concurrent-example-2
+  import: deps, compiler-flags
   main-is: Main.hs
   hs-source-dirs: examples/example-2
   build-depends:
-                base
-              , data-default
+                data-default
               , extensible-effects-concurrent
-              , extensible-effects
               , lens
-              , text
-              , deepseq
-  ghc-options: -Wall -threaded -fno-full-laziness
-  default-language: Haskell2010
-  default-extensions:   AllowAmbiguousTypes
-                      , BangPatterns
-                      , DataKinds
-                      , FlexibleContexts
-                      , FlexibleInstances
-                      , FunctionalDependencies
-                      , GADTs
-                      , GeneralizedNewtypeDeriving
-                      , NumericUnderscores
-                      , LambdaCase
-                      , RankNTypes
-                      , ScopedTypeVariables
-                      , StandaloneDeriving
-                      , TemplateHaskell
-                      , TypeApplications
-                      , TypeFamilies
-                      , TypeOperators
-                      , OverloadedStrings
+  ghc-options: -threaded
+  default-extensions:
+    OverloadedStrings
 
 executable extensible-effects-concurrent-example-3
+  import: deps, compiler-flags
   main-is: Main.hs
   hs-source-dirs: examples/example-3
   build-depends:
-                base
-              , extensible-effects-concurrent
-              , extensible-effects
+                extensible-effects-concurrent
               , lens
-  ghc-options: -Wall -threaded -fno-full-laziness
-  default-language: Haskell2010
-  default-extensions:   AllowAmbiguousTypes
-                      , BangPatterns
-                      , DataKinds
-                      , FlexibleContexts
-                      , FlexibleInstances
-                      , FunctionalDependencies
-                      , GADTs
-                      , GeneralizedNewtypeDeriving
-                      , LambdaCase
-                      , NumericUnderscores
-                      , OverloadedStrings
-                      , RankNTypes
-                      , ScopedTypeVariables
-                      , StandaloneDeriving
-                      , TemplateHaskell
-                      , TypeApplications
-                      , TypeFamilies
-                      , TypeOperators
+  ghc-options: -threaded
 
 executable extensible-effects-concurrent-example-4
+  import: compiler-flags
   main-is: Main.hs
   hs-source-dirs: examples/example-4
   build-depends:
                 base
               , extensible-effects-concurrent
               , extensible-effects
-  ghc-options: -Wall -threaded -fno-full-laziness
-  default-language: Haskell2010
-  default-extensions:   AllowAmbiguousTypes
-                      , BangPatterns
-                      , DataKinds
-                      , FlexibleContexts
-                      , FlexibleInstances
-                      , FunctionalDependencies
-                      , GADTs
-                      , GeneralizedNewtypeDeriving
-                      , LambdaCase
-                      , NumericUnderscores
-                      , RankNTypes
-                      , ScopedTypeVariables
-                      , StandaloneDeriving
-                      , TemplateHaskell
-                      , TypeApplications
-                      , TypeFamilies
-                      , TypeOperators
-
+  ghc-options: -threaded
 
 executable extensible-effects-concurrent-example-embedded-protocols
+  import: deps, compiler-flags
   main-is: Main.hs
   hs-source-dirs: examples/example-embedded-protocols
   build-depends:
-                base
-              , deepseq
-              , data-default
+                data-default
               , extensible-effects-concurrent
-              , extensible-effects
               , lens
-              , text
-  ghc-options: -Wall -threaded -fno-full-laziness
-  default-language: Haskell2010
-  default-extensions:   AllowAmbiguousTypes
-                      , BangPatterns
-                      , ConstraintKinds
-                      , DataKinds
-                      , FlexibleContexts
-                      , FlexibleInstances
-                      , FunctionalDependencies
-                      , GADTs
-                      , GeneralizedNewtypeDeriving
-                      , LambdaCase
-                      , NumericUnderscores
-                      , OverloadedStrings
-                      , RankNTypes
-                      , ScopedTypeVariables
-                      , StandaloneDeriving
-                      , TemplateHaskell
-                      , TypeApplications
-                      , TypeFamilies
-                      , TypeOperators
+  ghc-options: -threaded
 
 test-suite extensible-effects-concurrent-test
+  import: compiler-flags
   type: exitcode-stdio-1.0
   main-is: Driver.hs
   hs-source-dirs: test
@@ -300,7 +216,7 @@ test-suite extensible-effects-concurrent-test
               , BrokerTests
               , SingleThreadedScheduler
               , WatchdogTests
-  ghc-options: -Wall -threaded -fno-full-laziness -Wno-missing-signatures
+  ghc-options: -threaded -Wno-missing-signatures
   build-depends:
                 async
               , base
@@ -320,25 +236,4 @@ test-suite extensible-effects-concurrent-test
               , tasty-discover
               , tasty-hunit
               , text
-              , text
               , time
-  default-language: Haskell2010
-  default-extensions:   AllowAmbiguousTypes
-                      , BangPatterns
-                      , DataKinds
-                      , DeriveGeneric
-                      , FlexibleContexts
-                      , FlexibleInstances
-                      , FunctionalDependencies
-                      , GADTs
-                      , GeneralizedNewtypeDeriving
-                      , LambdaCase
-                      , NumericUnderscores
-                      , OverloadedStrings
-                      , RankNTypes
-                      , ScopedTypeVariables
-                      , StandaloneDeriving
-                      , TemplateHaskell
-                      , TypeApplications
-                      , TypeFamilies
-                      , TypeOperators

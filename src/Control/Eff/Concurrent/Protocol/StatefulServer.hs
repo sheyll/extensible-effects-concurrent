@@ -44,7 +44,6 @@ import Data.Default
 import Data.Kind
 import Data.Monoid (First)
 import Data.Proxy
-import Data.Text (Text, pack)
 import Data.Typeable
 import GHC.Stack (HasCallStack)
 
@@ -242,15 +241,15 @@ zoomModel l a = do
 -- @since 0.30.0
 logModel ::
   forall m e q.
-  ( Show (Model m),
+  ( ToLogMsg (Model m),
     Member Logs e,
     HasProcesses e q,
     Member (ModelState m) e
   ) =>
-  Text ->
+  LogMsg ->
   Eff e ()
 logModel x =
-  getModel @m >>= logDebug . MkLogMsg . (x <>) . pack . show
+  getModel @m >>= logDebug x
 
 -- | The 'Eff'ect type of readonly 'Settings' in a 'Server' instance.
 --

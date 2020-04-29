@@ -301,16 +301,16 @@ instance (IoLogging r, HasProcesses r q) => S.Server TestObservable r where
       S.OnCall rt e ->
         case e of
           SendTestEvent x -> observerRegistryNotify x >> sendReply rt ()
-          TestObsReg x -> logError (MSG "unexpected: ") x
+          TestObsReg x -> logError (LABEL "unexpected" x)
       S.OnCast (TestObsReg x) -> observerRegistryHandlePdu x
       S.OnCast StopTestObservable -> exitNormally
       S.OnDown pd -> do
-        logDebug (MSG "inspecting: ") pd
+        logDebug (LABEL "inspecting" pd)
         wasHandled <- observerRegistryRemoveProcess @String (downProcess pd)
         unless wasHandled $
-          logError (MSG "the process down message was not handled: ") pd
+          logError (LABEL "the process down message was not handled" pd)
       other ->
-        logError (MSG "unexpected: ") other
+        logError (LABEL "unexpected" other)
 
 instance ToLogMsg (S.Init TestObservable)
 

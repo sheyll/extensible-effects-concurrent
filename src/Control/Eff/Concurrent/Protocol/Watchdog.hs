@@ -277,10 +277,10 @@ instance
         newMonitor <- maybe (monitor (broker ^. fromEndpoint)) return oldMonitor
         case oldMonitor of
           Nothing -> do
-            logDebug "start observing: " broker
+            logDebug (LABEL "start observing" broker)
             Observer.registerObserver @(Broker.ChildEvent child) broker me
           Just _ ->
-            logDebug "already observing " broker
+            logDebug (LABEL "already observing" broker)
         let newBrokerWatch = MkBrokerWatch newMonitor permanent
         Stateful.modifyModel (brokers . at broker ?~ newBrokerWatch)
         Observer.registerObserver @(Broker.ChildEvent child) broker me
@@ -290,76 +290,72 @@ instance
       Effectful.OnCast (OnChildEvent e) ->
         case e of
           down@(Broker.OnBrokerShuttingDown broker) -> do
-            logInfo "received: " down
+            logInfo (LABEL "received" down)
             removeBroker me broker
           spawned@(Broker.OnChildSpawned broker _ _) -> do
-            logInfo "received: " spawned
+            logInfo (LABEL "received" spawned)
             currentModel <- Stateful.getModel @(Watchdog child)
             when
               (not (Set.member broker (currentModel ^. brokers . to Map.keysSet)))
-              (logWarning "received child event for unknown broker: " spawned)
+              (logWarning (LABEL "received child event for unknown broker" spawned))
           down@(Broker.OnChildDown broker cId _ ExitNormally) -> do
-            logInfo "received: " down
+            logInfo (LABEL "received" down)
             currentModel <- Stateful.getModel @(Watchdog child)
             if not (Set.member broker (currentModel ^. brokers . to Map.keysSet))
-              then logWarning "received child event for unknown broker: " down
+              then logWarning (LABEL "received child event for unknown broker" down)
               else removeAndCleanChild @child cId
           down@(Broker.OnChildDown broker cId _ reason) -> do
-            logInfo "received: " down
+            logInfo (LABEL "received" down)
             currentModel <- Stateful.getModel @(Watchdog child)
             if not (Set.member broker (currentModel ^. brokers . to Map.keysSet))
-              then logWarning "received child event for unknown broker: " down
+              then logWarning (LABEL "received child event for unknown broker" down)
               else do
                 let recentCrashes = countRecentCrashes broker cId currentModel
                     rate = startArg ^. crashRate
                     maxCrashCount = rate ^. crashCount
                 if recentCrashes < maxCrashCount
                   then do
-                    logNotice "restarting (" (show recentCrashes) "/" (show maxCrashCount) ") child: " cId " of " broker
+                    logNotice (LABEL "restarting" (concatMsgs (show recentCrashes) "/" (show maxCrashCount) (LABEL "child" cId) (LABEL "of" broker) :: LogMsg))
                     res <- Broker.spawnChild broker cId
-                    logNotice "restarted child: " cId " => " res " of " broker
+                    logNotice (LABEL "restarted child" cId) (LABEL"result" res) (LABEL "of" broker)
                     crash <- startExonerationTimer @child cId reason (rate ^. crashTimeSpan)
                     if isJust (currentModel ^? childWatchesById cId)
                       then do
-                        logDebug "recording crash for child: " cId " of " broker
+                        logDebug "recording crash" (LABEL "child" cId) (LABEL "of" broker)
                         Stateful.modifyModel (watched @child . at cId . _Just . crashes %~ Set.insert crash)
                       else do
-                        logDebug "recording crash for new child: " cId " of " broker
+                        logDebug "recording crash for new child" (LABEL "child" cId) (LABEL "of" broker)
                         Stateful.modifyModel (watched @child . at cId .~ Just (MkChildWatch broker (Set.singleton crash)))
                   else do
                     logWarning
-                      "restart rate exceeded: "
-                      rate
-                      ", for child: "
-                      cId
-                      " of "
-                      broker
+                      (LABEL "restart rate exceeded" rate)
+                      (LABEL "child" cId)
+                      (LABEL "of" broker)
                     removeAndCleanChild @child cId
                     forM_ (currentModel ^? brokers . at broker . _Just) $ \bw ->
                       if bw ^. isPermanent
                         then do
-                          logError "a child of a permanent broker crashed too often, shutting down permanent broker: " broker
+                          logError (LABEL "a child of a permanent broker crashed too often, shutting down permanent broker" broker)
                           let r = ExitUnhandledError (packLogMsg "restart frequency exceeded")
                           demonitor (bw ^. brokerMonitor)
                           sendShutdown (broker ^. fromEndpoint) r
                           exitBecause r
                         else-- TODO shutdown all other permanent brokers!
-
-                          logError "a child crashed too often of the temporary broker: " broker
+                          logError (LABEL "a child crashed too often of the temporary broker" broker)
       Effectful.OnDown pd@(ProcessDown _mref _ pid) -> do
-        logDebug "on-down: " pd
+        logDebug (LABEL "on-down" pd)
         let broker = asEndpoint pid
         removeBroker @child me broker
       Effectful.OnTimeOut t -> do
-        logError "on-timeout: " t
+        logError (LABEL "on-timeout" t)
       Effectful.OnMessage (fromMessage -> Just (MkExonerationTimer cId ref :: ExonerationTimer (Broker.ChildId child))) -> do
-        logInfo "on-exoneration-timeout: " cId
+        logInfo (LABEL "on-exoneration-timeout" cId)
         Stateful.modifyModel
           (watched @child . at cId . _Just . crashes %~ Set.filter (\c -> c ^. exonerationTimerReference /= ref))
       Effectful.OnMessage t -> do
-        logError "on-message: " t
+        logError (LABEL "on-message" t)
       Effectful.OnInterrupt reason -> do
-        logError "on-interrupt: " reason
+        logError (LABEL "on-interrupt" reason)
 
 -- ------------------ Start Argument
 
@@ -620,7 +616,7 @@ removeAndCleanChild ::
 removeAndCleanChild cId = do
   oldModel <- Stateful.modifyAndGetModel (watched @child . at cId .~ Nothing)
   forMOf_ (childWatchesById cId) oldModel $ \w -> do
-    logDebug "removing client entry: " cId
+    logDebug (LABEL "removing client entry" cId)
     forMOf_ (crashes . folded . exonerationTimerReference) w cancelTimer
     logDebug w
 
@@ -647,10 +643,10 @@ removeBroker me broker = do
           . (watched %~ Map.filter (\cw -> cw ^. parent /= broker))
       )
   forM_ (oldModel ^? brokers . at broker . _Just) $ \deadBroker -> do
-    logNotice "dettaching: " deadBroker " " broker
+    logNotice (LABEL "dettaching" deadBroker) (LABEL "from" broker)
     let forgottenChildren = oldModel ^.. watched . itraversed . filtered (\cw -> cw ^. parent == broker)
-    traverse_ (logNotice "forgetting: ") forgottenChildren
+    traverse_ (logNotice . LABEL "forgetting") forgottenChildren
     Observer.forgetObserver @(Broker.ChildEvent child) broker me
     when (view isPermanent deadBroker) $ do
-      logError "permanent broker exited: " broker
+      logError (LABEL "permanent broker exited" broker)
       exitBecause (ExitOtherProcessNotRunning (broker ^. fromEndpoint))

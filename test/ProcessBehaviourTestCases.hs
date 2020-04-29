@@ -177,21 +177,21 @@ selectiveReceiveTests schedulerFactory =
                   ( \i ->
                       spawn
                         (fromString ("sender-" ++ show i))
-                        (yieldProcess >> sendMessage me i >> logInfo ("sent: " <> pack (show i)))
+                        (yieldProcess >> sendMessage me i >> logInfo (LABEL "sent" i))
                         >>= monitor
                   )
                   messages
               traverse_
                 ( \i ->
                     receiveSelectedMessage (filterMessage (== i))
-                      >>= logInfo . ("received: " <>) . pack . show
+                      >>= logInfo . LABEL "received" . toLogMsg
                 )
                 messages
               traverse_
                 ( \(mref, i) ->
-                    logInfo ("waiting for " <> pack (show mref) <> " of " <> pack (show i))
+                    logInfo (LABEL "waiting for" mref) (LABEL "of" i)
                       >> receiveSelectedMessage (selectProcessDown mref)
-                      >>= logInfo . (("down: " <> pack (show i) <> " ") <>) . pack . show
+                      >>= logInfo (LABEL "down" i)
                 )
                 (mRefs `zip` messages),
           testCase "flush messages" $ applySchedulerFactory schedulerFactory $ do
@@ -938,12 +938,12 @@ linkingTests schedulerFactory =
                   logCritical (MSG "linked child done")
                 sendMessage me l
                 x <- receiveAnyMessage
-                logCritical (MSG "got: ") x
+                logCritical (LABEL "got" x)
               l <- receiveMessage
               _ <- monitor l
               sendMessage l ()
               pL@(ProcessDown _ _ _) <- receiveMessage
-              logCritical (MSG "linked process down: ") pL
+              logCritical (LABEL "linked process down" pL)
               _ <- monitor u
               mpU <- receiveAfter (TimeoutMicros 1000)
               case mpU of
@@ -963,17 +963,17 @@ linkingTests schedulerFactory =
                   exitWithError "linked process test error"
                 sendMessage me l
                 x <- receiveAnyMessage
-                logCritical (MSG "got: ") x
+                logCritical (LABEL "got" x)
               l <- receiveMessage
               _ <- monitor l
               sendMessage l ()
               pL@(ProcessDown _ _ _) <- receiveMessage
-              logCritical (MSG "linked process down: ") pL
+              logCritical (LABEL "linked process down" pL)
               _ <- monitor u
               mpU <- receiveAfter (TimeoutMicros 1000)
               case mpU of
                 Just (pU@(ProcessDown _ _ _)) ->
-                  logInfo (MSG "unlinked process down: ") pU
+                  logInfo (LABEL "unlinked process down" pU)
                 Nothing -> error "linked process not exited!",
           testCase "ignore normal exit"
             $ applySchedulerFactory schedulerFactory
@@ -1100,11 +1100,11 @@ monitoringTests schedulerFactory =
                 target <- spawn "target" (receiveMessage >>= exitBecause)
                 replicateM_ 102 $ spawn_ "monitor" $ do
                   ref <- monitor target
-                  logInfo (MSG "monitoring now") ref
+                  logInfo (LABEL "monitoring now" ref)
                   void $ receiveSelectedMessage (selectProcessDown ref)
                 sendMessage target ExitNormally
                 ref <- monitor target
-                logInfo (MSG "monitoring now") ref
+                logInfo (LABEL "monitoring now" ref)
                 void (receiveSelectedMessage (selectProcessDown ref))
               traverse_ awaitProcessDown tests,
           testCase "monitored process exit normally"

@@ -86,7 +86,7 @@ instance IoLogging e => S.Server Big (Processes e) where
     E.OnCall rt req ->
       case req of
         BigCall o -> do
-          logNotice ("BigCall " <> pack (show o))
+          logNotice (LABEL "BigCall" o)
           sendReply rt o
         BigSmall x ->
           S.coerceEffects

@@ -143,7 +143,7 @@ callWithTimeout serverP@(Endpoint pidInternal) req timeOut = do
         logWarning msg
         interrupt (TimeoutInterrupt msg)
       onProcDown p = do
-        logWarning "call to dead server: " serverP " from " fromPid
+        logWarning (LABEL "call to dead server" serverP) (LABEL "from" fromPid)
         interrupt (becauseOtherProcessNotRunning p)
   either (either onProcDown onTimeout) return resultOrError
 

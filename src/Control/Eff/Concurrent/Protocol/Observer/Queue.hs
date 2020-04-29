@@ -171,7 +171,7 @@ withObservationQueue queueLimit e = do
   rest <- lift (atomically (flushTBQueue q))
   unless
     (null rest)
-    (mapM_ (logDebug oq " unread observation: ") rest)
+    (mapM_ (logDebug oq . LABEL "unread observation") rest)
   either
     ( \em ->
         do
@@ -256,7 +256,7 @@ instance (Typeable event, Lifted IO q, Member Logs q, ToTypeLogMsg event) => Ser
         when isFull $
           logWarning "queue full"
       otherMsg ->
-        logError "unexpected: " otherMsg
+        logError (LABEL "unexpected" otherMsg)
 
 instance ToTypeLogMsg event => ToLogMsg (StartArgument (ObservationQueue event)) where
   toLogMsg (MkObservationQueue q) = toLogMsg q

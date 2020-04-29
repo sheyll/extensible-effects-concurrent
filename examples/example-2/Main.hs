@@ -128,8 +128,8 @@ instance (IoLogging q) => Server SupiCounter (Processes q) where
     OnDown pd -> do
       wasRemoved <- zoomModel supiRegistry (observerRegistryRemoveProcess @CounterChanged (downProcess pd))
       if wasRemoved
-        then logDebug (MSG "removed: ") pd
-        else logError (MSG "unexpected: ") pd
+        then logDebug (LABEL "removed" pd)
+        else logError (LABEL "unexpected" pd)
     other -> logWarning other
 
 instance ToLogMsg (StartArgument SupiCounter) where
@@ -168,7 +168,7 @@ instance Member Logs q => Server (Observer CounterChanged) (Processes q) where
   newtype Model (Observer CounterChanged) = CounterChangedModel () deriving (Default)
   update _ _ e =
     case e of
-      OnCast (Observed msg) -> logInfo (MSG "observerRegistryNotify: ") msg
+      OnCast (Observed msg) -> logInfo (LABEL "observerRegistryNotify" msg)
       _ -> logNotice e
 
 instance ToLogMsg (StartArgument (Observer CounterChanged)) where

@@ -34,22 +34,22 @@ test_Broker =
                 unlinkProcess testWorker
                 broker <- receiveMessage :: Eff Effects (Endpoint (Broker.Broker (Stateful.Stateful TestProtocol)))
                 brokerAliveAfter1 <- isBrokerAlive broker
-                logInfo "still alive 1: " brokerAliveAfter1
+                logInfo (LABEL "still alive 1" brokerAliveAfter1)
                 lift (brokerAliveAfter1 @=? True)
                 sendMessage testWorker ()
                 () <- receiveMessage
                 brokerAliveAfter2 <- isBrokerAlive broker
-                logInfo "still alive 2: " brokerAliveAfter2
+                logInfo (LABEL "still alive 2" brokerAliveAfter2)
                 lift (brokerAliveAfter2 @=? True)
                 sendMessage testWorker ()
                 testWorkerMonitorRef <- monitor testWorker
                 d1 <- receiveSelectedMessage (selectProcessDown testWorkerMonitorRef)
-                logInfo "got test worker down: " d1
+                logInfo (LABEL "got test worker down" d1)
                 testBrokerMonitorRef <- monitorBroker broker
                 d2 <- receiveSelectedMessage (selectProcessDown testBrokerMonitorRef)
-                logInfo "got broker down: " d2
+                logInfo (LABEL "got broker down" d2)
                 brokerAliveAfterOwnerExited <- isBrokerAlive broker
-                logInfo "still alive after owner exited: " brokerAliveAfterOwnerExited
+                logInfo (LABEL "still alive after owner exited" brokerAliveAfterOwnerExited)
                 lift (brokerAliveAfterOwnerExited @=? False),
               testGroup
                 "Diagnostics"
@@ -62,11 +62,11 @@ test_Broker =
                   runTestCase "When a child is started the diagnostics change" $ do
                     broker <- startTestBroker
                     info1 <- Broker.getDiagnosticInfo broker
-                    logInfo "got diagnostics: " info1
+                    logInfo (LABEL "got diagnostics" info1)
                     let childId = 1
                     _child <- fromRight (error "failed to spawn child") <$> Broker.spawnChild broker childId
                     info2 <- Broker.getDiagnosticInfo broker
-                    logInfo "got diagnostics: " info2
+                    logInfo (LABEL "got diagnostics" info2)
                     lift $ assertBool ("diagnostics should differ: " ++ show (info1, info2)) (info1 /= info2)
                 ],
               let childId = 1
@@ -84,10 +84,10 @@ test_Broker =
                         stopBroker broker
                         d1@(ProcessDown mon1 er1 _) <-
                           fromMaybe (error "receive timeout 1") <$> receiveAfter (TimeoutMicros 1000000)
-                        logInfo "got process down: " d1
+                        logInfo (LABEL "got process down" d1)
                         d2@(ProcessDown mon2 er2 _) <-
                           fromMaybe (error "receive timeout 2") <$> receiveAfter (TimeoutMicros 1000000)
-                        logInfo "got process down: " d2
+                        logInfo (LABEL "got process down" d2)
                         case if mon1 == brokerMon && mon2 == childMon
                           then Right (er1, er2)
                           else
@@ -122,10 +122,10 @@ test_Broker =
                           stopBroker broker
                           d1@(ProcessDown mon1 er1 _) <-
                             fromMaybe (error "receive timeout 1") <$> receiveAfter (TimeoutMicros 1000000)
-                          logInfo "got process down: " d1
+                          logInfo (LABEL "got process down" d1)
                           d2@(ProcessDown mon2 er2 _) <-
                             fromMaybe (error "receive timeout 2") <$> receiveAfter (TimeoutMicros 1000000)
-                          logInfo "got process down: " d2
+                          logInfo (LABEL "got process down" d2)
                           case if mon1 == brokerMon && mon2 == childMon
                             then Right er1
                             else
@@ -362,20 +362,20 @@ instance Stateful.Server TestProtocol Effects where
   update _me (TestServerArgs testMode tId) evt =
     case evt of
       OnCast (TestInterruptWith i) -> do
-        logInfo tId ": stopping with: " i
+        logInfo tId (LABEL "stopping with" i)
         interrupt i
       OnCall rt (TestGetStringLength str) -> do
-        logInfo tId ": calculating length of: " str
+        logInfo tId (LABEL "calculating length of" str)
         sendReply rt (length str)
       OnInterrupt x -> do
-        logNotice tId ": " x
+        logNotice tId (LABEL "interrupt" x)
         if testMode == IgnoreNormalExitRequest
-          then logNotice tId ": ignoring normal exit request"
+          then logNotice tId "ignoring normal exit request"
           else do
-            logNotice tId ": exitting normally"
+            logNotice tId "exitting normally"
             exitBecause (interruptToExit x)
       _ ->
-        logDebug tId ": got some info: " evt
+        logDebug tId (LABEL "got some info" evt)
   data StartArgument TestProtocol = TestServerArgs TestProtocolServerMode Int
 
 type instance ChildId TestProtocol = Int

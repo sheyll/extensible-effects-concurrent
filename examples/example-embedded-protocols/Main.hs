@@ -109,23 +109,23 @@ instance Stateful.Server App Effects where
   update me _x e =
     case e of
       OnCall rt (SetBackend b) -> do
-        logInfo (packLogMsg "setting backend")
+        logInfo (MSG "setting backend")
         MkApp oldB <- getAndPutModel @App (MkApp b)
         traverse_ (`backendForgetObserver` me) oldB
         traverse_ (`backendRegisterObserver` me) b
         sendReply rt ()
       OnCast (AppBackendEvent be) ->
-        logInfo (packLogMsg "got backend event: ") be
+        logInfo (LABEL "got backend event" be)
       OnCast DoThis ->
         do
           MkApp m <- getModel @App
           case m of
-            Nothing -> logInfo (packLogMsg "doing this without backend")
+            Nothing -> logInfo (MSG "doing this without backend")
             Just b -> handleInterrupts logWarning $ do
               doSomeBackendWork b
               bi <- getSomeBackendInfo b
-              logInfo (packLogMsg "doing this. Backend: ") bi
-      _ -> logWarning (packLogMsg "unexpected: ") e
+              logInfo (LABEL "doing this, backend" bi)
+      _ -> logWarning (LABEL "unexpected" e)
 
 instance ToLogMsg (StartArgument App) where
   toLogMsg _ = packLogMsg "start app"
@@ -242,7 +242,7 @@ instance Stateful.Server Backend1 Effects where
         wasObserver <- zoomModel @Backend1 (modelBackend1 . _2) (observerRegistryRemoveProcess @BackendEvent (downProcess pd))
         when wasObserver $
           logNotice (MSG "observer removed")
-      _ -> logWarning (MSG "unexpected: ") e
+      _ -> logWarning (LABEL "unexpected" e)
 
 modelBackend1 :: Iso' (Model Backend1) (Int, ObserverRegistry BackendEvent)
 modelBackend1 = iso (\(MkBackend1 x) -> x) MkBackend1
@@ -309,8 +309,8 @@ instance Effectful.Server Backend2 Effects where
         logWarning pd
         wasObserver <- observerRegistryRemoveProcess @BackendEvent (downProcess pd)
         when wasObserver $
-          logNotice (packLogMsg "observer removed")
-      _ -> logWarning (packLogMsg "unexpected: ") e
+          logNotice (MSG "observer removed")
+      _ -> logWarning (LABEL "unexpected" e)
 
 type instance Broker.ChildId Backend2 = Int
 

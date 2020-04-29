@@ -252,14 +252,13 @@ observerRegistryHandlePdu = \case
     modify @(ObserverRegistry event) (over observerRegistry (Map.insert pid sink))
     os <- get @(ObserverRegistry event)
     logDebug
-      "registered "
-      observer
-      " current number of observers: " -- TODO put this info into the process details
-      (Map.size (view observerRegistry os))
+      (LABEL "registered" observer)
+      (LABEL "current number of observers" -- TODO put this info into the process details
+             (Map.size (view observerRegistry os)))
   ForgetObserver ob -> do
     wasRemoved <- observerRegistryRemoveProcess @event ob
     unless wasRemoved $
-      logDebug "unknown observer " (show ob)
+      logDebug (LABEL "unknown observer " ob)
 
 -- | Remove the entry in the 'ObserverRegistry' for the 'ProcessId'
 -- and return 'True' if there was an entry, 'False' otherwise.
@@ -288,10 +287,8 @@ observerRegistryRemoveProcess ob = do
     foundIt os sink@(MkObservationSink _ monRef) = do
       demonitor monRef
       logDebug
-        "removed: "
-        (MkObserver $ Arg ob sink)
-        " current number of observers: "
-        (Map.size (view observerRegistry os))
+        (LABEL "removed" (MkObserver $ Arg ob sink))
+        (LABEL "current number of observers" (Map.size (view observerRegistry os)))
       pure True
 
 -- | Keep track of registered 'Observer's.

@@ -13,7 +13,7 @@ example = do
   replyToMe <- self
   sendMessage person replyToMe
   personName <- receiveMessage
-  logInfo "I just met " (personName :: String)
+  logInfo (LABEL "I just met " (MSG personName))
 
 alice :: Eff Effects ()
 alice = do

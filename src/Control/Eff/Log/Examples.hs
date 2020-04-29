@@ -221,7 +221,7 @@ loggingExampleClient = do
       $ do
         logInfo (MSG "not logged")
         sendLogEvent (infoMessage (MSG "test 2.1"))
-    logWarning (MSG "test 2.2")
+    logWarning (LABEL "test" True)
   logCritical (MSG "test 1.3")
 
 -- | Example logging client code using many 'LogPredicate's.

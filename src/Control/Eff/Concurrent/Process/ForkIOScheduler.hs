@@ -265,8 +265,8 @@ withNewSchedulerState mainProcessAction =
         lift
           (atomically (readTVar cancelTableVar <* writeTVar cancelTableVar def))
       logNotice
-        "cancelling processes: "
-        (packLogMsg (show (toListOf (ifolded . asIndex) allProcesses)))
+        (LABEL "cancelling processes"
+          (show (toListOf (ifolded . asIndex) allProcesses)))
       void
         ( liftBaseWith
             ( \runS ->
@@ -277,8 +277,8 @@ withNewSchedulerState mainProcessAction =
                           Async.cancel a
                           runS
                             ( logNotice
-                                "process cancelled: "
-                                (packLogMsg (show (asyncThreadId a)))
+                                (LABEL "process cancelled"
+                                   (packLogMsg (show (asyncThreadId a))))
                             )
                       )
                       allProcesses
@@ -712,7 +712,7 @@ spawnNewProcess mLinkedParent title mfa = do
     linkToParent toProcInfo parent = do
       let toPid = toProcInfo ^. processId
           parentPid = parent ^. processId
-      logDebug "linked to new child: " toPid
+      logDebug (LABEL "linked to new child" toPid)
       lift $ atomically $ do
         modifyTVar' (toProcInfo ^. processLinks) (Set.insert parentPid)
         modifyTVar' (parent ^. processLinks) (Set.insert toPid)
@@ -765,16 +765,16 @@ spawnNewProcess mLinkedParent title mfa = do
       res <- traverse sendIt (toList linkedPids)
       traverse_
         ( either
-            (logNotice "linked process not found: ")
+            (logNotice . LABEL "linked process not found")
             ( either
-                (logWarning "process crashed, interrupting linked process: ")
-                (logDebug "linked process exited peacefully, not sending shutdown to linked process: ")
+                (logWarning . LABEL "process crashed, interrupting linked process")
+                (logDebug  . LABEL "linked process exited peacefully, not sending shutdown to linked process")
             )
         )
         res
       unless (null downMessageSendResults) $
         traverse_
-          (logWarning "failed to enqueue monitor down messages for: ")
+          (logWarning . LABEL "failed to enqueue monitor down messages for")
           downMessageSendResults
     doForkProc ::
       ProcessInfo ->
@@ -841,7 +841,7 @@ spawnNewProcess mLinkedParent title mfa = do
               )
           when
             (currentState /= ProcessShuttingDown)
-            (logNotice reason " - while: " currentState)
+            (logNotice reason (LABEL "state" currentState))
           triggerProcessLinksAndMonitors pid reason (procInfo ^. processLinks)
           logProcessExit reason
           return reason

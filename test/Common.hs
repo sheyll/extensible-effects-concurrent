@@ -123,7 +123,7 @@ assertShutdown p r = do
   unlinkProcess p
   m <- monitor p
   sendShutdown p r
-  logInfo (MSG "awaitProcessDown: ") p (MSG " ") m
+  logInfo (LABEL "awaitProcessDown" p) m
   logCallStack debugSeverity
   receiveSelectedMessage (selectProcessDown m)
     >>= lift . assertEqual "bad exit reason" (MkUnhandledProcessExit r) . MkUnhandledProcessExit . downReason
@@ -134,7 +134,7 @@ awaitProcessDown ::
   Eff r ProcessDown
 awaitProcessDown p = do
   m <- monitor p
-  logInfo (MSG "awaitProcessDown: ") p (MSG " ") m
+  logInfo (LABEL "awaitProcessDown" p) m
   logCallStack debugSeverity
   receiveSelectedMessage (selectProcessDown m)
 

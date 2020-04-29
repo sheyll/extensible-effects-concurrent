@@ -51,9 +51,9 @@ mainProcessSpawnsAChildAndReturns = void (spawn "some child" (void receiveAnyMes
 example :: HasCallStack => Eff Effects ()
 example = do
   me <- self
-  logInfo (MSG "I am ") me
+  logInfo (LABEL "I am " me)
   server <- testServerLoop
-  logInfo (MSG "Started server ") server
+  logInfo (LABEL "Started server" server)
   let go = do
         lift (putStr "Enter something: ")
         x <- lift getLine
