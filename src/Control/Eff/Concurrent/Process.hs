@@ -1065,8 +1065,6 @@ receiveSelectedMessage f = executeAndResumeOrThrow (ReceiveSelectedMessage f)
 receiveMessage ::
   forall a r q.
   ( HasCallStack,
-    Typeable a,
-    NFData a,
     HasProcesses r q
   ) =>
   Eff r a
@@ -1116,7 +1114,7 @@ receiveAnyLoop = receiveSelectedLoop selectAnyMessage
 -- using 'selectMessage'.
 receiveLoop ::
   forall r q a endOfLoopResult.
-  (HasSafeProcesses r q, HasCallStack, NFData a, Typeable a) =>
+  (HasSafeProcesses r q, HasCallStack, Typeable a) =>
   (Either InterruptReason a -> Eff r (Maybe endOfLoopResult)) ->
   Eff r endOfLoopResult
 receiveLoop = receiveSelectedLoop selectMessage
@@ -1191,8 +1189,7 @@ withMonitor pid e = monitor pid >>= \ref -> e ref <* demonitor ref
 -- @since 0.12.0
 receiveWithMonitor ::
   ( HasCallStack,
-    HasProcesses r q,
-    Typeable a
+    HasProcesses r q
   ) =>
   ProcessId ->
   MessageSelector a ->

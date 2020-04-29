@@ -65,7 +65,7 @@ makeLenses ''Children
 
 -- | State accessor
 getChildren ::
-  (Ord i, Member (State (Children i o)) e) =>
+  (Member (State (Children i o)) e) =>
   Eff e (Children i o)
 getChildren = Eff.get
 
@@ -87,7 +87,7 @@ lookupChildById ::
 lookupChildById i = view (childrenById . at i) <$> get
 
 lookupChildByMonitor ::
-  (Ord i, Member (State (Children i o)) e) =>
+  (Member (State (Children i o)) e) =>
   MonitorReference ->
   Eff e (Maybe (i, Child o))
 lookupChildByMonitor m = view (childrenByMonitor . at m) <$> get

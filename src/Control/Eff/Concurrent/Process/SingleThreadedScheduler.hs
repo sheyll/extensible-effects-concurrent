@@ -136,7 +136,7 @@ newProcessQ parentLink title sts =
      in case parentLink of
           Nothing -> stsQ
           Just pid ->
-            let (Nothing, stsQL) = addLink pid (sts ^. nextPid) stsQ
+            let (Nothing, stsQL) = addLink pid (sts ^. nextPid) stsQ -- TODO handle 'Just interrupt'
              in stsQL
   )
 
@@ -399,7 +399,6 @@ instance ToLogMsg (OnYield r a) where
 
 runAsCoroutinePure ::
   forall v r m.
-  Monad m =>
   (forall a. Eff r a -> m a) ->
   Eff (SafeProcesses r) v ->
   m (OnYield r v)

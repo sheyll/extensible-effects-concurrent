@@ -40,8 +40,6 @@ cast ::
   forall destination protocol r q.
   ( HasCallStack,
     HasProcesses r q,
-    TangiblePdu destination 'Asynchronous,
-    HasPdu protocol,
     Embeds destination protocol
   ) =>
   Endpoint destination ->
@@ -100,7 +98,6 @@ callWithTimeout ::
   forall result destination protocol r q.
   ( HasProcesses r q,
     TangiblePdu destination ('Synchronous result),
-    TangiblePdu protocol ('Synchronous result),
     Tangible result,
     Member Logs q,
     Member Logs r,
@@ -222,7 +219,6 @@ callSingleton ::
     Embeds outer outer,
     HasProcesses e q,
     TangiblePdu outer ('Synchronous reply),
-    TangiblePdu inner ('Synchronous reply),
     Tangible reply
   ) =>
   Pdu inner ('Synchronous reply) ->
@@ -242,7 +238,6 @@ castSingleton ::
     Member (EndpointReader outer) e,
     HasProcesses e q,
     TangiblePdu outer 'Asynchronous,
-    HasPdu inner,
     Embeds outer inner,
     Embeds outer outer
   ) =>

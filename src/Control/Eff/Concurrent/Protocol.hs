@@ -298,15 +298,32 @@ proxyAsEndpoint = const Endpoint
 asEndpoint :: forall protocol. ProcessId -> Endpoint protocol
 asEndpoint = Endpoint
 
--- | A class for 'Pdu' instances that embed other 'Pdu'.
+-- | A class for 'Pdu' instances that embeds other 'Pdu' instances.
 --
--- This is a part of 'Embeds' provide instances for your
--- 'Pdu's but in client code use the 'Embeds' constraint.
+-- Example:
+--
+-- > data Parent deriving Typeable
+-- > data Child  deriving Typeable
+-- >
+-- > instance HasPduPrism Parent Child where
+-- >   embedPdu = Delegate
+-- >   fromPdu (Delegate x) = Just x
+-- >   fromPdu _ = Nothing
+-- >
+-- > instance HasPdu Parent where
+-- >   data instance Pdu Parent s where
+-- >     Foo :: Pdu Parent Asynchronous
+-- >     Delegate :: Pdu Child r -> Pdu Parent r
+-- >
+-- > instance HasPdu Child where
+-- >   data instance Pdu Child s where
+-- >     Xyz :: Pdy Child Asynchronous
+-- >
 --
 -- Instances of this class serve as proof to 'Embeds' that
 -- a conversion into another 'Pdu' actually exists.
 --
--- A 'Prism' for the embedded 'Pdu' is the center of this class
+-- A 'Prism' for the embedded 'Pdu' is the center of this class.
 --
 -- Laws: @embeddedPdu = prism' embedPdu fromPdu@
 --
@@ -434,7 +451,7 @@ instance (HasPdu a1, HasPdu a2, HasPdu a3, HasPdu a4) => HasPduPrism (a1, a2, a3
   fromPdu (ToPdu4Of4 l) = Just l
   fromPdu _ = Nothing
 
-instance (Typeable r, NFData (Pdu a1 r), NFData (Pdu a2 r), NFData (Pdu a3 r), NFData (Pdu a4 r), NFData (Pdu a5 r)) => NFData (Pdu (a1, a2, a3, a4, a5) r) where
+instance (NFData (Pdu a1 r), NFData (Pdu a2 r), NFData (Pdu a3 r), NFData (Pdu a4 r), NFData (Pdu a5 r)) => NFData (Pdu (a1, a2, a3, a4, a5) r) where
   rnf (ToPdu1Of5 x) = rnf x
   rnf (ToPdu2Of5 y) = rnf y
   rnf (ToPdu3Of5 z) = rnf z
