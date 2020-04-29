@@ -1,8 +1,10 @@
 let
+   # compiler = "ghc883";
+   compiler = "ghc865";
    config = c: c // {
       allowUnfree = true;
       packageOverrides = pkgs: {
-        haskellPackages = pkgs.haskell.packages.ghc883.override {
+        haskellPackages = pkgs.haskell.packages."${compiler}".override {
           overrides = self: super: {
             extensible-effects = super.callHackage "extensible-effects" "5.0.0.1" {};
           };
