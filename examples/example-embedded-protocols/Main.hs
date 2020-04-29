@@ -20,7 +20,6 @@ import Control.Monad
 import Data.Default
 import Data.Dynamic
 import Data.Foldable
-import Data.Functor.Contravariant (contramap)
 import GHC.Stack (HasCallStack)
 
 main :: IO ()
@@ -182,7 +181,6 @@ withSomeBackend (SomeBackend x) f = f x
 backendRegisterObserver ::
   ( HasProcesses e q,
     CanObserve m BackendEvent,
-    Embeds m (Observer BackendEvent),
     Tangible (Pdu m 'Asynchronous),
     ToLogMsg (Pdu m 'Asynchronous),
     ToTypeLogMsg m
@@ -193,13 +191,7 @@ backendRegisterObserver ::
 backendRegisterObserver (SomeBackend x) o = registerObserver @BackendEvent x o
 
 backendForgetObserver ::
-  ( HasProcesses e q,
-    CanObserve m BackendEvent,
-    Embeds m (Observer BackendEvent),
-    Tangible (Pdu m 'Asynchronous),
-    ToLogMsg (Pdu m 'Asynchronous),
-    ToTypeLogMsg m
-  ) =>
+  ( HasProcesses e q ) =>
   SomeBackend ->
   Endpoint m ->
   Eff e ()

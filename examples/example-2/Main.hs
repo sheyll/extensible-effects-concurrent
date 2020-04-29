@@ -159,8 +159,7 @@ spawnCounter = startLink MkEmptySupiCounter
 deriving instance Show (Pdu Counter x)
 
 logCounterObservations ::
-  (IoLogging q, Typeable q) =>
-  Eff (Processes q) (Endpoint (Observer CounterChanged))
+  IoLogging q => Eff (Processes q) (Endpoint (Observer CounterChanged))
 logCounterObservations = startLink OCCStart
 
 instance Member Logs q => Server (Observer CounterChanged) (Processes q) where

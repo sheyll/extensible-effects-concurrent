@@ -124,7 +124,7 @@ instance (ToLogMsg (E.Init (Server tag eLoop e)), ToTypeLogMsg tag, TangibleCall
   runEffects myEp svr = genServerRunEffects svr myEp
   onEvent myEp svr = genServerOnEvent svr myEp
 
-instance forall (tag :: Type) (e1 :: [Type -> Type]) (e2 :: [Type -> Type]). ToTypeLogMsg tag => ToLogMsg (E.Init (Server tag e1 e2)) where
+instance forall (tag :: Type) (e1 :: [Type -> Type]) (e2 :: [Type -> Type]). ToLogMsg (E.Init (Server tag e1 e2)) where
   toLogMsg x = toLogMsg (genServerId x)
 
 instance (TangibleCallbacks tag eLoop e) => NFData (E.Init (Server (tag :: Type) eLoop e)) where
@@ -192,11 +192,6 @@ type CallbacksEff tag eLoop e = E.Init (Server tag eLoop e)
 -- @since 0.29.1
 callbacksEff ::
   forall tag eLoop q.
-  ( HasCallStack,
-    TangibleCallbacks tag eLoop q,
-    E.Server (Server tag eLoop q) (Processes q),
-    FilteredLogging q
-  ) =>
   (forall x. Endpoint tag -> Eff eLoop x -> Eff (Processes q) x) ->
   (Endpoint tag -> Event tag -> Eff eLoop ()) ->
   ServerId tag ->

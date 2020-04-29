@@ -103,7 +103,7 @@ instance ToTypeLogMsg p => ToLogMsg (RequestOrigin p r) where
 -- | Create a new, unique 'RequestOrigin' value for the current process.
 --
 -- @since 0.24.0
-makeRequestOrigin :: (Typeable r, NFData r, HasProcesses e q0) => Eff e (RequestOrigin p r)
+makeRequestOrigin :: HasProcesses e q0 => Eff e (RequestOrigin p r)
 makeRequestOrigin = RequestOrigin <$> self <*> makeReference
 
 instance NFData (RequestOrigin p r)
@@ -163,8 +163,7 @@ embedReply (Reply (RequestOrigin !pid !ref) !v) = Reply (RequestOrigin pid ref) 
 -- @since 0.25.1
 sendReply ::
   ( HasProcesses eff q,
-    Tangible reply,
-    Typeable protocol
+    Tangible reply
   ) =>
   ReplyTarget protocol reply ->
   reply ->

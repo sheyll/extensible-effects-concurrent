@@ -112,7 +112,6 @@ startLink ::
   forall p e.
   ( HasCallStack,
     IoLogging (Processes e),
-    TangibleBroker p,
     Stateful.Server (Broker p) (Processes e)
   ) =>
   Stateful.StartArgument (Broker p) ->
@@ -124,16 +123,7 @@ startLink = Stateful.startLink
 -- The user needs to instantiate @'ChildId' p@.
 --
 -- @since 0.30.0
-statefulChild ::
-  forall p e.
-  ( HasCallStack,
-    IoLogging e,
-    TangibleBroker (Stateful.Stateful p),
-    Stateful.Server (Broker (Stateful.Stateful p)) e
-  ) =>
-  Timeout ->
-  (ChildId p -> Stateful.StartArgument p) ->
-  Stateful.StartArgument (Broker (Stateful.Stateful p))
+statefulChild :: Timeout -> (ChildId p -> Stateful.StartArgument p) -> Stateful.StartArgument (Broker (Stateful.Stateful p))
 statefulChild t f = MkBrokerConfig t (Stateful.Init . f)
 
 -- | Stop the broker and shutdown all processes.
@@ -145,7 +135,6 @@ stopBroker ::
   ( HasCallStack,
     HasProcesses e q,
     Member Logs e,
-    Lifted IO e,
     TangibleBroker p
   ) =>
   Endpoint (Broker p) ->
@@ -163,8 +152,6 @@ stopBroker ep = do
 isBrokerAlive ::
   forall p q0 e.
   ( HasCallStack,
-    Member Logs e,
-    Typeable p,
     HasProcesses e q0
   ) =>
   Endpoint (Broker p) ->
@@ -177,9 +164,7 @@ isBrokerAlive x = isProcessAlive (_fromEndpoint x)
 monitorBroker ::
   forall p q0 e.
   ( HasCallStack,
-    Member Logs e,
-    HasProcesses e q0,
-    TangibleBroker p
+    HasProcesses e q0
   ) =>
   Endpoint (Broker p) ->
   Eff e MonitorReference
@@ -192,7 +177,6 @@ monitorBroker x = monitor (_fromEndpoint x)
 spawnChild ::
   forall p q0 e.
   ( HasCallStack,
-    Member Logs e,
     HasProcesses e q0,
     TangibleBroker p,
     Typeable (Effectful.ServerPdu p)
@@ -212,7 +196,6 @@ spawnChild ep cId = call ep (StartC cId)
 spawnOrLookup ::
   forall p q0 e.
   ( HasCallStack,
-    Member Logs e,
     HasProcesses e q0,
     TangibleBroker p,
     Typeable (Effectful.ServerPdu p)
@@ -235,7 +218,6 @@ spawnOrLookup supEp cId =
 lookupChild ::
   forall p e q0.
   ( HasCallStack,
-    Member Logs e,
     HasProcesses e q0,
     TangibleBroker p,
     Typeable (Effectful.ServerPdu p)
@@ -254,7 +236,6 @@ lookupChild ep cId = call ep (LookupC @p cId)
 stopChild ::
   forall p e q0.
   ( HasCallStack,
-    Member Logs e,
     HasProcesses e q0,
     TangibleBroker p
   ) =>
@@ -269,19 +250,13 @@ callById ::
     Member Logs e,
     Member Logs q0,
     HasProcesses e q0,
-    Lifted IO e,
-    Lifted IO q0,
-    TangibleBroker protocol,
     TangiblePdu destination ('Synchronous result),
     TangiblePdu protocol ('Synchronous result),
     Embeds (Effectful.ServerPdu destination) protocol,
     Ord (ChildId destination),
     Tangible (ChildId destination),
     ToLogMsg (ChildId destination),
-    Typeable (Effectful.ServerPdu destination),
     Tangible result,
-    ToLogMsg result,
-    NFData (Pdu protocol ('Synchronous result)),
     NFData (Pdu (Effectful.ServerPdu destination) ('Synchronous result)),
     ToLogMsg (Pdu (Effectful.ServerPdu destination) ('Synchronous result)),
     ToTypeLogMsg (Effectful.ServerPdu destination)
@@ -312,14 +287,7 @@ instance NFData (ChildId c) => NFData (ChildNotFound c) where
   rnf (ChildNotFound cId broker) = rnf cId `seq` rnf broker `seq` ()
 
 castById ::
-  forall destination protocol e q0.
-  ( HasCallStack,
-    Member Logs e,
-    HasProcesses e q0,
-    TangibleBroker protocol,
-    TangiblePdu destination 'Asynchronous,
-    TangiblePdu protocol 'Asynchronous
-  ) =>
+  forall destination protocol e . HasCallStack =>
   Endpoint (Broker destination) ->
   ChildId destination ->
   Pdu protocol 'Asynchronous ->
@@ -354,7 +322,7 @@ data Broker (p :: Type) deriving (Typeable)
 instance ToTypeLogMsg p => ToTypeLogMsg (Broker p) where
   toTypeLogMsg _ = toTypeLogMsg (Proxy @p) <> packLogMsg "_broker"
 
-instance (ToTypeLogMsg p, Typeable p) => HasPdu (Broker p) where
+instance Typeable p => HasPdu (Broker p) where
   type EmbeddedPduList (Broker p) = '[ObserverRegistry (ChildEvent p)]
 
   data Pdu (Broker p) r where
@@ -446,8 +414,6 @@ type TangibleBroker p =
 instance
   ( IoLogging q,
     TangibleBroker p,
-    Tangible (ChildId p),
-    ToLogMsg (ChildId p),
     Typeable (Effectful.ServerPdu p),
     Effectful.Server p (Processes q),
     ToTypeLogMsg (Effectful.ServerPdu p),
@@ -584,14 +550,9 @@ stopOrKillChild ::
   forall p e q0.
   ( HasCallStack,
     HasProcesses e q0,
-    Lifted IO e,
-    Lifted IO q0,
     Member Logs e,
     Member Logs q0,
-    Member (Stateful.ModelState (Broker p)) e,
     TangibleBroker p,
-    ToLogMsg (ChildId p),
-    Typeable (Effectful.ServerPdu p),
     ToTypeLogMsg (Effectful.ServerPdu p)
   ) =>
   ChildId p ->
@@ -631,15 +592,11 @@ stopAllChildren ::
   forall p e q0.
   ( HasCallStack,
     HasProcesses e q0,
-    Lifted IO e,
-    Lifted IO q0,
     Member Logs e,
     Member Logs q0,
     Member (Stateful.ModelState (Broker p)) e,
     TangibleBroker p,
-    Typeable (Effectful.ServerPdu p),
-    ToTypeLogMsg (Effectful.ServerPdu p),
-    ToTypeLogMsg p
+    ToTypeLogMsg (Effectful.ServerPdu p)
   ) =>
   Endpoint (Broker p) ->
   Timeout ->

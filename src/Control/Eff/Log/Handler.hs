@@ -99,8 +99,8 @@ import Text.Printf (printf)
 --
 -- >>> logDebug "started: " myPid " after receiving: " lastMsg " threshold is: " currentThresh
 --
--- NOTE: The function instance will always separate the parameters with a 'SeparatorMsg'. 
--- 
+-- NOTE: The function instance will always separate the parameters with a 'SeparatorMsg'.
+--
 -- @since 1.0.0
 class LogEventSender a where
   -- | Log a 'LogEvent'.
@@ -133,16 +133,16 @@ instance (a ~ (), Member Logs e) => LogEventSender (Eff e a) where
 
 -- | Append a the 'toLogMsg' of a value, optionally appending a 'SeparationMsg'
 -- to the previous 'logEventMessage'.
--- 
--- @since 1.0.0 
+--
+-- @since 1.0.0
 instance (ToLogMsg x, LogEventSender a) => LogEventSender (x -> a) where
   sendLogEvent =
     withFrozenCallStack $ \logEvt x ->
-      sendLogEvent 
-        (logEvt & 
+      sendLogEvent
+        (logEvt &
           logEventMessage %~ (\l ->
-           if l /= mempty 
-            then l <> separatorMsg <> toLogMsg x 
+           if l /= mempty
+            then l <> separatorMsg <> toLogMsg x
             else toLogMsg x))
 
 -- | This effect sends 'LogEvent's and is a reader for a 'LogPredicate'.
@@ -263,7 +263,7 @@ instance
   throwM exception = raise (Catch.throwM exception)
 
 instance
-  (Applicative m, MonadBaseControl IO (Eff e), LiftedBase m e, Catch.MonadCatch (Eff e), IoLogging (Logs ': e), Lifted IO e) =>
+  (MonadBaseControl IO (Eff e), LiftedBase m e, Catch.MonadCatch (Eff e), IoLogging (Logs ': e), Lifted IO e) =>
   Catch.MonadCatch (Eff (Logs ': e))
   where
   catch effect handler = do
@@ -274,7 +274,7 @@ instance
     raise (Catch.catch nestedEffects nestedHandler)
 
 instance
-  (Applicative m, MonadBaseControl IO (Eff e), LiftedBase m e, Catch.MonadMask (Eff e), IoLogging (Logs ': e), Lifted IO e) =>
+  (MonadBaseControl IO (Eff e), LiftedBase m e, Catch.MonadMask (Eff e), IoLogging (Logs ': e), Lifted IO e) =>
   Catch.MonadMask (Eff (Logs ': e))
   where
   mask maskedEffect = do
@@ -403,8 +403,6 @@ runLogs p m =
 -- Exposed for custom extensions, if in doubt use 'withoutLogging'.
 runLogsWithoutLogging ::
   forall e b.
-  ( Member LogWriterReader (Logs ': e)
-  ) =>
   LogPredicate ->
   Eff (Logs ': e) b ->
   Eff e b

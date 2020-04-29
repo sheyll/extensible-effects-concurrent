@@ -116,9 +116,7 @@ attachTemporary ::
     FilteredLogging e,
     Member Logs q,
     Typeable child,
-    HasPdu (Effectful.ServerPdu child),
     Tangible (Broker.ChildId child),
-    Ord (Broker.ChildId child),
     ToTypeLogMsg child,
     ToTypeLogMsg (Effectful.ServerPdu child),
     ToLogMsg (Broker.ChildId child),
@@ -141,9 +139,7 @@ attachPermanent ::
     FilteredLogging e,
     Member Logs q,
     Typeable child,
-    HasPdu (Effectful.ServerPdu child),
     Tangible (Broker.ChildId child),
-    Ord (Broker.ChildId child),
     ToTypeLogMsg child,
     ToTypeLogMsg (Effectful.ServerPdu child),
     ToLogMsg (Broker.ChildId child),
@@ -167,15 +163,10 @@ getCrashReports ::
     Typeable child,
     ToTypeLogMsg child,
     ToTypeLogMsg (Effectful.ServerPdu child),
-    HasPdu (Effectful.ServerPdu child),
     ToLogMsg (Broker.ChildId child),
     Tangible (Broker.ChildId child),
-    Ord (Broker.ChildId child),
     HasProcesses e q,
-    Lifted IO q,
-    Lifted IO e,
-    Member Logs q,
-    Member Logs e
+    Member Logs q
   ) =>
   Endpoint (Watchdog child) ->
   Eff e (Map (Broker.ChildId child) (ChildWatch child))
@@ -318,7 +309,7 @@ instance
                     logNotice (LABEL "restarting" (concatMsgs (show recentCrashes) "/" (show maxCrashCount) (LABEL "child" cId) (LABEL "of" broker) :: LogMsg))
                     res <- Broker.spawnChild broker cId
                     logNotice (LABEL "restarted child" cId) (LABEL"result" res) (LABEL "of" broker)
-                    crash <- startExonerationTimer @child cId reason (rate ^. crashTimeSpan)
+                    crash <- startExonerationTimer cId reason (rate ^. crashTimeSpan)
                     if isJust (currentModel ^? childWatchesById cId)
                       then do
                         logDebug "recording crash" (LABEL "child" cId) (LABEL "of" broker)
@@ -475,16 +466,13 @@ exonerationTimerReference :: Lens' CrashReport TimerReference
 exonerationTimerReference = lens _exonerationTimerReference (\c t -> c {_exonerationTimerReference = t})
 
 startExonerationTimer ::
-  forall child a q e.
+  forall a q e.
   (HasProcesses e q,
    Member Logs q,
-   Lifted IO q,
    Lifted IO e,
    NFData a,
    Typeable a,
-   ToLogMsg a,
-   Typeable child,
-   ToTypeLogMsg child) =>
+   ToLogMsg a) =>
   a ->
   ShutdownReason ->
   CrashTimeSpan ->
@@ -538,7 +526,7 @@ instance NFData (ChildWatch child) where
   rnf (MkChildWatch p c) =
     rnf p `seq` rnf c `seq` ()
 
-instance (ToTypeLogMsg child, ToLogMsg (Broker.ChildId child)) => ToLogMsg (ChildWatch child) where
+instance ToTypeLogMsg child => ToLogMsg (ChildWatch child) where
   toLogMsg (MkChildWatch p c) =
     packLogMsg "parent: " <> toLogMsg p
       <> case Set.toList c of
@@ -603,9 +591,7 @@ brokers = lens _brokers (\m x -> m {_brokers = x})
 removeAndCleanChild ::
   forall child q e.
   ( HasProcesses e q,
-    Typeable child,
     ToTypeLogMsg child,
-    Typeable (Broker.ChildId child),
     Ord (Broker.ChildId child),
     ToLogMsg (Broker.ChildId child),
     Member (Stateful.ModelState (Watchdog child)) e,
@@ -625,8 +611,6 @@ removeBroker ::
   ( HasProcesses e q,
     Typeable child,
     Tangible (Broker.ChildId child),
-    Typeable (Effectful.ServerPdu child),
-    Ord (Broker.ChildId child),
     ToLogMsg (Broker.ChildId child),
     ToTypeLogMsg child,
     ToTypeLogMsg (Effectful.ServerPdu child),

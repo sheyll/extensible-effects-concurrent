@@ -1065,6 +1065,7 @@ receiveSelectedMessage f = executeAndResumeOrThrow (ReceiveSelectedMessage f)
 receiveMessage ::
   forall a r q.
   ( HasCallStack,
+    Typeable a,
     HasProcesses r q
   ) =>
   Eff r a

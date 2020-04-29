@@ -243,7 +243,6 @@ logModel ::
   forall m e q.
   ( ToLogMsg (Model m),
     Member Logs e,
-    HasProcesses e q,
     Member (ModelState m) e
   ) =>
   LogMsg ->

@@ -60,7 +60,7 @@ class (ToLogMsg (Init a), ToTypeLogMsg a) => Server (a :: Type) (e :: [Type -> T
   --
   -- Usually you should rely on the default implementation
   serverTitle :: Init a -> ProcessTitle
-  default serverTitle :: ToTypeLogMsg a => Init a -> ProcessTitle
+  default serverTitle :: Init a -> ProcessTitle
   serverTitle _ = coerce (toTypeLogMsg (Proxy @a))
 
   -- | Process the effects of the implementation
@@ -70,7 +70,7 @@ class (ToLogMsg (Init a), ToTypeLogMsg a) => Server (a :: Type) (e :: [Type -> T
 
   -- | Update the 'Model' based on the 'Event'.
   onEvent :: Endpoint (ServerPdu a) -> Init a -> Event (ServerPdu a) -> Eff (ServerEffects a e) ()
-  default onEvent :: (ToLogMsg (ServerPdu a), Member Logs (ServerEffects a e)) => Endpoint (ServerPdu a) -> Init a -> Event (ServerPdu a) -> Eff (ServerEffects a e) ()
+  default onEvent :: (Member Logs (ServerEffects a e)) => Endpoint (ServerPdu a) -> Init a -> Event (ServerPdu a) -> Eff (ServerEffects a e) ()
   onEvent _ i e = logInfo (MkUnhandledEvent i e)
 
 data UnhandledEvent a where
@@ -150,7 +150,6 @@ protocolServerLoop a = do
         onRequest (Cast m) = OnCast m
     handleInt myEp i = onEvent @_ @(Processes q) myEp a (OnInterrupt i) *> pure Nothing
     mainLoop ::
-      (Typeable a) =>
       Endpoint (ServerPdu a) ->
       Either InterruptReason (Event (ServerPdu a)) ->
       Eff (ServerEffects a (Processes q)) (Maybe ())
@@ -199,7 +198,7 @@ instance ToLogMsg (Event a) where
         OnTimeOut r -> toLogMsg r
         OnMessage r -> packLogMsg "message: " <> packLogMsg (show r)
 
-instance NFData a => NFData (Event a) where
+instance NFData (Event a) where
   rnf = \case
     OnCall o p -> rnf o `seq` rnf p
     OnCast p -> rnf p

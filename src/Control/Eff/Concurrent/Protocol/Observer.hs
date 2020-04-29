@@ -160,9 +160,7 @@ forgetObserver ::
   ( HasProcesses r q,
     HasCallStack,
     TangiblePdu eventSource 'Asynchronous,
-    IsObservable eventSource event,
-    TangiblePdu eventSink 'Asynchronous,
-    CanObserve eventSink event
+    IsObservable eventSource event
   ) =>
   Endpoint eventSource ->
   Endpoint eventSink ->
@@ -267,7 +265,6 @@ observerRegistryHandlePdu = \case
 observerRegistryRemoveProcess ::
   forall event q r.
   ( HasCallStack,
-    Typeable event,
     ToTypeLogMsg event,
     HasProcesses r q,
     Member (ObserverRegistryState event) r,
@@ -320,7 +317,6 @@ observerRegistryNotify ::
   forall event r q.
   ( HasProcesses r q,
     Member (ObserverRegistryState event) r,
-    Tangible event,
     HasCallStack
   ) =>
   event ->

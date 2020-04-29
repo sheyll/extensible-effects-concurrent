@@ -40,6 +40,7 @@ cast ::
   forall destination protocol r q.
   ( HasCallStack,
     HasProcesses r q,
+    TangiblePdu destination 'Asynchronous,
     Embeds destination protocol
   ) =>
   Endpoint destination ->
@@ -57,7 +58,6 @@ call ::
   forall result destination protocol r q.
   ( HasProcesses r q,
     TangiblePdu destination ('Synchronous result),
-    TangiblePdu protocol ('Synchronous result),
     Tangible result,
     Embeds destination protocol,
     HasCallStack

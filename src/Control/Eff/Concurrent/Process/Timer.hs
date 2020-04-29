@@ -45,9 +45,7 @@ receiveAfter ::
   ( HasCallStack,
     HasProcesses r q,
     Member Logs q,
-    ToTypeLogMsg a,
-    Typeable a,
-    NFData a
+    Typeable a
   ) =>
   Timeout ->
   Eff r (Maybe a)
@@ -63,9 +61,7 @@ receiveSelectedAfter ::
   forall a r q.
   ( HasCallStack,
     HasProcesses r q,
-    Member Logs q,
-    Typeable a,
-    ToTypeLogMsg a
+    Member Logs q
   ) =>
   MessageSelector a ->
   Timeout ->
@@ -88,8 +84,6 @@ receiveSelectedWithMonitorAfter ::
     HasProcesses r q,
     Member Logs q,
     Member Logs r,
-    ToLogMsg a,
-    Typeable a,
     ToTypeLogMsg a
   ) =>
   ProcessId ->
@@ -116,8 +110,7 @@ receiveAfterWithTitle ::
   ( HasCallStack,
     HasProcesses r q,
     Member Logs q,
-    Typeable a,
-    NFData a
+    Typeable a
   ) =>
   Timeout ->
   ProcessTitle ->
@@ -134,8 +127,7 @@ receiveSelectedAfterWithTitle ::
   forall a r q.
   ( HasCallStack,
     HasProcesses r q,
-    Member Logs q,
-    Typeable a
+    Member Logs q
   ) =>
   MessageSelector a ->
   Timeout ->
@@ -157,8 +149,7 @@ receiveSelectedWithMonitorAfterWithTitle ::
   ( HasCallStack,
     HasProcesses r q,
     Member Logs q,
-    Member Logs r,
-    Typeable a
+    Member Logs r
   ) =>
   ProcessId ->
   MessageSelector a ->
@@ -219,8 +210,7 @@ sendAfter ::
     HasProcesses r q,
     Typeable message,
     NFData message,
-    Member Logs q,
-    ToTypeLogMsg message
+    Member Logs q
   ) =>
   ProcessId ->
   Timeout ->

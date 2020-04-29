@@ -51,9 +51,7 @@ await ::
   forall event r.
   ( Member (Reader event) r,
     HasCallStack,
-    MonadIO (Eff r),
-    Typeable event,
-    Member Logs r
+    MonadIO (Eff r)
   ) =>
   Eff r event
 await = do
@@ -70,9 +68,7 @@ tryRead ::
   forall event r.
   ( Member (Reader event) r,
     HasCallStack,
-    MonadIO (Eff r),
-    Typeable event,
-    Member Logs r
+    MonadIO (Eff r)
   ) =>
   Eff r (Maybe event)
 tryRead = do
@@ -90,9 +86,7 @@ flush ::
   forall event r.
   ( Member (Reader event) r,
     HasCallStack,
-    MonadIO (Eff r),
-    Typeable event,
-    Member Logs r
+    MonadIO (Eff r)
   ) =>
   Eff r [event]
 flush = do
@@ -137,7 +131,6 @@ observe ::
     Lifted IO q,
     IsObservable eventSource event,
     Integral len,
-    Server (ObservationQueue event) (Processes q),
     TangiblePdu eventSource 'Asynchronous
   ) =>
   len ->
@@ -150,7 +143,6 @@ observe queueLimit eventSource e =
 withObservationQueue ::
   forall event b e len.
   ( HasCallStack,
-    Typeable event,
     ToLogMsg event,
     ToTypeLogMsg event,
     Member Logs e,
@@ -191,9 +183,7 @@ withObservationQueue queueLimit e = do
 -- @since 0.28.0
 spawnWriter ::
   forall event r q.
-  ( Member Logs q,
-    Lifted IO q,
-    FilteredLogging (Processes q),
+  ( FilteredLogging (Processes q),
     HasProcesses r q,
     Typeable event,
     HasCallStack,
@@ -222,9 +212,7 @@ withWriter ::
     Member Logs q,
     IsObservable eventSource event,
     Member (Reader event) e,
-    TangiblePdu eventSource 'Asynchronous,
-    ToTypeLogMsg event,
-    ToLogMsg event
+    TangiblePdu eventSource 'Asynchronous
   ) =>
   Endpoint eventSource ->
   Eff e b ->
