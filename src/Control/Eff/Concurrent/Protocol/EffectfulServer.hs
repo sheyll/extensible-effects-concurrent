@@ -23,6 +23,7 @@ import Control.Lens
 import Data.Coerce
 import Data.Kind
 import Data.Typeable
+import Data.String
 import GHC.Stack (HasCallStack)
 
 -- | A type class for effectful server loops.
@@ -37,7 +38,7 @@ import GHC.Stack (HasCallStack)
 -- instances exist, like 2-,3-,4-, or 5-tuple.
 --
 -- @since 0.24.1
-class (ToLogMsg (Init a), ToTypeLogMsg a) => Server (a :: Type) (e :: [Type -> Type]) where
+class (ToLogMsg (Init a), ToProtocolName a) => Server (a :: Type) (e :: [Type -> Type]) where
   -- | The value that defines what is required to initiate a 'Server'
   -- loop.
   data Init a
@@ -61,7 +62,7 @@ class (ToLogMsg (Init a), ToTypeLogMsg a) => Server (a :: Type) (e :: [Type -> T
   -- Usually you should rely on the default implementation
   serverTitle :: Init a -> ProcessTitle
   default serverTitle :: Init a -> ProcessTitle
-  serverTitle _ = coerce (toTypeLogMsg (Proxy @a))
+  serverTitle _ = fromString (toProtocolName @a)
 
   -- | Process the effects of the implementation
   runEffects :: Endpoint (ServerPdu a) -> Init a -> Eff (ServerEffects a e) x -> Eff e x
@@ -70,7 +71,7 @@ class (ToLogMsg (Init a), ToTypeLogMsg a) => Server (a :: Type) (e :: [Type -> T
 
   -- | Update the 'Model' based on the 'Event'.
   onEvent :: Endpoint (ServerPdu a) -> Init a -> Event (ServerPdu a) -> Eff (ServerEffects a e) ()
-  default onEvent :: (Member Logs (ServerEffects a e)) => Endpoint (ServerPdu a) -> Init a -> Event (ServerPdu a) -> Eff (ServerEffects a e) ()
+  default onEvent :: (ToProtocolName (ServerPdu a), Member Logs (ServerEffects a e)) => Endpoint (ServerPdu a) -> Init a -> Event (ServerPdu a) -> Eff (ServerEffects a e) ()
   onEvent _ i e = logInfo (MkUnhandledEvent i e)
 
 data UnhandledEvent a where
@@ -91,7 +92,6 @@ instance ToLogMsg (UnhandledEvent a) where
 start ::
   forall a r q.
   ( Server a (Processes q),
-    Typeable a,
     Typeable (ServerPdu a),
     FilteredLogging (Processes q),
     HasProcesses (ServerEffects a (Processes q)) q,
@@ -107,8 +107,7 @@ start a = asEndpoint <$> spawn (serverTitle @_ @(Processes q) a) (protocolServer
 -- @since 0.24.0
 startLink ::
   forall a r q.
-  ( Typeable a,
-    Typeable (ServerPdu a),
+  ( Typeable (ServerPdu a),
     Server a (Processes q),
     FilteredLogging (Processes q),
     HasProcesses (ServerEffects a (Processes q)) q,
@@ -127,7 +126,6 @@ protocolServerLoop ::
   ( Server a (Processes q),
     FilteredLogging (Processes q),
     HasProcesses (ServerEffects a (Processes q)) q,
-    Typeable a,
     Typeable (ServerPdu a)
   ) =>
   Init a ->
@@ -187,7 +185,7 @@ data Event a where
   OnMessage :: Message -> Event a
   deriving (Typeable)
 
-instance ToLogMsg (Event a) where
+instance ToProtocolName a => ToLogMsg (Event a) where
   toLogMsg x =
     packLogMsg "event: "
       <> case x of

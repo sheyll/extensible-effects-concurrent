@@ -306,16 +306,16 @@ instance
                     maxCrashCount = rate ^. crashCount
                 if recentCrashes < maxCrashCount
                   then do
-                    logNotice (LABEL "restarting" (concatMsgs (show recentCrashes) "/" (show maxCrashCount) (LABEL "child" cId) (LABEL "of" broker) :: LogMsg))
+                    logNotice (LABEL "restarting" (concatMsgs (show recentCrashes) (MSG "/") (show maxCrashCount) (LABEL "child" cId) (LABEL "of" broker) :: LogMsg))
                     res <- Broker.spawnChild broker cId
                     logNotice (LABEL "restarted child" cId) (LABEL"result" res) (LABEL "of" broker)
                     crash <- startExonerationTimer cId reason (rate ^. crashTimeSpan)
                     if isJust (currentModel ^? childWatchesById cId)
                       then do
-                        logDebug "recording crash" (LABEL "child" cId) (LABEL "of" broker)
+                        logDebug (MSG "recording crash") (LABEL "child" cId) (LABEL "of" broker)
                         Stateful.modifyModel (watched @child . at cId . _Just . crashes %~ Set.insert crash)
                       else do
-                        logDebug "recording crash for new child" (LABEL "child" cId) (LABEL "of" broker)
+                        logDebug (MSG "recording crash for new child") (LABEL "child" cId) (LABEL "of" broker)
                         Stateful.modifyModel (watched @child . at cId .~ Just (MkChildWatch broker (Set.singleton crash)))
                   else do
                     logWarning

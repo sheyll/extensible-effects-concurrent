@@ -29,6 +29,9 @@ instance HasPdu Counter where
 
 instance ToTypeLogMsg Counter
 
+instance ToProcessTitle Counter
+  toProcessTitle = "Counter"
+
 instance ToLogMsg (Pdu Counter x) where
   toLogMsg Inc = packLogMsg "increment"
   toLogMsg Cnt = packLogMsg "get-count"
@@ -75,6 +78,8 @@ instance HasPdu SupiDupi where
     deriving (Typeable)
 
 instance ToTypeLogMsg SupiDupi
+instance ToProtocolName SupiDupi where
+  toProtocolName = "SupiDupi"
 
 instance ToLogMsg (Pdu SupiDupi r) where
   toLogMsg (Whoopediedoo f) =

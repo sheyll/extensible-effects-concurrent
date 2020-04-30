@@ -53,7 +53,7 @@ data Request protocol where
     Request protocol
   deriving (Typeable)
 
-instance ToLogMsg (Request protocol) where
+instance ToProtocolName protocol => ToLogMsg (Request protocol) where
   toLogMsg = \case
     Call orig pdu -> packLogMsg "call from: " <> toLogMsg orig <> packLogMsg " pdu: " <> toLogMsg pdu
     Cast pdu -> packLogMsg "cast pdu: " <> toLogMsg pdu
@@ -78,7 +78,7 @@ data Reply protocol reply where
 instance NFData (Reply p r) where
   rnf (Reply i r) = rnf i `seq` rnf r
 
-instance (ToLogMsg r, ToTypeLogMsg p) => ToLogMsg (Reply p r) where
+instance (ToLogMsg r, ToProtocolName p) => ToLogMsg (Reply p r) where
   toLogMsg rp =
     packLogMsg "reply: "
       <> toLogMsg (_replyValue rp)
@@ -95,7 +95,7 @@ data RequestOrigin (proto :: Type) reply
       }
   deriving (Typeable, Generic, Eq, Ord)
 
-instance ToTypeLogMsg p => ToLogMsg (RequestOrigin p r) where
+instance ToProtocolName p => ToLogMsg (RequestOrigin p r) where
   toLogMsg ro =
     toLogMsg (Endpoint @p (_requestOriginPid ro))
       <> packLogMsg ('?' : show (_requestOriginCallRef ro))

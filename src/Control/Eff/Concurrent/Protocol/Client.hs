@@ -98,6 +98,7 @@ callWithTimeout ::
   forall result destination protocol r q.
   ( HasProcesses r q,
     TangiblePdu destination ('Synchronous result),
+    ToProtocolName destination,
     Tangible result,
     Member Logs q,
     Member Logs r,

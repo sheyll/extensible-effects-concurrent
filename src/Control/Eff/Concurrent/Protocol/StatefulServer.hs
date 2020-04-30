@@ -122,10 +122,10 @@ class (ToLogMsg (StartArgument a), Typeable (Protocol a), ToTypeLogMsg (Protocol
 -- @since 0.24.0
 data Stateful a deriving (Typeable)
 
-instance ToTypeLogMsg a => ToTypeLogMsg (Stateful a) where
-  toTypeLogMsg _ = toTypeLogMsg (Proxy @a)
+instance ToProtocolName a => ToProtocolName (Stateful a) where
+  toProtocolName = toProtocolName @a
 
-instance (ToLogMsg (StartArgument a), ToTypeLogMsg a, Server a q) => Effectful.Server (Stateful a) q where
+instance (ToLogMsg (StartArgument a), ToProtocolName a, Server a q) => Effectful.Server (Stateful a) q where
   data Init (Stateful a) = Init (StartArgument a)
   type ServerPdu (Stateful a) = Protocol a
   type ServerEffects (Stateful a) q = ModelState a ': SettingsReader a ': q
@@ -240,7 +240,7 @@ zoomModel l a = do
 --
 -- @since 0.30.0
 logModel ::
-  forall m e q.
+  forall m e .
   ( ToLogMsg (Model m),
     Member Logs e,
     Member (ModelState m) e

@@ -111,7 +111,7 @@ import GHC.Stack
 startLink ::
   forall p e.
   ( HasCallStack,
-    IoLogging (Processes e),
+    IoLogging (Processes e),ToProtocolName p,
     Stateful.Server (Broker p) (Processes e)
   ) =>
   Stateful.StartArgument (Broker p) ->
@@ -123,7 +123,7 @@ startLink = Stateful.startLink
 -- The user needs to instantiate @'ChildId' p@.
 --
 -- @since 0.30.0
-statefulChild :: Timeout -> (ChildId p -> Stateful.StartArgument p) -> Stateful.StartArgument (Broker (Stateful.Stateful p))
+statefulChild :: forall p . Timeout -> (ChildId p -> Stateful.StartArgument p) -> Stateful.StartArgument (Broker (Stateful.Stateful p))
 statefulChild t f = MkBrokerConfig t (Stateful.Init . f)
 
 -- | Stop the broker and shutdown all processes.
@@ -135,6 +135,7 @@ stopBroker ::
   ( HasCallStack,
     HasProcesses e q,
     Member Logs e,
+    ToProtocolName p,
     TangibleBroker p
   ) =>
   Endpoint (Broker p) ->
@@ -198,6 +199,7 @@ spawnOrLookup ::
   ( HasCallStack,
     HasProcesses e q0,
     TangibleBroker p,
+    ToProtocolName p,
     Typeable (Effectful.ServerPdu p)
   ) =>
   Endpoint (Broker p) ->
@@ -220,6 +222,7 @@ lookupChild ::
   ( HasCallStack,
     HasProcesses e q0,
     TangibleBroker p,
+    ToProtocolName p,
     Typeable (Effectful.ServerPdu p)
   ) =>
   Endpoint (Broker p) ->
@@ -237,6 +240,7 @@ stopChild ::
   forall p e q0.
   ( HasCallStack,
     HasProcesses e q0,
+    ToProtocolName p,
     TangibleBroker p
   ) =>
   Endpoint (Broker p) ->
@@ -319,8 +323,8 @@ getDiagnosticInfo s = call s (GetDiagnosticInfo @p)
 -- @since 0.24.0
 data Broker (p :: Type) deriving (Typeable)
 
-instance ToTypeLogMsg p => ToTypeLogMsg (Broker p) where
-  toTypeLogMsg _ = toTypeLogMsg (Proxy @p) <> packLogMsg "_broker"
+instance ToProtocolName p => ToProtocolName (Broker p) where
+  toProtocolName = toProtocolName @p <> "_broker"
 
 instance Typeable p => HasPdu (Broker p) where
   type EmbeddedPduList (Broker p) = '[ObserverRegistry (ChildEvent p)]
@@ -407,7 +411,7 @@ type TangibleBroker p =
   ( Tangible (ChildId p),
     Ord (ChildId p),
     Typeable p,
-    ToTypeLogMsg p,
+    ToProtocolName p,
     ToLogMsg (ChildId p)
   )
 
@@ -485,7 +489,7 @@ instance
         case oldEntry of
           Nothing -> logWarning (LABEL "unexpected" pd)
           Just (i, c) -> do
-            logInfo (spaced pd "for child" i "=>" (childEndpoint c) :: LogMsg)
+            logInfo (spaced pd (LABEL "child-id" i) (LABEL "child" (childEndpoint c)) :: LogMsg)
             Stateful.zoomModel @(Broker p)
               childEventObserverLens
               (observerRegistryNotify @(ChildEvent p) (OnChildDown me i (childEndpoint c) (downReason pd)))
@@ -536,7 +540,7 @@ deriving instance Eq (ChildId p) => Eq (SpawnErr p)
 
 deriving instance Ord (ChildId p) => Ord (SpawnErr p)
 
-deriving instance (Typeable (Effectful.ServerPdu p), Show (ChildId p)) => Show (SpawnErr p)
+deriving instance (ToProtocolName (Effectful.ServerPdu p), Typeable (Effectful.ServerPdu p), Show (ChildId p)) => Show (SpawnErr p)
 
 instance NFData (ChildId p) => NFData (SpawnErr p)
 
@@ -576,7 +580,7 @@ stopOrKillChild cId c stopTimeout =
     unlinkProcess (_fromEndpoint (childEndpoint c))
     case r1 of
       Left timerElapsed -> do
-        logWarning timerElapsed (spaced (LABEL "child" cId) "=>" (childEndpoint c) "did not shutdown in time" :: LogMsg)
+        logWarning timerElapsed (spaced (LABEL "child" cId) (MSG "=>") (childEndpoint c) (MSG "did not shutdown in time") :: LogMsg)
         let reason =
               interruptToExit
                 ( TimeoutInterrupt
@@ -585,7 +589,7 @@ stopOrKillChild cId c stopTimeout =
         sendShutdown (_fromEndpoint (childEndpoint c)) reason
         return reason
       Right downMsg -> do
-        logInfo (spaced (LABEL "child" cId) "=>" (childEndpoint c) (LABEL "terminated" (downReason downMsg)) :: LogMsg)
+        logInfo (spaced (LABEL "child" cId) (MSG "=>") (childEndpoint c) (LABEL "terminated" (downReason downMsg)) :: LogMsg)
         return (downReason downMsg)
 
 stopAllChildren ::

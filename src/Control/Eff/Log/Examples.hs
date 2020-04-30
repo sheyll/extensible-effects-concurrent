@@ -1,4 +1,5 @@
--- | Examples for FilteredLogging.
+{-# LANGUAGE NoOverloadedStrings #-}
+-- -- | Examples for FilteredLogging.
 module Control.Eff.Log.Examples
   ( -- * Example Code for FilteredLogging
     exampleLogging,

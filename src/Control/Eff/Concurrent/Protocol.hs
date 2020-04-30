@@ -48,6 +48,7 @@ module Control.Eff.Concurrent.Protocol
     fromEndpoint,
     proxyAsEndpoint,
     asEndpoint,
+    ToProtocolName(..),
     HasPduPrism (..),
     toEmbeddedEndpoint,
     fromEmbeddedEndpoint,
@@ -79,17 +80,39 @@ import Type.Reflection
 newtype Endpoint protocol = Endpoint {_fromEndpoint :: ProcessId}
   deriving (Eq, Ord, Typeable, NFData)
 
-instance Typeable protocol => Show (Endpoint protocol) where
+-- | A class of _protocol_ types with a short, human readable textual representation.
+--
+--  The instances of this class are usually the types used in 'Endpoint's
+--
+-- @since 1.0.0
+class ToProtocolName a where
+  -- | Return the name of a _protocol_.
+  --
+  -- @since 1.0.0
+  toProtocolName :: String
+  -- | Return the name of a _protocol_ from an arbitrary @proxy@.
+  --
+  -- Note: You can simply use 'Endpoint' as proxy:
+  --
+  -- > toProtocolNameProxy (Enpoint bookStorePid :: Endpoint BookStore)
+  --
+  -- @since 1.0.0
+  toProtocolNameProxy :: proxy a -> String
+
+instance ToProtocolName protocol => Show (Endpoint protocol) where
   showsPrec d (Endpoint c) =
     showParen
       (d >= 10)
-      (showSTypeRep (SomeTypeRep (typeRep @protocol)) . showsPrec 10 c)
+      (showString (toProtocolName @protocol) . showsPrec 10 c)
 
-instance ToTypeLogMsg protocol => ToLogMsg (Endpoint protocol) where
-  toLogMsg ep = toTypeLogMsg (Proxy @protocol) <> toLogMsg (_fromEndpoint ep)
+instance ToProtocolName protocol => ToLogMsg (Endpoint protocol) where
+  toLogMsg ep = packLogMsg (toProtocolName @protocol) <> toLogMsg (_fromEndpoint ep)
 
-instance ToTypeLogMsg protocol => ToTypeLogMsg (Endpoint protocol) where
-  toTypeLogMsg _ = toTypeLogMsg (Proxy @protocol) <> packLogMsg "_ep"
+instance ToProtocolName protocol => ToProtocolName (Endpoint protocol) where
+  toProtocolName = toProtocolName @protocol <> "_ep"
+
+instance ToProtocolName protocol => ToTypeLogMsg (Endpoint protocol) where
+  toTypeLogMsg _ = packLogMsg (toProtocolName @(Endpoint protocol))
 
 -- | This type class and the associated data family defines the
 -- __protocol data units__ (PDU) of a /protocol/.
@@ -212,7 +235,7 @@ type TangiblePdu p r =
     Typeable r,
     Tangible (Pdu p r),
     HasPdu p,
-    ToTypeLogMsg p,
+    ToProtocolName p,
     ToLogMsg (Pdu p r)
   )
 

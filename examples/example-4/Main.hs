@@ -2,14 +2,13 @@ module Main where
 
 import Control.Eff
 import Control.Eff.Concurrent
-import Data.String
 
 main :: IO ()
 main = defaultMain example
 
 example :: Eff Effects ()
 example = do
-  person <- spawn (fromString "alice") alice
+  person <- spawn "alice" alice
   replyToMe <- self
   sendMessage person replyToMe
   personName <- receiveMessage
@@ -17,7 +16,7 @@ example = do
 
 alice :: Eff Effects ()
 alice = do
-  logInfo "I am waiting for someone to ask me..."
+  logInfo (MSG "I am waiting for someone to ask me...")
   sender <- receiveMessage
-  sendMessage sender "Alice"
-  logInfo sender " message received."
+  sendMessage sender ("Alice" :: String)
+  logInfo sender (MSG " message received.")

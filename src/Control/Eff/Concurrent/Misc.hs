@@ -1,8 +1,7 @@
 -- | Internal module containing internal helpers that didn't
 -- make it into their own library.
 module Control.Eff.Concurrent.Misc
-  ( showSTypeRep,
-    showSTypeable
+  (
   )
 where
 

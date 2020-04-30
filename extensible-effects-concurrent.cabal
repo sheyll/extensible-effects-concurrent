@@ -64,6 +64,7 @@ common compiler-flags
      LambdaCase,
      MultiParamTypeClasses,
      NumericUnderscores,
+     OverloadedStrings,
      RankNTypes,
      ScopedTypeVariables,
      StandaloneDeriving,

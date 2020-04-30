@@ -234,7 +234,6 @@ instance ToTypeLogMsg event => ToLogMsg (Pdu (ObserverRegistry event) r) where
 observerRegistryHandlePdu ::
   forall event q r.
   ( HasCallStack,
-    Typeable event,
     ToTypeLogMsg event,
     HasProcesses r q,
     Member (ObserverRegistryState event) r,

@@ -77,6 +77,9 @@ allTests schedulerFactory =
 data ReturnToSender
   deriving (Typeable)
 
+instance ToProtocolName ReturnToSender where
+  toProtocolName = "ReturnToSender"
+
 instance ToTypeLogMsg ReturnToSender
 
 instance HasPdu ReturnToSender where

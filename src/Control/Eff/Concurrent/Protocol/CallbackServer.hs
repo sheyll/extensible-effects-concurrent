@@ -76,14 +76,15 @@ startLink = E.startLink
 -- @since 0.27.0
 data Server tag eLoop e deriving (Typeable)
 
-instance ToTypeLogMsg tag => ToTypeLogMsg (Server tag eLoop e) where
-  toTypeLogMsg _ = toTypeLogMsg (Proxy @tag)
+instance ToProtocolName tag => ToProtocolName (Server tag eLoop e) where
+  toProtocolName = toProtocolName @tag
 
 -- | The constraints for a /tangible/ 'Server' instance.
 --
 -- @since 0.27.0
 type TangibleCallbacks tag eLoop e =
   ( HasProcesses eLoop e,
+    ToProtocolName tag,
     Typeable e,
     Typeable eLoop,
     Typeable tag
@@ -102,16 +103,16 @@ instance ToTypeLogMsg tag => ToTypeLogMsg (ServerId tag) where
 instance ToLogMsg (ServerId tag) where
   toLogMsg x = coerce x
 
-instance (Typeable tag) => Show (ServerId tag) where
+instance (ToProtocolName tag) => Show (ServerId tag) where
   showsPrec d px@(MkServerId x) =
     showParen
       (d >= 10)
       ( showString (T.unpack x)
-          . showString " :: "
-          . showSTypeRep (typeOf px)
+          . showString "_"
+          . showString (toProtocolNameProxy px)
       )
 
-instance (ToLogMsg (E.Init (Server tag eLoop e)), ToTypeLogMsg tag, TangibleCallbacks tag eLoop e) => E.Server (Server (tag :: Type) eLoop e) (Processes e) where
+instance (ToLogMsg (E.Init (Server tag eLoop e)), ToProtocolName tag, TangibleCallbacks tag eLoop e) => E.Server (Server (tag :: Type) eLoop e) (Processes e) where
   type ServerPdu (Server tag eLoop e) = tag
   type ServerEffects (Server tag eLoop e) (Processes e) = eLoop
   data Init (Server tag eLoop e)
@@ -130,13 +131,13 @@ instance forall (tag :: Type) (e1 :: [Type -> Type]) (e2 :: [Type -> Type]). ToL
 instance (TangibleCallbacks tag eLoop e) => NFData (E.Init (Server (tag :: Type) eLoop e)) where
   rnf (MkServer x y z) = rnf x `seq` y `seq` z `seq` ()
 
-instance (TangibleCallbacks tag eLoop e) => Show (E.Init (Server (tag :: Type) eLoop e)) where
+instance forall tag eLoop e . (TangibleCallbacks tag eLoop e) => Show (E.Init (Server (tag :: Type) eLoop e)) where
   showsPrec d svr =
     showParen
       (d >= 10)
       ( showsPrec 11 (genServerId svr)
           . showChar ' '
-          . showSTypeRep (typeRep (Proxy @tag))
+          . showString (toProtocolName @tag)
           . showString " callback-server"
       )
 
@@ -153,11 +154,6 @@ type Callbacks tag e = CallbacksEff tag (Processes e) e
 -- @since 0.29.1
 callbacks ::
   forall tag q.
-  ( HasCallStack,
-    TangibleCallbacks tag (Processes q) q,
-    E.Server (Server tag (Processes q) q) (Processes q),
-    FilteredLogging q
-  ) =>
   (Endpoint tag -> Event tag -> Eff (Processes q) ()) ->
   ServerId tag ->
   Callbacks tag q

@@ -242,7 +242,7 @@ instance (Typeable event, Lifted IO q, Member Logs q, ToTypeLogMsg event) => Ser
           unless isFull (writeTBQueue q event)
           pure isFull
         when isFull $
-          logWarning "queue full"
+          logWarning (MSG "queue full")
       otherMsg ->
         logError (LABEL "unexpected" otherMsg)
 

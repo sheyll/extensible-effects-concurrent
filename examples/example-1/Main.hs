@@ -14,6 +14,9 @@ import GHC.Stack
 data TestProtocol
   deriving (Typeable)
 
+instance ToProcessTitle TestProtocol
+  toProcessTitle = "TestProtocol"
+
 instance ToTypeLogMsg TestProtocol
 
 instance HasPdu TestProtocol where

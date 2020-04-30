@@ -66,7 +66,7 @@ instance Show ProcessInfo where
       (d >= 10)
       ( appEndo
           ( Endo (showChar ' ' . shows pTitle . showString ": ")
-              <> foldMap (Endo . showSTypeRep . dynTypeRep . unwrapMessage) (toList pQ)
+              <> Endo (showString " enqueued messages: " . shows (length pQ))
               <> Endo (shows pDetails)
           )
       )

@@ -197,6 +197,7 @@ import Control.Eff.Concurrent.Protocol
     fromEndpoint,
     proxyAsEndpoint,
     toEmbeddedEndpoint,
+    ToProtocolName(..)
   )
 import Control.Eff.Concurrent.Protocol.Client
   ( EndpointReader,

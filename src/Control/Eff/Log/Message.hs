@@ -587,7 +587,7 @@ inBrackets = InBrackets . toLogMsg
 newtype InBrackets = InBrackets LogMsg
 
 instance ToLogMsg InBrackets where
-  toLogMsg (InBrackets x) = concatMsgs "(" x ")"
+  toLogMsg (InBrackets x) = concatMsgs (MSG "(") x (MSG ")")
 
 -- | Concatenate several values to a single 'LogMsg' separated by the given 'LogMsg'.
 --
@@ -700,8 +700,6 @@ instance ToLogMsg a => ToLogMsg (LabelMsg a) where
 class ToTypeLogMsg (a :: k) where
   -- | Generate a 'LogMsg' for the given proxy value.
   toTypeLogMsg :: proxy a -> LogMsg
-  default toTypeLogMsg :: Typeable a => proxy a -> LogMsg
-  toTypeLogMsg _ = packLogMsg (showSTypeable @a "")
 
 instance ToTypeLogMsg ()
 

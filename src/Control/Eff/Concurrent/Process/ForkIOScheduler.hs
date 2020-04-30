@@ -241,18 +241,18 @@ withNewSchedulerState mainProcessAction =
     ( \exceptions schedulerState -> do
         traverse_
           ( logError
-              ("scheduler setup crashed with: ")
+              . LABEL "scheduler setup crashed with"
               . packLogMsg
               . Safe.displayException
           )
           exceptions
-        logDebug "scheduler cleanup begin"
+        logDebug (MSG "scheduler cleanup begin")
         runReader schedulerState tearDownScheduler
     )
     ( \schedulerState -> do
-        logDebug "scheduler loop entered"
+        logDebug (MSG "scheduler loop entered")
         x <- runReader schedulerState mainProcessAction
-        logDebug "scheduler loop returned"
+        logDebug (MSG "scheduler loop returned")
         return x
     )
   where
@@ -282,7 +282,7 @@ withNewSchedulerState mainProcessAction =
                             )
                       )
                       allProcesses
-                      >> runS (logNotice "all processes cancelled")
+                      >> runS (logNotice (MSG "all processes cancelled"))
                   )
             )
         )
@@ -671,9 +671,9 @@ schedule procEff =
         Async.withAsync
           ( runS $ withNewSchedulerState $ do
               (_, mainProcAsync) <- spawnNewProcess Nothing (toProcessTitle "init") $ do
-                logNotice "++++++++ main process started ++++++++"
+                logNotice (MSG "++++++++ main process started ++++++++")
                 provideInterruptsShutdown procEff
-                logNotice "++++++++ main process returned ++++++++"
+                logNotice (MSG "++++++++ main process returned ++++++++")
               lift (void (Async.wait mainProcAsync))
           )
           ( \ast -> runS $ do
@@ -792,7 +792,7 @@ spawnNewProcess mLinkedParent title mfa = do
                     ( logAppendProcInfo
                         pid
                         ( Safe.bracketWithError
-                            (logDebug "enter process")
+                            (logDebug (MSG "enter process"))
                             ( \mExc () -> do
                                 lift
                                   ( atomically
