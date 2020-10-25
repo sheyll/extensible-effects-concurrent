@@ -1,14 +1,21 @@
 let
-  extensible-effects-concurrent = import ./extensible-effects-concurrent.nix;
-  pkgs = import ./pkgs.nix;
+  overlay = import ./overlay.nix;
+  withHoogle = import ./nix/with-hoogle.nix;
+  ghcide = import ./nix/ghcide.nix;
+  neovim = import ./nix/neovim.nix;
+  pkgs = 
+    (((import ./nix/pkgs.nix).
+      extend overlay).
+      extend neovim);
 in
-pkgs.haskellPackages.shellFor {
-      packages = p: [extensible-effects-concurrent];
+pkgs.eec.haskellPackages.shellFor {
+      packages = p: [pkgs.eec.haskellPackages.extensible-effects-concurrent];
       withHoogle = true;
-      buildInputs = with pkgs.haskellPackages;
+      buildInputs = with pkgs.eec.haskellPackages;
                     [ pkgs.cabal-install
                       pkgs.cabal2nix
                       pkgs.erlang
+                      pkgs.eec.haskellPackages.ghcide
                       ghcid
                       hoogle
                       graphmod
@@ -18,5 +25,6 @@ pkgs.haskellPackages.shellFor {
                       weeder
                       pkgs.nix
                       pkgs.graphviz-nox
+                      pkgs.niv
                     ];
       }

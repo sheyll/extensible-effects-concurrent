@@ -1,0 +1,16 @@
+cradle:
+  cabal:
+    - path: "./src"
+      component: "lib:extensible-effects-concurrent"
+    - path: "./test"
+      component: "test:extensible-effects-concurrent-test"
+    - path: "./examples/example-1"
+      component: "extensible-effects-concurrent-example-1"
+    - path: "./examples/example-2"
+      component: "extensible-effects-concurrent-example-2"
+    - path: "./examples/example-3"
+      component: "extensible-effects-concurrent-example-3"
+    - path: "./examples/example-4"
+      component: "extensible-effects-concurrent-example-4"
+    - path: "./examples/example-embedded-protocols"
+      component: "extensible-effects-concurrent-example-embedded-protocols"
