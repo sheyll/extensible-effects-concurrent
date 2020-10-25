@@ -346,7 +346,8 @@ instance ToLogMsg Timeout where
 newtype Message = MkMessage Dynamic
   deriving (Typeable, Show)
 
-instance ToTypeLogMsg Message
+instance ToTypeLogMsg Message where
+  toTypeLogMsg _ = packLogMsg "Message"
 
 instance NFData Message where
   rnf (MkMessage d) = d `seq` ()

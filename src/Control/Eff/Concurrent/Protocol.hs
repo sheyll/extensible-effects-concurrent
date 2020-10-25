@@ -56,15 +56,12 @@ module Control.Eff.Concurrent.Protocol
 where
 
 import Control.DeepSeq
-import Control.Eff.Concurrent.Misc
 import Control.Eff.Concurrent.Process
 import Control.Eff.Log.Message
 import Control.Lens
 import Data.Dynamic
 import Data.Kind
-import Data.Proxy
 import Data.Typeable ()
-import Type.Reflection
 
 -- | A server process for /protocol/.
 --
@@ -98,6 +95,7 @@ class ToProtocolName a where
   --
   -- @since 1.0.0
   toProtocolNameProxy :: proxy a -> String
+  toProtocolNameProxy _ = toProtocolName @a
 
 instance ToProtocolName protocol => Show (Endpoint protocol) where
   showsPrec d (Endpoint c) =

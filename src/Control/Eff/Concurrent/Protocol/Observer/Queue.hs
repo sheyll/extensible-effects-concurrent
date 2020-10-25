@@ -130,6 +130,8 @@ observe ::
     Lifted IO e,
     Lifted IO q,
     IsObservable eventSource event,
+    ToProtocolName (Observer event),
+    ToProtocolName (ObservationQueue event),
     Integral len,
     TangiblePdu eventSource 'Asynchronous
   ) =>
@@ -188,7 +190,7 @@ spawnWriter ::
     Typeable event,
     HasCallStack,
     Server (ObservationQueue event) (Processes q),
-    ToTypeLogMsg event
+    ToProtocolName (ObservationQueue event)
   ) =>
   ObservationQueue event ->
   Eff r (Endpoint (Observer event))
@@ -212,6 +214,8 @@ withWriter ::
     Member Logs q,
     IsObservable eventSource event,
     Member (Reader event) e,
+    ToProtocolName (ObservationQueue event),
+    ToProtocolName (Observer event),
     TangiblePdu eventSource 'Asynchronous
   ) =>
   Endpoint eventSource ->
@@ -226,7 +230,14 @@ withWriter eventSource e = do
   sendShutdown (w ^. fromEndpoint) ExitNormally
   pure res
 
-instance (Typeable event, Lifted IO q, Member Logs q, ToTypeLogMsg event) => Server (ObservationQueue event) (Processes q) where
+instance 
+  ( Typeable event
+  , Lifted IO q
+  , Member Logs q
+  , ToTypeLogMsg event
+  , ToProtocolName (Observer event)
+  ) 
+  => Server (ObservationQueue event) (Processes q) where
   type Protocol (ObservationQueue event) = Observer event
 
   data StartArgument (ObservationQueue event)

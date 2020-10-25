@@ -14,10 +14,11 @@ import GHC.Stack
 data TestProtocol
   deriving (Typeable)
 
-instance ToProcessTitle TestProtocol
-  toProcessTitle = "TestProtocol"
+instance ToProtocolName TestProtocol where
+  toProtocolName = "TestProtocol"
 
-instance ToTypeLogMsg TestProtocol
+instance ToTypeLogMsg TestProtocol where
+  toTypeLogMsg _ = "TextProtocol"
 
 instance HasPdu TestProtocol where
   data Pdu TestProtocol x where

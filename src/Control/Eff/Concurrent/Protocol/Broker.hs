@@ -135,7 +135,6 @@ stopBroker ::
   ( HasCallStack,
     HasProcesses e q,
     Member Logs e,
-    ToProtocolName p,
     TangibleBroker p
   ) =>
   Endpoint (Broker p) ->
@@ -180,6 +179,8 @@ spawnChild ::
   ( HasCallStack,
     HasProcesses e q0,
     TangibleBroker p,
+    ToTypeLogMsg p,
+    ToTypeLogMsg (Broker p),
     Typeable (Effectful.ServerPdu p)
   ) =>
   Endpoint (Broker p) ->
@@ -199,7 +200,8 @@ spawnOrLookup ::
   ( HasCallStack,
     HasProcesses e q0,
     TangibleBroker p,
-    ToProtocolName p,
+    ToTypeLogMsg p,
+    ToTypeLogMsg (Broker p),
     Typeable (Effectful.ServerPdu p)
   ) =>
   Endpoint (Broker p) ->
@@ -222,7 +224,8 @@ lookupChild ::
   ( HasCallStack,
     HasProcesses e q0,
     TangibleBroker p,
-    ToProtocolName p,
+    ToTypeLogMsg p,
+    ToTypeLogMsg (Broker p),
     Typeable (Effectful.ServerPdu p)
   ) =>
   Endpoint (Broker p) ->
@@ -240,7 +243,8 @@ stopChild ::
   forall p e q0.
   ( HasCallStack,
     HasProcesses e q0,
-    ToProtocolName p,
+    ToTypeLogMsg p,
+    ToTypeLogMsg (Broker p),
     TangibleBroker p
   ) =>
   Endpoint (Broker p) ->
@@ -263,7 +267,9 @@ callById ::
     Tangible result,
     NFData (Pdu (Effectful.ServerPdu destination) ('Synchronous result)),
     ToLogMsg (Pdu (Effectful.ServerPdu destination) ('Synchronous result)),
-    ToTypeLogMsg (Effectful.ServerPdu destination)
+    ToTypeLogMsg destination,
+    ToTypeLogMsg (Broker destination),
+    ToProtocolName (Effectful.ServerPdu destination)
   ) =>
   Endpoint (Broker destination) ->
   ChildId destination ->
@@ -283,7 +289,7 @@ data ChildNotFound child where
   ChildNotFound :: ChildId child -> Endpoint (Broker child) -> ChildNotFound child
   deriving (Typeable)
 
-instance (ToLogMsg (ChildId child), ToTypeLogMsg child) => ToLogMsg (ChildNotFound child) where
+instance (ToLogMsg (ChildId child), ToProtocolName child) => ToLogMsg (ChildNotFound child) where
   toLogMsg (ChildNotFound cId brokerEp) =
     spaced (LABEL "child" cId) (LABEL "not found in" brokerEp)
 
@@ -305,7 +311,9 @@ getDiagnosticInfo ::
   forall p e q0.
   ( HasCallStack,
     HasProcesses e q0,
-    TangibleBroker p
+    TangibleBroker p,
+    ToTypeLogMsg (Broker p),
+    ToTypeLogMsg p
   ) =>
   Endpoint (Broker p) ->
   Eff e Text
@@ -325,6 +333,7 @@ data Broker (p :: Type) deriving (Typeable)
 
 instance ToProtocolName p => ToProtocolName (Broker p) where
   toProtocolName = toProtocolName @p <> "_broker"
+  toProtocolNameProxy _ = toProtocolName @p
 
 instance Typeable p => HasPdu (Broker p) where
   type EmbeddedPduList (Broker p) = '[ObserverRegistry (ChildEvent p)]
@@ -337,7 +346,7 @@ instance Typeable p => HasPdu (Broker p) where
     ChildEventObserverRegistry :: Pdu (ObserverRegistry (ChildEvent p)) r -> Pdu (Broker p) r
     deriving (Typeable)
 
-instance (ToLogMsg (ChildId p), ToTypeLogMsg p) => ToLogMsg (Pdu (Broker p) r) where
+instance (ToTypeLogMsg (Broker p), ToLogMsg (ChildId p), ToTypeLogMsg p) => ToLogMsg (Pdu (Broker p) r) where
   toLogMsg = \case
     StartC cId -> toTypeLogMsg (Proxy @(Broker p)) <> packLogMsg " start-child: " <> toLogMsg cId
     StopC cId t -> toTypeLogMsg (Proxy @(Broker p)) <> packLogMsg " stop-child: " <> toLogMsg cId <> packLogMsg " timeout: " <> toLogMsg t
@@ -385,7 +394,7 @@ instance ToTypeLogMsg p => ToTypeLogMsg (ChildEvent p) where
 
 instance (NFData (ChildId p)) => NFData (ChildEvent p)
 
-instance (ToTypeLogMsg p, ToTypeLogMsg (Effectful.ServerPdu p), ToLogMsg (ChildId p)) => ToLogMsg (ChildEvent p) where
+instance (ToProtocolName p, ToProtocolName (Effectful.ServerPdu p), ToLogMsg (ChildId p)) => ToLogMsg (ChildEvent p) where
   toLogMsg x =
     case x of
       OnChildSpawned s i e ->
@@ -420,7 +429,10 @@ instance
     TangibleBroker p,
     Typeable (Effectful.ServerPdu p),
     Effectful.Server p (Processes q),
+    ToProtocolName (Effectful.ServerPdu p),
     ToTypeLogMsg (Effectful.ServerPdu p),
+    ToTypeLogMsg (Broker p),
+    ToTypeLogMsg p,
     HasProcesses (Effectful.ServerEffects p (Processes q)) q
   ) =>
   Stateful.Server (Broker p) (Processes q)
@@ -544,7 +556,7 @@ deriving instance (ToProtocolName (Effectful.ServerPdu p), Typeable (Effectful.S
 
 instance NFData (ChildId p) => NFData (SpawnErr p)
 
-instance (ToTypeLogMsg (Effectful.ServerPdu p), ToLogMsg (ChildId p)) => ToLogMsg (SpawnErr p) where
+instance (ToProtocolName (Effectful.ServerPdu p), ToLogMsg (ChildId p)) => ToLogMsg (SpawnErr p) where
   toLogMsg (AlreadyStarted cId cEp) =
     packLogMsg "child: " <> toLogMsg cId <> packLogMsg " already started as: " <> toLogMsg cEp
 
@@ -557,7 +569,7 @@ stopOrKillChild ::
     Member Logs e,
     Member Logs q0,
     TangibleBroker p,
-    ToTypeLogMsg (Effectful.ServerPdu p)
+    ToProtocolName (Effectful.ServerPdu p)
   ) =>
   ChildId p ->
   Child p ->
@@ -600,7 +612,8 @@ stopAllChildren ::
     Member Logs q0,
     Member (Stateful.ModelState (Broker p)) e,
     TangibleBroker p,
-    ToTypeLogMsg (Effectful.ServerPdu p)
+    ToProtocolName (Effectful.ServerPdu p),
+    ToTypeLogMsg p
   ) =>
   Endpoint (Broker p) ->
   Timeout ->

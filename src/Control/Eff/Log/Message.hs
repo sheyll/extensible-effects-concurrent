@@ -113,7 +113,6 @@ where
 
 import Control.Concurrent
 import Control.DeepSeq
-import Control.Eff.Concurrent.Misc
 import Control.Lens
 import Data.Default
 import Data.Function (on)
@@ -701,17 +700,27 @@ class ToTypeLogMsg (a :: k) where
   -- | Generate a 'LogMsg' for the given proxy value.
   toTypeLogMsg :: proxy a -> LogMsg
 
-instance ToTypeLogMsg ()
+instance ToTypeLogMsg () where
+  toTypeLogMsg _ = "()"
 
-instance ToTypeLogMsg Bool
+instance ToTypeLogMsg Bool where
+  toTypeLogMsg _ = "Bool"
 
-instance ToTypeLogMsg Int
+instance ToTypeLogMsg Int where
+  toTypeLogMsg _ = "Int"
 
-instance ToTypeLogMsg Double
 
-instance ToTypeLogMsg Float
+instance ToTypeLogMsg Double where
+  toTypeLogMsg _ = "Double"
 
-instance ToTypeLogMsg Integer
+
+instance ToTypeLogMsg Float where
+  toTypeLogMsg _ = "Float"
+
+
+instance ToTypeLogMsg Integer where
+  toTypeLogMsg _ = "Integer"
+
 
 instance ToTypeLogMsg Void where
   toTypeLogMsg _ = packLogMsg "Void"
@@ -746,7 +755,8 @@ instance (ToTypeLogMsg a, ToTypeLogMsg b, ToTypeLogMsg c) => ToTypeLogMsg (a, b,
 -- @since 1.0.0
 newtype StringLogMsg = MSG {fromStringLogMsg :: String} deriving (NFData, Eq, Ord, Show, ToLogMsg, Typeable)
 
-instance ToTypeLogMsg StringLogMsg
+instance ToTypeLogMsg StringLogMsg where
+  toTypeLogMsg _ = packLogMsg "StringLogMsg"
 
 -- | Render a value to 'String'.
 --

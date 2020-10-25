@@ -27,10 +27,8 @@ instance HasPdu Counter where
     Cnt :: Pdu Counter ('Synchronous Integer)
     deriving (Typeable)
 
-instance ToTypeLogMsg Counter
-
-instance ToProcessTitle Counter
-  toProcessTitle = "Counter"
+instance ToTypeLogMsg Counter where
+  toTypeLogMsg _ = "Counter"
 
 instance ToLogMsg (Pdu Counter x) where
   toLogMsg Inc = packLogMsg "increment"
@@ -77,7 +75,8 @@ instance HasPdu SupiDupi where
     Whoopediedoo :: Bool -> Pdu SupiDupi ('Synchronous (Maybe ()))
     deriving (Typeable)
 
-instance ToTypeLogMsg SupiDupi
+instance ToTypeLogMsg SupiDupi where
+  toTypeLogMsg _ = "SupiDupi"
 instance ToProtocolName SupiDupi where
   toProtocolName = "SupiDupi"
 
@@ -95,7 +94,8 @@ instance NFData (Pdu SupiDupi r) where
 newtype CounterChanged = CounterChanged Integer
   deriving (Show, Typeable, NFData, ToLogMsg)
 
-instance ToTypeLogMsg CounterChanged
+instance ToTypeLogMsg CounterChanged where
+  toTypeLogMsg _ = "CounterChanged"
 
 type SupiCounter = (Counter, ObserverRegistry CounterChanged, SupiDupi)
 

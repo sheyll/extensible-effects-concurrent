@@ -99,6 +99,10 @@ startLink ::
     ToLogMsg (Broker.ChildId child),
     HasPdu (Effectful.ServerPdu child),
     ToTypeLogMsg (Effectful.ServerPdu child),
+    ToProtocolName (Watchdog child),
+    ToProtocolName child,
+    ToProtocolName (Effectful.ServerPdu child),
+    ToTypeLogMsg (Broker child),
     Lifted IO q
   ) =>
   CrashRate ->
@@ -118,8 +122,10 @@ attachTemporary ::
     Typeable child,
     Tangible (Broker.ChildId child),
     ToTypeLogMsg child,
-    ToTypeLogMsg (Effectful.ServerPdu child),
+    ToProtocolName (Effectful.ServerPdu child),
     ToLogMsg (Broker.ChildId child),
+    ToProtocolName (Watchdog child),
+    ToProtocolName child,
     HasProcesses e q
   ) =>
   Endpoint (Watchdog child) ->
@@ -141,7 +147,9 @@ attachPermanent ::
     Typeable child,
     Tangible (Broker.ChildId child),
     ToTypeLogMsg child,
-    ToTypeLogMsg (Effectful.ServerPdu child),
+    ToProtocolName (Watchdog child),
+    ToProtocolName child,
+    ToProtocolName (Effectful.ServerPdu child),
     ToLogMsg (Broker.ChildId child),
     HasProcesses e q
   ) =>
@@ -162,9 +170,11 @@ getCrashReports ::
     FilteredLogging e,
     Typeable child,
     ToTypeLogMsg child,
-    ToTypeLogMsg (Effectful.ServerPdu child),
     ToLogMsg (Broker.ChildId child),
     Tangible (Broker.ChildId child),
+    ToProtocolName (Watchdog child),
+    ToProtocolName (Effectful.ServerPdu child),
+    ToProtocolName child,
     HasProcesses e q,
     Member Logs q
   ) =>
@@ -193,7 +203,12 @@ instance (NFData (Broker.ChildId child)) => NFData (Pdu (Watchdog child) r) wher
 instance (ToTypeLogMsg child) => ToTypeLogMsg (Pdu (Watchdog child) r) where
   toTypeLogMsg _ = toTypeLogMsg (Proxy @(Watchdog child)) <> packLogMsg "_pdu"
 
-instance (ToLogMsg (Broker.ChildId child), ToTypeLogMsg child, ToTypeLogMsg (Effectful.ServerPdu child)) => ToLogMsg (Pdu (Watchdog child) r) where
+instance 
+  ( ToProtocolName child
+  , ToLogMsg (Broker.ChildId child)
+  , ToTypeLogMsg child
+  , ToProtocolName (Effectful.ServerPdu child)
+  ) => ToLogMsg (Pdu (Watchdog child) r) where
   toLogMsg (Attach e isPermanentFlag) =
     toTypeLogMsg (Proxy @(Watchdog child))
       <> packLogMsg " attach-"
@@ -239,12 +254,15 @@ instance
     ToTypeLogMsg child,
     HasPdu (Effectful.ServerPdu child),
     ToTypeLogMsg (Effectful.ServerPdu child),
+    ToProtocolName (Effectful.ServerPdu child),
     Tangible (Broker.ChildId child),
     Ord (Broker.ChildId child),
     Eq (Broker.ChildId child),
     ToLogMsg (Broker.ChildId child),
+    ToProtocolName child,
     Lifted IO e,
-    Member Logs e
+    Member Logs e,
+    ToTypeLogMsg (Broker child)
   ) =>
   Stateful.Server (Watchdog child) (Processes e)
   where
@@ -526,7 +544,7 @@ instance NFData (ChildWatch child) where
   rnf (MkChildWatch p c) =
     rnf p `seq` rnf c `seq` ()
 
-instance ToTypeLogMsg child => ToLogMsg (ChildWatch child) where
+instance ( ToProtocolName child) => ToLogMsg (ChildWatch child) where
   toLogMsg (MkChildWatch p c) =
     packLogMsg "parent: " <> toLogMsg p
       <> case Set.toList c of
@@ -591,10 +609,10 @@ brokers = lens _brokers (\m x -> m {_brokers = x})
 removeAndCleanChild ::
   forall child q e.
   ( HasProcesses e q,
-    ToTypeLogMsg child,
     Ord (Broker.ChildId child),
     ToLogMsg (Broker.ChildId child),
     Member (Stateful.ModelState (Watchdog child)) e,
+    ToProtocolName child,
     Member Logs e
   ) =>
   Broker.ChildId child ->
@@ -612,8 +630,10 @@ removeBroker ::
     Typeable child,
     Tangible (Broker.ChildId child),
     ToLogMsg (Broker.ChildId child),
+    ToProtocolName child,
+    ToProtocolName (Effectful.ServerPdu child),
     ToTypeLogMsg child,
-    ToTypeLogMsg (Effectful.ServerPdu child),
+    ToTypeLogMsg (Broker child),
     Member (Stateful.ModelState (Watchdog child)) e,
     Member Logs e
   ) =>
