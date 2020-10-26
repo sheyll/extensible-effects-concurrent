@@ -1,4 +1,5 @@
 {-# LANGUAGE QuantifiedConstraints #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE UndecidableInstances #-}
 
 -- | Types and functions for type-safe(er) interaction between processes.
@@ -48,7 +49,7 @@ module Control.Eff.Concurrent.Protocol
     fromEndpoint,
     proxyAsEndpoint,
     asEndpoint,
-    ToProtocolName(..),
+    ToProtocolName (..),
     HasPduPrism (..),
     toEmbeddedEndpoint,
     fromEmbeddedEndpoint,
@@ -87,6 +88,7 @@ class ToProtocolName a where
   --
   -- @since 1.0.0
   toProtocolName :: String
+
   -- | Return the name of a _protocol_ from an arbitrary @proxy@.
   --
   -- Note: You can simply use 'Endpoint' as proxy:
@@ -111,6 +113,21 @@ instance ToProtocolName protocol => ToProtocolName (Endpoint protocol) where
 
 instance ToProtocolName protocol => ToTypeLogMsg (Endpoint protocol) where
   toTypeLogMsg _ = packLogMsg (toProtocolName @(Endpoint protocol))
+
+instance (ToProtocolName a, ToProtocolName b) => ToProtocolName (a, b) where
+  toProtocolName = toProtocolName @a <> "_X_" <> toProtocolName @b
+
+instance (ToProtocolName a, ToProtocolName b, ToProtocolName c) => ToProtocolName (a, b, c) where
+  toProtocolName = toProtocolName @((a, b), c)
+
+instance (ToProtocolName a, ToProtocolName b, ToProtocolName c, ToProtocolName d) => ToProtocolName (a, b, c, d) where
+  toProtocolName = toProtocolName @((a, b, c), d)
+
+instance (ToProtocolName a, ToProtocolName b, ToProtocolName c, ToProtocolName d, ToProtocolName e) => ToProtocolName (a, b, c, d, e) where
+  toProtocolName = toProtocolName @((a, b, c, d), e)
+
+instance (ToProtocolName a, ToProtocolName b, ToProtocolName c, ToProtocolName d, ToProtocolName e, ToProtocolName f) => ToProtocolName (a, b, c, d, e, f) where
+  toProtocolName = toProtocolName @((a, b, c, d, e), f)
 
 -- | This type class and the associated data family defines the
 -- __protocol data units__ (PDU) of a /protocol/.

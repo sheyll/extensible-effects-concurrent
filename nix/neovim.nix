@@ -58,7 +58,7 @@ self: super: {
             " Set the coc-config
             call coc#config('languageserver', {
                     \  "haskell": {
-                    \    "command": "${self.eec.haskellPackages.ghcide}/bin/ghcide",
+                    \    "command": "${self.haskellPackages.ghcide}/bin/ghcide",
                     \    "args": ["--lsp"],
                     \    "rootPatterns": [ "*.cabal", ],
                     \    "filetypes": [ "hs", "lhs", "haskell" ],
@@ -242,7 +242,7 @@ self: super: {
             augroup END
 
             if !exists("g:ormolu_command")
-               let g:ormolu_command = "${self.eec.haskellPackages.ormolu}/bin/ormolu"
+               let g:ormolu_command = "${self.haskellPackages.ormolu}/bin/ormolu"
             endif
 
             if !exists("g:nixpkgs_fmt_command")

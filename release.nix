@@ -1,10 +1,9 @@
 let
-  overlay = import ./overlay.nix;
-  pkgs = (import ./nix/pkgs.nix).extend overlay;
-  haskellPackages = pkgs.eec.haskellPackages;
+  pkgs = import ./nix/pkgs.nix;
+  haskellPackages = pkgs.haskellPackages;
+  hsLib = pkgs.haskell.lib;
 in 
-  pkgs.callPackage 
-    ./extensible-effects-concurrent.nix  
-    { 
-      callCabal2nix = haskellPackages.callCabal2nix; 
-    }
+    hsLib.dontHaddock (hsLib.dontCheck (import ./. 
+    { callCabal2nix = haskellPackages.callCabal2nix;
+      lib = pkgs.lib;
+    }))

@@ -331,6 +331,9 @@ getDiagnosticInfo s = call s (GetDiagnosticInfo @p)
 -- @since 0.24.0
 data Broker (p :: Type) deriving (Typeable)
 
+instance ToTypeLogMsg p => ToTypeLogMsg (Broker p) where
+  toTypeLogMsg _ = toTypeLogMsg (Proxy @p) <> "_broker"
+
 instance ToProtocolName p => ToProtocolName (Broker p) where
   toProtocolName = toProtocolName @p <> "_broker"
   toProtocolNameProxy _ = toProtocolName @p

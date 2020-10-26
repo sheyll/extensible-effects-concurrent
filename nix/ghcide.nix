@@ -1,6 +1,5 @@
 pself: psuper: {
-  eec = (psuper.eec or {}) // {
-    haskellPackages = psuper.eec.haskellPackages.override 
+    haskellPackages = psuper.haskellPackages.override 
     (old: {
       overrides = 
        pself.lib.composeExtensions 
@@ -48,5 +47,4 @@ pself: psuper: {
           monoid-subclasses = dc super.monoid-subclasses;
         });
       });
-  };
 }

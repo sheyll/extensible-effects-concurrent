@@ -1,6 +1,5 @@
 sources: self: super:
 {
-  eec = (super.eec or {}) // rec {
     haskellPackages = super.haskell.packages.ghc865.override
     (old: {
       overrides =
@@ -37,7 +36,6 @@ sources: self: super:
     # Reflect the sources
     # ===================
     inherit sources;
-  };
 }
 
 

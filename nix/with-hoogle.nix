@@ -1,7 +1,6 @@
 # Use `ghc.WithHoogle` as `ghc` in `haskellPackages`
 self: super: {
-  eec = (super.eec or {}) // {
-    haskellPackages = super.eec.haskellPackages.override
+    haskellPackages = super.haskellPackages.override
         (old: {
           overrides =
             super.lib.composeExtensions
@@ -11,5 +10,4 @@ self: super: {
               ghcWithPackages = hself.ghc.withPackages;
             });
           });
-  };
 }

@@ -1,3 +1,4 @@
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE UndecidableInstances #-}
 
 -- | Another complete example for the library
@@ -77,6 +78,7 @@ instance HasPdu SupiDupi where
 
 instance ToTypeLogMsg SupiDupi where
   toTypeLogMsg _ = "SupiDupi"
+
 instance ToProtocolName SupiDupi where
   toProtocolName = "SupiDupi"
 
@@ -94,8 +96,8 @@ instance NFData (Pdu SupiDupi r) where
 newtype CounterChanged = CounterChanged Integer
   deriving (Show, Typeable, NFData, ToLogMsg)
 
-instance ToTypeLogMsg CounterChanged where
-  toTypeLogMsg _ = "CounterChanged"
+instance ToProtocolName CounterChanged where
+  toProtocolName = "CounterChanged"
 
 type SupiCounter = (Counter, ObserverRegistry CounterChanged, SupiDupi)
 

@@ -1,8 +1,7 @@
 
 self: super: {
-  eec = (super.eec or {}) // {
     haskellPackages = 
-      (super.eec.haskellPackages or super.haskell.packages.ghc865).override
+      (super.haskellPackages or super.haskell.packages.ghc865).override
         (old: {
           overrides =
             self.lib.composeExtensions
@@ -13,6 +12,5 @@ self: super: {
                   { callCabal2nix = hself.callCabal2nix; };
                 });
         });
-    };
   }
 

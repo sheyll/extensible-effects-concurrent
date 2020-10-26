@@ -200,6 +200,9 @@ data ObserverRegistry (event :: Type)
 instance ToTypeLogMsg event => ToTypeLogMsg (ObserverRegistry event) where
   toTypeLogMsg _ = toTypeLogMsg (Proxy @event) <> packLogMsg "_observer_registry_event"
 
+instance ToProtocolName event => ToProtocolName (ObserverRegistry event) where
+  toProtocolName = toProtocolName @event <> "_observer_registry_event"
+
 instance (Tangible event) => HasPdu (ObserverRegistry event) where
   data Pdu (ObserverRegistry event) r where
     -- | This message denotes that the given 'Observer' should receive observations until 'ForgetObserver' is

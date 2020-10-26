@@ -147,7 +147,6 @@ instance (ToLogMsg (StartArgument a)) => ToLogMsg (Effectful.Init (Stateful a)) 
 startLink ::
   forall a r q.
   ( HasCallStack,
-    Typeable a,
     FilteredLogging (Processes q),
     Effectful.Server (Stateful a) (Processes q),
     Server a (Processes q),
@@ -163,7 +162,6 @@ startLink = Effectful.startLink . Init
 start ::
   forall a r q.
   ( HasCallStack,
-    Typeable a,
     Effectful.Server (Stateful a) (Processes q),
     Server a (Processes q),
     FilteredLogging (Processes q),
