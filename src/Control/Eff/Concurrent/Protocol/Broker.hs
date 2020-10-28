@@ -110,8 +110,7 @@ import GHC.Stack
 -- @since 0.23.0
 startLink ::
   forall p e.
-  ( HasCallStack,
-    IoLogging (Processes e),ToProtocolName p,
+  ( IoLogging (Processes e),
     Stateful.Server (Broker p) (Processes e)
   ) =>
   Stateful.StartArgument (Broker p) ->
@@ -150,22 +149,14 @@ stopBroker ep = do
 --
 -- @since 0.23.0
 isBrokerAlive ::
-  forall p q0 e.
-  ( HasCallStack,
-    HasProcesses e q0
-  ) =>
-  Endpoint (Broker p) ->
-  Eff e Bool
+  forall p q0 e. HasProcesses e q0 => Endpoint (Broker p) -> Eff e Bool
 isBrokerAlive x = isProcessAlive (_fromEndpoint x)
 
 -- | Monitor a broker process.
 --
 -- @since 0.23.0
 monitorBroker ::
-  forall p q0 e.
-  ( HasCallStack,
-    HasProcesses e q0
-  ) =>
+  forall p q0 e. HasProcesses e q0 =>
   Endpoint (Broker p) ->
   Eff e MonitorReference
 monitorBroker x = monitor (_fromEndpoint x)
@@ -176,10 +167,8 @@ monitorBroker x = monitor (_fromEndpoint x)
 -- @since 0.23.0
 spawnChild ::
   forall p q0 e.
-  ( HasCallStack,
-    HasProcesses e q0,
+  ( HasProcesses e q0,
     TangibleBroker p,
-    ToTypeLogMsg p,
     ToTypeLogMsg (Broker p),
     Typeable (Effectful.ServerPdu p)
   ) =>
@@ -197,10 +186,8 @@ spawnChild ep cId = call ep (StartC cId)
 -- @since 0.29.2
 spawnOrLookup ::
   forall p q0 e.
-  ( HasCallStack,
-    HasProcesses e q0,
+  ( HasProcesses e q0,
     TangibleBroker p,
-    ToTypeLogMsg p,
     ToTypeLogMsg (Broker p),
     Typeable (Effectful.ServerPdu p)
   ) =>
@@ -221,10 +208,8 @@ spawnOrLookup supEp cId =
 -- @since 0.23.0
 lookupChild ::
   forall p e q0.
-  ( HasCallStack,
-    HasProcesses e q0,
+  ( HasProcesses e q0,
     TangibleBroker p,
-    ToTypeLogMsg p,
     ToTypeLogMsg (Broker p),
     Typeable (Effectful.ServerPdu p)
   ) =>
@@ -241,9 +226,7 @@ lookupChild ep cId = call ep (LookupC @p cId)
 -- @since 0.23.0
 stopChild ::
   forall p e q0.
-  ( HasCallStack,
-    HasProcesses e q0,
-    ToTypeLogMsg p,
+  ( HasProcesses e q0,
     ToTypeLogMsg (Broker p),
     TangibleBroker p
   ) =>
@@ -254,8 +237,7 @@ stopChild ep cId = call ep (StopC @p cId (TimeoutMicros 4000000))
 
 callById ::
   forall destination protocol result e q0.
-  ( HasCallStack,
-    Member Logs e,
+  ( Member Logs e,
     Member Logs q0,
     HasProcesses e q0,
     TangiblePdu destination ('Synchronous result),
@@ -267,9 +249,8 @@ callById ::
     Tangible result,
     NFData (Pdu (Effectful.ServerPdu destination) ('Synchronous result)),
     ToLogMsg (Pdu (Effectful.ServerPdu destination) ('Synchronous result)),
-    ToTypeLogMsg destination,
     ToTypeLogMsg (Broker destination),
-    ToProtocolName (Effectful.ServerPdu destination)
+    ToTypeLogMsg (Effectful.ServerPdu destination)
   ) =>
   Endpoint (Broker destination) ->
   ChildId destination ->
@@ -289,7 +270,7 @@ data ChildNotFound child where
   ChildNotFound :: ChildId child -> Endpoint (Broker child) -> ChildNotFound child
   deriving (Typeable)
 
-instance (ToLogMsg (ChildId child), ToProtocolName child) => ToLogMsg (ChildNotFound child) where
+instance (ToLogMsg (ChildId child), ToTypeLogMsg child) => ToLogMsg (ChildNotFound child) where
   toLogMsg (ChildNotFound cId brokerEp) =
     spaced (LABEL "child" cId) (LABEL "not found in" brokerEp)
 
@@ -309,11 +290,8 @@ castById = error "TODO"
 -- @since 0.23.0
 getDiagnosticInfo ::
   forall p e q0.
-  ( HasCallStack,
-    HasProcesses e q0,
-    TangibleBroker p,
-    ToTypeLogMsg (Broker p),
-    ToTypeLogMsg p
+  ( HasProcesses e q0,
+    TangibleBroker p
   ) =>
   Endpoint (Broker p) ->
   Eff e Text
@@ -333,10 +311,6 @@ data Broker (p :: Type) deriving (Typeable)
 
 instance ToTypeLogMsg p => ToTypeLogMsg (Broker p) where
   toTypeLogMsg _ = toTypeLogMsg (Proxy @p) <> "_broker"
-
-instance ToProtocolName p => ToProtocolName (Broker p) where
-  toProtocolName = toProtocolName @p <> "_broker"
-  toProtocolNameProxy _ = toProtocolName @p
 
 instance Typeable p => HasPdu (Broker p) where
   type EmbeddedPduList (Broker p) = '[ObserverRegistry (ChildEvent p)]
@@ -397,7 +371,7 @@ instance ToTypeLogMsg p => ToTypeLogMsg (ChildEvent p) where
 
 instance (NFData (ChildId p)) => NFData (ChildEvent p)
 
-instance (ToProtocolName p, ToProtocolName (Effectful.ServerPdu p), ToLogMsg (ChildId p)) => ToLogMsg (ChildEvent p) where
+instance (ToTypeLogMsg p, ToTypeLogMsg (Effectful.ServerPdu p), ToLogMsg (ChildId p)) => ToLogMsg (ChildEvent p) where
   toLogMsg x =
     case x of
       OnChildSpawned s i e ->
@@ -423,7 +397,7 @@ type TangibleBroker p =
   ( Tangible (ChildId p),
     Ord (ChildId p),
     Typeable p,
-    ToProtocolName p,
+    ToTypeLogMsg p,
     ToLogMsg (ChildId p)
   )
 
@@ -432,10 +406,8 @@ instance
     TangibleBroker p,
     Typeable (Effectful.ServerPdu p),
     Effectful.Server p (Processes q),
-    ToProtocolName (Effectful.ServerPdu p),
     ToTypeLogMsg (Effectful.ServerPdu p),
     ToTypeLogMsg (Broker p),
-    ToTypeLogMsg p,
     HasProcesses (Effectful.ServerEffects p (Processes q)) q
   ) =>
   Stateful.Server (Broker p) (Processes q)
@@ -555,11 +527,11 @@ deriving instance Eq (ChildId p) => Eq (SpawnErr p)
 
 deriving instance Ord (ChildId p) => Ord (SpawnErr p)
 
-deriving instance (ToProtocolName (Effectful.ServerPdu p), Typeable (Effectful.ServerPdu p), Show (ChildId p)) => Show (SpawnErr p)
+deriving instance (ToTypeLogMsg (Effectful.ServerPdu p), Typeable (Effectful.ServerPdu p), Show (ChildId p)) => Show (SpawnErr p)
 
 instance NFData (ChildId p) => NFData (SpawnErr p)
 
-instance (ToProtocolName (Effectful.ServerPdu p), ToLogMsg (ChildId p)) => ToLogMsg (SpawnErr p) where
+instance (ToTypeLogMsg (Effectful.ServerPdu p), ToLogMsg (ChildId p)) => ToLogMsg (SpawnErr p) where
   toLogMsg (AlreadyStarted cId cEp) =
     packLogMsg "child: " <> toLogMsg cId <> packLogMsg " already started as: " <> toLogMsg cEp
 
@@ -572,7 +544,7 @@ stopOrKillChild ::
     Member Logs e,
     Member Logs q0,
     TangibleBroker p,
-    ToProtocolName (Effectful.ServerPdu p)
+    ToTypeLogMsg (Effectful.ServerPdu p)
   ) =>
   ChildId p ->
   Child p ->
@@ -615,8 +587,7 @@ stopAllChildren ::
     Member Logs q0,
     Member (Stateful.ModelState (Broker p)) e,
     TangibleBroker p,
-    ToProtocolName (Effectful.ServerPdu p),
-    ToTypeLogMsg p
+    ToTypeLogMsg (Effectful.ServerPdu p)
   ) =>
   Endpoint (Broker p) ->
   Timeout ->

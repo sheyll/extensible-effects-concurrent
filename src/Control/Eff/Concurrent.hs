@@ -193,11 +193,8 @@ import Control.Eff.Concurrent.Protocol
     Tangible,
     TangiblePdu,
     asEndpoint,
-    fromEmbeddedEndpoint,
     fromEndpoint,
-    proxyAsEndpoint,
-    toEmbeddedEndpoint,
-    ToProtocolName(..)
+    proxyAsEndpoint
   )
 import Control.Eff.Concurrent.Protocol.Client
   ( EndpointReader,

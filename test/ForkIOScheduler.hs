@@ -1,21 +1,13 @@
 module ForkIOScheduler where
 
 import Common
-import Control.Concurrent
 import Control.Concurrent.Async
-import Control.Concurrent.STM
-import Control.Eff.Concurrent.Process
 import Control.Eff.Concurrent.Process.ForkIOScheduler as Scheduler
-import Control.Eff.Concurrent.Process.Timer
-import Control.Eff.Extend
-import Control.Eff.Loop
 import Control.Exception
 import Control.Monad
   ( replicateM_,
     void,
   )
-import Test.Tasty
-import Test.Tasty.HUnit
 
 test_IOExceptionsIsolated :: TestTree
 test_IOExceptionsIsolated =

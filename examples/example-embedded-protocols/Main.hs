@@ -80,9 +80,6 @@ data App deriving (Typeable)
 instance ToTypeLogMsg App where
   toTypeLogMsg _ = "App"
 
-instance ToProtocolName App where
-  toProtocolName = "App"
-
 instance HasPdu App where
   type EmbeddedPduList App = '[Observer BackendEvent]
   data Pdu App r where
@@ -141,9 +138,6 @@ data Backend deriving (Typeable)
 instance ToTypeLogMsg Backend where
   toTypeLogMsg _ = "Backend"
 
-instance ToProtocolName Backend where
-  toProtocolName = "Backend"
-
 instance HasPdu Backend where
   data Pdu Backend r where
     BackendWork :: Pdu Backend 'Asynchronous
@@ -167,14 +161,10 @@ newtype BackendEvent where
 instance ToTypeLogMsg BackendEvent where
   toTypeLogMsg _ = "BackendEvent"
 
-instance ToProtocolName BackendEvent where
-  toProtocolName = "BackendEvent"
-
 type IsBackend b =
   ( HasPdu b,
     Embeds b Backend,
     ToTypeLogMsg b,
-    ToProtocolName b,
     IsObservable b BackendEvent,
     Tangible (Pdu b ('Synchronous String)),
     ToLogMsg (Pdu b ('Synchronous String)),
@@ -196,7 +186,7 @@ backendRegisterObserver ::
     CanObserve m BackendEvent,
     Tangible (Pdu m 'Asynchronous),
     ToLogMsg (Pdu m 'Asynchronous),
-    ToProtocolName m
+    ToTypeLogMsg m
   ) =>
   SomeBackend ->
   Endpoint m ->
@@ -221,9 +211,6 @@ doSomeBackendWork (SomeBackend x) = cast x BackendWork
 -- Backend 1
 
 data Backend1 deriving (Typeable)
-
-instance ToProtocolName Backend1 where
-  toProtocolName = "Backend1"
 
 instance ToTypeLogMsg Backend1 where
   toTypeLogMsg _ = "Backend1"
@@ -265,9 +252,6 @@ data Backend2 deriving (Typeable)
 
 instance ToTypeLogMsg Backend2 where
   toTypeLogMsg _ = "Backend2"
-
-instance ToProtocolName Backend2 where
-  toProtocolName = "Backend2"
 
 instance HasPdu Backend2 where
   type EmbeddedPduList Backend2 = '[Backend, ObserverRegistry BackendEvent]

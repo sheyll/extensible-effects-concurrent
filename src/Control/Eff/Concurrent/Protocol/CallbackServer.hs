@@ -36,7 +36,6 @@ import Data.Proxy
 import Data.String
 import qualified Data.Text as T
 import Data.Typeable
-import GHC.Stack (HasCallStack)
 
 -- | Execute the server loop, that dispatches incoming events
 -- to either a set of 'Callbacks' or 'CallbacksEff'.
@@ -44,8 +43,7 @@ import GHC.Stack (HasCallStack)
 -- @since 0.29.1
 start ::
   forall (tag :: Type) eLoop q e.
-  ( HasCallStack,
-    TangibleCallbacks tag eLoop q,
+  ( TangibleCallbacks tag eLoop q,
     E.Server (Server tag eLoop q) (Processes q),
     FilteredLogging (Processes q),
     HasProcesses e q
@@ -60,8 +58,7 @@ start = E.start
 -- @since 0.29.1
 startLink ::
   forall (tag :: Type) eLoop q e.
-  ( HasCallStack,
-    TangibleCallbacks tag eLoop q,
+  ( TangibleCallbacks tag eLoop q,
     E.Server (Server tag eLoop q) (Processes q),
     FilteredLogging (Processes q),
     HasProcesses e q
@@ -83,7 +80,7 @@ instance ToTypeLogMsg tag => ToTypeLogMsg (Server tag eLoop e) where
 -- @since 0.27.0
 type TangibleCallbacks tag eLoop e =
   ( HasProcesses eLoop e,
-    ToProtocolName tag,
+    ToTypeLogMsg tag,
     Typeable e,
     Typeable eLoop,
     Typeable tag
@@ -102,16 +99,16 @@ instance ToTypeLogMsg tag => ToTypeLogMsg (ServerId tag) where
 instance ToLogMsg (ServerId tag) where
   toLogMsg x = coerce x
 
-instance (ToProtocolName tag) => Show (ServerId tag) where
+instance (ToTypeLogMsg tag) => Show (ServerId tag) where
   showsPrec d px@(MkServerId x) =
     showParen
       (d >= 10)
       ( showString (T.unpack x)
           . showString "_"
-          . showString (toProtocolNameProxy px)
+          . shows (toTypeLogMsg px)
       )
 
-instance (ToLogMsg (E.Init (Server tag eLoop e)), ToTypeLogMsg tag, TangibleCallbacks tag eLoop e) => E.Server (Server (tag :: Type) eLoop e) (Processes e) where
+instance (ToLogMsg (E.Init (Server tag eLoop e)), TangibleCallbacks tag eLoop e) => E.Server (Server (tag :: Type) eLoop e) (Processes e) where
   type ServerPdu (Server tag eLoop e) = tag
   type ServerEffects (Server tag eLoop e) (Processes e) = eLoop
   data Init (Server tag eLoop e)
@@ -136,7 +133,7 @@ instance forall tag eLoop e . (TangibleCallbacks tag eLoop e) => Show (E.Init (S
       (d >= 10)
       ( showsPrec 11 (genServerId svr)
           . showChar ' '
-          . showString (toProtocolName @tag)
+          . shows (toTypeLogMsg (Proxy @tag))
           . showString " callback-server"
       )
 

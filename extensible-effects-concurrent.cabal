@@ -127,7 +127,6 @@ library
                   Control.Eff.LogWriter.UDP,
                   Control.Eff.LogWriter.UnixSocket,
                   Control.Eff.Concurrent,
-                  Control.Eff.Concurrent.Misc,
                   Control.Eff.Concurrent.Protocol,
                   Control.Eff.Concurrent.Protocol.CallbackServer,
                   Control.Eff.Concurrent.Protocol.Client,

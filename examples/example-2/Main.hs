@@ -31,9 +31,6 @@ instance HasPdu Counter where
 instance ToTypeLogMsg Counter where
   toTypeLogMsg _ = "Counter"
 
-instance ToProtocolName Counter where
-  toProtocolName = "Counter"
-
 instance ToLogMsg (Pdu Counter x) where
   toLogMsg Inc = packLogMsg "increment"
   toLogMsg Cnt = packLogMsg "get-count"
@@ -82,9 +79,6 @@ instance HasPdu SupiDupi where
 instance ToTypeLogMsg SupiDupi where
   toTypeLogMsg _ = "SupiDupi"
 
-instance ToProtocolName SupiDupi where
-  toProtocolName = "SupiDupi"
-
 instance ToLogMsg (Pdu SupiDupi r) where
   toLogMsg (Whoopediedoo f) =
     packLogMsg "whoopediedoo: " <> toLogMsg f
@@ -101,9 +95,6 @@ newtype CounterChanged = CounterChanged Integer
 
 instance ToTypeLogMsg CounterChanged where
   toTypeLogMsg _ = "CounterChanged"
-
-instance ToProtocolName CounterChanged where
-  toProtocolName = "CounterChanged"
 
 type SupiCounter = (Counter, ObserverRegistry CounterChanged, SupiDupi)
 

@@ -749,6 +749,21 @@ instance (ToTypeLogMsg a, ToTypeLogMsg b, ToTypeLogMsg c) => ToTypeLogMsg (a, b,
   toTypeLogMsg _ =
     packLogMsg "Tuple3(" <> toTypeLogMsg (Proxy @a) <> packLogMsg ")(" <> toTypeLogMsg (Proxy @b) <> packLogMsg ")(" <> toTypeLogMsg (Proxy @c) <> packLogMsg ")"
 
+-- instance (ToProtocolName a, ToProtocolName b) => ToProtocolName (a, b) where
+--   toProtocolName = toProtocolName @a <> "_X_" <> toProtocolName @b
+-- 
+-- instance (ToProtocolName a, ToProtocolName b, ToProtocolName c) => ToProtocolName (a, b, c) where
+--   toProtocolName = toProtocolName @((a, b), c)
+-- 
+-- instance (ToProtocolName a, ToProtocolName b, ToProtocolName c, ToProtocolName d) => ToProtocolName (a, b, c, d) where
+--   toProtocolName = toProtocolName @((a, b, c), d)
+-- 
+-- instance (ToProtocolName a, ToProtocolName b, ToProtocolName c, ToProtocolName d, ToProtocolName e) => ToProtocolName (a, b, c, d, e) where
+--   toProtocolName = toProtocolName @((a, b, c, d), e)
+-- 
+-- instance (ToProtocolName a, ToProtocolName b, ToProtocolName c, ToProtocolName d, ToProtocolName e, ToProtocolName f) => ToProtocolName (a, b, c, d, e, f) where
+--   toProtocolName = toProtocolName @((a, b, c, d, e), f)
+
 -- | A 'String' wrapper needed in situations where @OverloadedStrings@ causes
 -- ambiguous types, namely in conjunction with 'ToLogMsg'.
 --

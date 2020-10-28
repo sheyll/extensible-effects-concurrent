@@ -45,7 +45,6 @@ import Data.Kind
 import Data.Monoid (First)
 import Data.Proxy
 import Data.Typeable
-import GHC.Stack (HasCallStack)
 
 -- | A type class for server loops.
 --
@@ -122,10 +121,10 @@ class (ToLogMsg (StartArgument a), Typeable (Protocol a), ToTypeLogMsg (Protocol
 -- @since 0.24.0
 data Stateful a deriving (Typeable)
 
-instance ToProtocolName a => ToProtocolName (Stateful a) where
-  toProtocolName = toProtocolName @a
+instance ToTypeLogMsg a => ToTypeLogMsg (Stateful a) where
+  toTypeLogMsg _ = toTypeLogMsg (Proxy @a)
 
-instance (ToLogMsg (StartArgument a), ToProtocolName a, Server a q) => Effectful.Server (Stateful a) q where
+instance (ToLogMsg (StartArgument a), Server a q) => Effectful.Server (Stateful a) q where
   data Init (Stateful a) = Init (StartArgument a)
   type ServerPdu (Stateful a) = Protocol a
   type ServerEffects (Stateful a) q = ModelState a ': SettingsReader a ': q
@@ -146,8 +145,7 @@ instance (ToLogMsg (StartArgument a)) => ToLogMsg (Effectful.Init (Stateful a)) 
 -- @since 0.24.0
 startLink ::
   forall a r q.
-  ( HasCallStack,
-    FilteredLogging (Processes q),
+  ( FilteredLogging (Processes q),
     Effectful.Server (Stateful a) (Processes q),
     Server a (Processes q),
     HasProcesses r q
@@ -161,8 +159,7 @@ startLink = Effectful.startLink . Init
 -- @since 0.24.0
 start ::
   forall a r q.
-  ( HasCallStack,
-    Effectful.Server (Stateful a) (Processes q),
+  ( Effectful.Server (Stateful a) (Processes q),
     Server a (Processes q),
     FilteredLogging (Processes q),
     HasProcesses r q

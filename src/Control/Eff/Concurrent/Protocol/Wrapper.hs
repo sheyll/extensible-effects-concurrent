@@ -53,7 +53,7 @@ data Request protocol where
     Request protocol
   deriving (Typeable)
 
-instance ToProtocolName protocol => ToLogMsg (Request protocol) where
+instance ToTypeLogMsg protocol => ToLogMsg (Request protocol) where
   toLogMsg = \case
     Call orig pdu -> packLogMsg "call from: " <> toLogMsg orig <> packLogMsg " pdu: " <> toLogMsg pdu
     Cast pdu -> packLogMsg "cast pdu: " <> toLogMsg pdu
@@ -78,7 +78,7 @@ data Reply protocol reply where
 instance NFData (Reply p r) where
   rnf (Reply i r) = rnf i `seq` rnf r
 
-instance (ToLogMsg r, ToProtocolName p) => ToLogMsg (Reply p r) where
+instance (ToLogMsg r, ToTypeLogMsg p) => ToLogMsg (Reply p r) where
   toLogMsg rp =
     packLogMsg "reply: "
       <> toLogMsg (_replyValue rp)
@@ -95,7 +95,7 @@ data RequestOrigin (proto :: Type) reply
       }
   deriving (Typeable, Generic, Eq, Ord)
 
-instance ToProtocolName p => ToLogMsg (RequestOrigin p r) where
+instance ToTypeLogMsg p => ToLogMsg (RequestOrigin p r) where
   toLogMsg ro =
     toLogMsg (Endpoint @p (_requestOriginPid ro))
       <> packLogMsg ('?' : show (_requestOriginCallRef ro))
@@ -119,7 +119,6 @@ instance NFData (RequestOrigin p r)
 -- @since 0.24.3
 toEmbeddedOrigin ::
   forall outer inner reply.
-  Embeds outer inner =>
   RequestOrigin outer reply ->
   RequestOrigin inner reply
 toEmbeddedOrigin (RequestOrigin !pid !ref) = RequestOrigin pid ref
@@ -131,7 +130,9 @@ toEmbeddedOrigin (RequestOrigin !pid !ref) = RequestOrigin pid ref
 -- This function is strict in all parameters.
 --
 -- @since 0.24.2
-embedRequestOrigin :: forall outer inner reply. Embeds outer inner => RequestOrigin inner reply -> RequestOrigin outer reply
+embedRequestOrigin :: 
+  forall outer inner reply. 
+  RequestOrigin inner reply -> RequestOrigin outer reply
 embedRequestOrigin (RequestOrigin !pid !ref) = RequestOrigin pid ref
 
 -- | Turn a 'Serializer' for a 'Pdu' instance that contains embedded 'Pdu' values
@@ -144,7 +145,9 @@ embedRequestOrigin (RequestOrigin !pid !ref) = RequestOrigin pid ref
 -- See also 'toEmbeddedOrigin'.
 --
 -- @since 0.24.2
-embedReplySerializer :: forall outer inner reply. Embeds outer inner => Serializer (Reply outer reply) -> Serializer (Reply inner reply)
+embedReplySerializer :: 
+  forall outer inner reply. 
+  Serializer (Reply outer reply) -> Serializer (Reply inner reply)
 embedReplySerializer = contramap embedReply
 
 -- | Turn an /embedded/ 'Reply' to a 'Reply' for the /bigger/ request.
@@ -152,7 +155,7 @@ embedReplySerializer = contramap embedReply
 -- This function is strict in all parameters.
 --
 -- @since 0.24.2
-embedReply :: forall outer inner reply. Embeds outer inner => Reply inner reply -> Reply outer reply
+embedReply :: forall outer inner reply. Reply inner reply -> Reply outer reply
 embedReply (Reply (RequestOrigin !pid !ref) !v) = Reply (RequestOrigin pid ref) v
 
 -- | Answer a 'Call' by sending the reply value to the client process.
@@ -214,7 +217,10 @@ replyTargetSerializer f (MkReplyTarget (Arg x o)) =
 -- This combines 'replyTarget' and 'toEmbeddedReplyTarget'.
 --
 -- @since 0.26.0
-embeddedReplyTarget :: Embeds outer inner => Serializer (Reply outer reply) -> RequestOrigin outer reply -> ReplyTarget inner reply
+embeddedReplyTarget :: 
+  Serializer (Reply outer reply) -> 
+  RequestOrigin outer reply -> 
+  ReplyTarget inner reply
 embeddedReplyTarget ser orig = toEmbeddedReplyTarget $ replyTarget ser orig
 
 -- | Convert a 'ReplyTarget' to be usable for /embedded/ replies.
@@ -223,6 +229,6 @@ embeddedReplyTarget ser orig = toEmbeddedReplyTarget $ replyTarget ser orig
 -- 'ReplyTarget' that can be passed to functions defined soley on an embedded protocol.
 --
 -- @since 0.26.0
-toEmbeddedReplyTarget :: Embeds outer inner => ReplyTarget outer reply -> ReplyTarget inner reply
+toEmbeddedReplyTarget :: ReplyTarget outer reply -> ReplyTarget inner reply
 toEmbeddedReplyTarget (MkReplyTarget (Arg orig ser)) =
   MkReplyTarget (Arg (toEmbeddedOrigin orig) (embedReplySerializer ser))

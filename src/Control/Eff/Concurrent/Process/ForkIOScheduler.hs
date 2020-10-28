@@ -143,8 +143,7 @@ nextMonitorReference target schedulerState = do
 
 -- | Add monitor: If the process is dead, enqueue a 'ProcessDown' message into the
 -- owners message queue
-addMonitoring ::
-  HasCallStack => MonitorReference -> ProcessId -> SchedulerState -> STM Int
+addMonitoring :: MonitorReference -> ProcessId -> SchedulerState -> STM Int
 addMonitoring monitorRef@(MkMonitorReference _ target) owner schedulerState =
   if target == owner
     then pure 0
@@ -216,14 +215,14 @@ instance Show ProcessInfo where
   show p = "process info: " ++ show (p ^. processId)
 
 -- | Create a new 'ProcessInfo'
-newProcessInfo :: HasCallStack => ProcessId -> ProcessTitle -> STM ProcessInfo
+newProcessInfo :: ProcessId -> ProcessTitle -> STM ProcessInfo
 newProcessInfo a t =
   ProcessInfo a t <$> newTVar (mempty, ProcessBooting) <*> newTVar def <*> newTVar def
 
 -- * Scheduler Implementation
 
 -- | Create a new 'SchedulerState'
-newSchedulerState :: HasCallStack => STM SchedulerState
+newSchedulerState :: STM SchedulerState
 newSchedulerState =
   SchedulerState
     <$> newTVar 1
@@ -359,7 +358,6 @@ handleProcess myProcessInfo actionToRun =
     myMessageQVar = myProcessInfo ^. messageQ
     kontinueWith ::
       forall s v a.
-      HasCallStack =>
       (s -> Arr BaseEffects v a) ->
       (s -> Arr BaseEffects v a)
     kontinueWith kontinue !nextRef !result = do
@@ -368,7 +366,6 @@ handleProcess myProcessInfo actionToRun =
       kontinue nextRef result
     diskontinueWith ::
       forall a.
-      HasCallStack =>
       Arr BaseEffects ShutdownReason a ->
       Arr BaseEffects ShutdownReason a
     diskontinueWith diskontinue !reason = do
@@ -422,7 +419,6 @@ handleProcess myProcessInfo actionToRun =
     -- client code to react to a shutdown request.
     interpretRequestAfterShutdownRequest ::
       forall v a.
-      HasCallStack =>
       Arr BaseEffects ShutdownReason a ->
       ShutdownReason ->
       Process BaseEffects v ->
@@ -449,7 +445,6 @@ handleProcess myProcessInfo actionToRun =
       Unlink _ -> diskontinue shutdownRequest
     interpretRequestAfterInterruptRequest ::
       forall v a.
-      HasCallStack =>
       Arr BaseEffects v a ->
       Arr BaseEffects ShutdownReason a ->
       InterruptReason ->
@@ -851,8 +846,7 @@ spawnNewProcess mLinkedParent title mfa = do
 getSchedulerState :: HasBaseEffects r => Eff r SchedulerState
 getSchedulerState = ask
 
-enqueueMessageOtherProcess ::
-  HasCallStack => ProcessId -> Message -> SchedulerState -> STM Bool
+enqueueMessageOtherProcess :: ProcessId -> Message -> SchedulerState -> STM Bool
 enqueueMessageOtherProcess toPid msg schedulerState =
   view (at toPid) <$> readTVar (schedulerState ^. processTable)
     >>= maybe
@@ -862,8 +856,7 @@ enqueueMessageOtherProcess toPid msg schedulerState =
           return True
       )
 
-enqueueShutdownRequest ::
-  HasCallStack => ProcessId -> InterruptOrShutdown -> SchedulerState -> STM ()
+enqueueShutdownRequest :: ProcessId -> InterruptOrShutdown -> SchedulerState -> STM ()
 enqueueShutdownRequest toPid msg schedulerState =
   view (at toPid) <$> readTVar (schedulerState ^. processTable)
     >>= maybe

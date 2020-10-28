@@ -50,7 +50,6 @@ instance ToTypeLogMsg event => ToLogMsg (ObservationQueue event) where
 await ::
   forall event r.
   ( Member (Reader event) r,
-    HasCallStack,
     MonadIO (Eff r)
   ) =>
   Eff r event
@@ -67,7 +66,6 @@ await = do
 tryRead ::
   forall event r.
   ( Member (Reader event) r,
-    HasCallStack,
     MonadIO (Eff r)
   ) =>
   Eff r (Maybe event)
@@ -85,7 +83,6 @@ tryRead = do
 flush ::
   forall event r.
   ( Member (Reader event) r,
-    HasCallStack,
     MonadIO (Eff r)
   ) =>
   Eff r [event]
@@ -130,8 +127,6 @@ observe ::
     Lifted IO e,
     Lifted IO q,
     IsObservable eventSource event,
-    ToProtocolName (Observer event),
-    ToProtocolName (ObservationQueue event),
     Integral len,
     TangiblePdu eventSource 'Asynchronous
   ) =>
@@ -187,10 +182,7 @@ spawnWriter ::
   forall event r q.
   ( FilteredLogging (Processes q),
     HasProcesses r q,
-    Typeable event,
-    HasCallStack,
-    Server (ObservationQueue event) (Processes q),
-    ToProtocolName (ObservationQueue event)
+    Server (ObservationQueue event) (Processes q)
   ) =>
   ObservationQueue event ->
   Eff r (Endpoint (Observer event))
@@ -207,15 +199,12 @@ spawnWriter q =
 -- @since 0.28.0
 withWriter ::
   forall event eventSource e q b.
-  ( HasCallStack,
-    HasProcesses e q,
+  ( HasProcesses e q,
     Lifted IO q,
     FilteredLogging (Processes q),
     Member Logs q,
     IsObservable eventSource event,
     Member (Reader event) e,
-    ToProtocolName (ObservationQueue event),
-    ToProtocolName (Observer event),
     TangiblePdu eventSource 'Asynchronous
   ) =>
   Endpoint eventSource ->
@@ -235,7 +224,6 @@ instance
   , Lifted IO q
   , Member Logs q
   , ToTypeLogMsg event
-  , ToProtocolName (Observer event)
   ) 
   => Server (ObservationQueue event) (Processes q) where
   type Protocol (ObservationQueue event) = Observer event

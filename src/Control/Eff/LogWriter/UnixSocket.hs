@@ -17,7 +17,6 @@ import Control.Monad.Trans.Control
   )
 import Data.Text as T
 import Data.Text.Encoding as T
-import GHC.Stack
 import Network.Socket hiding (sendTo)
 import Network.Socket.ByteString
 
@@ -26,7 +25,7 @@ import Network.Socket.ByteString
 --
 -- See 'Control.Eff.Log.Examples.exampleDevLogSyslogLogging'
 withUnixSocketLogging ::
-  (HasCallStack, MonadBaseControl IO (Eff e), Lifted IO e) =>
+  (MonadBaseControl IO (Eff e), Lifted IO e) =>
   -- | 'LogEvent' rendering function
   LogEventReader Text ->
   -- | Path to the socket file
@@ -48,7 +47,7 @@ withUnixSocketLogging render socketPath a f p e =
 --
 -- See 'Control.Eff.Log.Examples.exampleDevLogSyslogLogging'
 withUnixSocketLogWriter ::
-  (IoLogging e, MonadBaseControl IO (Eff e), HasCallStack) =>
+  (IoLogging e, MonadBaseControl IO (Eff e)) =>
   -- | 'LogEvent' rendering function
   LogEventReader Text ->
   -- | Path to the socket file
@@ -59,7 +58,6 @@ withUnixSocketLogWriter render socketPath e =
   liftBaseOp (withUnixSocketSocket render socketPath) (`addLogWriter` e)
 
 withUnixSocketSocket ::
-  HasCallStack =>
   -- | 'LogEvent' rendering function
   LogEventReader Text ->
   -- | Path to the socket file

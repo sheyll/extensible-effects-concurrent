@@ -17,7 +17,6 @@ import Control.Monad.Trans.Control
   )
 import Data.Text as T
 import Data.Text.Encoding as T
-import GHC.Stack
 import Network.Socket hiding (sendTo)
 import Network.Socket.ByteString
 
@@ -26,7 +25,7 @@ import Network.Socket.ByteString
 --
 -- See 'Control.Eff.Log.Examples.exampleUdpRFC3164Logging'
 withUDPLogging ::
-  (HasCallStack, MonadBaseControl IO (Eff e), Lifted IO e) =>
+  (MonadBaseControl IO (Eff e), Lifted IO e) =>
   -- | 'LogEvent' rendering function
   (LogEvent -> Text) ->
   -- | Hostname or IP
@@ -50,7 +49,7 @@ withUDPLogging render hostname port a f p e =
 --
 -- See 'Control.Eff.Log.Examples.exampleUdpRFC3164Logging'
 withUDPLogWriter ::
-  (IoLogging e, MonadBaseControl IO (Eff e), HasCallStack) =>
+  (IoLogging e, MonadBaseControl IO (Eff e)) =>
   -- | 'LogEvent' rendering function
   (LogEvent -> Text) ->
   -- | Hostname or IP
@@ -63,7 +62,6 @@ withUDPLogWriter render hostname port e =
   liftBaseOp (withUDPSocket render hostname port) (`addLogWriter` e)
 
 withUDPSocket ::
-  HasCallStack =>
   -- | 'LogEvent' rendering function
   (LogEvent -> Text) ->
   -- | Hostname or IP

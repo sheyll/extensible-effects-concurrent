@@ -691,4 +691,5 @@ instance ToLogMsg (Pdu BookShelf r) where
   toLogMsg (AddBook b) = packLogMsg "add-book: " <> toLogMsg b
   toLogMsg (TakeBook b) = packLogMsg "take-book: " <> toLogMsg b
 
-instance ToTypeLogMsg BookShelf
+instance ToTypeLogMsg BookShelf where
+  toTypeLogMsg _ = fromString "BookShelf"

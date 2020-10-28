@@ -29,6 +29,12 @@ import Control.Eff.Reader.Strict
 import Data.Typeable (Typeable)
 import GHC.Stack
 
+-- instance ToProtocolName protocol => ToProtocolName (Endpoint protocol) where
+--   toProtocolName = toProtocolName @protocol <> "_ep"
+-- 
+-- instance ToProtocolName protocol => ToTypeLogMsg (Endpoint protocol) where
+--   toTypeLogMsg _ = packLogMsg (toProtocolName @(Endpoint protocol))
+-- 
 -- | Send a request 'Pdu' that has no reply and return immediately.
 --
 -- The type signature enforces that the corresponding 'Pdu' clause is
@@ -38,8 +44,7 @@ import GHC.Stack
 -- The message will be reduced to normal form ('rnf') in the caller process.
 cast ::
   forall destination protocol r q.
-  ( HasCallStack,
-    HasProcesses r q,
+  ( HasProcesses r q,
     TangiblePdu destination 'Asynchronous,
     Embeds destination protocol
   ) =>
@@ -59,8 +64,7 @@ call ::
   ( HasProcesses r q,
     TangiblePdu destination ('Synchronous result),
     Tangible result,
-    Embeds destination protocol,
-    HasCallStack
+    Embeds destination protocol
   ) =>
   Endpoint destination ->
   Pdu protocol ('Synchronous result) ->
@@ -98,7 +102,6 @@ callWithTimeout ::
   forall result destination protocol r q.
   ( HasProcesses r q,
     TangiblePdu destination ('Synchronous result),
-    ToProtocolName destination,
     Tangible result,
     Member Logs q,
     Member Logs r,
@@ -160,8 +163,7 @@ type EndpointReader o = Reader (Endpoint o)
 
 -- | Run a reader effect that contains __the one__ server handling a specific
 -- 'Pdu' instance.
-runEndpointReader ::
-  HasCallStack => Endpoint o -> Eff (EndpointReader o ': r) a -> Eff r a
+runEndpointReader :: Endpoint o -> Eff (EndpointReader o ': r) a -> Eff r a
 runEndpointReader = runReader
 
 -- | Get the 'Endpoint' registered with 'runEndpointReader'.
@@ -175,7 +177,6 @@ askEndpoint = ask
 callEndpointReader ::
   forall reply o r q.
   ( HasEndpointReader o r,
-    HasCallStack,
     Tangible reply,
     TangiblePdu o ('Synchronous reply),
     HasProcesses r q,
@@ -195,7 +196,6 @@ castEndpointReader ::
   forall o r q.
   ( HasEndpointReader o r,
     HasProcesses r q,
-    HasCallStack,
     TangiblePdu o 'Asynchronous,
     Embeds o o
   ) =>

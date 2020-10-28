@@ -1,14 +1,9 @@
 module Interactive where
 
 import Common
-import Control.Concurrent
-import Control.Eff
-import Control.Eff.Concurrent.Process
 import qualified Control.Eff.Concurrent.Process.ForkIOScheduler as ForkIOScheduler
 import Control.Eff.Concurrent.Process.Interactive
 import qualified Control.Eff.Concurrent.Process.SingleThreadedScheduler as SingleThreaded
-import Test.Tasty
-import Test.Tasty.HUnit
 
 test_interactive :: TestTree
 test_interactive =

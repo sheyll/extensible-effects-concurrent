@@ -11,7 +11,6 @@ module Common
     module Control.DeepSeq,
     module Control.Eff,
     module Control.Eff.Concurrent,
-    module Control.Eff.Concurrent.Misc,
     module Data.Default,
     module Data.Foldable,
     module Data.Typeable,
@@ -27,7 +26,6 @@ import Control.DeepSeq
 import Control.Eff
 --import           Control.Eff.Log
 import Control.Eff.Concurrent
-import Control.Eff.Concurrent.Misc
 import Control.Eff.Concurrent.Process.ForkIOScheduler as Scheduler
 import Control.Eff.Extend
 import Control.Monad

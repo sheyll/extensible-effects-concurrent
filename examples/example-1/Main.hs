@@ -14,9 +14,6 @@ import GHC.Stack
 data TestProtocol
   deriving (Typeable)
 
-instance ToProtocolName TestProtocol where
-  toProtocolName = "TestProtocol"
-
 instance ToTypeLogMsg TestProtocol where
   toTypeLogMsg _ = "TextProtocol"
 
@@ -52,7 +49,7 @@ main = defaultMain example
 mainProcessSpawnsAChildAndReturns :: HasCallStack => Eff Effects ()
 mainProcessSpawnsAChildAndReturns = void (spawn "some child" (void receiveAnyMessage))
 
-example :: HasCallStack => Eff Effects ()
+example :: Eff Effects ()
 example = do
   me <- self
   logInfo (LABEL "I am " me)

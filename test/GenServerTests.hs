@@ -10,6 +10,7 @@ import Control.Eff.Concurrent.Protocol.Broker as Broker
 import qualified Control.Eff.Concurrent.Protocol.EffectfulServer as E
 import qualified Control.Eff.Concurrent.Protocol.StatefulServer as S
 import Data.Typeable (Typeable)
+import Data.Coerce (coerce)
 
 -- ------------------------------
 
@@ -30,7 +31,8 @@ instance ToLogMsg (Pdu Small r) where
   toLogMsg (SmallCast x) = "SmallCast " <> toLogMsg x
 
 -- ----------------------------------------------------------------------------
-instance ToTypeLogMsg Small
+instance ToTypeLogMsg Small where
+  toTypeLogMsg _ = "Small"
 
 instance IoLogging e => S.Server Small (Processes e) where
   data StartArgument Small = MkSmall deriving (Show)
@@ -52,7 +54,8 @@ instance ToLogMsg (S.StartArgument Small)
 
 data Big deriving (Typeable)
 
-instance ToTypeLogMsg Big
+instance ToTypeLogMsg Big where
+  toTypeLogMsg _ = "Big"
 
 instance HasPdu Big where
   type EmbeddedPduList Big = '[Small]
@@ -91,14 +94,14 @@ instance IoLogging e => S.Server Big (Processes e) where
         BigSmall x ->
           S.coerceEffects
             ( S.update
-                (toEmbeddedEndpoint me)
+                (coerce me)
                 MkSmall
                 (S.OnCall (toEmbeddedReplyTarget rt) x)
             )
     E.OnCast req ->
       case req of
         BigCast o -> S.putModel (BigModel o)
-        BigSmall x -> S.coerceEffects (S.update (toEmbeddedEndpoint me) MkSmall (S.OnCast x))
+        BigSmall x -> S.coerceEffects (S.update (coerce me) MkSmall (S.OnCast x))
     other ->
       interrupt (ErrorInterrupt (toLogMsg other))
 

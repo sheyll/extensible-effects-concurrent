@@ -49,10 +49,7 @@ module Control.Eff.Concurrent.Protocol
     fromEndpoint,
     proxyAsEndpoint,
     asEndpoint,
-    ToProtocolName (..),
-    HasPduPrism (..),
-    toEmbeddedEndpoint,
-    fromEmbeddedEndpoint,
+    HasPduPrism (..)
   )
 where
 
@@ -63,6 +60,7 @@ import Control.Lens
 import Data.Dynamic
 import Data.Kind
 import Data.Typeable ()
+import Data.Proxy
 
 -- | A server process for /protocol/.
 --
@@ -76,58 +74,14 @@ import Data.Typeable ()
 -- As a metaphor, communication between processes can be thought of waiting for
 -- and sending __protocol data units__ belonging to some protocol.
 newtype Endpoint protocol = Endpoint {_fromEndpoint :: ProcessId}
-  deriving (Eq, Ord, Typeable, NFData)
+  deriving (Eq, Ord, Typeable, NFData, Show)
 
--- | A class of _protocol_ types with a short, human readable textual representation.
---
---  The instances of this class are usually the types used in 'Endpoint's
---
--- @since 1.0.0
-class ToProtocolName a where
-  -- | Return the name of a _protocol_.
-  --
-  -- @since 1.0.0
-  toProtocolName :: String
+instance forall protocol. ToTypeLogMsg protocol => ToTypeLogMsg (Endpoint protocol) where
+  toTypeLogMsg _ = toTypeLogMsg (Proxy @protocol) <> "_ep"
 
-  -- | Return the name of a _protocol_ from an arbitrary @proxy@.
-  --
-  -- Note: You can simply use 'Endpoint' as proxy:
-  --
-  -- > toProtocolNameProxy (Enpoint bookStorePid :: Endpoint BookStore)
-  --
-  -- @since 1.0.0
-  toProtocolNameProxy :: proxy a -> String
-  toProtocolNameProxy _ = toProtocolName @a
-
-instance ToProtocolName protocol => Show (Endpoint protocol) where
-  showsPrec d (Endpoint c) =
-    showParen
-      (d >= 10)
-      (showString (toProtocolName @protocol) . showsPrec 10 c)
-
-instance ToProtocolName protocol => ToLogMsg (Endpoint protocol) where
-  toLogMsg ep = packLogMsg (toProtocolName @protocol) <> toLogMsg (_fromEndpoint ep)
-
-instance ToProtocolName protocol => ToProtocolName (Endpoint protocol) where
-  toProtocolName = toProtocolName @protocol <> "_ep"
-
-instance ToProtocolName protocol => ToTypeLogMsg (Endpoint protocol) where
-  toTypeLogMsg _ = packLogMsg (toProtocolName @(Endpoint protocol))
-
-instance (ToProtocolName a, ToProtocolName b) => ToProtocolName (a, b) where
-  toProtocolName = toProtocolName @a <> "_X_" <> toProtocolName @b
-
-instance (ToProtocolName a, ToProtocolName b, ToProtocolName c) => ToProtocolName (a, b, c) where
-  toProtocolName = toProtocolName @((a, b), c)
-
-instance (ToProtocolName a, ToProtocolName b, ToProtocolName c, ToProtocolName d) => ToProtocolName (a, b, c, d) where
-  toProtocolName = toProtocolName @((a, b, c), d)
-
-instance (ToProtocolName a, ToProtocolName b, ToProtocolName c, ToProtocolName d, ToProtocolName e) => ToProtocolName (a, b, c, d, e) where
-  toProtocolName = toProtocolName @((a, b, c, d), e)
-
-instance (ToProtocolName a, ToProtocolName b, ToProtocolName c, ToProtocolName d, ToProtocolName e, ToProtocolName f) => ToProtocolName (a, b, c, d, e, f) where
-  toProtocolName = toProtocolName @((a, b, c, d, e), f)
+instance ToTypeLogMsg protocol => ToLogMsg (Endpoint protocol) where
+  toLogMsg (Endpoint pid) =
+    toTypeLogMsg (Proxy @protocol) <> toLogMsg pid
 
 -- | This type class and the associated data family defines the
 -- __protocol data units__ (PDU) of a /protocol/.
@@ -250,7 +204,7 @@ type TangiblePdu p r =
     Typeable r,
     Tangible (Pdu p r),
     HasPdu p,
-    ToProtocolName p,
+    ToTypeLogMsg p,
     ToLogMsg (Pdu p r)
   )
 
@@ -391,22 +345,6 @@ class
     Pdu protocol result ->
     Maybe (Pdu embeddedProtocol result)
   fromPdu = preview embeddedPdu
-
--- | Convert an 'Endpoint' to an endpoint for an embedded protocol.
---
--- See 'Embeds', 'fromEmbeddedEndpoint'.
---
--- @since 0.25.1
-toEmbeddedEndpoint :: forall inner outer. Embeds outer inner => Endpoint outer -> Endpoint inner
-toEmbeddedEndpoint (Endpoint e) = Endpoint e
-
--- | Convert an 'Endpoint' to an endpoint for a server, that embeds the protocol.
---
--- See 'Embeds', 'toEmbeddedEndpoint'.
---
--- @since 0.25.1
-fromEmbeddedEndpoint :: forall outer inner. HasPduPrism outer inner => Endpoint inner -> Endpoint outer
-fromEmbeddedEndpoint (Endpoint e) = Endpoint e
 
 instance (Typeable a) => HasPduPrism a a where
   embeddedPdu = prism' id Just

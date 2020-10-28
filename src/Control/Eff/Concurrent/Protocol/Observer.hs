@@ -74,9 +74,6 @@ instance ToTypeLogMsg event => ToLogMsg (Observer event) where
 instance ToTypeLogMsg event => ToTypeLogMsg (Observer event) where
   toTypeLogMsg _ = toTypeLogMsg (Proxy @event) <> packLogMsg "_observer"
 
-instance ToProtocolName event => ToProtocolName (Observer event) where
-  toProtocolName  = toProtocolName @event <> "_observer"
-
 instance NFData (Observer event) where
   rnf (MkObserver (Arg x y)) = rnf x `seq` rnf y
 
@@ -135,8 +132,7 @@ type CanObserve eventSink event =
 -- @since 0.16.0
 registerObserver ::
   forall event eventSink eventSource r q.
-  ( HasCallStack,
-    HasProcesses r q,
+  ( HasProcesses r q,
     TangiblePdu eventSource 'Asynchronous,
     IsObservable eventSource event,
     TangiblePdu eventSink 'Asynchronous,
@@ -161,7 +157,6 @@ registerObserver eventSource eventSink =
 forgetObserver ::
   forall event eventSink eventSource r q.
   ( HasProcesses r q,
-    HasCallStack,
     TangiblePdu eventSource 'Asynchronous,
     IsObservable eventSource event
   ) =>
@@ -177,7 +172,6 @@ forgetObserver eventSource eventSink =
 forgetObserverUnsafe ::
   forall event eventSource r q.
   ( HasProcesses r q,
-    HasCallStack,
     TangiblePdu eventSource 'Asynchronous,
     IsObservable eventSource event
   ) =>
@@ -202,9 +196,6 @@ data ObserverRegistry (event :: Type)
 
 instance ToTypeLogMsg event => ToTypeLogMsg (ObserverRegistry event) where
   toTypeLogMsg _ = toTypeLogMsg (Proxy @event) <> packLogMsg "_observer_registry_event"
-
-instance ToProtocolName event => ToProtocolName (ObserverRegistry event) where
-  toProtocolName = toProtocolName @event <> "_observer_registry_event"
 
 instance (Tangible event) => HasPdu (ObserverRegistry event) where
   data Pdu (ObserverRegistry event) r where
@@ -298,7 +289,7 @@ observerRegistryRemoveProcess ob = do
 -- Handle the 'ObserverRegistryState' effect, i.e. run 'evalState' on an 'emptyObserverRegistry'.
 --
 -- @since 0.28.0
-evalObserverRegistryState :: HasCallStack => Eff (ObserverRegistryState event ': r) a -> Eff r a
+evalObserverRegistryState :: Eff (ObserverRegistryState event ': r) a -> Eff r a
 evalObserverRegistryState = evalState emptyObserverRegistry
 
 -- | The empty 'ObserverRegistryState'
@@ -321,8 +312,7 @@ observerRegistry = iso _observerRegistry MkObserverRegistry
 observerRegistryNotify ::
   forall event r q.
   ( HasProcesses r q,
-    Member (ObserverRegistryState event) r,
-    HasCallStack
+    Member (ObserverRegistryState event) r
   ) =>
   event ->
   Eff r ()

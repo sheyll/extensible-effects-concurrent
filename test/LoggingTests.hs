@@ -1,15 +1,11 @@
 module LoggingTests where
 
 import Common
-import Control.Eff
-import Control.Eff.Concurrent
 import qualified Control.Eff.LogWriter.Async as Async
 import qualified Control.Eff.LogWriter.UDP as UDP
 import Control.Lens
 import Control.Monad.Trans.Control (liftBaseOp)
 import qualified Data.Text as T
-import Test.Tasty
-import Test.Tasty.HUnit
 
 test_Logging :: TestTree
 test_Logging =
@@ -122,7 +118,7 @@ instance ToLogMsg Bubu where toLogMsg _ = "bubu"
 
 newtype Yumi = Yumi Double deriving (ToLogMsg)
 
-udpLogging :: HasCallStack => TestTree
+udpLogging :: TestTree
 udpLogging =
   testCase "udp logging"
     $ runLift
@@ -135,7 +131,7 @@ udpLogging =
       allLogEvents
       test1234
 
-udpNestedLogging :: HasCallStack => TestTree
+udpNestedLogging :: TestTree
 udpNestedLogging =
   testCase "udp nested filteredlogging"
     $ runLift
@@ -146,7 +142,7 @@ udpNestedLogging =
       "9999"
       test1234
 
-asyncLogging :: HasCallStack => TestTree
+asyncLogging :: TestTree
 asyncLogging =
   testCase "async filteredlogging" $
     do
@@ -160,7 +156,7 @@ asyncLogging =
           allLogEvents
           test1234
 
-asyncNestedLogging :: HasCallStack => TestTree
+asyncNestedLogging :: TestTree
 asyncNestedLogging =
   testCase "async nested filteredlogging" $
     do

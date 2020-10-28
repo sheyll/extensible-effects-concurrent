@@ -77,10 +77,8 @@ allTests schedulerFactory =
 data ReturnToSender
   deriving (Typeable)
 
-instance ToProtocolName ReturnToSender where
-  toProtocolName = "ReturnToSender"
-
-instance ToTypeLogMsg ReturnToSender
+instance ToTypeLogMsg ReturnToSender where
+  toTypeLogMsg _ = "ReturnToSender"
 
 instance HasPdu ReturnToSender where
   data Pdu ReturnToSender r where
@@ -99,7 +97,7 @@ deriving instance Typeable (Pdu ReturnToSender x)
 
 returnToSender ::
   forall q r.
-  (HasCallStack, HasProcesses r q) =>
+  HasProcesses r q =>
   Endpoint ReturnToSender ->
   String ->
   Eff r Bool
@@ -111,14 +109,14 @@ returnToSender toP msg = do
 
 stopReturnToSender ::
   forall q r.
-  (HasCallStack, HasProcesses r q) =>
+  HasProcesses r q =>
   Endpoint ReturnToSender ->
   Eff r ()
 stopReturnToSender toP = call toP StopReturnToSender
 
 returnToSenderServer ::
   forall q.
-  (HasCallStack, IoLogging q, Typeable q) =>
+  (IoLogging q, Typeable q) =>
   Eff (Processes q) (Endpoint ReturnToSender)
 returnToSenderServer =
   Callback.startLink @ReturnToSender $
@@ -264,7 +262,9 @@ delayTests schedulerFactory =
                                 receiveMessage @Int >>= sendMessage me
                             )
                         let x1, x2, x3 :: Int
-                            [x1, x2, x3] = [1 .. 3]
+                            x1 = 1
+                            x2 = 2
+                            x3 = 3
                         receiveMessage >>= lift . assertBool "sleeper not started"
                         sendMessage sleeper x1
                         sendMessage sleeper x2
@@ -517,8 +517,8 @@ concurrencyTests schedulerFactory =
               me <- self
               traverse_
                 ( \(i :: Int) -> spawn "killer" $ do
-                    when (i `rem` 5 == 0) $ void $ sendMessage me i
-                    foreverCheap $ void (sendShutdown 999 ExitNormally)
+                    when (i `rem` 5 == 0) $ sendMessage me i
+                    foreverCheap $ sendShutdown 999 ExitNormally
                 )
                 [0 .. n]
               oks <- replicateM (length [0, 5 .. n]) receiveMessage

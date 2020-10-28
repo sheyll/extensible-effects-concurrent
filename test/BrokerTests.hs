@@ -336,7 +336,8 @@ test_Broker =
 
 data TestProtocol deriving (Typeable)
 
-instance ToTypeLogMsg TestProtocol
+instance ToTypeLogMsg TestProtocol where
+  toTypeLogMsg _ = fromString "TestProtocol"
 
 instance HasPdu TestProtocol where
   data Pdu TestProtocol x where

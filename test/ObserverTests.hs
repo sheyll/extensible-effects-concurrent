@@ -282,7 +282,7 @@ instance HasPduPrism TestObservable (ObserverRegistry String) where
   fromPdu (TestObsReg x) = Just x
   fromPdu _ = Nothing
 
-instance Typeable r => NFData (Pdu TestObservable r) where
+instance NFData (Pdu TestObservable r) where
   rnf (SendTestEvent s) = rnf s
   rnf StopTestObservable = ()
   rnf (TestObsReg x) = rnf x
@@ -314,7 +314,8 @@ instance (IoLogging r, HasProcesses r q) => S.Server TestObservable r where
 
 instance ToLogMsg (S.Init TestObservable)
 
-instance ToTypeLogMsg TestObservable
+instance ToTypeLogMsg TestObservable where
+  toTypeLogMsg _ = "TestObservable"
 
 data TestObserver deriving (Typeable)
 
@@ -352,4 +353,5 @@ instance (IoLogging r, HasProcesses r q) => M.Server TestObserver r where
 
 instance ToLogMsg (M.StartArgument TestObserver)
 
-instance ToTypeLogMsg TestObserver
+instance ToTypeLogMsg TestObserver where
+  toTypeLogMsg _ = "TestObserver"

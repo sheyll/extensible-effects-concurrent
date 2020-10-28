@@ -1,4 +1,5 @@
 -- | A coroutine based, single threaded scheduler for 'Process'es.
+-- TODO: REMOVE
 module Control.Eff.Concurrent.Process.SingleThreadedScheduler
   ( scheduleM,
     scheduleMonadIOEff,
@@ -20,7 +21,6 @@ where
 
 import Control.Concurrent (yield)
 import Control.Eff
-import Control.Eff.Concurrent.Misc
 import Control.Eff.Concurrent.Process
 import Control.Eff.Extend
 import Control.Eff.Log
@@ -37,7 +37,6 @@ import Control.Monad
 import Control.Monad.IO.Class
 import qualified Control.Monad.State.Strict as State
 import Data.Coerce
-import Data.Dynamic (dynTypeRep)
 import Data.Foldable
 import Data.Function (fix)
 import Data.Kind ()

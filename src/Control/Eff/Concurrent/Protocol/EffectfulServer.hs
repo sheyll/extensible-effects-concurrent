@@ -22,7 +22,6 @@ import Control.Eff.Log
 import Control.Lens
 import Data.Kind
 import Data.Typeable
-import GHC.Stack (HasCallStack)
 
 -- | A type class for effectful server loops.
 --
@@ -93,8 +92,7 @@ start ::
     Typeable (ServerPdu a),
     FilteredLogging (Processes q),
     HasProcesses (ServerEffects a (Processes q)) q,
-    HasProcesses r q,
-    HasCallStack
+    HasProcesses r q
   ) =>
   Init a ->
   Eff r (Endpoint (ServerPdu a))
@@ -109,8 +107,7 @@ startLink ::
     Server a (Processes q),
     FilteredLogging (Processes q),
     HasProcesses (ServerEffects a (Processes q)) q,
-    HasProcesses r q,
-    HasCallStack
+    HasProcesses r q
   ) =>
   Init a ->
   Eff r (Endpoint (ServerPdu a))
