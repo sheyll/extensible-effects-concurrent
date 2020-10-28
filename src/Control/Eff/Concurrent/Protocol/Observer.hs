@@ -74,6 +74,9 @@ instance ToTypeLogMsg event => ToLogMsg (Observer event) where
 instance ToTypeLogMsg event => ToTypeLogMsg (Observer event) where
   toTypeLogMsg _ = toTypeLogMsg (Proxy @event) <> packLogMsg "_observer"
 
+instance ToProtocolName event => ToProtocolName (Observer event) where
+  toProtocolName  = toProtocolName @event <> "_observer"
+
 instance NFData (Observer event) where
   rnf (MkObserver (Arg x y)) = rnf x `seq` rnf y
 

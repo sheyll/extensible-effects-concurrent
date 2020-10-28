@@ -31,6 +31,9 @@ instance HasPdu Counter where
 instance ToTypeLogMsg Counter where
   toTypeLogMsg _ = "Counter"
 
+instance ToProtocolName Counter where
+  toProtocolName = "Counter"
+
 instance ToLogMsg (Pdu Counter x) where
   toLogMsg Inc = packLogMsg "increment"
   toLogMsg Cnt = packLogMsg "get-count"
@@ -95,6 +98,9 @@ instance NFData (Pdu SupiDupi r) where
 
 newtype CounterChanged = CounterChanged Integer
   deriving (Show, Typeable, NFData, ToLogMsg)
+
+instance ToTypeLogMsg CounterChanged where
+  toTypeLogMsg _ = "CounterChanged"
 
 instance ToProtocolName CounterChanged where
   toProtocolName = "CounterChanged"
