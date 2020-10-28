@@ -24,7 +24,6 @@ where
 
 import Control.DeepSeq
 import Control.Eff
-import Control.Eff.Concurrent.Misc
 import Control.Eff.Concurrent.Process
 import Control.Eff.Concurrent.Protocol
 import qualified Control.Eff.Concurrent.Protocol.EffectfulServer as E
@@ -76,8 +75,8 @@ startLink = E.startLink
 -- @since 0.27.0
 data Server tag eLoop e deriving (Typeable)
 
-instance ToProtocolName tag => ToProtocolName (Server tag eLoop e) where
-  toProtocolName = toProtocolName @tag
+instance ToTypeLogMsg tag => ToTypeLogMsg (Server tag eLoop e) where
+  toTypeLogMsg _ = toTypeLogMsg (Proxy @tag)
 
 -- | The constraints for a /tangible/ 'Server' instance.
 --
@@ -112,7 +111,7 @@ instance (ToProtocolName tag) => Show (ServerId tag) where
           . showString (toProtocolNameProxy px)
       )
 
-instance (ToLogMsg (E.Init (Server tag eLoop e)), ToProtocolName tag, TangibleCallbacks tag eLoop e) => E.Server (Server (tag :: Type) eLoop e) (Processes e) where
+instance (ToLogMsg (E.Init (Server tag eLoop e)), ToTypeLogMsg tag, TangibleCallbacks tag eLoop e) => E.Server (Server (tag :: Type) eLoop e) (Processes e) where
   type ServerPdu (Server tag eLoop e) = tag
   type ServerEffects (Server tag eLoop e) (Processes e) = eLoop
   data Init (Server tag eLoop e)
@@ -164,11 +163,6 @@ callbacks evtCb i = callbacksEff (const id) evtCb i
 -- @since 0.29.1
 onEvent ::
   forall tag q.
-  ( HasCallStack,
-    TangibleCallbacks tag (Processes q) q,
-    E.Server (Server tag (Processes q) q) (Processes q),
-    FilteredLogging q
-  ) =>
   (Event tag -> Eff (Processes q) ()) ->
   ServerId (tag :: Type) ->
   Callbacks tag q
@@ -198,11 +192,6 @@ callbacksEff a b c = MkServer c a b
 --
 -- @since 0.29.1
 onEventEff ::
-  ( HasCallStack,
-    TangibleCallbacks tag eLoop q,
-    E.Server (Server tag eLoop q) (Processes q),
-    FilteredLogging q
-  ) =>
   (forall a. Eff eLoop a -> Eff (Processes q) a) ->
   (Event tag -> Eff eLoop ()) ->
   ServerId (tag :: Type) ->

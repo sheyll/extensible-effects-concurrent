@@ -20,10 +20,8 @@ import Control.Eff.Concurrent.Protocol.Wrapper
 import Control.Eff.Extend ()
 import Control.Eff.Log
 import Control.Lens
-import Data.Coerce
 import Data.Kind
 import Data.Typeable
-import Data.String
 import GHC.Stack (HasCallStack)
 
 -- | A type class for effectful server loops.
@@ -38,7 +36,7 @@ import GHC.Stack (HasCallStack)
 -- instances exist, like 2-,3-,4-, or 5-tuple.
 --
 -- @since 0.24.1
-class (ToLogMsg (Init a), ToProtocolName a) => Server (a :: Type) (e :: [Type -> Type]) where
+class (ToLogMsg (Init a)) => Server (a :: Type) (e :: [Type -> Type]) where
   -- | The value that defines what is required to initiate a 'Server'
   -- loop.
   data Init a
@@ -61,8 +59,8 @@ class (ToLogMsg (Init a), ToProtocolName a) => Server (a :: Type) (e :: [Type ->
   --
   -- Usually you should rely on the default implementation
   serverTitle :: Init a -> ProcessTitle
-  default serverTitle :: Init a -> ProcessTitle
-  serverTitle _ = fromString (toProtocolName @a)
+  default serverTitle :: ToTypeLogMsg a => Init a -> ProcessTitle
+  serverTitle x = MkProcessTitle (toTypeLogMsg x)
 
   -- | Process the effects of the implementation
   runEffects :: Endpoint (ServerPdu a) -> Init a -> Eff (ServerEffects a e) x -> Eff e x
@@ -71,7 +69,7 @@ class (ToLogMsg (Init a), ToProtocolName a) => Server (a :: Type) (e :: [Type ->
 
   -- | Update the 'Model' based on the 'Event'.
   onEvent :: Endpoint (ServerPdu a) -> Init a -> Event (ServerPdu a) -> Eff (ServerEffects a e) ()
-  default onEvent :: (ToProtocolName (ServerPdu a), Member Logs (ServerEffects a e)) => Endpoint (ServerPdu a) -> Init a -> Event (ServerPdu a) -> Eff (ServerEffects a e) ()
+  default onEvent :: (Member Logs (ServerEffects a e)) => Endpoint (ServerPdu a) -> Init a -> Event (ServerPdu a) -> Eff (ServerEffects a e) ()
   onEvent _ i e = logInfo (MkUnhandledEvent i e)
 
 data UnhandledEvent a where
@@ -185,7 +183,7 @@ data Event a where
   OnMessage :: Message -> Event a
   deriving (Typeable)
 
-instance ToProtocolName a => ToLogMsg (Event a) where
+instance ToLogMsg (Event a) where
   toLogMsg x =
     packLogMsg "event: "
       <> case x of
