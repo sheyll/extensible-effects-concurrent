@@ -1,3 +1,5 @@
+{-# LANGUAGE TypeApplications #-}
+
 -- | This helps to setup logging to a /file/.
 module Control.Eff.LogWriter.File
   ( withFileLogging,
@@ -14,7 +16,6 @@ import Control.Monad.Trans.Control
   ( MonadBaseControl,
     liftBaseOp,
   )
-import GHC.Stack
 import System.Directory
   ( canonicalizePath,
     createDirectoryIfMissing,
@@ -37,7 +38,7 @@ import qualified System.IO as IO
 --
 -- To vary the 'LogWriter' use 'withRichLogging'.
 withFileLogging ::
-  (Lifted IO e, MonadBaseControl IO (Eff e), HasCallStack) =>
+  (Lifted IO e, MonadBaseControl IO (Eff e)) =>
   -- | Path to the log-file.
   FilePath ->
   -- | The default application name to put into the 'logEventAppName' field.
@@ -65,7 +66,7 @@ withFileLogging fnIn a f p render e = do
 -- >   $ withFileLogWriter "test.log" renderLogEventConsoleLog
 -- >   $ logInfo "Oh, hi there"
 withFileLogWriter ::
-  (IoLogging e, MonadBaseControl IO (Eff e), HasCallStack) =>
+  (IoLogging e, MonadBaseControl IO (Eff e)) =>
   -- | Path to the log-file.
   FilePath ->
   LogEventPrinter ->
@@ -75,7 +76,6 @@ withFileLogWriter fnIn render e =
   liftBaseOp (withOpenedLogFile fnIn render) (`addLogWriter` e)
 
 withOpenedLogFile ::
-  HasCallStack =>
   FilePath ->
   LogEventPrinter ->
   (LogWriter -> IO a) ->

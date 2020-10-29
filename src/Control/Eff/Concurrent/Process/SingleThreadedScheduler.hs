@@ -1,3 +1,5 @@
+{-# LANGUAGE BangPatterns #-}
+
 -- | A coroutine based, single threaded scheduler for 'Process'es.
 -- TODO: REMOVE
 module Control.Eff.Concurrent.Process.SingleThreadedScheduler
@@ -135,8 +137,9 @@ newProcessQ parentLink title sts =
      in case parentLink of
           Nothing -> stsQ
           Just pid ->
-            let (Nothing, stsQL) = addLink pid (sts ^. nextPid) stsQ -- TODO handle 'Just interrupt'
-             in stsQL
+            case addLink pid (sts ^. nextPid) stsQ of
+              (Nothing, stQL) -> stQL
+              (Just _, _) -> error "TODO handle 'Just interrupt'"
   )
 
 flushMsgs :: ProcessId -> STS m r -> ([Message], STS m r)
@@ -264,7 +267,6 @@ scheduleMonadIOEff =
 --
 -- @since 0.4.0.0
 scheduleIOWithLogging ::
-  HasCallStack =>
   LogWriter ->
   Eff EffectsIo a ->
   IO (Either ShutdownReason a)
@@ -628,7 +630,7 @@ handleProcess sts allProcs@((!processState, !pid) :<| rest) =
 -- All logging is written to the console using 'consoleLogWriter'.
 --
 -- To use another 'LogWriter' use 'defaultMainWithLogWriter' instead.
-defaultMain :: HasCallStack => Eff EffectsIo () -> IO ()
+defaultMain :: Eff EffectsIo () -> IO ()
 defaultMain e =
   consoleLogWriter
     >>= ( \lw ->
@@ -643,7 +645,7 @@ defaultMain e =
 -- All logging is written using the given 'LogWriter'.
 --
 -- @since 0.25.0
-defaultMainWithLogWriter :: HasCallStack => LogWriter -> Eff EffectsIo () -> IO ()
+defaultMainWithLogWriter :: LogWriter -> Eff EffectsIo () -> IO ()
 defaultMainWithLogWriter lw =
   void
     . runLift

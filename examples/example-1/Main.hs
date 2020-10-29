@@ -9,13 +9,12 @@ import Control.Eff.Concurrent.Protocol.EffectfulServer as Server
 import qualified Control.Exception as Exc
 import Control.Monad
 import Data.Dynamic
-import GHC.Stack
 
 data TestProtocol
   deriving (Typeable)
 
 instance ToTypeLogMsg TestProtocol where
-  toTypeLogMsg _ = "TextProtocol"
+  toTypeLogMsg _ = "TestProtocol"
 
 instance HasPdu TestProtocol where
   data Pdu TestProtocol x where
@@ -46,7 +45,7 @@ instance Exc.Exception MyException
 main :: IO ()
 main = defaultMain example
 
-mainProcessSpawnsAChildAndReturns :: HasCallStack => Eff Effects ()
+mainProcessSpawnsAChildAndReturns :: Eff Effects ()
 mainProcessSpawnsAChildAndReturns = void (spawn "some child" (void receiveAnyMessage))
 
 example :: Eff Effects ()

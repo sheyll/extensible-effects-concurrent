@@ -46,6 +46,7 @@ common compiler-flags
     -Wpartial-fields
     -- -Wmissing-deriving-strategies
     -fno-full-laziness
+    -Werror
   default-extensions:
      AllowAmbiguousTypes,
      BangPatterns,

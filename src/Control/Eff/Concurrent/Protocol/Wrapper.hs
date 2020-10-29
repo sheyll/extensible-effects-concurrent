@@ -1,3 +1,6 @@
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE TypeApplications #-}
+
 -- | Proxies and containers for casts and calls.
 --
 -- @since 0.15.0
@@ -25,6 +28,7 @@ import Control.Eff.Concurrent.Process
 import Control.Eff.Concurrent.Protocol
 import Control.Eff.Log.Message
 import Control.Lens
+import Data.Coerce (coerce)
 import Data.Kind (Type)
 import Data.Semigroup
 import Data.Typeable (Typeable)
@@ -130,9 +134,10 @@ toEmbeddedOrigin (RequestOrigin !pid !ref) = RequestOrigin pid ref
 -- This function is strict in all parameters.
 --
 -- @since 0.24.2
-embedRequestOrigin :: 
-  forall outer inner reply. 
-  RequestOrigin inner reply -> RequestOrigin outer reply
+embedRequestOrigin ::
+  forall outer inner reply.
+  RequestOrigin inner reply ->
+  RequestOrigin outer reply
 embedRequestOrigin (RequestOrigin !pid !ref) = RequestOrigin pid ref
 
 -- | Turn a 'Serializer' for a 'Pdu' instance that contains embedded 'Pdu' values
@@ -145,9 +150,10 @@ embedRequestOrigin (RequestOrigin !pid !ref) = RequestOrigin pid ref
 -- See also 'toEmbeddedOrigin'.
 --
 -- @since 0.24.2
-embedReplySerializer :: 
-  forall outer inner reply. 
-  Serializer (Reply outer reply) -> Serializer (Reply inner reply)
+embedReplySerializer ::
+  forall outer inner reply.
+  Serializer (Reply outer reply) ->
+  Serializer (Reply inner reply)
 embedReplySerializer = contramap embedReply
 
 -- | Turn an /embedded/ 'Reply' to a 'Reply' for the /bigger/ request.
@@ -156,7 +162,9 @@ embedReplySerializer = contramap embedReply
 --
 -- @since 0.24.2
 embedReply :: forall outer inner reply. Reply inner reply -> Reply outer reply
-embedReply (Reply (RequestOrigin !pid !ref) !v) = Reply (RequestOrigin pid ref) v
+embedReply = coerce
+
+-- (Reply (RequestOrigin !pid !ref) !v) = Reply (RequestOrigin pid ref) v
 
 -- | Answer a 'Call' by sending the reply value to the client process.
 --
@@ -217,9 +225,10 @@ replyTargetSerializer f (MkReplyTarget (Arg x o)) =
 -- This combines 'replyTarget' and 'toEmbeddedReplyTarget'.
 --
 -- @since 0.26.0
-embeddedReplyTarget :: 
-  Serializer (Reply outer reply) -> 
-  RequestOrigin outer reply -> 
+embeddedReplyTarget ::
+  forall outer inner reply.
+  Serializer (Reply outer reply) ->
+  RequestOrigin outer reply ->
   ReplyTarget inner reply
 embeddedReplyTarget ser orig = toEmbeddedReplyTarget $ replyTarget ser orig
 
@@ -229,6 +238,9 @@ embeddedReplyTarget ser orig = toEmbeddedReplyTarget $ replyTarget ser orig
 -- 'ReplyTarget' that can be passed to functions defined soley on an embedded protocol.
 --
 -- @since 0.26.0
-toEmbeddedReplyTarget :: ReplyTarget outer reply -> ReplyTarget inner reply
+toEmbeddedReplyTarget ::
+  forall outer inner reply.
+  ReplyTarget outer reply ->
+  ReplyTarget inner reply
 toEmbeddedReplyTarget (MkReplyTarget (Arg orig ser)) =
   MkReplyTarget (Arg (toEmbeddedOrigin orig) (embedReplySerializer ser))

@@ -42,14 +42,12 @@ import Control.Eff.Concurrent hiding
     schedule,
   )
 import Control.Eff.Concurrent.Process.SingleThreadedScheduler
-import GHC.Stack (HasCallStack)
 
 -- | Run the 'Effects' using a single threaded, coroutine based, scheduler
 -- from "Control.Eff.Concurrent.Process.SingleThreadedScheduler".
 --
 -- @since 0.25.0
 schedule ::
-  HasCallStack =>
   LogWriter ->
   Eff Effects a ->
   IO (Either ShutdownReason a)

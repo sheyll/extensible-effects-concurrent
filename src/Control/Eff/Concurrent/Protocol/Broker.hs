@@ -1,3 +1,4 @@
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE UndecidableInstances #-}
 
 -- | A process broker spawns and monitors child processes.
@@ -122,7 +123,7 @@ startLink = Stateful.startLink
 -- The user needs to instantiate @'ChildId' p@.
 --
 -- @since 0.30.0
-statefulChild :: forall p . Timeout -> (ChildId p -> Stateful.StartArgument p) -> Stateful.StartArgument (Broker (Stateful.Stateful p))
+statefulChild :: forall p. Timeout -> (ChildId p -> Stateful.StartArgument p) -> Stateful.StartArgument (Broker (Stateful.Stateful p))
 statefulChild t f = MkBrokerConfig t (Stateful.Init . f)
 
 -- | Stop the broker and shutdown all processes.
@@ -156,7 +157,8 @@ isBrokerAlive x = isProcessAlive (_fromEndpoint x)
 --
 -- @since 0.23.0
 monitorBroker ::
-  forall p q0 e. HasProcesses e q0 =>
+  forall p q0 e.
+  HasProcesses e q0 =>
   Endpoint (Broker p) ->
   Eff e MonitorReference
 monitorBroker x = monitor (_fromEndpoint x)
@@ -278,7 +280,8 @@ instance NFData (ChildId c) => NFData (ChildNotFound c) where
   rnf (ChildNotFound cId broker) = rnf cId `seq` rnf broker `seq` ()
 
 castById ::
-  forall destination protocol e . HasCallStack =>
+  forall destination protocol e.
+  HasCallStack =>
   Endpoint (Broker destination) ->
   ChildId destination ->
   Pdu protocol 'Asynchronous ->
@@ -526,8 +529,6 @@ data SpawnErr p = AlreadyStarted (ChildId p) (Endpoint (Effectful.ServerPdu p))
 deriving instance Eq (ChildId p) => Eq (SpawnErr p)
 
 deriving instance Ord (ChildId p) => Ord (SpawnErr p)
-
-deriving instance (ToTypeLogMsg (Effectful.ServerPdu p), Typeable (Effectful.ServerPdu p), Show (ChildId p)) => Show (SpawnErr p)
 
 instance NFData (ChildId p) => NFData (SpawnErr p)
 

@@ -1,4 +1,6 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE QuantifiedConstraints #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- | This modules contains RFC 5434 inspired logging data types for log events.
 module Control.Eff.Log.Message
@@ -37,20 +39,20 @@ module Control.Eff.Log.Message
     packLogMsg,
     ToTypeLogMsg (..),
     StringLogMsg (..),
-    AsLogMsg(..),
+    AsLogMsg (..),
     showAsLogMsg,
-    LabelMsg(..),
-    SpaceMsg(..),
+    LabelMsg (..),
+    SpaceMsg (..),
     spaceMsg,
-    SeparatorMsg(..),
+    SeparatorMsg (..),
     separatorMsg,
     Returns,
-    LogMsgAppender(..),
+    LogMsgAppender (..),
     concatMsgs,
     concatMsgsWith,
     spaced,
     separated,
-    InBrackets(..),
+    InBrackets (..),
     inBrackets,
 
     -- * 'LogEvent' Predicates #PredefinedPredicates#
@@ -117,6 +119,7 @@ import Control.Lens
 import Data.Default
 import Data.Function (on)
 import Data.Hashable
+import Data.Kind (Constraint)
 import Data.Maybe
 import Data.String
 import qualified Data.Text as T
@@ -126,7 +129,6 @@ import Data.Void
 import GHC.Generics hiding (to)
 import GHC.Stack
 import Network.HostName as Network
-import Data.Kind (Constraint)
 
 -- | A data type describing a complete logging event, usually consisting of
 -- e.g. a log message, a timestamp and a severity.
@@ -575,7 +577,6 @@ instance (ToLogMsg a, ToLogMsg b, ToLogMsg c, ToLogMsg d) => ToLogMsg (a, b, c, 
   toLogMsg (a, b, c, d) =
     concatMsgs (inBrackets a) SPC (inBrackets b) SPC (inBrackets c) SPC (inBrackets d)
 
-
 -- | A 'LogMsg' in brackets, i.e. @"(" <> logMsg <> ")"@.
 --
 -- @since 1.0.0
@@ -627,7 +628,7 @@ instance (ToLogMsg a, LogMsgAppender b) => LogMsgAppender (a -> b) where
     appendLogMsg sep $
       let prefix = if lm == mempty then mempty else lm <> sep
           suffix = toLogMsg a
-      in prefix <> suffix
+       in prefix <> suffix
 
 -- | Internal helper for running 'LogMsgAppender's.
 --
@@ -687,7 +688,6 @@ data LabelMsg a = LABEL String !a
 instance ToLogMsg a => ToLogMsg (LabelMsg a) where
   toLogMsg (LABEL l v) = packLogMsg l <> packLogMsg ": " <> toLogMsg v
 
-
 -- | A class for 'LogMsg' values for phantom types, like
 -- those used to discern 'Pdu's.
 --
@@ -709,18 +709,14 @@ instance ToTypeLogMsg Bool where
 instance ToTypeLogMsg Int where
   toTypeLogMsg _ = "Int"
 
-
 instance ToTypeLogMsg Double where
   toTypeLogMsg _ = "Double"
-
 
 instance ToTypeLogMsg Float where
   toTypeLogMsg _ = "Float"
 
-
 instance ToTypeLogMsg Integer where
   toTypeLogMsg _ = "Integer"
-
 
 instance ToTypeLogMsg Void where
   toTypeLogMsg _ = packLogMsg "Void"
@@ -732,37 +728,22 @@ instance ToTypeLogMsg LogMsg where
   toTypeLogMsg _ = packLogMsg "LogMsg"
 
 instance ToTypeLogMsg a => ToTypeLogMsg (Maybe a) where
-  toTypeLogMsg _ = packLogMsg "Maybe(" <> toTypeLogMsg (Proxy @a) <> packLogMsg ")"
+  toTypeLogMsg _ = packLogMsg "[" <> toTypeLogMsg (Proxy @a) <> packLogMsg "]"
 
 instance (ToTypeLogMsg a, ToTypeLogMsg b) => ToTypeLogMsg (Either a b) where
   toTypeLogMsg _ =
-    packLogMsg "Either("
+    packLogMsg "("
       <> toTypeLogMsg (Proxy @a)
-      <> packLogMsg ")Or("
+      <> packLogMsg "|"
       <> toTypeLogMsg (Proxy @b)
       <> packLogMsg ")"
 
 instance (ToTypeLogMsg a, ToTypeLogMsg b) => ToTypeLogMsg (a, b) where
-  toTypeLogMsg _ = packLogMsg "Tuple2(" <> toTypeLogMsg (Proxy @a) <> packLogMsg ")(" <> toTypeLogMsg (Proxy @b) <> packLogMsg ")"
+  toTypeLogMsg _ = packLogMsg "(" <> toTypeLogMsg (Proxy @a) <> packLogMsg "," <> toTypeLogMsg (Proxy @b) <> packLogMsg ")"
 
 instance (ToTypeLogMsg a, ToTypeLogMsg b, ToTypeLogMsg c) => ToTypeLogMsg (a, b, c) where
   toTypeLogMsg _ =
-    packLogMsg "Tuple3(" <> toTypeLogMsg (Proxy @a) <> packLogMsg ")(" <> toTypeLogMsg (Proxy @b) <> packLogMsg ")(" <> toTypeLogMsg (Proxy @c) <> packLogMsg ")"
-
--- instance (ToProtocolName a, ToProtocolName b) => ToProtocolName (a, b) where
---   toProtocolName = toProtocolName @a <> "_X_" <> toProtocolName @b
--- 
--- instance (ToProtocolName a, ToProtocolName b, ToProtocolName c) => ToProtocolName (a, b, c) where
---   toProtocolName = toProtocolName @((a, b), c)
--- 
--- instance (ToProtocolName a, ToProtocolName b, ToProtocolName c, ToProtocolName d) => ToProtocolName (a, b, c, d) where
---   toProtocolName = toProtocolName @((a, b, c), d)
--- 
--- instance (ToProtocolName a, ToProtocolName b, ToProtocolName c, ToProtocolName d, ToProtocolName e) => ToProtocolName (a, b, c, d, e) where
---   toProtocolName = toProtocolName @((a, b, c, d), e)
--- 
--- instance (ToProtocolName a, ToProtocolName b, ToProtocolName c, ToProtocolName d, ToProtocolName e, ToProtocolName f) => ToProtocolName (a, b, c, d, e, f) where
---   toProtocolName = toProtocolName @((a, b, c, d, e), f)
+    packLogMsg "(" <> toTypeLogMsg (Proxy @a) <> packLogMsg ", " <> toTypeLogMsg (Proxy @b) <> packLogMsg ", " <> toTypeLogMsg (Proxy @c) <> packLogMsg ")"
 
 -- | A 'String' wrapper needed in situations where @OverloadedStrings@ causes
 -- ambiguous types, namely in conjunction with 'ToLogMsg'.

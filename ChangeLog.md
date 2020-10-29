@@ -3,7 +3,7 @@
 ## 1.0.0
 
 -  **[Timer](./src/Control/Eff/Concurrent/Process/Timer.hs)**
-    - Allow timers to have custom initial debug log messages via
+    - Allow timers to have custom initial debug log messages
 
 - **[Process](./src/Control/Eff/Concurrent/Process.hs)**
     - Split `Interrupt` into `ShutdownReason` and `InterruptReason`
@@ -35,7 +35,7 @@
 - **Protocol-Server**
     - All protocol server type class instances now expect `ToLogMsg` or `ToTypeLogMsg`
       instances where `Show` and `Typeable` was used before.
-    - Remote the phantom type parameter of `Watchdog.CrashReport`
+    - Remove the phantom type parameter of `Watchdog.CrashReport`
 
 ## 0.32.0
 

@@ -1,4 +1,6 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE QuantifiedConstraints #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE UndecidableInstances #-}
 
 -- | Another  example for the library that uses embedded protocols with multiple server back
@@ -194,7 +196,7 @@ backendRegisterObserver ::
 backendRegisterObserver (SomeBackend x) o = registerObserver @BackendEvent x o
 
 backendForgetObserver ::
-  ( HasProcesses e q ) =>
+  (HasProcesses e q) =>
   SomeBackend ->
   Endpoint m ->
   Eff e ()
@@ -226,7 +228,7 @@ instance Stateful.Server Backend1 Effects where
       OnCall rt (ToPduLeft GetBackendInfo) ->
         sendReply
           (toEmbeddedReplyTarget @(Stateful.Protocol Backend1) @Backend rt)
-          ("Backend1 " <> show me <> " " <> show (model ^. modelBackend1 . _1))
+          ("Backend1 " <> show (toLogMsg me) <> " " <> show (model ^. modelBackend1 . _1))
       OnCast (ToPduLeft BackendWork) -> do
         logInfo (MSG "working...")
         modifyModel @Backend1 (over (modelBackend1 . _1) (+ 1))
@@ -268,7 +270,6 @@ instance ToLogMsg (Pdu Backend2 r) where
   toLogMsg (B2BackendWork w) = toLogMsg w
   toLogMsg (B2ObserverRegistry x) = toLogMsg x
 
-
 instance HasPduPrism Backend2 Backend where
   embedPdu = B2BackendWork
   fromPdu (B2BackendWork x) = Just x
@@ -287,7 +288,7 @@ instance Effectful.Server Backend2 Effects where
     myIndex <- get @Int
     case e of
       OnCall rt (B2BackendWork GetBackendInfo) ->
-        sendReply rt ("Backend2 " <> show me <> " " <> show myIndex)
+        sendReply rt ("Backend2 " <> show (toLogMsg me) <> " " <> show myIndex)
       OnCast (B2BackendWork BackendWork) -> do
         logInfo (MSG "working...")
         put @Int (myIndex + 1)

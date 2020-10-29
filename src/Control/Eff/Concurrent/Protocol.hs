@@ -49,7 +49,7 @@ module Control.Eff.Concurrent.Protocol
     fromEndpoint,
     proxyAsEndpoint,
     asEndpoint,
-    HasPduPrism (..)
+    HasPduPrism (..),
   )
 where
 
@@ -59,8 +59,8 @@ import Control.Eff.Log.Message
 import Control.Lens
 import Data.Dynamic
 import Data.Kind
-import Data.Typeable ()
 import Data.Proxy
+import Data.Typeable ()
 
 -- | A server process for /protocol/.
 --
@@ -74,7 +74,7 @@ import Data.Proxy
 -- As a metaphor, communication between processes can be thought of waiting for
 -- and sending __protocol data units__ belonging to some protocol.
 newtype Endpoint protocol = Endpoint {_fromEndpoint :: ProcessId}
-  deriving (Eq, Ord, Typeable, NFData, Show)
+  deriving (Eq, Ord, Typeable, NFData)
 
 instance forall protocol. ToTypeLogMsg protocol => ToTypeLogMsg (Endpoint protocol) where
   toTypeLogMsg _ = toTypeLogMsg (Proxy @protocol) <> "_ep"

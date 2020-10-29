@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- | Functions for receive timeouts and delayed messages sending.
 --
@@ -28,8 +29,8 @@ import Control.Applicative
 import Control.DeepSeq
 import Control.Eff
 import Control.Eff.Concurrent.Process
-import Control.Eff.Log.Message
 import Control.Eff.Log.Handler
+import Control.Eff.Log.Message
 import Data.Foldable
 import Data.Proxy
 import Data.Typeable
@@ -194,7 +195,8 @@ instance ToLogMsg TimerReference where
 newtype TimerElapsed = TimerElapsed {fromTimerElapsed :: TimerReference}
   deriving (NFData, Ord, Eq, Typeable)
 
-instance ToTypeLogMsg TimerElapsed
+instance ToTypeLogMsg TimerElapsed where
+  toTypeLogMsg _ = "timer-elapsed"
 
 instance ToLogMsg TimerElapsed where
   toLogMsg x = packLogMsg "elapsed: " <> toLogMsg (fromTimerElapsed x)
@@ -282,16 +284,16 @@ sendAfterWithTitleAndMaybeLogMsg initialLogMsg title pid t mkMsg =
   TimerReference
     <$> ( spawn
             title
-            ( do traverse_ logDebug initialLogMsg
-                 me <- self
-                 let meRef = TimerReference me
-                 logDebug (LABEL "started" title) pid t meRef
-                 delay t
-                 logDebug (MSG "timer elapsed, sending message") title pid t meRef
-                 sendMessage pid (force (mkMsg meRef))
+            ( do
+                traverse_ logDebug initialLogMsg
+                me <- self
+                let meRef = TimerReference me
+                logDebug (LABEL "timer started" title) pid t meRef
+                delay t
+                logDebug (LABEL "timer elapsed" title) pid t meRef
+                sendMessage pid (force (mkMsg meRef))
             )
         )
-
 
 -- | Start a new timer, after the time has elapsed, 'TimerElapsed' is sent to
 -- calling process. The message also contains the 'TimerReference' returned by
@@ -341,10 +343,5 @@ startTimer t = do
 --
 -- @since 0.12.0
 cancelTimer ::
-  forall r q.
-  ( HasCallStack,
-    HasProcesses r q
-  ) =>
-  TimerReference ->
-  Eff r ()
+  forall r q. HasProcesses r q => TimerReference -> Eff r ()
 cancelTimer (TimerReference tr) = sendShutdown tr ExitNormally
