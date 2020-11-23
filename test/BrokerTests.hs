@@ -12,6 +12,7 @@ import qualified Control.Eff.Concurrent.Protocol.Observer.Queue as OQ
 import qualified Control.Eff.Concurrent.Protocol.StatefulServer as Stateful
 import Control.Lens
 import Data.String
+import Data.Function (on)
 
 test_Broker :: HasCallStack => TestTree
 test_Broker =
@@ -20,7 +21,7 @@ test_Broker =
       "Broker"
       ( let startTestBroker = startTestBrokerWith ExitWhenRequested (TimeoutMicros 500000)
             startTestBrokerWith e t = Broker.startLink (MkBrokerConfig t (Stateful.Init . TestServerArgs e))
-            spawnTestChild broker i = Broker.spawnChild broker i >>= either (lift . assertFailure . show) pure
+            spawnTestChild broker i = Broker.spawnChild broker i >>= either (lift . assertFailure . show . toLogMsg) pure
          in [ runTestCase "The broker starts and is shut down" $ do
                 outerSelf <- self
                 testWorker <-
@@ -156,20 +157,20 @@ test_Broker =
                           case x of
                             Left (AlreadyStarted i' c') ->
                               lift $ do
-                                assertEqual "bad pid returned" c c'
+                                ((assertEqual "bad pid returned") `on` (show . toLogMsg)) c c'
                                 assertEqual "bad child id returned" 123 i'
                             _ -> lift (assertFailure "AlreadyStarted expected!"),
                       runTestCase "When a child is started it can be lookup up" $ do
                         broker <- startTestBroker
                         c <- spawnTestChild broker i
                         c' <- Broker.lookupChild broker i >>= maybe (lift (assertFailure "child not found")) pure
-                        lift (assertEqual "lookupChild returned wrong child" c c'),
+                        lift (((assertEqual "lookupChild returned wrong child") `on` (show . toLogMsg)) c c'),
                       runTestCase "When several children are started they can be lookup up and don't crash" $ do
                         broker <- startTestBroker
                         c <- spawnTestChild broker i
                         someOtherChild <- spawnTestChild broker (i + 1)
                         c' <- Broker.lookupChild broker i >>= maybe (lift (assertFailure "child not found")) pure
-                        lift (assertEqual "lookupChild returned wrong child" c c')
+                        lift (((assertEqual "lookupChild returned wrong child") `on` (show . toLogMsg)) c c')
                         childStillRunning <- isProcessAlive (_fromEndpoint c)
                         lift (assertBool "child not running" childStillRunning)
                         someOtherChildStillRunning <- isProcessAlive (_fromEndpoint someOtherChild)
@@ -204,7 +205,7 @@ test_Broker =
                                 (broker, _) <- startTestBrokerAndChild
                                 Broker.stopChild broker i >>= lift . assertBool "child not found"
                                 x <- Broker.lookupChild broker i
-                                lift (assertEqual "lookup should not find a child" Nothing x),
+                                lift ((assertEqual "lookup should not find a child" `on` (show . toLogMsg)) Nothing x),
                               runTestCase "When a child is stopped, the child id can be reused" $ do
                                 (broker, _) <- startTestBrokerAndChild
                                 Broker.stopChild broker i >>= lift . assertBool "child not found"
@@ -223,75 +224,75 @@ test_Broker =
                                 (ProcessDown _ r _) <- receiveSelectedMessage (selectProcessDown cm)
                                 lift (assertEqual "bad exit reason" ExitNormally r)
                                 x <- Broker.lookupChild broker i
-                                lift (assertEqual "lookup should not find a child" Nothing x),
+                                lift ((assertEqual "lookup should not find a child" `on` (show . toLogMsg)) Nothing x),
                               runTestCase "When a child exits with an error, lookupChild will not find it" $ do
                                 (broker, c, cm) <- startTestBrokerAndChild
                                 cast c (TestInterruptWith (ErrorInterrupt (fromString "test error reason")))
                                 (ProcessDown _ _ _) <- receiveSelectedMessage (selectProcessDown cm)
                                 x <- Broker.lookupChild broker i
-                                lift (assertEqual "lookup should not find a child" Nothing x),
+                                lift ((assertEqual "lookup should not find a child" `on` (show . toLogMsg)) Nothing x),
                               runTestCase "When a child is interrupted from another process and dies, lookupChild will not find it" $ do
                                 (broker, c, cm) <- startTestBrokerAndChild
                                 sendInterrupt (_fromEndpoint c) NormalExitRequested
                                 (ProcessDown _ _ _) <- receiveSelectedMessage (selectProcessDown cm)
                                 x <- Broker.lookupChild broker i
-                                lift (assertEqual "lookup should not find a child" Nothing x),
+                                lift ((assertEqual "lookup should not find a child" `on` (show . toLogMsg)) Nothing x),
                               runTestCase "When a child is shutdown from another process and dies, lookupChild will not find it" $ do
                                 (broker, c, cm) <- startTestBrokerAndChild
                                 self >>= sendShutdown (_fromEndpoint c) . ExitProcessCancelled . Just
                                 (ProcessDown _ _ _) <- receiveSelectedMessage (selectProcessDown cm)
                                 x <- Broker.lookupChild broker i
-                                lift (assertEqual "lookup should not find a child" Nothing x)
+                                lift ((assertEqual "lookup should not find a child" `on` (show . toLogMsg)) Nothing x)
                             ],
                       testGroup
                         "broker events"
                         [ runTestCase "when a child starts the observer is notified" $ do
                             broker <- startTestBroker
                             OQ.observe @(Broker.ChildEvent (Stateful.Stateful TestProtocol)) (100 :: Int) broker $ do
-                              c <- Broker.spawnChild @(Stateful.Stateful TestProtocol) broker i >>= either (lift . assertFailure . show) pure
+                              c <- Broker.spawnChild @(Stateful.Stateful TestProtocol) broker i >>= either (lift . assertFailure . show . toLogMsg) pure
                               e <- OQ.await @(Broker.ChildEvent (Stateful.Stateful TestProtocol))
-                              case e of
+                              lift $ case e of
                                 Broker.OnChildSpawned broker' i' c' -> do
-                                  lift (assertEqual "wrong endpoint" broker broker')
-                                  lift (assertEqual "wrong child" c c')
-                                  lift (assertEqual "wrong child-id" i i')
+                                  ((assertEqual "wrong endpoint") `on` (show . toLogMsg)) broker broker'
+                                  ((assertEqual "wrong child") `on` (show . toLogMsg)) c c'
+                                  assertEqual "wrong child-id" i i'
                                 _ ->
-                                  lift (assertFailure ("unexpected event: " ++ show (toLogMsg e))),
+                                  assertFailure ("unexpected event: " ++ show (toLogMsg e)),
                           runTestCase "when a child stops the observer is notified" $ do
                             broker <- startTestBroker
-                            c <- Broker.spawnChild @(Stateful.Stateful TestProtocol) broker i >>= either (lift . assertFailure . show) pure
+                            c <- Broker.spawnChild @(Stateful.Stateful TestProtocol) broker i >>= either (lift . assertFailure . show . toLogMsg) pure
                             OQ.observe @(Broker.ChildEvent (Stateful.Stateful TestProtocol)) (100 :: Int) broker $ do
                               Broker.stopChild broker i >>= lift . assertBool "child not found"
                               OQ.await @(Broker.ChildEvent (Stateful.Stateful TestProtocol))
                                 >>= \case
-                                  Broker.OnChildDown broker' i' c' e -> do
-                                    lift (assertEqual "wrong endpoint" broker broker')
-                                    lift (assertEqual "wrong child" c c')
-                                    lift (assertEqual "wrong child-id" i i')
-                                    lift (assertEqual "wrong exit reason" ExitNormally e)
+                                  Broker.OnChildDown broker' i' c' e -> lift $ do
+                                    ((assertEqual "wrong endpoint") `on` (show . toLogMsg)) broker broker'
+                                    ((assertEqual "wrong child") `on` (show . toLogMsg)) c c'
+                                    assertEqual "wrong child-id" i i'
+                                    assertEqual "wrong exit reason" ExitNormally e
                                   e ->
                                     lift (assertFailure ("unexpected event: " ++ show (toLogMsg e))),
                           runTestCase "when a child crashes the observer is notified" $ do
                             broker <- startTestBroker
                             OQ.observe @(Broker.ChildEvent (Stateful.Stateful TestProtocol)) (100 :: Int) broker $ do
-                              c <- Broker.spawnChild @(Stateful.Stateful TestProtocol) broker i >>= either (lift . assertFailure . show) pure
+                              c <- Broker.spawnChild @(Stateful.Stateful TestProtocol) broker i >>= either (lift . assertFailure . show . toLogMsg) pure
                               let expectedError = ExitUnhandledError (fromString "test error")
                               sendShutdown (_fromEndpoint c) expectedError
                               OQ.await @(Broker.ChildEvent (Stateful.Stateful TestProtocol))
                                 >>= \case
-                                  Broker.OnChildSpawned broker' i' c' -> do
-                                    lift (assertEqual "wrong endpoint" broker broker')
-                                    lift (assertEqual "wrong child" c c')
-                                    lift (assertEqual "wrong child-id" i i')
+                                  Broker.OnChildSpawned broker' i' c' -> lift $ do
+                                    ((assertEqual "wrong endpoint") `on` (show . toLogMsg)) broker broker'
+                                    ((assertEqual "wrong child") `on` (show . toLogMsg)) c c'
+                                    assertEqual "wrong child-id" i i'
                                   e ->
                                     lift (assertFailure ("unexpected event: " ++ show (toLogMsg e)))
                               OQ.await @(Broker.ChildEvent (Stateful.Stateful TestProtocol))
                                 >>= \case
-                                  Broker.OnChildDown broker' i' c' e -> do
-                                    lift (assertEqual "wrong endpoint" broker broker')
-                                    lift (assertEqual "wrong child" c c')
-                                    lift (assertEqual "wrong child-id" i i')
-                                    lift (assertEqual "wrong exit reason" expectedError e)
+                                  Broker.OnChildDown broker' i' c' e -> lift $ do
+                                    ((assertEqual "wrong endpoint") `on` (show . toLogMsg)) broker broker'
+                                    ((assertEqual "wrong child") `on` (show . toLogMsg)) c c'
+                                    assertEqual "wrong child-id" i i'
+                                    assertEqual "wrong exit reason" expectedError e
                                   e ->
                                     lift (assertFailure ("unexpected event: " ++ show (toLogMsg e))),
                           runTestCase "when a child does not stop when requested and is killed, the oberser is notified correspondingly" $ do
@@ -303,11 +304,11 @@ test_Broker =
                               (ProcessDown _ expectedError _) <- receiveSelectedMessage (selectProcessDown cm)
                               OQ.await @(Broker.ChildEvent (Stateful.Stateful TestProtocol))
                                 >>= \case
-                                  Broker.OnChildDown broker' i' c' e -> do
-                                    lift (assertEqual "wrong endpoint" broker broker')
-                                    lift (assertEqual "wrong child" c c')
-                                    lift (assertEqual "wrong child-id" i i')
-                                    lift (assertEqual "wrong exit reason" expectedError e)
+                                  Broker.OnChildDown broker' i' c' e -> lift $ do
+                                    ((assertEqual "wrong endpoint") `on` (show . toLogMsg)) broker broker'
+                                    ((assertEqual "wrong child") `on` (show . toLogMsg)) c c'
+                                    assertEqual "wrong child-id" i i'
+                                    assertEqual "wrong exit reason" expectedError e
                                   e ->
                                     lift (assertFailure ("unexpected event: " ++ show (toLogMsg e))),
                           runTestCase "when the broker stops, an OnBrokerShuttingDown is emitted before any child is stopped" $ do
@@ -315,7 +316,7 @@ test_Broker =
                             unlinkProcess (broker ^. fromEndpoint)
                             void
                               ( Broker.spawnChild @(Stateful.Stateful TestProtocol) broker i
-                                  >>= either (lift . assertFailure . show) pure
+                                  >>= either (lift . assertFailure . show . toLogMsg) pure
                               )
                             OQ.observe @(Broker.ChildEvent (Stateful.Stateful TestProtocol)) (1000 :: Int) broker $ do
                               Broker.stopBroker broker
