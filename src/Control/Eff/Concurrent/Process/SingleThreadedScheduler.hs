@@ -44,8 +44,8 @@ import Data.Function (fix)
 import Data.Kind ()
 import qualified Data.Map.Strict as Map
 import Data.Monoid
-import qualified Data.Sequence as Seq
 import Data.Sequence (Seq (..))
+import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
 import Data.String (IsString (fromString))
 import GHC.Stack
@@ -54,12 +54,11 @@ import GHC.Stack
 --  STS and ProcessInfo
 -- -----------------------------------------------------------------------------
 
-data ProcessInfo
-  = MkProcessInfo
-      { _processInfoTitle :: !ProcessTitle,
-        _processInfoDetails :: !ProcessDetails,
-        _processInfoMessageQ :: !(Seq Message)
-      }
+data ProcessInfo = MkProcessInfo
+  { _processInfoTitle :: !ProcessTitle,
+    _processInfoDetails :: !ProcessDetails,
+    _processInfoMessageQ :: !(Seq Message)
+  }
 
 instance Show ProcessInfo where
   showsPrec d (MkProcessInfo pTitle pDetails pQ) =
@@ -77,16 +76,15 @@ makeLenses ''ProcessInfo
 newProcessInfo :: ProcessTitle -> ProcessInfo
 newProcessInfo t = MkProcessInfo t (fromString "") Seq.empty
 
-data STS r m
-  = STS
-      { _nextPid :: !ProcessId,
-        _nextRef :: !Int,
-        _msgQs :: !(Map.Map ProcessId ProcessInfo),
-        _monitors :: !(Set.Set (MonitorReference, ProcessId)),
-        _processLinks :: !(Set.Set (ProcessId, ProcessId)),
-        _runEff :: forall a. Eff r a -> m a,
-        _yieldEff :: m ()
-      }
+data STS r m = STS
+  { _nextPid :: !ProcessId,
+    _nextRef :: !Int,
+    _msgQs :: !(Map.Map ProcessId ProcessInfo),
+    _monitors :: !(Set.Set (MonitorReference, ProcessId)),
+    _processLinks :: !(Set.Set (ProcessId, ProcessId)),
+    _runEff :: forall a. Eff r a -> m a,
+    _yieldEff :: m ()
+  }
 
 initStsMainProcess :: (forall a. Eff r a -> m a) -> m () -> STS r m
 initStsMainProcess = STS 1 0 (Map.singleton 0 (newProcessInfo (fromString "init"))) Set.empty Set.empty

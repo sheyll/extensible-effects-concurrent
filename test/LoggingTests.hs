@@ -51,42 +51,42 @@ cencoredLogging =
     censoredLoggingTestImpl :: Eff '[Logs, LogWriterReader, Lift IO] () -> IO [LogEvent]
     censoredLoggingTestImpl e = do
       logs <- newMVar []
-      runLift
-        $ withLogging (MkLogWriter (\lm -> modifyMVar_ logs (\lms -> return (lm : lms))))
-        $ do
-          e
-          censorLogs (logEventMessage %~ ("x " <>)) $ do
+      runLift $
+        withLogging (MkLogWriter (\lm -> modifyMVar_ logs (\lms -> return (lm : lms)))) $
+          do
             e
-            censorLogs (logEventMessage %~ ("y " <>)) e
+            censorLogs (logEventMessage %~ ("x " <>)) $ do
+              e
+              censorLogs (logEventMessage %~ ("y " <>)) e
+              e
             e
-          e
       takeMVar logs
 
 strictness :: HasCallStack => TestTree
 strictness =
-  testCase "messages failing the predicate are not deeply evaluated"
-    $ runLift
-    $ withConsoleLogging "test-app" local0 allLogEvents
-    $ blacklistLogEvents (logEventSeverityIs errorSeverity)
-    $ do
-      logDebug (MSG "test")
-      logError (error "TEST FAILED: this log statement should not have been evaluated deeply" :: String)
+  testCase "messages failing the predicate are not deeply evaluated" $
+    runLift $
+      withConsoleLogging "test-app" local0 allLogEvents $
+        blacklistLogEvents (logEventSeverityIs errorSeverity) $
+          do
+            logDebug (MSG "test")
+            logError (error "TEST FAILED: this log statement should not have been evaluated deeply" :: String)
 
 liftedIoLogging :: HasCallStack => TestTree
 liftedIoLogging =
   testCase "logging vs. MonadBaseControl" $
     do
       outVar <- newEmptyMVar
-      runLift
-        $ withConsoleLogging "test-app" local0 allLogEvents
-        $ ( \e ->
+      runLift $
+        withConsoleLogging "test-app" local0 allLogEvents $
+          ( \e ->
               liftBaseOp
                 (testWriter outVar)
                 ( \doWrite ->
                     addLogWriter (MkLogWriter doWrite) e
                 )
           )
-        $ logDebug (MSG "test")
+            $ logDebug (MSG "test")
       actual <- takeMVar outVar
       assertEqual "wrong log message" "test" actual
   where
@@ -120,27 +120,27 @@ newtype Yumi = Yumi Double deriving (ToLogMsg)
 
 udpLogging :: TestTree
 udpLogging =
-  testCase "udp logging"
-    $ runLift
-    $ UDP.withUDPLogging
-      renderRFC5424NoLocation
-      "localhost"
-      "9999"
-      "test-app"
-      local0
-      allLogEvents
-      test1234
+  testCase "udp logging" $
+    runLift $
+      UDP.withUDPLogging
+        renderRFC5424NoLocation
+        "localhost"
+        "9999"
+        "test-app"
+        local0
+        allLogEvents
+        test1234
 
 udpNestedLogging :: TestTree
 udpNestedLogging =
-  testCase "udp nested filteredlogging"
-    $ runLift
-    $ withConsoleLogging "test-app" local0 allLogEvents
-    $ UDP.withUDPLogWriter
-      renderRFC5424
-      "localhost"
-      "9999"
-      test1234
+  testCase "udp nested filteredlogging" $
+    runLift $
+      withConsoleLogging "test-app" local0 allLogEvents $
+        UDP.withUDPLogWriter
+          renderRFC5424
+          "localhost"
+          "9999"
+          test1234
 
 asyncLogging :: TestTree
 asyncLogging =
@@ -161,8 +161,8 @@ asyncNestedLogging =
   testCase "async nested filteredlogging" $
     do
       lw <- consoleLogWriter
-      runLift
-        $ withLogging lw
-        $ Async.withAsyncLogWriter
-          (1000 :: Int)
-          test1234
+      runLift $
+        withLogging lw $
+          Async.withAsyncLogWriter
+            (1000 :: Int)
+            test1234

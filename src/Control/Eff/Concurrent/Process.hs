@@ -164,8 +164,8 @@ import Control.Eff.Log.Message
 import qualified Control.Exception as Exc
 import Control.Lens
 import Control.Monad
-  ( (>=>),
-    void,
+  ( void,
+    (>=>),
   )
 import Data.Default
 import Data.Dynamic
@@ -287,8 +287,7 @@ data Process (r :: [Type -> Type]) b where
 -- | A short title for a 'Process' for logging purposes.
 --
 -- @since 0.24.1
-newtype ProcessTitle
-  = MkProcessTitle {_fromProcessTitle :: LogMsg}
+newtype ProcessTitle = MkProcessTitle {_fromProcessTitle :: LogMsg}
   deriving (Eq, Ord, NFData, Generic, IsString, Typeable, Semigroup, Monoid)
 
 -- | Construct a 'ProcessTitle' from a 'String'.
@@ -313,8 +312,7 @@ instance Show ProcessTitle where
 -- state of a process for debugging purposes.
 --
 -- @since 0.24.1
-newtype ProcessDetails
-  = MkProcessDetails {_fromProcessDetails :: Text}
+newtype ProcessDetails = MkProcessDetails {_fromProcessDetails :: Text}
   deriving (Eq, Ord, NFData, Generic, IsString, Typeable, Semigroup, Monoid)
 
 -- | An isomorphism lens for the 'ProcessDetails'
@@ -361,10 +359,9 @@ instance ToLogMsg Message where
 -- 'Control.Eff.Concurrent.Protocol.Effectful.Server's.
 --
 -- @since 0.24.1
-newtype Serializer message
-  = MkSerializer
-      { runSerializer :: message -> Message
-      }
+newtype Serializer message = MkSerializer
+  { runSerializer :: message -> Message
+  }
   deriving (Typeable)
 
 instance NFData (Serializer message) where
@@ -419,8 +416,7 @@ instance NFData1 ResumeProcess
 -- > selectIntOrString :: MessageSelector (Either Int String)
 -- > selectIntOrString =
 -- >   Left <$> selectTimeout<|> Right <$> selectString
-newtype MessageSelector a
-  = MessageSelector {runMessageSelector :: Message -> Maybe a}
+newtype MessageSelector a = MessageSelector {runMessageSelector :: Message -> Maybe a}
   deriving (Semigroup, Monoid, Functor)
 
 instance Applicative MessageSelector where
@@ -702,8 +698,7 @@ logProcessExit (toCrashReason -> Just ex) = withFrozenCallStack (logWarning ex)
 logProcessExit ex = withFrozenCallStack (logDebug ex)
 
 -- | An existential wrapper around 'Interrupt'
-newtype InterruptOrShutdown
-  = InterruptOrShutdown {fromInterruptOrShutdown :: Either ShutdownReason InterruptReason}
+newtype InterruptOrShutdown = InterruptOrShutdown {fromInterruptOrShutdown :: Either ShutdownReason InterruptReason}
   deriving (Show, ToLogMsg, NFData)
 
 -- | A predicate for linked process __crashes__.
@@ -1042,8 +1037,7 @@ receiveAnyMessage =
 -- See 'ReceiveSelectedMessage' for more documentation.
 receiveSelectedMessage ::
   forall r q a.
-    HasProcesses r q
-   =>
+  HasProcesses r q =>
   MessageSelector a ->
   Eff r a
 receiveSelectedMessage f = executeAndResumeOrThrow (ReceiveSelectedMessage f)
@@ -1122,11 +1116,10 @@ makeReference = executeAndResumeOrThrow MakeReference
 -- monitoring.
 --
 -- @since 0.12.0
-data MonitorReference
-  = MkMonitorReference
-      { _monitorIndex :: !Int,
-        _monitoredProcess :: !ProcessId
-      }
+data MonitorReference = MkMonitorReference
+  { _monitorIndex :: !Int,
+    _monitoredProcess :: !ProcessId
+  }
   deriving (Read, Eq, Ord, Generic, Typeable, Show)
 
 instance ToLogMsg MonitorReference where
@@ -1176,7 +1169,8 @@ withMonitor pid e = monitor pid >>= \ref -> e ref <* demonitor ref
 -- given process or another message.
 --
 -- @since 0.12.0
-receiveWithMonitor :: HasProcesses r q =>
+receiveWithMonitor ::
+  HasProcesses r q =>
   ProcessId ->
   MessageSelector a ->
   Eff r (Either ProcessDown a)
@@ -1192,15 +1186,14 @@ receiveWithMonitor pid sel =
 -- a process that was monitored died.
 --
 -- @since 0.12.0
-data ProcessDown
-  = ProcessDown
-      { downReference :: !MonitorReference,
-        downReason :: !ShutdownReason,
-        downProcess :: !ProcessId
-      }
+data ProcessDown = ProcessDown
+  { downReference :: !MonitorReference,
+    downReason :: !ShutdownReason,
+    downProcess :: !ProcessId
+  }
   deriving (Typeable, Generic, Eq, Ord, Show)
 
-instance ToTypeLogMsg ProcessDown where 
+instance ToTypeLogMsg ProcessDown where
   toTypeLogMsg _ = "ProcessDown"
 
 instance ToLogMsg ProcessDown where

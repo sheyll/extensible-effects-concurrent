@@ -88,7 +88,7 @@ import Control.Eff.Concurrent.Protocol.Wrapper
 import Control.Eff.Extend (raise)
 import Control.Eff.Log
 import Control.Eff.State.Strict as Eff
-import Control.Lens hiding ((.=), use)
+import Control.Lens hiding (use, (.=))
 import Data.Default
 import Data.Dynamic
 import Data.Foldable
@@ -415,17 +415,15 @@ instance
   ) =>
   Stateful.Server (Broker p) (Processes q)
   where
-  data StartArgument (Broker p)
-    = MkBrokerConfig
-        { brokerConfigChildStopTimeout :: Timeout,
-          brokerConfigStartFun :: ChildId p -> Effectful.Init p
-        }
+  data StartArgument (Broker p) = MkBrokerConfig
+    { brokerConfigChildStopTimeout :: Timeout,
+      brokerConfigStartFun :: ChildId p -> Effectful.Init p
+    }
 
-  data Model (Broker p)
-    = BrokerModel
-        { _children :: Children (ChildId p) p,
-          _childEventObserver :: ObserverRegistry (ChildEvent p)
-        }
+  data Model (Broker p) = BrokerModel
+    { _children :: Children (ChildId p) p,
+      _childEventObserver :: ObserverRegistry (ChildEvent p)
+    }
     deriving (Typeable)
 
   setup _ _cfg = pure (BrokerModel def emptyObserverRegistry, ())

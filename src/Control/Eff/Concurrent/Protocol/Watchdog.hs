@@ -46,12 +46,12 @@ import Control.Eff (Eff, Lifted, Member, lift)
 import Control.Eff.Concurrent.Process
 import Control.Eff.Concurrent.Process.Timer
 import Control.Eff.Concurrent.Protocol
-import qualified Control.Eff.Concurrent.Protocol.Broker as Broker
 import Control.Eff.Concurrent.Protocol.Broker (Broker)
+import qualified Control.Eff.Concurrent.Protocol.Broker as Broker
 import Control.Eff.Concurrent.Protocol.Client
 import qualified Control.Eff.Concurrent.Protocol.EffectfulServer as Effectful
-import qualified Control.Eff.Concurrent.Protocol.Observer as Observer
 import Control.Eff.Concurrent.Protocol.Observer (Observer)
+import qualified Control.Eff.Concurrent.Protocol.Observer as Observer
 import qualified Control.Eff.Concurrent.Protocol.StatefulServer as Stateful
 import Control.Eff.Concurrent.Protocol.Wrapper
 import Control.Eff.Log
@@ -193,11 +193,13 @@ instance (NFData (Broker.ChildId child)) => NFData (Pdu (Watchdog child) r) wher
 instance (ToTypeLogMsg child) => ToTypeLogMsg (Pdu (Watchdog child) r) where
   toTypeLogMsg _ = toTypeLogMsg (Proxy @(Watchdog child)) <> packLogMsg "_pdu"
 
-instance 
-  ( ToLogMsg (Broker.ChildId child)
-  , ToTypeLogMsg child
-  , ToTypeLogMsg (Effectful.ServerPdu child)
-  ) => ToLogMsg (Pdu (Watchdog child) r) where
+instance
+  ( ToLogMsg (Broker.ChildId child),
+    ToTypeLogMsg child,
+    ToTypeLogMsg (Effectful.ServerPdu child)
+  ) =>
+  ToLogMsg (Pdu (Watchdog child) r)
+  where
   toLogMsg (Attach e isPermanentFlag) =
     toTypeLogMsg (Proxy @(Watchdog child))
       <> packLogMsg " attach-"
@@ -214,8 +216,7 @@ instance
 
 -- ------------------ Broker Watches
 
-data BrokerWatch
-  = MkBrokerWatch {_brokerMonitor :: MonitorReference, _isPermanent :: Bool}
+data BrokerWatch = MkBrokerWatch {_brokerMonitor :: MonitorReference, _isPermanent :: Bool}
   deriving (Typeable)
 
 instance ToLogMsg BrokerWatch where
@@ -253,17 +254,15 @@ instance
   ) =>
   Stateful.Server (Watchdog child) (Processes e)
   where
-  data StartArgument (Watchdog child)
-    = StartWatchDog
-        { _crashRate :: CrashRate
-        }
+  data StartArgument (Watchdog child) = StartWatchDog
+    { _crashRate :: CrashRate
+    }
     deriving (Typeable)
 
-  data Model (Watchdog child)
-    = WatchdogModel
-        { _brokers :: Map (Endpoint (Broker child)) BrokerWatch,
-          _watched :: Map (Broker.ChildId child) (ChildWatch child)
-        }
+  data Model (Watchdog child) = WatchdogModel
+    { _brokers :: Map (Endpoint (Broker child)) BrokerWatch,
+      _watched :: Map (Broker.ChildId child) (ChildWatch child)
+    }
 
   update me startArg =
     \case
@@ -313,7 +312,7 @@ instance
                   then do
                     logNotice (LABEL "restarting" (concatMsgs (show recentCrashes) (MSG "/") (show maxCrashCount) (LABEL "child" cId) (LABEL "of" broker) :: LogMsg))
                     res <- Broker.spawnChild broker cId
-                    logNotice (LABEL "restarted child" cId) (LABEL"result" res) (LABEL "of" broker)
+                    logNotice (LABEL "restarted child" cId) (LABEL "result" res) (LABEL "of" broker)
                     crash <- startExonerationTimer cId reason (rate ^. crashTimeSpan)
                     if isJust (currentModel ^? childWatchesById cId)
                       then do
@@ -336,7 +335,7 @@ instance
                           demonitor (bw ^. brokerMonitor)
                           sendShutdown (broker ^. fromEndpoint) r
                           exitBecause r
-                        else-- TODO shutdown all other permanent brokers!
+                        else -- TODO shutdown all other permanent brokers!
                           logError (LABEL "a child crashed too often of the temporary broker" broker)
       Effectful.OnDown pd@(ProcessDown _mref _ pid) -> do
         logDebug (LABEL "on-down" pd)
@@ -370,11 +369,10 @@ crashRate = lens _crashRate (\m x -> m {_crashRate = x})
 -- This governs how long the 'ExonerationTimer' runs before cleaning up a 'CrashReport' in a 'ChildWatch'.
 --
 -- @since 0.30.0
-data CrashRate
-  = CrashesPerSeconds
-      { _crashCount :: CrashCount,
-        _crashTimeSpan :: CrashTimeSpan
-      }
+data CrashRate = CrashesPerSeconds
+  { _crashCount :: CrashCount,
+    _crashTimeSpan :: CrashTimeSpan
+  }
   deriving (Typeable, Eq, Ord)
 
 instance ToLogMsg CrashRate where
@@ -428,16 +426,15 @@ crashTimeSpan = lens _crashTimeSpan (\(CrashesPerSeconds count _) time -> Crashe
 -- See 'attachPermanent' and 'attachTemporary'.
 --
 -- @since 0.30.0
-data CrashReport
-  = MkCrashReport
-      { -- | After a crash, an 'ExonerationTimer' according to the 'CrashRate' of the 'Watchdog'
-        -- is started, this is the reference
-        _exonerationTimerReference :: TimerReference,
-        -- | Recorded time of the crash
-        _crashTime :: UTCTime,
-        -- | Recorded crash reason
-        _crashReason :: ShutdownReason
-      }
+data CrashReport = MkCrashReport
+  { -- | After a crash, an 'ExonerationTimer' according to the 'CrashRate' of the 'Watchdog'
+    -- is started, this is the reference
+    _exonerationTimerReference :: TimerReference,
+    -- | Recorded time of the crash
+    _crashTime :: UTCTime,
+    -- | Recorded crash reason
+    _crashReason :: ShutdownReason
+  }
   deriving (Eq, Ord, Typeable)
 
 instance ToLogMsg CrashReport where
@@ -472,12 +469,13 @@ exonerationTimerReference = lens _exonerationTimerReference (\c t -> c {_exonera
 
 startExonerationTimer ::
   forall a q e.
-  (HasProcesses e q,
-   Member Logs q,
-   Lifted IO e,
-   NFData a,
-   Typeable a,
-   ToLogMsg a) =>
+  ( HasProcesses e q,
+    Member Logs q,
+    Lifted IO e,
+    NFData a,
+    Typeable a,
+    ToLogMsg a
+  ) =>
   a ->
   ShutdownReason ->
   CrashTimeSpan ->
@@ -516,15 +514,14 @@ instance ToLogMsg a => ToLogMsg (ExonerationTimer a) where
 -- See 'attachPermanent' and 'attachTemporary', 'ExonerationTimer', 'CrashRate'.
 --
 -- @since 0.30.0
-data ChildWatch child
-  = MkChildWatch
-      { -- | The attached 'Broker' that started the child
-        _parent :: Endpoint (Broker child),
-        -- | The crashes of the child. If the number of crashes
-        -- surpasses the allowed number of crashes before the
-        -- 'ExonerationTimer's clean them, the child is finally crashed.
-        _crashes :: Set CrashReport
-      }
+data ChildWatch child = MkChildWatch
+  { -- | The attached 'Broker' that started the child
+    _parent :: Endpoint (Broker child),
+    -- | The crashes of the child. If the number of crashes
+    -- surpasses the allowed number of crashes before the
+    -- 'ExonerationTimer's clean them, the child is finally crashed.
+    _crashes :: Set CrashReport
+  }
   deriving (Typeable)
 
 instance NFData (ChildWatch child) where

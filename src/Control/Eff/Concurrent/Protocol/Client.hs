@@ -31,10 +31,11 @@ import GHC.Stack
 
 -- instance ToProtocolName protocol => ToProtocolName (Endpoint protocol) where
 --   toProtocolName = toProtocolName @protocol <> "_ep"
--- 
+--
 -- instance ToProtocolName protocol => ToTypeLogMsg (Endpoint protocol) where
 --   toTypeLogMsg _ = packLogMsg (toProtocolName @(Endpoint protocol))
--- 
+--
+
 -- | Send a request 'Pdu' that has no reply and return immediately.
 --
 -- The type signature enforces that the corresponding 'Pdu' clause is
@@ -126,10 +127,10 @@ callWithTimeout serverP@(Endpoint pidInternal) req timeOut = do
          in selectMessageWith extractResult
   let timerTitle = MkProcessTitle (packLogMsg "call-timeout")
       initialLog =
-              packLogMsg "call-timeout from: "
-                <> toLogMsg fromPid
-                <> packLogMsg " to: "
-                <> toLogMsg serverP
+        packLogMsg "call-timeout from: "
+          <> toLogMsg fromPid
+          <> packLogMsg " to: "
+          <> toLogMsg serverP
   resultOrError <- receiveSelectedWithMonitorAfterWithTitle pidInternal selectResult timeOut timerTitle initialLog
   let onTimeout timerRef = do
         let msg =

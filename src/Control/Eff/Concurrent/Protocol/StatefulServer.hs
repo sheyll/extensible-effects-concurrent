@@ -33,7 +33,6 @@ import Control.Eff
 import Control.Eff.Concurrent.Process
 import Control.Eff.Concurrent.Protocol
 import qualified Control.Eff.Concurrent.Protocol.EffectfulServer as Effectful
-import Control.Eff.Extend ()
 import Control.Eff.Extend (raise)
 import Control.Eff.Log
 import Control.Eff.Reader.Strict
@@ -235,7 +234,7 @@ zoomModel l a = do
 --
 -- @since 0.30.0
 logModel ::
-  forall m e .
+  forall m e.
   ( ToLogMsg (Model m),
     Member Logs e,
     Member (ModelState m) e

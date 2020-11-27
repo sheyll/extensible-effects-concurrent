@@ -11,8 +11,8 @@ import Control.Eff.Concurrent.Protocol.EffectfulServer (Event (..))
 import qualified Control.Eff.Concurrent.Protocol.Observer.Queue as OQ
 import qualified Control.Eff.Concurrent.Protocol.StatefulServer as Stateful
 import Control.Lens
-import Data.String
 import Data.Function (on)
+import Data.String
 
 test_Broker :: HasCallStack => TestTree
 test_Broker =

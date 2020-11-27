@@ -53,8 +53,7 @@ type LogEventReader a = LogEvent -> a
 type LogEventPrinter = LogEventReader T.Text
 
 -- | A rendering function for the 'logEventTimestamp' field.
-newtype LogEventTimeRenderer
-  = MkLogEventTimeRenderer {renderLogEventTime :: UTCTime -> T.Text}
+newtype LogEventTimeRenderer = MkLogEventTimeRenderer {renderLogEventTime :: UTCTime -> T.Text}
 
 -- | Make a  'LogEventTimeRenderer' using 'formatTime' in the 'defaultLocale'.
 mkLogEventTimeRenderer ::

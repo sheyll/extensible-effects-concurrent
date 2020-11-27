@@ -27,8 +27,8 @@ import Control.Eff.Log.Message
 import Control.Eff.Log.MessageRenderer
 import Control.Eff.Reader.Strict
 import Control.Monad
-  ( (>=>),
-    when,
+  ( when,
+    (>=>),
   )
 import Data.Text (Text)
 import qualified Data.Text.IO as Text
@@ -36,10 +36,9 @@ import qualified System.IO as IO
 
 -- | A function that takes a log message and returns an effect that
 -- /logs/ the message.
-newtype LogWriter
-  = MkLogWriter
-      { runLogWriter :: LogEvent -> IO ()
-      }
+newtype LogWriter = MkLogWriter
+  { runLogWriter :: LogEvent -> IO ()
+  }
 
 instance Semigroup LogWriter where
   (MkLogWriter l) <> (MkLogWriter r) = MkLogWriter (l >> r)

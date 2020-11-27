@@ -94,11 +94,10 @@ instance ToLogMsg event => ToLogMsg (Pdu (Observer event) r) where
 -- the destination process.
 --
 -- @since 0.28.0
-data ObservationSink event
-  = MkObservationSink
-      { _observerSerializer :: Serializer (Pdu (Observer event) 'Asynchronous),
-        _observerMonitorReference :: MonitorReference
-      }
+data ObservationSink event = MkObservationSink
+  { _observerSerializer :: Serializer (Pdu (Observer event) 'Asynchronous),
+    _observerMonitorReference :: MonitorReference
+  }
   deriving (Generic, Typeable)
 
 instance NFData (ObservationSink event) where
@@ -189,9 +188,8 @@ forgetObserverUnsafe eventSource eventSink =
 -- 'Observer's.
 --
 -- @since 0.28.0
-data ObserverRegistry (event :: Type)
-  = MkObserverRegistry
-      {_observerRegistry :: Map ProcessId (ObservationSink event)}
+data ObserverRegistry (event :: Type) = MkObserverRegistry
+  {_observerRegistry :: Map ProcessId (ObservationSink event)}
   deriving (Typeable)
 
 instance ToTypeLogMsg event => ToTypeLogMsg (ObserverRegistry event) where
@@ -247,8 +245,10 @@ observerRegistryHandlePdu = \case
     os <- get @(ObserverRegistry event)
     logDebug
       (LABEL "registered" observer)
-      (LABEL "current number of observers" -- TODO put this info into the process details
-             (Map.size (view observerRegistry os)))
+      ( LABEL
+          "current number of observers" -- TODO put this info into the process details
+          (Map.size (view observerRegistry os))
+      )
   ForgetObserver ob -> do
     wasRemoved <- observerRegistryRemoveProcess @event ob
     unless wasRemoved $

@@ -87,15 +87,16 @@ forkInteractiveScheduler ioScheduler = do
           yieldProcess
           readEvalPrintLoop queueVar
       where
-        readAction = lift $ atomically $ do
-          mInQueue <- tryReadTMVar queueVar
-          case mInQueue of
-            Nothing -> return (Left True)
-            Just (SchedulerQueue inQueue) -> do
-              mNextAction <- tryReadTChan inQueue
-              case mNextAction of
-                Nothing -> return (Left False)
-                Just nextAction -> return (Right nextAction)
+        readAction = lift $
+          atomically $ do
+            mInQueue <- tryReadTMVar queueVar
+            case mInQueue of
+              Nothing -> return (Left True)
+              Just (SchedulerQueue inQueue) -> do
+                mNextAction <- tryReadTChan inQueue
+                case mNextAction of
+                  Nothing -> return (Left False)
+                  Just nextAction -> return (Right nextAction)
 
 -- | Exit the scheduler immediately using an asynchronous exception.
 killInteractiveScheduler :: SchedulerSession r -> IO ()

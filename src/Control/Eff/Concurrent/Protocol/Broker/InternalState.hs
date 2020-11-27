@@ -20,17 +20,16 @@ import Control.Eff.Concurrent.Protocol
 import Control.Eff.Concurrent.Protocol.EffectfulServer
 import Control.Eff.Log.Message
 import Control.Eff.State.Strict as Eff
-import Control.Lens hiding ((.=), use)
+import Control.Lens hiding (use, (.=))
 import Data.Default
 import Data.Dynamic
 import Data.Map (Map)
 import Data.Proxy
 import GHC.Generics (Generic)
 
-newtype Child p
-  = MkChild
-      { _childMonitoring :: MonitorReference
-      }
+newtype Child p = MkChild
+  { _childMonitoring :: MonitorReference
+  }
   deriving (Generic, Typeable, Eq, Ord, NFData)
 
 instance ToTypeLogMsg d => ToTypeLogMsg (Child d) where
@@ -49,11 +48,10 @@ childEndpoint = Endpoint . _monitoredProcess . _childMonitoring
 makeLenses ''Child
 
 -- | Internal state.
-data Children i p
-  = MkChildren
-      { _childrenById :: Map i (Child p),
-        _childrenByMonitor :: Map MonitorReference (i, Child p)
-      }
+data Children i p = MkChildren
+  { _childrenById :: Map i (Child p),
+    _childrenByMonitor :: Map MonitorReference (i, Child p)
+  }
   deriving (Generic, Typeable)
 
 instance Default (Children i p) where

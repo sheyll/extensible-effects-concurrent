@@ -322,11 +322,13 @@ asEndpoint = Endpoint
 -- @since 0.29.0
 class
   (Typeable protocol, Typeable embeddedProtocol) =>
-  HasPduPrism protocol embeddedProtocol where
+  HasPduPrism protocol embeddedProtocol
+  where
   -- | A 'Prism' for the embedded 'Pdu's.
   embeddedPdu ::
     forall (result :: Synchronicity).
-    Prism' (Pdu protocol result)
+    Prism'
+      (Pdu protocol result)
       (Pdu embeddedProtocol result)
   embeddedPdu = prism' embedPdu fromPdu
 

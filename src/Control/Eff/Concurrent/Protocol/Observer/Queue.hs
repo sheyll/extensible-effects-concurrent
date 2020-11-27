@@ -219,13 +219,14 @@ withWriter eventSource e = do
   sendShutdown (w ^. fromEndpoint) ExitNormally
   pure res
 
-instance 
-  ( Typeable event
-  , Lifted IO q
-  , Member Logs q
-  , ToTypeLogMsg event
-  ) 
-  => Server (ObservationQueue event) (Processes q) where
+instance
+  ( Typeable event,
+    Lifted IO q,
+    Member Logs q,
+    ToTypeLogMsg event
+  ) =>
+  Server (ObservationQueue event) (Processes q)
+  where
   type Protocol (ObservationQueue event) = Observer event
 
   data StartArgument (ObservationQueue event)

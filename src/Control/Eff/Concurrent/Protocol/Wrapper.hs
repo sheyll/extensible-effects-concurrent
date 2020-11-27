@@ -75,7 +75,8 @@ data Reply protocol reply where
     { _replyTo :: RequestOrigin protocol reply,
       _replyValue :: reply
     } ->
-    Reply protocol
+    Reply
+      protocol
       reply
   deriving (Typeable)
 
@@ -92,11 +93,10 @@ instance (ToLogMsg r, ToTypeLogMsg p) => ToLogMsg (Reply p r) where
 -- | Wraps the source 'ProcessId' and a unique identifier for a 'Call'.
 --
 -- @since 0.15.0
-data RequestOrigin (proto :: Type) reply
-  = RequestOrigin
-      { _requestOriginPid :: !ProcessId,
-        _requestOriginCallRef :: !Int
-      }
+data RequestOrigin (proto :: Type) reply = RequestOrigin
+  { _requestOriginPid :: !ProcessId,
+    _requestOriginCallRef :: !Int
+  }
   deriving (Typeable, Generic, Eq, Ord)
 
 instance ToTypeLogMsg p => ToLogMsg (RequestOrigin p r) where

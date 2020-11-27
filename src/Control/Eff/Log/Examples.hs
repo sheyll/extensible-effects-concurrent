@@ -1,4 +1,5 @@
 {-# LANGUAGE NoOverloadedStrings #-}
+
 -- -- | Examples for FilteredLogging.
 module Control.Eff.Log.Examples
   ( -- * Example Code for FilteredLogging
@@ -30,9 +31,9 @@ import Control.Eff.LogWriter.Rich
 import Control.Eff.LogWriter.UDP
 import Control.Eff.LogWriter.UnixSocket
 import Control.Lens
-  ( (%~),
-    to,
+  ( to,
     view,
+    (%~),
   )
 import GHC.Stack
 
@@ -77,12 +78,12 @@ exampleSetLogWriter :: HasCallStack => IO ()
 exampleSetLogWriter = do
   lw1 <- stdoutLogWriter renderConsoleMinimalisticWide
   lw2 <- consoleLogWriter
-  runLift
-    $ withLogging lw1
-    $ do
-      logAlert "test with log writer 1"
-      setLogWriter lw2 (logAlert "test with log writer 2")
-      logAlert "test with log writer 1 again"
+  runLift $
+    withLogging lw1 $
+      do
+        logAlert "test with log writer 1"
+        setLogWriter lw2 (logAlert "test with log writer 2")
+        logAlert "test with log writer 1 again"
 
 -- | Example code for:
 --
@@ -93,24 +94,24 @@ exampleSetLogWriter = do
 exampleLogTrace :: IO ()
 exampleLogTrace = do
   lw <- consoleLogWriter
-  runLift
-    $ withRichLogging lw "test-app" local7 allLogEvents
-    $ addLogWriter
-      ( filteringLogWriter
-          severeMessages
-          ( mappingLogWriter
-              (logEventMessage %~ (packLogMsg "TRACED " <>))
-              (debugTraceLogWriter renderRFC5424)
-          )
-      )
-    $ do
-      logEmergency $ MSG "emergencySeverity 1"
-      logCritical $ MSG "criticalSeverity 2"
-      logAlert $ MSG "alertSeverity 3"
-      logError $ MSG "errorSeverity 4"
-      logWarning $ MSG "warningSeverity 5"
-      logInfo $ MSG "informationalSeverity 6"
-      logDebug $ MSG "debugSeverity 7"
+  runLift $
+    withRichLogging lw "test-app" local7 allLogEvents $
+      addLogWriter
+        ( filteringLogWriter
+            severeMessages
+            ( mappingLogWriter
+                (logEventMessage %~ (packLogMsg "TRACED " <>))
+                (debugTraceLogWriter renderRFC5424)
+            )
+        )
+        $ do
+          logEmergency $ MSG "emergencySeverity 1"
+          logCritical $ MSG "criticalSeverity 2"
+          logAlert $ MSG "alertSeverity 3"
+          logError $ MSG "errorSeverity 4"
+          logWarning $ MSG "warningSeverity 5"
+          logInfo $ MSG "informationalSeverity 6"
+          logDebug $ MSG "debugSeverity 7"
   where
     severeMessages = view (logEventSeverity . to (<= errorSeverity))
 
@@ -125,28 +126,30 @@ instance ToLogMsg TestLogMsg where
 exampleAsyncLogging :: IO ()
 exampleAsyncLogging = do
   lw <- stdoutLogWriter renderConsoleMinimalisticWide
-  runLift $ withLogging lw $ withAsyncLogWriter (1000 :: Int) $ do
-    logInfo $ MSG "test 1"
-    logInfo $ TestMSG "test 2"
-    logInfo $ MSG "test 3"
+  runLift $
+    withLogging lw $
+      withAsyncLogWriter (1000 :: Int) $ do
+        logInfo $ MSG "test 1"
+        logInfo $ TestMSG "test 2"
+        logInfo $ MSG "test 3"
 
 -- | Example code for RFC5424 formatted logs.
 exampleRFC5424Logging :: IO Int
 exampleRFC5424Logging =
-  runLift
-    $ withoutLogging
-    $ setLogWriter
-      (richLogWriter "myapp" local2 (debugTraceLogWriter renderRFC5424))
-      logPredicatesExampleClient
+  runLift $
+    withoutLogging $
+      setLogWriter
+        (richLogWriter "myapp" local2 (debugTraceLogWriter renderRFC5424))
+        logPredicatesExampleClient
 
 -- | Example code for RFC3164 with RFC5424 time stamp formatted logs.
 exampleRFC3164WithRFC5424TimestampsLogging :: IO Int
 exampleRFC3164WithRFC5424TimestampsLogging =
-  runLift
-    $ withoutLogging
-    $ setLogWriter
-      (richLogWriter "myapp" local2 (debugTraceLogWriter renderRFC3164WithRFC5424Timestamps))
-      logPredicatesExampleClient
+  runLift $
+    withoutLogging $
+      setLogWriter
+        (richLogWriter "myapp" local2 (debugTraceLogWriter renderRFC3164WithRFC5424Timestamps))
+        logPredicatesExampleClient
 
 -- | Example code logging via a unix domain socket to @/dev/log@.
 exampleDevLogSyslogLogging :: IO Int
@@ -217,11 +220,11 @@ loggingExampleClient = do
   logDebug (packLogMsg "test 1.1")
   logError (MSG "test 1.2")
   censorLogs (prefixLogEventsWith ("NESTED: " :: String)) $ do
-    addLogWriter (debugTraceLogWriter renderRFC3164)
-      $ setLogPredicate (\m -> view logEventMessage m /= packLogMsg "not logged")
-      $ do
-        logInfo (MSG "not logged")
-        sendLogEvent (infoMessage (MSG "test 2.1"))
+    addLogWriter (debugTraceLogWriter renderRFC3164) $
+      setLogPredicate (\m -> view logEventMessage m /= packLogMsg "not logged") $
+        do
+          logInfo (MSG "not logged")
+          sendLogEvent (infoMessage (MSG "test 2.1"))
     logWarning (LABEL "test" True)
   logCritical (MSG "test 1.3")
 

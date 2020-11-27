@@ -64,7 +64,7 @@ import Control.Eff.Log.Message
 import Control.Eff.Log.Writer
 import qualified Control.Exception.Safe as Safe
 import Control.Lens
-import Control.Monad ((>=>), when)
+import Control.Monad (when, (>=>))
 import Control.Monad.Base (MonadBase ())
 import qualified Control.Monad.Catch as Catch
 import Control.Monad.Trans.Control
@@ -139,11 +139,14 @@ instance (ToLogMsg x, LogEventSender a) => LogEventSender (x -> a) where
   sendLogEvent =
     withFrozenCallStack $ \logEvt x ->
       sendLogEvent
-        (logEvt &
-          logEventMessage %~ (\l ->
-           if l /= mempty
-            then l <> separatorMsg <> toLogMsg x
-            else toLogMsg x))
+        ( logEvt
+            & logEventMessage
+              %~ ( \l ->
+                     if l /= mempty
+                       then l <> separatorMsg <> toLogMsg x
+                       else toLogMsg x
+                 )
+        )
 
 -- | This effect sends 'LogEvent's and is a reader for a 'LogPredicate'.
 --

@@ -22,9 +22,10 @@ test_IOExceptionsIsolated =
                 ( do
                     p1 <- spawn "test" $ foreverCheap busyEffect
                     lift (threadDelay 1000)
-                    void $ spawn "test" $ do
-                      lift (threadDelay 1000)
-                      doExit
+                    void $
+                      spawn "test" $ do
+                        lift (threadDelay 1000)
+                        doExit
                     lift (threadDelay 100000)
                     me <- self
                     spawn_ "test" (lift (threadDelay 10000) >> sendMessage me ())
@@ -129,13 +130,15 @@ test_mainProcessSpawnsAChildBothExitNormally =
         ( Scheduler.defaultMain
             ( do
                 child <-
-                  spawn "test" $ void $ provideInterrupts $
-                    exitOnInterrupt
-                      ( do
-                          void (receiveMessage @String)
-                          void exitNormally
-                          error "This should not happen (child)!!"
-                      )
+                  spawn "test" $
+                    void $
+                      provideInterrupts $
+                        exitOnInterrupt
+                          ( do
+                              void (receiveMessage @String)
+                              void exitNormally
+                              error "This should not happen (child)!!"
+                          )
                 sendMessage child ("test" :: String)
                 void exitNormally
                 error "This should not happen!!"
@@ -145,32 +148,32 @@ test_mainProcessSpawnsAChildBothExitNormally =
 
 test_timer :: TestTree
 test_timer =
-  setTravisTestOptions
-    $ testCase "flush via timer"
-    $ Scheduler.defaultMain
-    $ do
-      let n = 100
-          testMsg :: Float
-          testMsg = 123
-          flushMessagesLoop = do
-            res <- receiveSelectedAfter (selectDynamicMessage Just) 0
-            case res of
-              Left _to -> return ()
-              Right _ -> flushMessagesLoop
-      me <- self
-      spawn_
-        "test-worker"
-        ( do
-            replicateM_ n $ sendMessage me ("bad message" :: String)
-            replicateM_ n $ sendMessage me (3123 :: Integer)
-            sendMessage me testMsg
-        )
-      do
-        res <- receiveAfter @Float 1000000
-        lift (res @?= Just testMsg)
-      flushMessagesLoop
-      res <- receiveSelectedAfter (selectDynamicMessage Just) 10000
-      case res of
-        Left _ -> return ()
-        Right x -> lift (False @? "unexpected message in queue " ++ show x)
-      lift (threadDelay 100)
+  setTravisTestOptions $
+    testCase "flush via timer" $
+      Scheduler.defaultMain $
+        do
+          let n = 100
+              testMsg :: Float
+              testMsg = 123
+              flushMessagesLoop = do
+                res <- receiveSelectedAfter (selectDynamicMessage Just) 0
+                case res of
+                  Left _to -> return ()
+                  Right _ -> flushMessagesLoop
+          me <- self
+          spawn_
+            "test-worker"
+            ( do
+                replicateM_ n $ sendMessage me ("bad message" :: String)
+                replicateM_ n $ sendMessage me (3123 :: Integer)
+                sendMessage me testMsg
+            )
+          do
+            res <- receiveAfter @Float 1000000
+            lift (res @?= Just testMsg)
+          flushMessagesLoop
+          res <- receiveSelectedAfter (selectDynamicMessage Just) 10000
+          case res of
+            Left _ -> return ()
+            Right x -> lift (False @? "unexpected message in queue " ++ show x)
+          lift (threadDelay 100)

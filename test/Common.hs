@@ -64,12 +64,12 @@ runTestCase :: TestName -> Eff Effects () -> TestTree
 runTestCase msg et =
   testCase msg $ do
     lw <- stdoutLogWriter renderConsoleMinimalisticWide
-    runLift
-      $ withRichLogging lw "unit-tests" local0 allLogEvents
-      $ Scheduler.schedule
-      $ handleInterrupts
-        onInt
-        et
+    runLift $
+      withRichLogging lw "unit-tests" local0 allLogEvents $
+        Scheduler.schedule $
+          handleInterrupts
+            onInt
+            et
   where
     onInt = lift . assertFailure . show . MkUnhandledProcessInterrupt
 

@@ -26,8 +26,8 @@ import Control.DeepSeq
 import Control.Eff
 import Control.Eff.Concurrent.Process
 import Control.Eff.Concurrent.Protocol
-import qualified Control.Eff.Concurrent.Protocol.EffectfulServer as E
 import Control.Eff.Concurrent.Protocol.EffectfulServer (Event (..))
+import qualified Control.Eff.Concurrent.Protocol.EffectfulServer as E
 import Control.Eff.Extend ()
 import Control.Eff.Log
 import Data.Coerce
@@ -89,8 +89,7 @@ type TangibleCallbacks tag eLoop e =
 -- | The name/id of a 'Server' for logging purposes.
 --
 -- @since 0.24.0
-newtype ServerId (tag :: Type)
-  = MkServerId {_fromServerId :: T.Text}
+newtype ServerId (tag :: Type) = MkServerId {_fromServerId :: T.Text}
   deriving (Typeable, NFData, Ord, Eq, IsString)
 
 instance ToTypeLogMsg tag => ToTypeLogMsg (ServerId tag) where
@@ -111,12 +110,11 @@ instance (ToTypeLogMsg tag) => Show (ServerId tag) where
 instance (ToLogMsg (E.Init (Server tag eLoop e)), TangibleCallbacks tag eLoop e) => E.Server (Server (tag :: Type) eLoop e) (Processes e) where
   type ServerPdu (Server tag eLoop e) = tag
   type ServerEffects (Server tag eLoop e) (Processes e) = eLoop
-  data Init (Server tag eLoop e)
-    = MkServer
-        { genServerId :: ServerId tag,
-          genServerRunEffects :: forall x. (Endpoint tag -> Eff eLoop x -> Eff (Processes e) x),
-          genServerOnEvent :: Endpoint tag -> Event tag -> Eff eLoop ()
-        }
+  data Init (Server tag eLoop e) = MkServer
+    { genServerId :: ServerId tag,
+      genServerRunEffects :: forall x. (Endpoint tag -> Eff eLoop x -> Eff (Processes e) x),
+      genServerOnEvent :: Endpoint tag -> Event tag -> Eff eLoop ()
+    }
     deriving (Typeable)
   runEffects myEp svr = genServerRunEffects svr myEp
   onEvent myEp svr = genServerOnEvent svr myEp
@@ -127,7 +125,7 @@ instance forall (tag :: Type) (e1 :: [Type -> Type]) (e2 :: [Type -> Type]). ToL
 instance (TangibleCallbacks tag eLoop e) => NFData (E.Init (Server (tag :: Type) eLoop e)) where
   rnf (MkServer x y z) = rnf x `seq` y `seq` z `seq` ()
 
-instance forall tag eLoop e . (TangibleCallbacks tag eLoop e) => Show (E.Init (Server (tag :: Type) eLoop e)) where
+instance forall tag eLoop e. (TangibleCallbacks tag eLoop e) => Show (E.Init (Server (tag :: Type) eLoop e)) where
   showsPrec d svr =
     showParen
       (d >= 10)

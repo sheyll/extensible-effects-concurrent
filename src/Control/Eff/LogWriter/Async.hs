@@ -126,8 +126,7 @@ makeLogChannelWriter lc = MkLogWriter logChannelPutIO
         threadDelay 1_000
     logQ = fromLogChannel lc
 
-data LogChannel
-  = ConcurrentLogChannel
-      { fromLogChannel :: TBQueue LogEvent,
-        _logChannelThread :: Async ()
-      }
+data LogChannel = ConcurrentLogChannel
+  { fromLogChannel :: TBQueue LogEvent,
+    _logChannelThread :: Async ()
+  }

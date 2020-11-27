@@ -126,4 +126,3 @@ test_genServer =
           call big (BigSmall (SmallCall False)) >>= lift . assertBool "invalid result 3" . not
           isProcessAlive (_fromEndpoint big) >>= lift . assertBool "process dead"
       ]
-

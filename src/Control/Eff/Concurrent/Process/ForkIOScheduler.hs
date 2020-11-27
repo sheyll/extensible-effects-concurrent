@@ -21,8 +21,8 @@ module Control.Eff.Concurrent.Process.ForkIOScheduler
 where
 
 import Control.Concurrent (forkIO, killThread, threadDelay, yield)
-import qualified Control.Concurrent.Async as Async
 import Control.Concurrent.Async (Async (..))
+import qualified Control.Concurrent.Async as Async
 import Control.Concurrent.STM as STM
 import Control.Eff
 import Control.Eff.Concurrent.Process
@@ -64,11 +64,10 @@ import qualified System.Timeout as System
 
 -- | A message queue of a process, contains the actual queue and maybe an
 -- exit reason. The message queue is backed by a 'Seq' sequence with 'Message' values.
-data MessageQ
-  = MessageQ
-      { _incomingMessages :: Seq Message,
-        _shutdownRequests :: Maybe InterruptOrShutdown
-      }
+data MessageQ = MessageQ
+  { _incomingMessages :: Seq Message,
+    _shutdownRequests :: Maybe InterruptOrShutdown
+  }
 
 instance Default MessageQ where
   def = MessageQ def def
@@ -88,14 +87,13 @@ tryTakeNextShutdownRequestSTM mqVar = do
 -- | Information about a process, needed to implement
 -- 'Process' handlers. The message queue is backed by a 'STM.TVar' that contains
 -- a 'MessageQ'.
-data ProcessInfo
-  = ProcessInfo
-      { _processId :: ProcessId,
-        _processTitle :: ProcessTitle,
-        _processState :: TVar (ProcessDetails, ProcessState),
-        _messageQ :: TVar MessageQ,
-        _processLinks :: TVar (Set ProcessId)
-      }
+data ProcessInfo = ProcessInfo
+  { _processId :: ProcessId,
+    _processTitle :: ProcessTitle,
+    _processState :: TVar (ProcessDetails, ProcessState),
+    _messageQ :: TVar MessageQ,
+    _processLinks :: TVar (Set ProcessId)
+  }
 
 makeLenses ''ProcessInfo
 
@@ -103,15 +101,14 @@ makeLenses ''ProcessInfo
 
 -- | Contains all process info'elements, as well as the state needed to implement
 -- inter-process communication.
-data SchedulerState
-  = SchedulerState
-      { _nextPid :: TVar ProcessId,
-        _processTable :: TVar (Map ProcessId ProcessInfo),
-        _processCancellationTable :: TVar (Map ProcessId (Async ShutdownReason)),
-        -- | Set of monitors and monitor owners
-        _processMonitors :: TVar (Set (MonitorReference, ProcessId)),
-        _nextMonitorIndex :: TVar Int
-      }
+data SchedulerState = SchedulerState
+  { _nextPid :: TVar ProcessId,
+    _processTable :: TVar (Map ProcessId ProcessInfo),
+    _processCancellationTable :: TVar (Map ProcessId (Async ShutdownReason)),
+    -- | Set of monitors and monitor owners
+    _processMonitors :: TVar (Set (MonitorReference, ProcessId)),
+    _nextMonitorIndex :: TVar Int
+  }
 
 makeLenses ''SchedulerState
 
@@ -124,15 +121,15 @@ renderSchedulerState s = do
     pm <- T.pack . show . Set.size <$> readTVar (s ^. processMonitors)
     nm <- T.pack . show <$> readTVar (s ^. nextMonitorIndex)
     return (np, pt, pct, pm, nm)
-  return
-    $ MkProcessDetails
-    $ T.unlines
-      [ T.pack "ForkIO Scheduler nextPid: " <> np,
-        T.pack "ForkIO Scheduler process table entries: " <> pt,
-        T.pack "ForkIO Scheduler process cancellation table entries: " <> pct,
-        T.pack "ForkIO Scheduler process monitors entries: " <> pm,
-        T.pack "ForkIO Scheduler nextMonitorIndex: " <> nm
-      ]
+  return $
+    MkProcessDetails $
+      T.unlines
+        [ T.pack "ForkIO Scheduler nextPid: " <> np,
+          T.pack "ForkIO Scheduler process table entries: " <> pt,
+          T.pack "ForkIO Scheduler process cancellation table entries: " <> pct,
+          T.pack "ForkIO Scheduler process monitors entries: " <> pm,
+          T.pack "ForkIO Scheduler nextMonitorIndex: " <> nm
+        ]
 
 -- | Allocate a new 'MonitorReference'
 nextMonitorReference :: ProcessId -> SchedulerState -> STM MonitorReference
@@ -264,8 +261,10 @@ withNewSchedulerState mainProcessAction =
         lift
           (atomically (readTVar cancelTableVar <* writeTVar cancelTableVar def))
       logNotice
-        (LABEL "cancelling processes"
-          (show (toListOf (ifolded . asIndex) allProcesses)))
+        ( LABEL
+            "cancelling processes"
+            (show (toListOf (ifolded . asIndex) allProcesses))
+        )
       void
         ( liftBaseWith
             ( \runS ->
@@ -276,8 +275,10 @@ withNewSchedulerState mainProcessAction =
                           Async.cancel a
                           runS
                             ( logNotice
-                                (LABEL "process cancelled"
-                                   (packLogMsg (show (asyncThreadId a))))
+                                ( LABEL
+                                    "process cancelled"
+                                    (packLogMsg (show (asyncThreadId a)))
+                                )
                             )
                       )
                       allProcesses
@@ -490,21 +491,21 @@ handleProcess myProcessInfo actionToRun =
           else
             interpretSendShutdownOrInterrupt toPid (InterruptOrShutdown (Right msg))
               >>= kontinue nextRef
-              . ResumeWith
+                . ResumeWith
       SendShutdown toPid msg ->
         if toPid == myPid
           then diskontinue msg
           else
             interpretSendShutdownOrInterrupt toPid (InterruptOrShutdown (Left msg))
               >>= kontinue nextRef
-              . ResumeWith
+                . ResumeWith
       Spawn title child ->
         spawnNewProcess Nothing title child >>= kontinue nextRef . ResumeWith . fst
       SpawnLink title child ->
         spawnNewProcess (Just myProcessInfo) title child
           >>= kontinue nextRef
-          . ResumeWith
-          . fst
+            . ResumeWith
+            . fst
       ReceiveSelectedMessage f -> do
         recvRes <- interpretReceive f
         either diskontinue (kontinue nextRef) recvRes
@@ -540,14 +541,15 @@ handleProcess myProcessInfo actionToRun =
           setMyProcessState ProcessBusyUnlinking
           schedulerState <- getSchedulerState
           let procInfoVar = schedulerState ^. processTable
-          lift $ atomically $ do
-            procInfo <- readTVar procInfoVar
-            traverse_
-              ( \toProcInfo ->
-                  modifyTVar' (toProcInfo ^. processLinks) (Set.delete myPid)
-              )
-              (procInfo ^. at toPid)
-            modifyTVar' (myProcessInfo ^. processLinks) (Set.delete toPid)
+          lift $
+            atomically $ do
+              procInfo <- readTVar procInfoVar
+              traverse_
+                ( \toProcInfo ->
+                    modifyTVar' (toProcInfo ^. processLinks) (Set.delete myPid)
+                )
+                (procInfo ^. at toPid)
+              modifyTVar' (myProcessInfo ^. processLinks) (Set.delete toPid)
         interpretGetProcessState !toPid = do
           setMyProcessState ProcessBusy
           schedulerState <- getSchedulerState
@@ -556,15 +558,16 @@ handleProcess myProcessInfo actionToRun =
             if toPid == 1
               then Just <$> lift (renderSchedulerState schedulerState)
               else pure Nothing
-          lift $ atomically $ do
-            procInfoTable <- readTVar procInfoVar
-            traverse
-              ( \toProcInfo -> do
-                  (pDetails, pState) <- readTVar (toProcInfo ^. processState)
-                  let pDetails' = fromMaybe pDetails initPd
-                  return (toProcInfo ^. processTitle, pDetails', pState)
-              )
-              (procInfoTable ^. at toPid)
+          lift $
+            atomically $ do
+              procInfoTable <- readTVar procInfoVar
+              traverse
+                ( \toProcInfo -> do
+                    (pDetails, pState) <- readTVar (toProcInfo ^. processState)
+                    let pDetails' = fromMaybe pDetails initPd
+                    return (toProcInfo ^. processTitle, pDetails', pState)
+                )
+                (procInfoTable ^. at toPid)
         interpretUpdateDetails !td = do
           setMyProcessState ProcessBusyUpdatingDetails
           lift $ atomically $ setMyProcessDetailsSTM td
@@ -572,20 +575,21 @@ handleProcess myProcessInfo actionToRun =
           setMyProcessState ProcessBusyLinking
           schedulerState <- getSchedulerState
           let procInfoVar = schedulerState ^. processTable
-          lift $ atomically $ do
-            procInfoTable <- readTVar procInfoVar
-            case procInfoTable ^. at toPid of
-              Just toProcInfo -> do
-                modifyTVar' (toProcInfo ^. processLinks) (Set.insert myPid)
-                modifyTVar' (myProcessInfo ^. processLinks) (Set.insert toPid)
-                return (Right ())
-              Nothing -> return (Left (LinkedProcessCrashed toPid))
+          lift $
+            atomically $ do
+              procInfoTable <- readTVar procInfoVar
+              case procInfoTable ^. at toPid of
+                Just toProcInfo -> do
+                  modifyTVar' (toProcInfo ^. processLinks) (Set.insert myPid)
+                  modifyTVar' (myProcessInfo ^. processLinks) (Set.insert toPid)
+                  return (Right ())
+                Nothing -> return (Left (LinkedProcessCrashed toPid))
         interpretSend !toPid msg =
           setMyProcessState ProcessBusySending
             *> getSchedulerState
             >>= lift
-            . atomically
-            . enqueueMessageOtherProcess toPid msg
+              . atomically
+              . enqueueMessageOtherProcess toPid msg
         interpretSendShutdownOrInterrupt !toPid !msg =
           setMyProcessState
             ( either
@@ -595,15 +599,16 @@ handleProcess myProcessInfo actionToRun =
             )
             *> getSchedulerState
             >>= lift
-            . atomically
-            . enqueueShutdownRequest toPid msg
+              . atomically
+              . enqueueShutdownRequest toPid msg
         interpretFlush :: Eff BaseEffects (ResumeProcess [Message])
         interpretFlush = do
           setMyProcessState ProcessBusyReceiving
-          lift $ atomically $ do
-            myMessageQ <- readTVar myMessageQVar
-            modifyTVar' myMessageQVar (incomingMessages .~ Seq.Empty)
-            return (ResumeWith (toList (myMessageQ ^. incomingMessages)))
+          lift $
+            atomically $ do
+              myMessageQ <- readTVar myMessageQVar
+              modifyTVar' myMessageQVar (incomingMessages .~ Seq.Empty)
+              return (ResumeWith (toList (myMessageQ ^. incomingMessages)))
         interpretDelay ::
           Timeout ->
           Eff BaseEffects (Either ShutdownReason (ResumeProcess ()))
@@ -634,20 +639,21 @@ handleProcess myProcessInfo actionToRun =
           Eff BaseEffects (Either ShutdownReason (ResumeProcess b))
         interpretReceive f = do
           setMyProcessState ProcessBusyReceiving
-          lift $ atomically $ do
-            myMessageQ <- readTVar myMessageQVar
-            case myMessageQ ^. shutdownRequests of
-              Nothing ->
-                case partitionMessages (myMessageQ ^. incomingMessages) Seq.Empty of
-                  Nothing -> retry
-                  Just (selectedMessage, otherMessages) -> do
-                    modifyTVar' myMessageQVar (incomingMessages .~ otherMessages)
-                    return (Right (ResumeWith selectedMessage))
-              Just shutdownRequest -> do
-                modifyTVar' myMessageQVar (shutdownRequests .~ Nothing)
-                case fromInterruptOrShutdown shutdownRequest of
-                  Left sr -> return (Left sr)
-                  Right ir -> return (Right (Interrupted ir))
+          lift $
+            atomically $ do
+              myMessageQ <- readTVar myMessageQVar
+              case myMessageQ ^. shutdownRequests of
+                Nothing ->
+                  case partitionMessages (myMessageQ ^. incomingMessages) Seq.Empty of
+                    Nothing -> retry
+                    Just (selectedMessage, otherMessages) -> do
+                      modifyTVar' myMessageQVar (incomingMessages .~ otherMessages)
+                      return (Right (ResumeWith selectedMessage))
+                Just shutdownRequest -> do
+                  modifyTVar' myMessageQVar (shutdownRequests .~ Nothing)
+                  case fromInterruptOrShutdown shutdownRequest of
+                    Left sr -> return (Left sr)
+                    Right ir -> return (Right (Interrupted ir))
           where
             partitionMessages Seq.Empty _acc = Nothing
             partitionMessages (m :<| msgRest) acc =
@@ -664,12 +670,13 @@ schedule procEff =
   liftBaseWith
     ( \runS ->
         Async.withAsync
-          ( runS $ withNewSchedulerState $ do
-              (_, mainProcAsync) <- spawnNewProcess Nothing (toProcessTitle "init") $ do
-                logNotice (MSG "++++++++ main process started ++++++++")
-                provideInterruptsShutdown procEff
-                logNotice (MSG "++++++++ main process returned ++++++++")
-              lift (void (Async.wait mainProcAsync))
+          ( runS $
+              withNewSchedulerState $ do
+                (_, mainProcAsync) <- spawnNewProcess Nothing (toProcessTitle "init") $ do
+                  logNotice (MSG "++++++++ main process started ++++++++")
+                  provideInterruptsShutdown procEff
+                  logNotice (MSG "++++++++ main process returned ++++++++")
+                lift (void (Async.wait mainProcAsync))
           )
           ( \ast -> runS $ do
               a <- restoreM ast
@@ -708,9 +715,10 @@ spawnNewProcess mLinkedParent title mfa = do
       let toPid = toProcInfo ^. processId
           parentPid = parent ^. processId
       logDebug (LABEL "linked to new child" toPid)
-      lift $ atomically $ do
-        modifyTVar' (toProcInfo ^. processLinks) (Set.insert parentPid)
-        modifyTVar' (parent ^. processLinks) (Set.insert toPid)
+      lift $
+        atomically $ do
+          modifyTVar' (toProcInfo ^. processLinks) (Set.insert parentPid)
+          modifyTVar' (parent ^. processLinks) (Set.insert toPid)
     logAppendProcInfo pid =
       let addProcessId =
             over
@@ -724,29 +732,30 @@ spawnNewProcess mLinkedParent title mfa = do
       let exitSeverity = toExitSeverity reason
           sendIt !linkedPid = do
             let msg = InterruptOrShutdown (Right (LinkedProcessCrashed pid))
-            lift $ atomically $ do
-              procInfoTable <- readTVar (schedulerState ^. processTable)
-              let mLinkedProcInfo = procInfoTable ^? ix linkedPid
-              case mLinkedProcInfo of
-                Nothing -> return (Left linkedPid)
-                Just linkedProcInfo ->
-                  let linkedMsgQVar = linkedProcInfo ^. messageQ
-                      linkedLinkSetVar = linkedProcInfo ^. processLinks
-                   in do
-                        linkedLinkSet <- readTVar linkedLinkSetVar
-                        if Set.member pid linkedLinkSet
-                          then do
-                            writeTVar
-                              linkedLinkSetVar
-                              (Set.delete pid linkedLinkSet)
-                            if exitSeverity == Crash
-                              then do
-                                modifyTVar'
-                                  linkedMsgQVar
-                                  (shutdownRequests ?~ msg)
-                                return (Right (Left linkedPid))
-                              else return (Right (Right linkedPid))
-                          else return (Left linkedPid)
+            lift $
+              atomically $ do
+                procInfoTable <- readTVar (schedulerState ^. processTable)
+                let mLinkedProcInfo = procInfoTable ^? ix linkedPid
+                case mLinkedProcInfo of
+                  Nothing -> return (Left linkedPid)
+                  Just linkedProcInfo ->
+                    let linkedMsgQVar = linkedProcInfo ^. messageQ
+                        linkedLinkSetVar = linkedProcInfo ^. processLinks
+                     in do
+                          linkedLinkSet <- readTVar linkedLinkSetVar
+                          if Set.member pid linkedLinkSet
+                            then do
+                              writeTVar
+                                linkedLinkSetVar
+                                (Set.delete pid linkedLinkSet)
+                              if exitSeverity == Crash
+                                then do
+                                  modifyTVar'
+                                    linkedMsgQVar
+                                    (shutdownRequests ?~ msg)
+                                  return (Right (Left linkedPid))
+                                else return (Right (Right linkedPid))
+                            else return (Left linkedPid)
       downMessageSendResults <- lift . atomically $ triggerAndRemoveMonitor pid reason schedulerState
       linkedPids <-
         lift
@@ -763,7 +772,7 @@ spawnNewProcess mLinkedParent title mfa = do
             (logNotice . LABEL "linked process not found")
             ( either
                 (logWarning . LABEL "process crashed, interrupting linked process")
-                (logDebug  . LABEL "linked process exited peacefully, not sending shutdown to linked process")
+                (logDebug . LABEL "linked process exited peacefully, not sending shutdown to linked process")
             )
         )
         res
@@ -855,7 +864,7 @@ enqueueMessageOtherProcess toPid msg schedulerState =
           modifyTVar' (toProcessTable ^. messageQ) (incomingMessages %~ (:|> msg))
           return True
       )
-      . view (at toPid) 
+      . view (at toPid)
 
 enqueueShutdownRequest :: ProcessId -> InterruptOrShutdown -> SchedulerState -> STM ()
 enqueueShutdownRequest toPid msg schedulerState =

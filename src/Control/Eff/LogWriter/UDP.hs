@@ -75,8 +75,11 @@ withUDPSocket render hostname port ioE =
     ( do
         let hints = Network.defaultHints {Network.addrSocketType = Network.Datagram}
         addr : _ <- Network.getAddrInfo (Just hints) (Just hostname) (Just port)
-        s <- Network.socket 
-            (Network.addrFamily addr) (Network.addrSocketType addr) (Network.addrProtocol addr)
+        s <-
+          Network.socket
+            (Network.addrFamily addr)
+            (Network.addrSocketType addr)
+            (Network.addrProtocol addr)
         return (addr, s)
     )
     (Safe.try @IO @Catch.SomeException . Network.close . snd)

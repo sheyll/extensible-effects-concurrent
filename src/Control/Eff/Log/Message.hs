@@ -134,20 +134,19 @@ import Network.HostName as Network
 -- e.g. a log message, a timestamp and a severity.
 -- The fields are modelled to ressamble all fields mentioned for the
 -- RFC-5424 Syslog Protocol.
-data LogEvent
-  = MkLogEvent
-      { _logEventFacility :: !Facility,
-        _logEventSeverity :: !Severity,
-        _logEventTimestamp :: (Maybe UTCTime),
-        _logEventHostname :: (Maybe T.Text),
-        _logEventAppName :: (Maybe T.Text),
-        _logEventProcessId :: (Maybe T.Text),
-        _logEventMessageId :: (Maybe T.Text),
-        _logEventStructuredData :: [StructuredDataElement],
-        _logEventThreadId :: (Maybe ThreadId),
-        _logEventSrcLoc :: (Maybe SrcLoc),
-        _logEventMessage :: LogMsg
-      }
+data LogEvent = MkLogEvent
+  { _logEventFacility :: !Facility,
+    _logEventSeverity :: !Severity,
+    _logEventTimestamp :: (Maybe UTCTime),
+    _logEventHostname :: (Maybe T.Text),
+    _logEventAppName :: (Maybe T.Text),
+    _logEventProcessId :: (Maybe T.Text),
+    _logEventMessageId :: (Maybe T.Text),
+    _logEventStructuredData :: [StructuredDataElement],
+    _logEventThreadId :: (Maybe ThreadId),
+    _logEventSrcLoc :: (Maybe SrcLoc),
+    _logEventMessage :: LogMsg
+  }
   deriving (Eq, Generic)
 
 instance Default LogEvent where
@@ -179,11 +178,10 @@ packLogMsg :: String -> LogMsg
 packLogMsg = fromString
 
 -- | RFC-5424 defines how structured data can be included in a log message.
-data StructuredDataElement
-  = SdElement
-      { _sdElementId :: !T.Text,
-        _sdElementParameters :: ![SdParameter]
-      }
+data StructuredDataElement = SdElement
+  { _sdElementId :: !T.Text,
+    _sdElementParameters :: ![SdParameter]
+  }
   deriving (Eq, Ord, Generic, Show)
 
 instance NFData StructuredDataElement
@@ -196,8 +194,7 @@ data SdParameter
 instance NFData SdParameter
 
 -- | An rfc 5424 severity
-newtype Severity
-  = Severity {fromSeverity :: Int}
+newtype Severity = Severity {fromSeverity :: Int}
   deriving (Eq, Ord, Generic, NFData)
 
 -- | Convert a 'Severity' to 'T.Text'

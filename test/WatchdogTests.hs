@@ -8,11 +8,11 @@ where
 
 import Common hiding (runTestCase)
 import qualified Common
-import qualified Control.Eff.Concurrent.Protocol.Broker as Broker
 import Control.Eff.Concurrent.Protocol.Broker (Broker)
+import qualified Control.Eff.Concurrent.Protocol.Broker as Broker
 import qualified Control.Eff.Concurrent.Protocol.Observer.Queue as OQ
-import qualified Control.Eff.Concurrent.Protocol.StatefulServer as Stateful
 import Control.Eff.Concurrent.Protocol.StatefulServer (Stateful)
+import qualified Control.Eff.Concurrent.Protocol.StatefulServer as Stateful
 import qualified Control.Eff.Concurrent.Protocol.Watchdog as Watchdog
 import Control.Lens
 import qualified Data.Map as Map
@@ -72,8 +72,8 @@ test_watchdogTests =
               logNotice "waiting for watchdog to crash"
               awaitProcessDown (wd ^. fromEndpoint)
                 >>= lift
-                . assertEqual "bad exit reason" (ExitOtherProcessNotRunning (broker ^. fromEndpoint))
-                . downReason
+                  . assertEqual "bad exit reason" (ExitOtherProcessNotRunning (broker ^. fromEndpoint))
+                  . downReason
               logNotice "watchdog crashed",
           runTestCase "test 3: when the same broker is attached twice, the second attachment is ignored" $ do
             wd <- Watchdog.startLink def
@@ -148,8 +148,8 @@ test_watchdogTests =
                 logNotice "waiting for watchdog to crash"
                 receiveSelectedMessage (selectProcessDown mwd)
                   >>= lift
-                  . assertEqual "bad exit reason" (ExitOtherProcessNotRunning (broker ^. fromEndpoint))
-                  . downReason
+                    . assertEqual "bad exit reason" (ExitOtherProcessNotRunning (broker ^. fromEndpoint))
+                    . downReason
                 logNotice "watchdog down",
           runTestCase
             "test 6: when multiple brokers are attached to a watchdog,\
@@ -186,8 +186,8 @@ test_watchdogTests =
                 logNotice "waiting for watchdog to crash"
                 receiveSelectedMessage (selectProcessDown wdMon)
                   >>= lift
-                  . assertEqual "bad exit reason" (ExitOtherProcessNotRunning (broker1 ^. fromEndpoint))
-                  . downReason
+                    . assertEqual "bad exit reason" (ExitOtherProcessNotRunning (broker1 ^. fromEndpoint))
+                    . downReason
                 logNotice "watchdog crashed"
         ],
       testGroup
@@ -484,17 +484,17 @@ test_watchdogTests =
                             assertShutdown (wd ^. fromEndpoint) ExitNormally
                             assertShutdown (brokerT ^. fromEndpoint) ExitNormally
                             assertShutdown (brokerP ^. fromEndpoint) ExitNormally
-                     in [ runTestCase "test 17: child events of unknown broker don't add state"
-                            $ setupThenShutdown
-                            $ \wd _brokerT _brokerP -> do
-                              someBroker <- asEndpoint @(Broker (Stateful BookShelf)) <$> spawn (fromString "someBroker") (pure ())
-                              someChild <- asEndpoint @BookShelf <$> spawn (fromString "someChild") (pure ())
-                              let someChildId = BookShelfId 2321
-                              cast wd (Observed (Broker.OnChildDown someBroker someChildId someChild (ExitUnhandledError (packLogMsg "test error"))))
-                              lift (threadDelay 1_000)
-                              cr <- Watchdog.getCrashReports @(Stateful BookShelf) wd
-                              traverse_ (logNotice . LABEL "crash-reports") cr
-                              lift (assertBool "no crash reports expected" (Map.null cr)),
+                     in [ runTestCase "test 17: child events of unknown broker don't add state" $
+                            setupThenShutdown $
+                              \wd _brokerT _brokerP -> do
+                                someBroker <- asEndpoint @(Broker (Stateful BookShelf)) <$> spawn (fromString "someBroker") (pure ())
+                                someChild <- asEndpoint @BookShelf <$> spawn (fromString "someChild") (pure ())
+                                let someChildId = BookShelfId 2321
+                                cast wd (Observed (Broker.OnChildDown someBroker someChildId someChild (ExitUnhandledError (packLogMsg "test error"))))
+                                lift (threadDelay 1_000)
+                                cr <- Watchdog.getCrashReports @(Stateful BookShelf) wd
+                                traverse_ (logNotice . LABEL "crash-reports") cr
+                                lift (assertBool "no crash reports expected" (Map.null cr)),
                           runTestCase "test 18: when a broker exits, the children of that broker are forgotten and ignored" $ do
                             setup $ \wd brokerT brokerP -> do
                               let someChildId1 = BookShelfId 2321
