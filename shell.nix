@@ -1,28 +1,26 @@
 let
-  overlay = import ./overlay.nix;
-  withHoogle = import ./nix/with-hoogle.nix;
-  pkgs = 
-    (((import ./nix/pkgs.nix).
-      extend overlay).
-      extend withHoogle);
+  pkgs = import nix/pkgs.nix { };
 in
-pkgs.haskellPackages.shellFor {
-      packages = p: [pkgs.haskellPackages.extensible-effects-concurrent];
-      withHoogle = true;
-      buildInputs = with pkgs.haskellPackages;
-                    [ pkgs.cabal-install
-                      pkgs.cabal2nix
-                      pkgs.erlang
-                      ghcide
-                      ghcid
-                      hoogle
-                      graphmod
-                      cabal-plan
-                      ormolu
-                      # brittany
-                      weeder
-                      pkgs.nix
-                      pkgs.graphviz-nox
-                      pkgs.niv
-                    ];
-      }
+(import ./default.nix { inherit pkgs; }).shellFor {
+  packages = p: [ p.extensible-effects-concurrent ];
+  withHoogle = true;
+  tools = {
+    cabal = "3.2.0.0";
+    ormolu = "0.1.4.1";
+    haskell-language-server = "0.6.0";
+  };
+  buildInputs = with pkgs.haskellPackages;
+    [
+      pkgs.emacs
+      pkgs.neovim
+      tasty-discover
+      ghcid
+      graphmod
+      cabal-plan
+      brittany
+      weeder
+      pkgs.graphviz-nox
+      pkgs.pandoc
+    ];
+}
+

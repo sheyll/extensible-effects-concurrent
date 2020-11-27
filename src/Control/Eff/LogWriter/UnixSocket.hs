@@ -17,8 +17,8 @@ import Control.Monad.Trans.Control
   )
 import Data.Text as T
 import Data.Text.Encoding as T
-import Network.Socket hiding (sendTo)
-import Network.Socket.ByteString
+import qualified Network.Socket as Net
+import qualified Network.Socket.ByteString as Net
 
 -- | Enable logging to a /unix domain socket/, with some 'LogEvent' fields preset
 -- as in 'withRichLogging'.
@@ -66,14 +66,14 @@ withUnixSocketSocket ::
   IO a
 withUnixSocketSocket render socketPath ioE =
   Safe.bracket
-    (socket AF_UNIX Datagram defaultProtocol)
-    (Safe.try @IO @Catch.SomeException . close)
+    (Net.socket Net.AF_UNIX Net.Datagram Net.defaultProtocol)
+    (Safe.try @IO @Catch.SomeException . Net.close)
     ( \s ->
-        let addr = SockAddrUnix socketPath
+        let addr = Net.SockAddrUnix socketPath
          in ioE
               ( MkLogWriter
                   ( \lmStr ->
-                      void $ sendTo s (T.encodeUtf8 (render lmStr)) addr
+                      void $ Net.sendTo s (T.encodeUtf8 (render lmStr)) addr
                   )
               )
     )

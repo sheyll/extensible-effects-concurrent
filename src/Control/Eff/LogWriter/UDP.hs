@@ -17,8 +17,8 @@ import Control.Monad.Trans.Control
   )
 import Data.Text as T
 import Data.Text.Encoding as T
-import Network.Socket hiding (sendTo)
-import Network.Socket.ByteString
+import qualified Network.Socket as Network
+import Network.Socket.ByteString as Network
 
 -- | Enable logging to a remote host via __UDP__, with some 'LogEvent' fields preset
 -- as in 'withRichLogging'.
@@ -73,14 +73,15 @@ withUDPSocket ::
 withUDPSocket render hostname port ioE =
   Safe.bracket
     ( do
-        let hints = defaultHints {addrSocketType = Datagram}
-        addr : _ <- getAddrInfo (Just hints) (Just hostname) (Just port)
-        s <- socket (addrFamily addr) (addrSocketType addr) (addrProtocol addr)
+        let hints = Network.defaultHints {Network.addrSocketType = Network.Datagram}
+        addr : _ <- Network.getAddrInfo (Just hints) (Just hostname) (Just port)
+        s <- Network.socket 
+            (Network.addrFamily addr) (Network.addrSocketType addr) (Network.addrProtocol addr)
         return (addr, s)
     )
-    (Safe.try @IO @Catch.SomeException . close . snd)
+    (Safe.try @IO @Catch.SomeException . Network.close . snd)
     ( \(a, s) ->
-        let addr = addrAddress a
+        let addr = Network.addrAddress a
          in ioE
               ( MkLogWriter
                   ( \lmStr ->

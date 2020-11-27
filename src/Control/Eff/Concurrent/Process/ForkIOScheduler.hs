@@ -58,7 +58,7 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 import qualified Data.Text as T
 import GHC.Stack
-import System.Timeout
+import qualified System.Timeout as System
 
 -- * Process Types
 
@@ -269,7 +269,7 @@ withNewSchedulerState mainProcessAction =
       void
         ( liftBaseWith
             ( \runS ->
-                timeout
+                System.timeout
                   5_000_000
                   ( Async.mapConcurrently
                       ( \a -> do
@@ -325,7 +325,7 @@ defaultMainWithLogWriter lw =
 -- ** Process Execution
 
 handleProcess ::
-  (HasCallStack) =>
+  HasCallStack =>
   ProcessInfo ->
   Eff SafeEffects ShutdownReason ->
   Eff BaseEffects ShutdownReason
@@ -659,7 +659,7 @@ handleProcess myProcessInfo actionToRun =
 -- | This is the main entry point to running a message passing concurrency
 -- application. This function takes a 'Process' on top of the 'BaseEffects'
 -- effect for concurrent logging.
-schedule :: (HasCallStack) => Eff Effects () -> Eff LoggingAndIo ()
+schedule :: HasCallStack => Eff Effects () -> Eff LoggingAndIo ()
 schedule procEff =
   liftBaseWith
     ( \runS ->
@@ -679,7 +679,7 @@ schedule procEff =
     >>= restoreM
 
 spawnNewProcess ::
-  (HasCallStack) =>
+  HasCallStack =>
   Maybe ProcessInfo ->
   ProcessTitle ->
   Eff SafeEffects () ->
@@ -848,20 +848,22 @@ getSchedulerState = ask
 
 enqueueMessageOtherProcess :: ProcessId -> Message -> SchedulerState -> STM Bool
 enqueueMessageOtherProcess toPid msg schedulerState =
-  view (at toPid) <$> readTVar (schedulerState ^. processTable)
+  readTVar (schedulerState ^. processTable)
     >>= maybe
       (return False)
       ( \toProcessTable -> do
           modifyTVar' (toProcessTable ^. messageQ) (incomingMessages %~ (:|> msg))
           return True
       )
+      . view (at toPid) 
 
 enqueueShutdownRequest :: ProcessId -> InterruptOrShutdown -> SchedulerState -> STM ()
 enqueueShutdownRequest toPid msg schedulerState =
-  view (at toPid) <$> readTVar (schedulerState ^. processTable)
+  readTVar (schedulerState ^. processTable)
     >>= maybe
       (return ())
       ( \toProcessTable -> do
           modifyTVar' (toProcessTable ^. messageQ) (shutdownRequests ?~ msg)
           return ()
       )
+      . view (at toPid)

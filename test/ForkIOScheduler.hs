@@ -4,10 +4,6 @@ import Common
 import Control.Concurrent.Async
 import Control.Eff.Concurrent.Process.ForkIOScheduler as Scheduler
 import Control.Exception
-import Control.Monad
-  ( replicateM_,
-    void,
-  )
 
 test_IOExceptionsIsolated :: TestTree
 test_IOExceptionsIsolated =

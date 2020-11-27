@@ -9,7 +9,6 @@ import Common
 import Control.Eff.Concurrent.Protocol.Broker as Broker
 import qualified Control.Eff.Concurrent.Protocol.EffectfulServer as E
 import qualified Control.Eff.Concurrent.Protocol.StatefulServer as S
-import Data.Typeable (Typeable)
 import Data.Coerce (coerce)
 
 -- ------------------------------
@@ -127,3 +126,4 @@ test_genServer =
           call big (BigSmall (SmallCall False)) >>= lift . assertBool "invalid result 3" . not
           isProcessAlive (_fromEndpoint big) >>= lift . assertBool "process dead"
       ]
+
