@@ -10,8 +10,6 @@ I had hoped under high load.
 This project is deprecated in favor of a small library that encapsulates
 only a tiny wrapper around TVars and forkIO.
 
-[![Build Status](https://travis-ci.org/sheyll/extensible-effects-concurrent.svg?branch=master)](https://travis-ci.org/sheyll/extensible-effects-concurrent)
-
 [![Hackage](https://img.shields.io/hackage/v/extensible-effects-concurrent.svg?style=flat)](http://hackage.haskell.org/package/extensible-effects-concurrent)
 
 ## From Erlang to Haskell
