@@ -24,6 +24,7 @@ import Criterion.Types
     nfAppIO,
   )
 import Data.Dynamic
+import GHC.Stack
 
 main =
   Criterion.defaultMain
@@ -32,20 +33,21 @@ main =
         [ bench
             ( "n="
                 <> show noMessages
+                <> ": "
                 <> show senderNo
-                <> "->"
+                <> " -> "                
                 <> show receiverNo
             )
             ( nfAppIO
                 unidirectionalMessagePassing
                 (senderNo, noMessages, receiverNo)
             )
-          | noMessages <- [1_00],
+          | noMessages <- [1000000],
             (senderNo, receiverNo) <-
-              [ (1, 1000),
+              [ (1, 1000)
                 --        (10, 100),
                 --        (1, 1),
-                (1000, 1)
+               -- (1000, 1)
               ]
         ]
     ]
@@ -66,7 +68,7 @@ mkTestMessage !i =
 newtype TestMessage = MkTestMessage ([Char], [Char], [Char], ([Char], [Char], Bool, Integer))
   deriving newtype (Show, NFData, Typeable)
 
-unidirectionalMessagePassing :: (Int, Int, Int) -> IO ()
+unidirectionalMessagePassing :: HasCallStack => (Int, Int, Int) -> IO ()
 unidirectionalMessagePassing (!np, !nm, !nc) = defaultMainWithLogWriter noOpLogWriter $ do
   cs <- consumers
   ps <- producers cs
