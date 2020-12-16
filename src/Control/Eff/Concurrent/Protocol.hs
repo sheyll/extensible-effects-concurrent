@@ -182,9 +182,8 @@ type family IsProtocolOneOf (x :: k) (xs :: [k]) (orig :: [k]) :: IsEmbeddedProt
   IsProtocolOneOf x (x ': xs) orig = 'IsEmbeddedProtocol
   IsProtocolOneOf x (y ': xs) orig = IsProtocolOneOf x xs orig
 
--- | A set of constraints for types that can evaluated via 'NFData', compared via 'Ord' and presented
--- dynamically via 'Typeable', and represented both as values
--- via 'Show'.
+-- | A set of constraints for types that can evaluated via 'NFData' and presented
+-- dynamically via 'Typeable'.
 --
 -- @since 0.23.0
 type Tangible i =
@@ -469,3 +468,4 @@ instance (HasPdu a1, HasPdu a2, HasPdu a3, HasPdu a4, HasPdu a5) => HasPduPrism 
   fromPdu _ = Nothing
 
 makeLenses ''Endpoint
+

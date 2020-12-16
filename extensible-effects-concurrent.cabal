@@ -8,7 +8,7 @@ bug-reports:    https://github.com/sheyll/extensible-effects-concurrent/issues
 author:         Sven Heyll
 maintainer:     sven.heyll@gmail.com
 category:       Concurrency, Control, Effect
-tested-with:    GHC==8.8.3,GHC==8.10.2
+tested-with:    GHC==8.6.5,GHC==8.8.3,GHC==8.10.2
 copyright:      Copyright Sven Heyll
 license:        BSD-3-Clause
 license-file:   LICENSE
@@ -155,6 +155,7 @@ executable extensible-effects-concurrent-example-1
   hs-source-dirs: examples/example-1
   build-depends: extensible-effects-concurrent
   ghc-options: -threaded
+  ghc-prof-options: -fprof-auto "-with-rtsopts=-T -xt -Pa -hc -L256"
   default-extensions:
     OverloadedStrings
 
@@ -167,6 +168,7 @@ executable extensible-effects-concurrent-example-2
               , extensible-effects-concurrent
               , lens
   ghc-options: -threaded
+  ghc-prof-options: -fprof-auto "-with-rtsopts=-T -xt -Pa -hc -L256"
   default-extensions:
     OverloadedStrings
 
@@ -178,6 +180,7 @@ executable extensible-effects-concurrent-example-3
                 extensible-effects-concurrent
               , lens
   ghc-options: -threaded
+  ghc-prof-options: -fprof-auto "-with-rtsopts=-T -xt -Pa -hc -L256"
   default-extensions:
     OverloadedStrings
 
@@ -190,6 +193,7 @@ executable extensible-effects-concurrent-example-4
               , extensible-effects-concurrent
               , extensible-effects
   ghc-options: -threaded
+  ghc-prof-options: -fprof-auto "-with-rtsopts=-T -xt -Pa -hc -L256"
 
 executable extensible-effects-concurrent-example-embedded-protocols
   import: deps, compiler-flags
@@ -200,8 +204,34 @@ executable extensible-effects-concurrent-example-embedded-protocols
               , extensible-effects-concurrent
               , lens
   ghc-options: -threaded
+  ghc-prof-options: -fprof-auto "-with-rtsopts=-T -xt -Pa -hc -L256"
   default-extensions:
     OverloadedStrings
+
+executable extensible-effects-concurrent-example-loadtest
+  import: deps, compiler-flags
+  main-is: Main.hs
+  hs-source-dirs: examples/loadtest
+  build-depends:
+                data-default
+              , extensible-effects-concurrent
+              , lens
+  ghc-options: -threaded
+  ghc-prof-options: -fprof-auto "-with-rtsopts=-T -xt -Pa -hc -L256"
+  default-extensions:
+    OverloadedStrings
+
+              
+benchmark extensible-effects-concurrent-bench
+  import: deps, compiler-flags
+  type: exitcode-stdio-1.0
+  main-is: Main.hs
+  hs-source-dirs: src-benchmark
+  ghc-options:  -Wno-missing-signatures -threaded "-with-rtsopts=-N"
+  build-depends:
+                extensible-effects-concurrent,
+                criterion,
+                unliftio
 
 test-suite extensible-effects-concurrent-test
   import: compiler-flags
@@ -222,6 +252,7 @@ test-suite extensible-effects-concurrent-test
               , SingleThreadedScheduler
               , WatchdogTests
   ghc-options: -threaded -Wno-missing-signatures
+  ghc-prof-options: -fprof-auto "-with-rtsopts=-T -xt -Pa -hc -L256"
   build-depends:
                 async
               , base

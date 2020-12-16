@@ -742,7 +742,8 @@ type Processes e = Interrupts ': SafeProcesses e
 type HasProcesses e inner = (HasSafeProcesses e inner, Member Interrupts e)
 
 -- | /Cons/ 'Process' onto a list of effects. This is called @SafeProcesses@ because
--- the the actions cannot be interrupted in.
+-- the actions cannot be interrupted through an exception mechanism,
+-- and the 'ResumeProcess' value has to be inspected.
 type SafeProcesses r = Process r ': r
 
 -- | A constraint for an effect set that requires the presence of 'SafeProcesses'.
