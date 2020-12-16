@@ -20,14 +20,11 @@ extra-doc-files:
 
 extra-source-files:
     stack.yaml
-    extensible-effects-concurrent.nix
     default.nix
     shell.nix
-    release.nix
-    with-hoogle.nix
+    benchmark.nix
     ChangeLog.md
     README.md
-    .travis.yml
 
 source-repository head
   type: git

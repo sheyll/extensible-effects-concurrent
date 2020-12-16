@@ -42,7 +42,7 @@ main =
                 unidirectionalMessagePassing
                 (senderNo, noMessages, receiverNo)
             )
-          | noMessages <- [1000000],
+          | noMessages <- [100000],
             (senderNo, receiverNo) <-
               [ (1, 1000)
                 --        (10, 100),
