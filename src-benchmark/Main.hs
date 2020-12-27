@@ -44,10 +44,10 @@ main =
             )
           | noMessages <- [100000],
             (senderNo, receiverNo) <-
-              [ (1, 1000)
-                --        (10, 100),
-                --        (1, 1),
-               -- (1000, 1)
+              [ (1, 1000),
+                (10, 100),
+                (1, 1),
+               (1000, 1)
               ]
         ]
     ]
@@ -76,7 +76,7 @@ unidirectionalMessagePassing (!np, !nm, !nc) = defaultMainWithLogWriter noOpLogW
   awaitAllDown ps
   where
     producers !cs =
-      replicateM nc (spawn "producer" produce)
+      replicateM np (spawn "producer" produce)
       where
         produce =
           mapM_
